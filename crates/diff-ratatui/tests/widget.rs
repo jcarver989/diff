@@ -10,7 +10,7 @@ use diff_core::{
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane};
 use ratatui::{Terminal, backend::TestBackend, layout::Position};
 use std::{fmt::Write, sync::Arc};
-use support::{key, key_with};
+use support::{key, key_with, mouse};
 
 fn changed_document() -> Arc<DiffDocument> {
     DocumentBuilder::new()
@@ -322,5 +322,118 @@ fn unusual_patch_metadata_does_not_become_commentable() {
         state.review().len(),
         1,
         "End selects the last source row, not metadata"
+    );
+}
+
+/// At 100 columns the bordered body gives the drawer columns 1..33 and the
+/// patch everything past the separator at column 33.
+const DRAWER_COLUMN: u16 = 5;
+const PATCH_COLUMN: u16 = 60;
+
+#[test]
+fn the_wheel_scrolls_the_pane_under_the_pointer_and_leaves_the_selection_alone() {
+    let mut state = DiffReviewState::new(DocumentBuilder::new().generated_files(40, 60).build());
+    draw(&mut state, 100, 24);
+    let selected_row = state.selected_row();
+    assert_eq!(state.focus(), FocusPane::Files);
+
+    // Pointing at the patch scrolls the patch, even though the drawer has focus.
+    state.handle_input(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 5));
+    draw(&mut state, 100, 24);
+    assert!(
+        state.scroll_offset() > 0,
+        "the wheel should scroll the patch"
+    );
+    assert_eq!(
+        state.selected_row(),
+        selected_row,
+        "scrolling must not move the selection"
+    );
+    assert_eq!(state.selected_file(), Some(0), "no file switch");
+    assert_eq!(
+        state.focus(),
+        FocusPane::Files,
+        "scrolling must not steal focus"
+    );
+
+    // Scrolling back up returns the viewport without disturbing the selection.
+    state.handle_input(mouse(MouseEventKind::ScrollUp, PATCH_COLUMN, 5));
+    draw(&mut state, 100, 24);
+    assert_eq!(state.scroll_offset(), 0);
+    assert_eq!(state.selected_row(), selected_row);
+}
+
+#[test]
+fn the_wheel_over_the_drawer_scrolls_one_file_at_a_time() {
+    let mut state = DiffReviewState::new(DocumentBuilder::new().generated_files(40, 4).build());
+    // The stage marker prefix distinguishes a drawer row from the patch header,
+    // which keeps naming the selected file.
+    let first = draw(&mut state, 100, 24);
+    assert!(first.contains("\u{2610} A src/file_00.rs"), "{first}");
+
+    state.handle_input(mouse(MouseEventKind::ScrollDown, DRAWER_COLUMN, 5));
+    let scrolled = draw(&mut state, 100, 24);
+    assert!(
+        !scrolled.contains("\u{2610} A src/file_00.rs"),
+        "{scrolled}"
+    );
+    assert!(scrolled.contains("\u{2610} A src/file_01.rs"), "{scrolled}");
+    assert_eq!(
+        state.selected_file(),
+        Some(0),
+        "scrolling the drawer must not select a different file"
+    );
+}
+
+#[test]
+fn events_that_change_nothing_do_not_ask_for_a_frame() {
+    let mut state = DiffReviewState::new(changed_document());
+    assert!(state.is_dirty(), "the first frame always draws");
+    draw(&mut state, 100, 24);
+    assert!(!state.is_dirty(), "a drawn frame settles the state");
+
+    for kind in [
+        MouseEventKind::Moved,
+        MouseEventKind::Up(MouseButton::Left),
+        MouseEventKind::Drag(MouseButton::Left),
+    ] {
+        state.handle_input(mouse(kind, PATCH_COLUMN, 5));
+        assert!(!state.is_dirty(), "{kind:?} changes nothing that is drawn");
+    }
+
+    state.handle_input(mouse(MouseEventKind::ScrollUp, PATCH_COLUMN, 5));
+    assert!(
+        !state.is_dirty(),
+        "the patch is already at the top of the file"
+    );
+
+    state.handle_input(key(KeyCode::Down));
+    assert!(state.is_dirty(), "moving the selection needs a frame");
+}
+
+#[test]
+fn keyboard_navigation_brings_a_scrolled_away_selection_back() {
+    let mut state =
+        DiffReviewState::new(DocumentBuilder::new().generated("src/long.rs", 400).build());
+    draw(&mut state, 100, 24);
+    state.handle_input(key(KeyCode::Enter));
+    draw(&mut state, 100, 24);
+    let selected = state.selected_row().expect("selected row");
+
+    for _ in 0..20 {
+        state.handle_input(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 5));
+    }
+    draw(&mut state, 100, 24);
+    assert!(
+        state.scroll_offset() > selected,
+        "the selection should be above the viewport"
+    );
+
+    state.handle_input(key(KeyCode::Down));
+    draw(&mut state, 100, 24);
+    let followed = state.selected_row().expect("selected row");
+    assert!(
+        state.scroll_offset() <= followed,
+        "{followed} is off screen"
     );
 }

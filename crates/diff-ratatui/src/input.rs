@@ -7,7 +7,12 @@ use crossterm::event::{
 use diff_core::DiffSide;
 use ratatui::layout::Position;
 
+/// Presentation rows one wheel notch scrolls the patch viewport.
 const WHEEL_ROWS: isize = 3;
+
+/// Files one wheel notch scrolls the drawer. A notch is a line, not a file, so
+/// the drawer moves one entry at a time.
+const DRAWER_WHEEL_ROWS: isize = 1;
 
 /// Framework-neutral input accepted by [`DiffReviewState::handle_input`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +39,10 @@ pub fn handle_crossterm_event(
         }
         Event::Paste(text) => state.handle_input(DiffReviewInput::Paste(text)),
         Event::Mouse(mouse) => state.handle_input(DiffReviewInput::Mouse(mouse)),
+        Event::Resize(..) => {
+            state.mark_dirty();
+            None
+        }
         _ => None,
     }
 }
@@ -42,10 +51,14 @@ impl DiffReviewState {
     #[must_use]
     pub fn handle_input(&mut self, input: DiffReviewInput) -> Option<DiffReviewEvent> {
         match input {
-            DiffReviewInput::Key(key) => self.handle_key(key),
+            DiffReviewInput::Key(key) => {
+                self.mark_dirty();
+                self.handle_key(key)
+            }
             DiffReviewInput::Paste(text) => {
                 if let Some(draft) = self.session.draft_mut() {
                     draft.insert(&text);
+                    self.mark_dirty();
                 }
                 None
             }
@@ -180,21 +193,42 @@ impl DiffReviewState {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {
+        let position = Position::new(mouse.column, mouse.row);
         match mouse.kind {
-            MouseEventKind::ScrollUp => self.move_focused(-WHEEL_ROWS),
-            MouseEventKind::ScrollDown => self.move_focused(WHEEL_ROWS),
+            MouseEventKind::ScrollUp => self.scroll_at(position, -1),
+            MouseEventKind::ScrollDown => self.scroll_at(position, 1),
             MouseEventKind::Down(_) => {
-                let position = Position::new(mouse.column, mouse.row);
                 if self.hit_layout.drawer.contains(position) {
                     self.focus = FocusPane::Files;
                     let relative = usize::from(mouse.row.saturating_sub(self.hit_layout.drawer.y));
                     self.select_file(self.drawer_scroll.saturating_add(relative));
+                    self.mark_dirty();
                 } else if self.hit_layout.patch.contains(position) {
                     self.focus = FocusPane::Diff;
                     self.select_clicked_row(mouse.row);
+                    self.mark_dirty();
                 }
             }
+            // Motion, drag, and button releases change nothing that is drawn,
+            // and a terminal in all-motion mode reports one per pointer step.
             _ => {}
+        }
+    }
+
+    /// Scrolls the pane under the pointer, falling back to the focused pane
+    /// when the pointer is over neither. Scrolling moves the viewport only: it
+    /// never moves the selection, and never changes which pane has focus.
+    fn scroll_at(&mut self, position: Position, direction: isize) {
+        let pane = if self.hit_layout.patch.contains(position) {
+            FocusPane::Diff
+        } else if self.hit_layout.drawer.contains(position) {
+            FocusPane::Files
+        } else {
+            self.focus
+        };
+        match pane {
+            FocusPane::Diff => self.scroll_patch(direction * WHEEL_ROWS),
+            FocusPane::Files => self.scroll_drawer(direction * DRAWER_WHEEL_ROWS),
         }
     }
 }

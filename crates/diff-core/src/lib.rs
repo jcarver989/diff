@@ -17,7 +17,7 @@ pub mod testing;
 pub use anchor::LineAnchor;
 pub use error::{DiffError, FingerprintError, ParseDiffScopeError, RepoPathError};
 pub use fingerprint::Fingerprint;
-pub use highlight::{HighlightStats, SyntaxHighlighter};
+pub use highlight::{HighlightStats, SyntaxHighlighter, empty_spans};
 pub use model::{
     DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange, PatchLine,
     PatchLineKind, RepoPath, StageState,

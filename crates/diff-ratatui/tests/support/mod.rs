@@ -1,6 +1,6 @@
 #![allow(dead_code, missing_docs)]
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use diff_core::{DiffDocument, HighlightStats};
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget};
 use ratatui::{
@@ -172,4 +172,14 @@ pub fn key(code: KeyCode) -> DiffReviewInput {
 
 pub fn key_with(code: KeyCode, modifiers: KeyModifiers) -> DiffReviewInput {
     DiffReviewInput::Key(KeyEvent::new(code, modifiers))
+}
+
+/// A mouse event at a terminal cell, for exercising the pointer hit tests.
+pub fn mouse(kind: MouseEventKind, column: u16, row: u16) -> DiffReviewInput {
+    DiffReviewInput::Mouse(MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    })
 }

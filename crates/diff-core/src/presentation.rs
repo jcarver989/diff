@@ -2,7 +2,7 @@
 
 use crate::{
     DiffDocument, DiffSide, DiffTheme, FileDiff, Fingerprint, HighlightSpan, LineAnchor, PatchLine,
-    PatchLineKind, RepoPath, SyntaxHighlighter,
+    PatchLineKind, RepoPath, SyntaxHighlighter, highlight::empty_spans,
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
@@ -317,18 +317,18 @@ impl DiffPresentation {
         theme: &DiffTheme,
         row: &PresentedRow,
         cell: &PresentedCell,
-    ) -> Vec<HighlightSpan> {
+    ) -> Arc<[HighlightSpan]> {
         let Some(source) = cell.source else {
             return highlighter.highlight(theme, self.language_at_row(row), &cell.text);
         };
         let Some(file) = self.document.files.get(row.file_index) else {
-            return Vec::new();
+            return empty_spans();
         };
         let Some(hunk) = file.hunks.get(source.hunk_index) else {
-            return Vec::new();
+            return empty_spans();
         };
         if hunk.lines.get(source.line_index).is_none() {
-            return Vec::new();
+            return empty_spans();
         }
         let target = hunk.lines[..=source.line_index]
             .iter()
@@ -974,7 +974,7 @@ mod tests {
         let expected =
             SyntaxHighlighter::new(0).highlight_sequential(&theme, "rust", ["/*", " comment */"]);
         let actual = presentation.highlight_cell(&mut SyntaxHighlighter::new(8), &theme, row, cell);
-        assert_eq!(actual, expected[1]);
+        assert_eq!(actual.as_ref(), expected[1].as_slice());
     }
 
     #[test]

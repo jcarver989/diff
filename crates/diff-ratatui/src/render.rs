@@ -86,6 +86,7 @@ impl StatefulWidget for DiffReviewWidget {
         if state.help {
             render_help(area, buffer, &theme);
         }
+        state.dirty = false;
     }
 }
 
@@ -219,7 +220,10 @@ fn render_patch(
         return;
     };
     state.last_height = usize::from(area.height).max(1);
-    state.follow_selection();
+    state.highlighter.reserve_for_viewport(state.last_height);
+    if state.take_follow_request() {
+        state.follow_selection();
+    }
     state.scroll = state.scroll.clamp(range.start, range.end.saturating_sub(1));
 
     let DiffReviewState {
@@ -461,13 +465,13 @@ fn render_cell(
     Paragraph::new(Line::from(spans)).render(area, buffer);
 }
 
-fn highlighted_spans(
-    source: &str,
+fn highlighted_spans<'a>(
+    source: &'a str,
     highlights: &[HighlightSpan],
     background: ratatui::style::Color,
-) -> Vec<Span<'static>> {
+) -> Vec<Span<'a>> {
     if highlights.is_empty() {
-        return vec![Span::styled(source.to_owned(), Style::new().bg(background))];
+        return vec![Span::styled(source, Style::new().bg(background))];
     }
     let plain = Style::new().bg(background);
     let mut spans = Vec::new();
@@ -476,18 +480,18 @@ fn highlighted_spans(
         let start = highlight.range.start.min(source.len());
         let end = highlight.range.end.min(source.len());
         if start > offset && source.is_char_boundary(offset) && source.is_char_boundary(start) {
-            spans.push(Span::styled(source[offset..start].to_owned(), plain));
+            spans.push(Span::styled(&source[offset..start], plain));
         }
         if end > start && source.is_char_boundary(start) && source.is_char_boundary(end) {
             spans.push(Span::styled(
-                source[start..end].to_owned(),
+                &source[start..end],
                 syntax_style(highlight.foreground, highlight.font_style, background),
             ));
             offset = end;
         }
     }
     if offset < source.len() && source.is_char_boundary(offset) {
-        spans.push(Span::styled(source[offset..].to_owned(), plain));
+        spans.push(Span::styled(&source[offset..], plain));
     }
     spans
 }

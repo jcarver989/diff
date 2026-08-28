@@ -1,7 +1,7 @@
 //! Interactive review of a real Git worktree using `diff-ratatui`.
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture},
+    event::{self, Event},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -12,9 +12,10 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     env,
     error::Error,
-    io::{self, stdout},
+    io::{self, Write, stdout},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 const USAGE: &str = "Usage: cargo run -p diff-ratatui --example review -- [PATH] [--scope SCOPE]\n\nScopes:\n  both       staged and unstaged changes (default)\n  unstaged   worktree changes only\n  staged     index changes only\n\nKeys:\n  j/k        move through files or lines\n  h/l, Tab   switch between file and diff panes\n  c          add a comment to the selected line\n  e/x/u      edit, delete, or undo a comment\n  v          cycle automatic, unified, and split views\n  s          submit the review and print it\n  y          copy event (printed after leaving the TUI)\n  ?          show all shortcuts\n  Esc        exit";
@@ -33,12 +34,30 @@ enum Outcome {
     CopyRequested(String),
 }
 
+/// Events applied between two frames. A trackpad flick queues far more wheel
+/// notches than there are frames worth drawing, so the loop drains what the
+/// terminal already has before it draws once.
+const MAX_COALESCED_EVENTS: usize = 256;
+
+/// Button presses (`?1000h`) reported as SGR (`?1006h`), and nothing else.
+///
+/// Crossterm's `EnableMouseCapture` also asks for `?1002h`/`?1003h`, which
+/// report every pointer step. That is one event, and one frame, per pixel of
+/// mouse movement, for input the widget ignores.
+const ENABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1000h\x1b[?1006h";
+const DISABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1006l\x1b[?1000l";
+
 struct TerminalSession;
 
 impl TerminalSession {
     fn enter() -> io::Result<Self> {
         enable_raw_mode()?;
-        if let Err(error) = execute!(stdout(), EnterAlternateScreen, EnableMouseCapture) {
+        if let Err(error) = execute!(stdout(), EnterAlternateScreen) {
+            let _ = disable_raw_mode();
+            return Err(error);
+        }
+        if let Err(error) = write_all_flushed(ENABLE_MOUSE_BUTTONS) {
+            let _ = execute!(stdout(), LeaveAlternateScreen);
             let _ = disable_raw_mode();
             return Err(error);
         }
@@ -48,9 +67,16 @@ impl TerminalSession {
 
 impl Drop for TerminalSession {
     fn drop(&mut self) {
+        let _ = write_all_flushed(DISABLE_MOUSE_BUTTONS);
         let _ = disable_raw_mode();
-        let _ = execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        let _ = execute!(stdout(), LeaveAlternateScreen);
     }
+}
+
+fn write_all_flushed(bytes: &[u8]) -> io::Result<()> {
+    let mut out = stdout();
+    out.write_all(bytes)?;
+    out.flush()
 }
 
 #[tokio::main]
@@ -82,25 +108,38 @@ fn run_tui(document: Arc<DiffDocument>) -> io::Result<Outcome> {
     let mut state = DiffReviewState::new(document);
 
     loop {
-        terminal.draw(|frame| {
-            frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), &mut state);
-            if let Some(position) = state.cursor_position() {
-                frame.set_cursor_position(position);
-            }
-        })?;
+        if state.is_dirty() {
+            terminal.draw(|frame| {
+                frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), &mut state);
+                if let Some(position) = state.cursor_position() {
+                    frame.set_cursor_position(position);
+                }
+            })?;
+        }
 
-        if let Some(event) = handle_crossterm_event(&mut state, event::read()?) {
-            match event {
-                DiffReviewEvent::Cancel => return Ok(Outcome::Cancelled),
-                DiffReviewEvent::SubmitReview(submission) => {
-                    return Ok(Outcome::Submitted(submission));
-                }
-                DiffReviewEvent::CopyFormattedReview(formatted) => {
-                    return Ok(Outcome::CopyRequested(formatted));
-                }
+        // Block for the next event, then apply everything already queued behind
+        // it. Drawing once per event instead makes a burst of wheel notches one
+        // full repaint each, which is more than a terminal can absorb.
+        if let Some(outcome) = apply_event(&mut state, event::read()?) {
+            return Ok(outcome);
+        }
+        for _ in 1..MAX_COALESCED_EVENTS {
+            if !event::poll(Duration::ZERO)? {
+                break;
+            }
+            if let Some(outcome) = apply_event(&mut state, event::read()?) {
+                return Ok(outcome);
             }
         }
     }
+}
+
+fn apply_event(state: &mut DiffReviewState, event: Event) -> Option<Outcome> {
+    handle_crossterm_event(state, event).map(|event| match event {
+        DiffReviewEvent::Cancel => Outcome::Cancelled,
+        DiffReviewEvent::SubmitReview(submission) => Outcome::Submitted(submission),
+        DiffReviewEvent::CopyFormattedReview(formatted) => Outcome::CopyRequested(formatted),
+    })
 }
 
 fn parse_options(args: impl IntoIterator<Item = String>) -> io::Result<Options> {

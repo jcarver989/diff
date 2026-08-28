@@ -1,14 +1,18 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
-use crate::{DiffViewerEvent, style::color};
+use crate::{
+    DiffViewerEvent,
+    comment_editor::{CommentEditor, CommentEditorEvent},
+    style::color,
+};
 use diff_core::{
     DiffDocument, DiffPresentation, DiffSide, DiffTheme, HighlightSpan, HighlightStats, Layout,
     LineAnchor, PresentedCell, PresentedRow, Review, ReviewSession, SessionOptions,
     SyntaxHighlighter, ViewMode,
 };
 use gpui::{
-    App, Context, EventEmitter, KeyBinding, KeyDownEvent, ListAlignment, ListState, Window,
-    actions, div, prelude::*, px,
+    App, Context, Entity, EventEmitter, Focusable, KeyBinding, ListAlignment, ListState,
+    Subscription, Window, actions, div, prelude::*, px,
 };
 use std::sync::Arc;
 
@@ -55,6 +59,12 @@ impl Default for DiffViewerOptions {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CommentTarget {
+    pub(crate) row_index: usize,
+    pub(crate) side: DiffSide,
+}
+
 /// Shared GPUI diff review view.
 ///
 pub struct DiffViewer {
@@ -65,6 +75,9 @@ pub struct DiffViewer {
     diff_list_state: ListState,
     diff_list_file: Option<usize>,
     diff_list_split: bool,
+    pub(crate) comment_target: Option<CommentTarget>,
+    pub(crate) comment_editor: Option<Entity<CommentEditor>>,
+    comment_editor_subscription: Option<Subscription>,
 }
 
 impl DiffViewer {
@@ -94,6 +107,9 @@ impl DiffViewer {
             diff_list_state: ListState::new(0, ListAlignment::Top, px(options.row_height * 8.0)),
             diff_list_file: None,
             diff_list_split: false,
+            comment_target: None,
+            comment_editor: None,
+            comment_editor_subscription: None,
         }
     }
 
@@ -170,13 +186,17 @@ impl DiffViewer {
     /// Replaces the document while preserving file selection and reconciling comments.
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         self.session.set_document(document);
+        self.clear_comment_editor();
         self.diff_list_file = None;
         cx.notify();
     }
 
     /// Changes the theme and invalidates cached syntax spans.
     pub fn set_theme(&mut self, theme: DiffTheme, cx: &mut Context<Self>) {
-        self.theme = theme;
+        self.theme = theme.clone();
+        if let Some(editor) = &self.comment_editor {
+            editor.update(cx, |editor, cx| editor.set_theme(theme, cx));
+        }
         self.highlighter.clear_cache();
         self.diff_list_state.remeasure();
         cx.notify();
@@ -192,6 +212,7 @@ impl DiffViewer {
     /// Clears queued comments and the active draft.
     pub fn clear_review(&mut self, cx: &mut Context<Self>) {
         self.session.clear_review();
+        self.clear_comment_editor();
         self.diff_list_state.remeasure();
         cx.notify();
     }
@@ -222,6 +243,7 @@ impl DiffViewer {
     ) -> bool {
         let edited = self.session.review_mut().edit_comment(id, body);
         if edited {
+            self.diff_list_state.remeasure();
             cx.notify();
         }
         edited
@@ -262,6 +284,7 @@ impl DiffViewer {
 
     pub(crate) fn select_file(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.session.select_file(index) {
+            self.clear_comment_editor();
             cx.notify();
         }
     }
@@ -270,20 +293,94 @@ impl DiffViewer {
         &mut self,
         row_index: usize,
         side: DiffSide,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.session.select_row(row_index) {
-            self.session.set_selected_side(side);
-            self.session.begin_draft(None);
-            cx.notify();
+        let previous_row = self.comment_target.as_ref().map(|target| target.row_index);
+        if !self.session.select_row(row_index) || !self.session.set_selected_side(side) {
+            return;
         }
+        if !self.session.begin_draft(None) {
+            return;
+        }
+
+        let body = self
+            .session
+            .draft()
+            .map_or_else(String::new, |draft| draft.body().to_owned());
+        let editor = cx.new(|cx| CommentEditor::new(body, self.theme.clone(), cx));
+        self.comment_editor_subscription = Some(cx.subscribe(
+            &editor,
+            |viewer, _editor, event: &CommentEditorEvent, cx| match event {
+                CommentEditorEvent::Changed(body) => {
+                    if let Some(draft) = viewer.session.draft_mut() {
+                        draft.set_body(body);
+                    }
+                    viewer.remeasure_comment_row();
+                    cx.notify();
+                }
+                CommentEditorEvent::Submit => viewer.finish_comment(cx),
+                CommentEditorEvent::Cancel => viewer.discard_comment(cx),
+            },
+        ));
+        self.comment_target = Some(CommentTarget { row_index, side });
+        self.comment_editor = Some(editor.clone());
+        self.remeasure_row(previous_row);
+        self.remeasure_row(Some(row_index));
+        editor.focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    fn remeasure_row(&self, row_index: Option<usize>) {
+        let (Some(row_index), Some(file_index)) = (row_index, self.selected_file()) else {
+            return;
+        };
+        let Some(range) = self.presentation().file_range(file_index) else {
+            return;
+        };
+        if range.contains(&row_index) {
+            let local_index = row_index - range.start;
+            self.diff_list_state
+                .remeasure_items(local_index..local_index + 1);
+        }
+    }
+
+    fn remeasure_comment_row(&self) {
+        self.remeasure_row(self.comment_target.as_ref().map(|target| target.row_index));
+    }
+
+    fn clear_comment_editor(&mut self) {
+        self.comment_target = None;
+        self.comment_editor = None;
+        self.comment_editor_subscription = None;
+    }
+
+    pub(crate) fn finish_comment(&mut self, cx: &mut Context<Self>) {
+        let row = self.comment_target.as_ref().map(|target| target.row_index);
+        if let Some(editor) = &self.comment_editor
+            && let Some(draft) = self.session.draft_mut()
+        {
+            draft.set_body(editor.read(cx).body());
+        }
+        self.session.submit_draft();
+        self.clear_comment_editor();
+        self.remeasure_row(row);
+        cx.notify();
+    }
+
+    pub(crate) fn discard_comment(&mut self, cx: &mut Context<Self>) {
+        let row = self.comment_target.as_ref().map(|target| target.row_index);
+        self.session.cancel_draft();
+        self.clear_comment_editor();
+        self.remeasure_row(row);
+        cx.notify();
     }
 
     pub(crate) fn highlight_cell(
         &mut self,
         row: &PresentedRow,
         cell: &PresentedCell,
-    ) -> Vec<HighlightSpan> {
+    ) -> Arc<[HighlightSpan]> {
         self.session
             .presentation()
             .highlight_cell(&mut self.highlighter, &self.theme, row, cell)
@@ -291,6 +388,7 @@ impl DiffViewer {
 
     fn move_file(&mut self, delta: isize, cx: &mut Context<Self>) {
         if self.session.move_file(delta).is_some() {
+            self.clear_comment_editor();
             cx.notify();
         }
     }
@@ -323,9 +421,9 @@ impl DiffViewer {
         }
     }
 
-    fn add_comment_action(&mut self, _: &AddComment, _: &mut Window, cx: &mut Context<Self>) {
-        if self.session.begin_draft(None) {
-            cx.notify();
+    fn add_comment_action(&mut self, _: &AddComment, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(row_index) = self.session.selected_row() {
+            self.begin_comment(row_index, self.session.selected_side(), window, cx);
         }
     }
 
@@ -343,37 +441,12 @@ impl DiffViewer {
         }
     }
 
-    fn on_draft_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(draft) = self.session.draft_mut() else {
-            return;
-        };
-        if event.keystroke.key == "backspace" {
-            draft.delete_before_cursor();
-            cx.notify();
-            return;
-        }
-        if event.keystroke.modifiers.control
-            || event.keystroke.modifiers.platform
-            || event.keystroke.modifiers.function
-        {
-            return;
-        }
-        if let Some(text) = &event.keystroke.key_char {
-            draft.insert(text);
-            cx.notify();
-        }
-    }
-
     fn submit_comment(&mut self, _: &SubmitComment, _: &mut Window, cx: &mut Context<Self>) {
-        if self.session.submit_draft().is_some() {
-            self.diff_list_state.remeasure();
-        }
-        cx.notify();
+        self.finish_comment(cx);
     }
 
     fn cancel_comment(&mut self, _: &CancelComment, _: &mut Window, cx: &mut Context<Self>) {
-        self.session.cancel_draft();
-        cx.notify();
+        self.discard_comment(cx);
     }
 
     pub(crate) fn copy_review(&mut self, _: &CopyReview, _: &mut Window, cx: &mut Context<Self>) {
@@ -410,13 +483,6 @@ impl Render for DiffViewer {
         self.session
             .set_split_when_auto(width >= self.options.auto_split_width);
         let palette = self.theme.palette().clone();
-        let draft_line = self.session.draft().map(|draft| {
-            format!(
-                "Comment on {} · type, then press ⌘/Ctrl+Enter: {}▏",
-                draft.anchor().path,
-                draft.body()
-            )
-        });
         div()
             .key_context("DiffViewer")
             .on_action(cx.listener(Self::next_file))
@@ -432,7 +498,6 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::copy_review))
             .on_action(cx.listener(Self::submit_review))
             .on_action(cx.listener(Self::cancel))
-            .on_key_down(cx.listener(Self::on_draft_key))
             .size_full()
             .flex()
             .flex_col()
@@ -446,22 +511,8 @@ impl Render for DiffViewer {
                     .overflow_hidden()
                     .flex()
                     .child(self.render_sidebar(cx))
-                    .child(self.render_diff(cx)),
+                    .child(self.render_diff(window, cx)),
             )
-            .when_some(draft_line, |root, line| {
-                root.child(
-                    div()
-                        .h(px(42.0))
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .px_3()
-                        .border_t_1()
-                        .border_color(color(palette.border))
-                        .text_color(color(palette.muted))
-                        .child(line),
-                )
-            })
             .child(self.render_review_bar(cx))
     }
 }

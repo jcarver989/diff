@@ -3,6 +3,7 @@
 //! [`DiffViewer`] accepts an immutable [`diff_core::DiffDocument`] snapshot and
 //! clipboard policy, and agent communication belong to the embedding shell.
 
+mod comment_editor;
 mod diff_view;
 mod review_bar;
 mod sidebar;

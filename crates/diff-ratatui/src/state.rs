@@ -51,6 +51,8 @@ pub struct DiffReviewState {
     pub(crate) hit_layout: HitLayout,
     pub(crate) visible_rows: Vec<(u16, usize)>,
     pub(crate) cursor_position: Option<Position>,
+    pub(crate) follow_pending: bool,
+    pub(crate) dirty: bool,
 }
 
 impl DiffReviewState {
@@ -72,12 +74,14 @@ impl DiffReviewState {
             drawer_scroll: 0,
             drawer_height: 1,
             scroll: 0,
-            last_height: 1,
+            last_height: 0,
             presentation_width: 0,
             help: false,
             hit_layout: HitLayout::default(),
             visible_rows: Vec::new(),
             cursor_position: None,
+            follow_pending: true,
+            dirty: true,
         };
         state.scroll_to_selected_file();
         state
@@ -163,6 +167,23 @@ impl DiffReviewState {
         self.scroll
     }
 
+    /// Returns whether anything since the last frame changed what a redraw
+    /// would show.
+    ///
+    /// Hosts may skip drawing [`crate::DiffReviewWidget`] while this is false,
+    /// which keeps pointer motion in a terminal reporting all mouse movement
+    /// from costing a frame each. Rendering the widget clears it.
+    #[must_use]
+    pub const fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Marks the state as needing a redraw, for changes the widget cannot
+    /// observe on its own, such as a terminal resize.
+    pub const fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
     /// Returns the requested view mode.
     #[must_use]
     pub const fn view_mode(&self) -> ViewMode {
@@ -187,6 +208,7 @@ impl DiffReviewState {
         self.session.set_document(document);
         self.status = DiffReviewStatus::Ready;
         self.cursor_position = None;
+        self.mark_dirty();
         self.drawer_scroll = self
             .drawer_scroll
             .min(self.session.selected_file().unwrap_or(0));
@@ -198,6 +220,7 @@ impl DiffReviewState {
         self.status = DiffReviewStatus::Loading;
         self.session.cancel_draft();
         self.cursor_position = None;
+        self.mark_dirty();
     }
 
     /// Shows a host-provided loading error.
@@ -205,16 +228,19 @@ impl DiffReviewState {
         self.status = DiffReviewStatus::Error(message.into());
         self.session.cancel_draft();
         self.cursor_position = None;
+        self.mark_dirty();
     }
 
     /// Changes the neutral theme and clears cached syntax spans.
     pub fn set_theme(&mut self, theme: DiffTheme) {
         self.theme = theme;
         self.highlighter.clear_cache();
+        self.mark_dirty();
     }
 
     /// Selects automatic, unified, or split presentation.
     pub fn set_view_mode(&mut self, mode: ViewMode) {
+        self.mark_dirty();
         if self.session.set_view_mode(mode) {
             self.scroll_to_selected_file();
         }
@@ -224,6 +250,7 @@ impl DiffReviewState {
     pub fn clear_review(&mut self) {
         self.session.clear_review();
         self.cursor_position = None;
+        self.mark_dirty();
     }
 
     pub(crate) fn ensure_presentation(&mut self, width: u16) {
@@ -238,6 +265,7 @@ impl DiffReviewState {
             .session
             .selected_file_range()
             .map_or(0, |range| range.start);
+        self.request_follow();
     }
 
     pub(crate) fn move_file(&mut self, delta: isize) {
@@ -264,12 +292,53 @@ impl DiffReviewState {
 
     pub(crate) fn move_row(&mut self, delta: isize) {
         self.session.move_row(delta);
-        self.follow_selection();
+        self.request_follow();
     }
 
     pub(crate) fn select_boundary(&mut self, end: bool) {
         self.session.select_boundary(end);
-        self.follow_selection();
+        self.request_follow();
+    }
+
+    /// Scrolls the patch viewport without moving the selection, the way a
+    /// mouse wheel does. The selection may leave the viewport; the next
+    /// keyboard move brings it back.
+    pub(crate) fn scroll_patch(&mut self, delta: isize) {
+        let Some(range) = self.session.selected_file_range() else {
+            return;
+        };
+        if range.is_empty() {
+            return;
+        }
+        let target = if delta.is_negative() {
+            self.scroll.saturating_sub(delta.unsigned_abs())
+        } else {
+            self.scroll.saturating_add(delta.unsigned_abs())
+        };
+        let clamped = target.clamp(range.start, range.end - 1);
+        if clamped != self.scroll {
+            self.scroll = clamped;
+            self.mark_dirty();
+        }
+    }
+
+    /// Scrolls the file drawer without moving the selected file.
+    pub(crate) fn scroll_drawer(&mut self, delta: isize) {
+        let last = self
+            .document()
+            .files
+            .len()
+            .saturating_sub(self.drawer_height);
+        let target = if delta.is_negative() {
+            self.drawer_scroll.saturating_sub(delta.unsigned_abs())
+        } else {
+            self.drawer_scroll.saturating_add(delta.unsigned_abs())
+        };
+        let clamped = target.min(last);
+        if clamped != self.drawer_scroll {
+            self.drawer_scroll = clamped;
+            self.mark_dirty();
+        }
     }
 
     pub(crate) fn page(&mut self, delta: isize) {
@@ -277,7 +346,24 @@ impl DiffReviewState {
         self.move_row(delta.saturating_mul(height));
     }
 
+    /// Brings the selection back into view against the height the last frame
+    /// measured, and asks the next frame to redo it once it knows its own.
+    /// Before any frame has drawn there is no height to work from, so the
+    /// request only carries over.
+    pub(crate) fn request_follow(&mut self) {
+        self.follow_pending = true;
+        self.mark_dirty();
+        self.follow_selection();
+    }
+
+    pub(crate) fn take_follow_request(&mut self) -> bool {
+        std::mem::take(&mut self.follow_pending)
+    }
+
     pub(crate) fn follow_selection(&mut self) {
+        if self.last_height == 0 {
+            return;
+        }
         let Some(selected) = self.session.selected_row() else {
             return;
         };
@@ -339,7 +425,7 @@ impl DiffReviewState {
         if let Some(index) = clicked
             && self.session.select_row(index)
         {
-            self.follow_selection();
+            self.request_follow();
         }
     }
 }
