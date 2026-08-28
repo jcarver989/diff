@@ -1,0 +1,38 @@
+[workspace]
+git_only = true
+release_always = false
+git_release_enable = false
+git_tag_name = "{{ package }}-v{{ version }}"
+pr_branch_prefix = "release-plz/"
+pr_name = "chore: release"
+dependencies_update = true
+
+[[package]]
+name = "diff-core"
+release = true
+publish = false
+
+[[package]]
+name = "diff-git"
+release = true
+publish = false
+
+[[package]]
+name = "diff-gpui"
+release = true
+publish = false
+
+[[package]]
+name = "diff-gpui-desktop"
+release = true
+publish = false
+
+[[package]]
+name = "diff-gpui-web"
+release = true
+publish = false
+
+[[package]]
+name = "diff-ratatui"
+release = true
+publish = false
