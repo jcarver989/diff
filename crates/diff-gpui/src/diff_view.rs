@@ -6,9 +6,13 @@ use gpui::{
 };
 use std::ops::Range;
 
+const GUTTER_WIDTH: f32 = 54.0;
+const MARKER_WIDTH: f32 = 20.0;
+const HEADER_HEIGHT: f32 = 52.0;
+
 impl DiffViewer {
     pub(crate) fn render_diff(&mut self, cx: &mut Context<Self>) -> Div {
-        let palette = self.theme().palette.clone();
+        let palette = self.theme().palette().clone();
         let Some(file_index) = self.selected_file() else {
             return div()
                 .flex_1()
@@ -23,11 +27,10 @@ impl DiffViewer {
         let Some(file_range) = self.presentation().file_range(file_index) else {
             return div().flex_1();
         };
-        let count = file_range.len();
         let start = file_range.start;
         let list = uniform_list(
             ("diff-rows", file_index),
-            count,
+            file_range.len(),
             cx.processor(move |viewer, range: Range<usize>, _window, cx| {
                 viewer.render_visible_rows(start, range, cx)
             }),
@@ -35,7 +38,7 @@ impl DiffViewer {
         .h_full();
 
         let header = div()
-            .h(px(52.0))
+            .h(px(HEADER_HEIGHT))
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -76,7 +79,6 @@ impl DiffViewer {
         range: Range<usize>,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        self.record_visible_range(range.clone());
         range
             .filter_map(|offset| {
                 let index = file_start + offset;
@@ -92,16 +94,15 @@ impl DiffViewer {
         row: &PresentedRow,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let palette = self.theme().palette.clone();
+        let palette = self.theme().palette().clone();
+        let row_height = px(self.options().row_height);
         if row.kind != RowKind::Code {
             let text = row
-                .right
-                .as_ref()
-                .or(row.left.as_ref())
+                .primary_cell()
                 .map_or_else(SharedString::default, |cell| cell.text.to_string().into());
             return div()
                 .id(("diff-row", row.id.0))
-                .h(px(self.options().row_height))
+                .h(row_height)
                 .w_full()
                 .flex()
                 .items_center()
@@ -114,108 +115,82 @@ impl DiffViewer {
                 .into_any_element();
         }
 
-        match self.presentation().view_mode() {
-            diff_core::ViewMode::Split => div()
-                .id(("diff-row", row.id.0))
-                .h(px(self.options().row_height))
-                .w_full()
-                .flex()
-                .child(self.render_cell(index, DiffSide::Old, row.left.as_ref(), true, cx))
-                .child(self.render_cell(index, DiffSide::New, row.right.as_ref(), false, cx))
-                .into_any_element(),
-            diff_core::ViewMode::Unified | diff_core::ViewMode::Auto => {
-                let (side, cell) = row
-                    .right
-                    .as_ref()
-                    .map(|cell| (DiffSide::New, cell))
-                    .or_else(|| row.left.as_ref().map(|cell| (DiffSide::Old, cell)))
-                    .expect("code rows contain a cell");
-                div()
-                    .id(("diff-row", row.id.0))
-                    .h(px(self.options().row_height))
-                    .w_full()
-                    .flex()
-                    .child(self.render_cell(index, side, Some(cell), false, cx))
-                    .into_any_element()
-            }
+        let split = self.layout().is_split();
+        let mut element = div()
+            .id(("diff-row", row.id.0))
+            .h(row_height)
+            .w_full()
+            .flex();
+        if split {
+            element = element
+                .child(self.render_cell(index, row, DiffSide::Old, row.left.as_ref(), true, cx))
+                .child(self.render_cell(index, row, DiffSide::New, row.right.as_ref(), false, cx));
+        } else {
+            let side = if row.right.is_some() {
+                DiffSide::New
+            } else {
+                DiffSide::Old
+            };
+            element =
+                element.child(self.render_cell(index, row, side, row.primary_cell(), false, cx));
         }
+        element.into_any_element()
     }
 
     fn render_cell(
         &mut self,
         index: usize,
+        row: &PresentedRow,
         side: DiffSide,
         cell: Option<&PresentedCell>,
         left: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let palette = self.theme().palette.clone();
+        let palette = self.theme().palette().clone();
+        let split = self.layout().is_split();
+        let border_color = style::color(palette.border);
         let Some(cell) = cell else {
             return div()
                 .w_1_2()
                 .h_full()
-                .bg(style::color(palette.gutter))
-                .when(left, |value| {
-                    value
-                        .border_r_1()
-                        .border_color(style::color(palette.border))
-                })
+                .bg(style::color(palette.background))
+                .when(left, |value| value.border_r_1().border_color(border_color))
                 .into_any_element();
         };
+
         let text: SharedString = cell.text.to_string().into();
-        let highlights = self.highlight_cell(index, side, &cell.text);
+        let highlights = self.highlight_cell(row, cell);
         let styled = StyledText::new(text).with_highlights(highlights.into_iter().map(|span| {
             let style: HighlightStyle = style::highlight_style(span.foreground, span.font_style);
             (span.range, style)
         }));
         let tone = cell.tone;
-        let marker = match tone {
-            diff_core::DiffTone::Added => "+",
-            diff_core::DiffTone::Removed => "−",
-            diff_core::DiffTone::Context | diff_core::DiffTone::Meta => " ",
-        };
-        let target = cell
-            .anchor
-            .clone()
-            .map(|anchor| (anchor, cell.text.to_string()));
-        let comments = cell.anchor.as_ref().map_or(0, |anchor| {
-            self.review()
-                .comments()
-                .iter()
-                .filter(|comment| &comment.anchor == anchor)
-                .count()
-        });
-        div()
+        let colors = palette.tone(tone);
+        let commentable = cell.source.is_some();
+        let comments = self.comments_on(index, cell);
+
+        let mut element = div()
             .id((if left { "old-cell" } else { "new-cell" }, index))
-            .when(
-                self.presentation().view_mode() == diff_core::ViewMode::Split,
-                gpui::Styled::w_1_2,
-            )
-            .when(
-                self.presentation().view_mode() != diff_core::ViewMode::Split,
-                gpui::Styled::w_full,
-            )
+            .when(split, gpui::Styled::w_1_2)
+            .when(!split, gpui::Styled::w_full)
             .h_full()
             .flex()
             .items_center()
             .overflow_hidden()
-            .bg(style::color(style::tone_background(&palette, tone)))
-            .when(left, |value| {
-                value
-                    .border_r_1()
-                    .border_color(style::color(palette.border))
-            })
-            .when_some(target, |value, (anchor, line_text)| {
-                value
-                    .cursor_pointer()
-                    .hover(|hover| hover.bg(style::color(palette.selection)))
-                    .on_click(cx.listener(move |viewer, _, window, cx| {
-                        viewer.begin_comment(anchor.clone(), line_text.clone(), window, cx);
-                    }))
-            })
+            .bg(style::color(colors.background))
+            .when(left, |value| value.border_r_1().border_color(border_color));
+        if commentable {
+            element = element
+                .cursor_pointer()
+                .hover(|hover| hover.bg(style::color(palette.selection)))
+                .on_click(cx.listener(move |viewer, _, _, cx| {
+                    viewer.begin_comment(index, side, cx);
+                }));
+        }
+        element
             .child(
                 div()
-                    .w(px(54.0))
+                    .w(px(GUTTER_WIDTH))
                     .flex_shrink_0()
                     .text_color(style::color(palette.muted))
                     .text_right()
@@ -227,10 +202,10 @@ impl DiffViewer {
             )
             .child(
                 div()
-                    .w(px(20.0))
+                    .w(px(MARKER_WIDTH))
                     .flex_shrink_0()
-                    .text_color(style::color(style::tone_foreground(&palette, tone)))
-                    .child(marker),
+                    .text_color(style::color(colors.foreground))
+                    .child(tone.marker().to_string()),
             )
             .child(
                 div()
@@ -249,5 +224,15 @@ impl DiffViewer {
                 )
             })
             .into_any_element()
+    }
+
+    fn comments_on(&self, index: usize, cell: &PresentedCell) -> usize {
+        let Some(row) = self.presentation().row(index) else {
+            return 0;
+        };
+        let Some(anchor) = self.presentation().cell_anchor(row, cell) else {
+            return 0;
+        };
+        self.review().comments_for_anchor(&anchor).count()
     }
 }

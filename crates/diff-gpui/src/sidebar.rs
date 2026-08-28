@@ -2,9 +2,12 @@ use crate::{DiffViewer, style::color};
 use diff_core::{FileStatus, StageState};
 use gpui::{Context, Div, div, prelude::*, px};
 
+const ROW_HEIGHT: f32 = 36.0;
+const HEADER_HEIGHT: f32 = 52.0;
+
 impl DiffViewer {
     pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
-        let palette = &self.theme().palette;
+        let palette = self.theme().palette();
         let mut files = div().id("diff-files").flex_1().overflow_y_scroll().py_2();
         for (index, file) in self.document().files.iter().enumerate() {
             let status_color = match file.status {
@@ -12,16 +15,12 @@ impl DiffViewer {
                 FileStatus::Deleted => palette.deletion,
                 FileStatus::Modified | FileStatus::Renamed | FileStatus::Copied => palette.accent,
             };
-            let stage = match file.staged {
-                StageState::Staged => "●",
-                StageState::PartiallyStaged => "◐",
-                StageState::Unstaged => "○",
-            };
+            let stage = stage_marker(file.staged);
             let selected = self.selected_file() == Some(index);
             files = files.child(
                 div()
                     .id(("diff-file", index))
-                    .h(px(36.0))
+                    .h(px(ROW_HEIGHT))
                     .flex()
                     .items_center()
                     .gap_2()
@@ -34,7 +33,7 @@ impl DiffViewer {
                         div()
                             .w(px(14.0))
                             .text_color(color(status_color))
-                            .child(status_marker(file.status)),
+                            .child(file.status.code().to_string()),
                     )
                     .child(
                         div()
@@ -66,7 +65,7 @@ impl DiffViewer {
             .border_color(color(palette.border))
             .child(
                 div()
-                    .h(px(52.0))
+                    .h(px(HEADER_HEIGHT))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
@@ -81,13 +80,10 @@ impl DiffViewer {
     }
 }
 
-const fn status_marker(status: FileStatus) -> &'static str {
-    match status {
-        FileStatus::Modified => "M",
-        FileStatus::Added => "A",
-        FileStatus::Deleted => "D",
-        FileStatus::Renamed => "R",
-        FileStatus::Copied => "C",
-        FileStatus::Untracked => "?",
+const fn stage_marker(state: StageState) -> &'static str {
+    match state {
+        StageState::Staged => "●",
+        StageState::PartiallyStaged => "◐",
+        StageState::Unstaged => "○",
     }
 }

@@ -3,7 +3,7 @@ use gpui::{Context, Div, div, prelude::*, px};
 
 impl DiffViewer {
     pub(crate) fn render_review_bar(&self, cx: &mut Context<Self>) -> Div {
-        let palette = &self.theme().palette;
+        let palette = self.theme().palette();
         div()
             .h(px(44.0))
             .flex_shrink_0()
