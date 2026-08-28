@@ -7,6 +7,7 @@ members = [
     "crates/diff-gpui-web",
     "crates/diff-ratatui",
 ]
+exclude = ["patches/gpui"]
 resolver = "3"
 
 [workspace.package]
@@ -26,7 +27,7 @@ blake3 = "1.8.7"
 diffy = "0.5.1"
 console_error_panic_hook = "0.1.7"
 gpui = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
-gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", features = ["font-kit", "runtime_shaders"] }
+gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
 gpui_tokio = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d" }
 gpui_web = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
 crossterm = "0.29.0"
@@ -50,3 +51,6 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+
+[patch."https://github.com/zed-industries/zed.git"]
+gpui = { path = "patches/gpui" }
