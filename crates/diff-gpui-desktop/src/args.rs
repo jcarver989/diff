@@ -2,22 +2,34 @@ use diff_core::{DiffScope, ParseDiffScopeError};
 use std::{ffi::OsString, path::PathBuf};
 use thiserror::Error;
 
-pub(crate) const USAGE: &str = "Usage: diff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n  -h, --help           Print help";
+/// Desktop command-line usage text.
+pub const USAGE: &str = "Usage: diff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n  -h, --help           Print help";
 
+/// Arguments accepted by the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CliArgs {
-    pub(crate) repository: PathBuf,
-    pub(crate) scope: DiffScope,
+pub struct CliArgs {
+    /// Repository or a path contained by it.
+    pub repository: PathBuf,
+    /// Initial Git diff scope.
+    pub scope: DiffScope,
 }
 
 impl CliArgs {
-    pub(crate) fn parse() -> Result<Self, ArgsError> {
+    /// Parses arguments from the current process.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ArgsError`] when an argument is invalid or help was requested.
+    pub fn parse() -> Result<Self, ArgsError> {
         Self::parse_from(std::env::args_os().skip(1))
     }
 
-    pub(crate) fn parse_from(
-        arguments: impl IntoIterator<Item = OsString>,
-    ) -> Result<Self, ArgsError> {
+    /// Parses a supplied argument sequence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ArgsError`] when an argument is invalid or help was requested.
+    pub fn parse_from(arguments: impl IntoIterator<Item = OsString>) -> Result<Self, ArgsError> {
         let mut arguments = arguments.into_iter();
         let mut repository = None;
         let mut scope = DiffScope::Both;
@@ -50,8 +62,9 @@ impl CliArgs {
     }
 }
 
+/// An invalid desktop command-line invocation.
 #[derive(Debug, Error)]
-pub(crate) enum ArgsError {
+pub enum ArgsError {
     #[error("help requested")]
     Help,
     #[error("--scope requires unstaged, staged, or both")]

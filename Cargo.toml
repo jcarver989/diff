@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/clankerdiff",
     "crates/diff-core",
     "crates/diff-git",
     "crates/diff-gpui",
@@ -24,12 +25,15 @@ lto = "thin"
 [workspace.dependencies]
 async-channel = "2.5.0"
 blake3 = "1.8.7"
+clap = { version = "4.6.6", features = ["derive"] }
 diffy = "0.5.1"
 console_error_panic_hook = "0.1.7"
 gpui = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
 gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
 gpui_tokio = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d" }
 gpui_web = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
+open = "5.4.2"
+rand = "0.9.5"
 crossterm = "0.29.0"
 criterion = "0.7.0"
 ratatui = { version = "0.30.0", default-features = false, features = ["crossterm", "layout-cache"] }

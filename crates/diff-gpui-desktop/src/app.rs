@@ -1,14 +1,18 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
 use crate::{args::CliArgs, window_chrome};
-use diff_core::{DiffDocument, DiffReviewEvent, DiffScope};
+use diff_core::{DiffDocument, DiffReviewEvent, DiffScope, ReviewSubmission};
 use diff_git::{GitError, GitRepository};
 use diff_gpui::{DEFAULT_FONT_FAMILY, DiffViewer};
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
 };
-use std::{future::Future, path::PathBuf, sync::Arc};
+use std::{
+    future::Future,
+    path::PathBuf,
+    sync::{Arc, mpsc::Sender},
+};
 
 type LoadResult = Result<(Option<GitRepository>, DiffDocument), GitError>;
 
@@ -48,10 +52,16 @@ pub(crate) struct DesktopApp {
     viewer: Option<Entity<DiffViewer>>,
     viewer_subscription: Option<Subscription>,
     load_task: Task<()>,
+    outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
 }
 
 impl DesktopApp {
-    pub(crate) fn new(args: CliArgs, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        args: CliArgs,
+        outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut app = Self {
             repository_path: args.repository,
             repository: None,
@@ -60,6 +70,7 @@ impl DesktopApp {
             viewer: None,
             viewer_subscription: None,
             load_task: Task::ready(()),
+            outcome_sender,
         };
         app.discover(cx);
         app
@@ -154,8 +165,8 @@ impl DesktopApp {
             let viewer = cx.new(|_| DiffViewer::new(document));
             self.viewer_subscription = Some(cx.subscribe(
                 &viewer,
-                |_this, _viewer, event: &DiffReviewEvent, cx| {
-                    Self::handle_viewer_event(event, cx);
+                |this, _viewer, event: &DiffReviewEvent, cx| {
+                    this.handle_viewer_event(event, cx);
                 },
             ));
             self.viewer = Some(viewer);
@@ -173,7 +184,24 @@ impl DesktopApp {
         cx.notify();
     }
 
-    fn handle_viewer_event(event: &DiffReviewEvent, cx: &mut Context<Self>) {
+    fn handle_viewer_event(&self, event: &DiffReviewEvent, cx: &mut Context<Self>) {
+        if let Some(sender) = &self.outcome_sender {
+            match event {
+                DiffReviewEvent::CopyFormattedReview(text) => {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                }
+                DiffReviewEvent::SubmitReview(submission) => {
+                    let _ = sender.send(Some(submission.clone()));
+                    cx.quit();
+                }
+                DiffReviewEvent::Cancel => {
+                    let _ = sender.send(None);
+                    cx.quit();
+                }
+            }
+            return;
+        }
+
         match host_event_effect(event) {
             HostEventEffect::Copy(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             HostEventEffect::PrintSubmission(json) => println!("{json}"),

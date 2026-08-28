@@ -3,6 +3,10 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list
 
+# Build and install the release clankerdiff binary into Cargo's bin directory.
+install: clankerdiff-web-assets
+    cargo install --path crates/clankerdiff --locked --force --profile release
+
 tui:
     cargo run -p diff-ratatui --example review
 
@@ -21,13 +25,20 @@ ensure_trunk_installed:
 web: ensure_trunk_installed
     cd crates/diff-gpui-web && trunk serve
 
-check:
+# Refresh the self-contained browser assets embedded in clankerdiff.
+clankerdiff-web-assets: ensure_trunk_installed
+    mkdir -p crates/clankerdiff/assets
+    cd crates/diff-gpui-web && trunk build --release
+    cp crates/diff-gpui-web/dist/diff-gpui-web-*.js crates/clankerdiff/assets/app.js
+    gzip -9 -c crates/diff-gpui-web/dist/diff-gpui-web-*_bg.wasm > crates/clankerdiff/assets/app.wasm.gz
+
+check: clankerdiff-web-assets
     cargo check --workspace --all-targets
 
-test:
+test: clankerdiff-web-assets
     cargo test --workspace
 
-lint:
+lint: clankerdiff-web-assets
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 wasm-check:
@@ -39,7 +50,7 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-doc-check:
+doc-check: clankerdiff-web-assets
     cargo doc --workspace --all-features --no-deps --document-private-items
 
 # Run every local verification check. CI intentionally runs these as separate jobs.
