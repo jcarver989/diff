@@ -17,7 +17,7 @@ fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
             title: Some("Diff Review".into()),
             ..Default::default()
         }),
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_bounds: Some(WindowBounds::Maximized(bounds)),
         window_min_size: Some(size(px(640.0), px(480.0))),
         focus: true,
         is_movable: true,
@@ -66,7 +66,7 @@ mod tests {
         let bounds = Bounds::new(point(px(10.0), px(20.0)), size(px(1280.0), px(840.0)));
         let options = window_options(bounds);
 
-        assert_eq!(options.window_bounds, Some(WindowBounds::Windowed(bounds)));
+        assert_eq!(options.window_bounds, Some(WindowBounds::Maximized(bounds)));
         assert_eq!(options.window_min_size, Some(size(px(640.0), px(480.0))));
         assert!(options.is_movable);
         assert!(options.is_resizable);
