@@ -148,8 +148,8 @@ impl Default for DiffPalette {
 /// Stable identifiers for embedded and host-provided themes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ThemeId {
-    #[default]
     Sage,
+    #[default]
     Ayu,
     Custom(String),
 }
@@ -253,7 +253,7 @@ fn parsed_theme_revision(
 
 impl Default for DiffTheme {
     fn default() -> Self {
-        Self::sage().expect("bundled Sage theme must parse")
+        Self::ayu().expect("bundled Ayu Dark theme must parse")
     }
 }
 
@@ -270,8 +270,10 @@ mod tests {
 
     #[test]
     fn bundled_themes_parse_with_distinct_revisions() {
-        let sage = DiffTheme::default();
-        let ayu = DiffTheme::ayu().unwrap();
+        let sage = DiffTheme::sage().unwrap();
+        let ayu = DiffTheme::default();
+        assert_eq!(ThemeId::default(), ThemeId::Ayu);
+        assert_eq!(ayu.id(), &ThemeId::Ayu);
         assert_eq!(sage.id(), &ThemeId::Sage);
         assert_ne!(sage.revision(), ayu.revision());
     }

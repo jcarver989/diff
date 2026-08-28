@@ -514,8 +514,8 @@ mod tests {
 
     #[test]
     fn a_different_theme_invalidates_cached_spans() {
-        let sage = DiffTheme::default();
-        let ayu = DiffTheme::ayu().unwrap();
+        let sage = DiffTheme::sage().unwrap();
+        let ayu = DiffTheme::default();
         let mut highlighter = SyntaxHighlighter::new(8);
         highlighter.highlight(&sage, "rust", "fn main() {}");
         highlighter.highlight(&ayu, "rust", "fn main() {}");
