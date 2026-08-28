@@ -1,9 +1,17 @@
+use crate::{
+    annotation::PatchVisualLayout,
+    drawer::{DrawerEntry, DrawerTree},
+};
 use diff_core::{
     DiffDocument, DiffPresentation, DiffSide, DiffTheme, HighlightStats, Layout, Review,
     ReviewSession, SyntaxHighlighter, ViewMode,
 };
 use ratatui::layout::{Position, Rect};
-use std::sync::Arc;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 pub(crate) const SPLIT_BREAKPOINT: u16 = 96;
 
@@ -34,6 +42,19 @@ pub(crate) struct HitLayout {
     pub patch: Rect,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+enum DrawerFollow {
+    #[default]
+    Pending,
+    Settled,
+}
+
+#[derive(Debug)]
+struct CachedPatchLayout {
+    key: u64,
+    layout: Arc<PatchVisualLayout>,
+}
+
 /// Persistent state for [`crate::DiffReviewWidget`].
 #[derive(Debug)]
 pub struct DiffReviewState {
@@ -42,11 +63,15 @@ pub struct DiffReviewState {
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) status: DiffReviewStatus,
     pub(crate) focus: FocusPane,
+    pub(crate) drawer: DrawerTree,
+    pub(crate) drawer_selected: usize,
     pub(crate) drawer_scroll: usize,
     pub(crate) drawer_height: usize,
+    drawer_follow: DrawerFollow,
     pub(crate) scroll: usize,
     pub(crate) last_height: usize,
     pub(crate) presentation_width: u16,
+    patch_layout: Option<CachedPatchLayout>,
     pub(crate) help: bool,
     pub(crate) hit_layout: HitLayout,
     pub(crate) visible_rows: Vec<(u16, usize)>,
@@ -65,17 +90,23 @@ impl DiffReviewState {
     /// Creates ready state with a shared neutral theme.
     #[must_use]
     pub fn with_theme(document: Arc<DiffDocument>, theme: DiffTheme) -> Self {
+        let drawer = DrawerTree::new(&document);
+        let drawer_selected = drawer.position_of_file(0).unwrap_or(0);
         let mut state = Self {
             session: ReviewSession::new(document),
             theme,
             highlighter: SyntaxHighlighter::default(),
             status: DiffReviewStatus::Ready,
             focus: FocusPane::Files,
+            drawer,
+            drawer_selected,
             drawer_scroll: 0,
             drawer_height: 1,
+            drawer_follow: DrawerFollow::Pending,
             scroll: 0,
             last_height: 0,
             presentation_width: 0,
+            patch_layout: None,
             help: false,
             hit_layout: HitLayout::default(),
             visible_rows: Vec::new(),
@@ -161,7 +192,7 @@ impl DiffReviewState {
         self.highlighter.stats()
     }
 
-    /// Returns the first visible presentation-row index.
+    /// Returns the first visible rendered-row index in the selected file.
     #[must_use]
     pub const fn scroll_offset(&self) -> usize {
         self.scroll
@@ -209,9 +240,15 @@ impl DiffReviewState {
         self.status = DiffReviewStatus::Ready;
         self.cursor_position = None;
         self.mark_dirty();
-        self.drawer_scroll = self
-            .drawer_scroll
-            .min(self.session.selected_file().unwrap_or(0));
+        let document = self.document().clone();
+        self.drawer.rebuild(&document);
+        if let Some(selected) = self.session.selected_file() {
+            self.drawer.expand_file(&document, selected);
+            self.drawer_selected = self.drawer.position_of_file(selected).unwrap_or(0);
+        } else {
+            self.drawer_selected = 0;
+        }
+        self.follow_drawer_selection();
         self.scroll_to_selected_file();
     }
 
@@ -254,40 +291,95 @@ impl DiffReviewState {
     }
 
     pub(crate) fn ensure_presentation(&mut self, width: u16) {
+        let width_changed = self.presentation_width != width;
         self.presentation_width = width;
         if self.session.set_split_when_auto(width >= SPLIT_BREAKPOINT) {
             self.scroll_to_selected_file();
+        } else if width_changed {
+            self.request_follow();
         }
     }
 
     pub(crate) fn scroll_to_selected_file(&mut self) {
-        self.scroll = self
-            .session
-            .selected_file_range()
-            .map_or(0, |range| range.start);
+        self.scroll = 0;
         self.request_follow();
     }
 
-    pub(crate) fn move_file(&mut self, delta: isize) {
-        let Some(selected) = self.session.move_file(delta) else {
+    pub(crate) fn move_drawer_entry(&mut self, delta: isize) {
+        let last = self.drawer.entries().len().saturating_sub(1);
+        self.drawer_selected = offset(self.drawer_selected, delta, last);
+        if let Some(DrawerEntry::File { index, .. }) = self.drawer.entry(self.drawer_selected) {
+            let index = *index;
+            if self.session.select_file(index) {
+                self.scroll_to_selected_file();
+            }
+        }
+        self.follow_drawer_selection();
+    }
+
+    pub(crate) fn select_drawer_entry(&mut self, index: usize) {
+        if index >= self.drawer.entries().len() {
+            return;
+        }
+        self.drawer_selected = index;
+        if let Some(DrawerEntry::File { index, .. }) = self.drawer.entry(index) {
+            let index = *index;
+            if self.session.select_file(index) {
+                self.scroll_to_selected_file();
+            }
+        }
+        self.follow_drawer_selection();
+    }
+
+    /// Expands the selected directory, or selects the current file. Returns
+    /// whether the selected entry was a directory.
+    pub(crate) fn expand_or_open_drawer_entry(&mut self) -> bool {
+        match self.drawer.entry(self.drawer_selected).cloned() {
+            Some(DrawerEntry::Directory { path, .. }) => {
+                self.drawer.expand(&path);
+                self.drawer_selected = self.drawer.position_of_directory(&path).unwrap_or(0);
+                self.follow_drawer_selection();
+                self.mark_dirty();
+                true
+            }
+            Some(DrawerEntry::File { index, .. }) => {
+                if self.session.select_file(index) {
+                    self.scroll_to_selected_file();
+                }
+                false
+            }
+            None => false,
+        }
+    }
+
+    pub(crate) fn collapse_drawer_entry(&mut self) {
+        let Some(DrawerEntry::Directory { path, .. }) =
+            self.drawer.entry(self.drawer_selected).cloned()
+        else {
             return;
         };
-        self.follow_file_selection(selected);
+        self.drawer.collapse(&path);
+        self.drawer_selected = self.drawer.position_of_directory(&path).unwrap_or(0);
+        self.follow_drawer_selection();
+        self.mark_dirty();
     }
 
-    pub(crate) fn select_file(&mut self, index: usize) {
-        if self.session.select_file(index) {
-            self.follow_file_selection(index);
+    fn follow_drawer_selection(&mut self) {
+        self.drawer_follow = DrawerFollow::Pending;
+        if self.drawer_selected < self.drawer_scroll {
+            self.drawer_scroll = self.drawer_selected;
+        } else if self.drawer_selected >= self.drawer_scroll.saturating_add(self.drawer_height) {
+            self.drawer_scroll = self
+                .drawer_selected
+                .saturating_sub(self.drawer_height.saturating_sub(1));
         }
     }
 
-    fn follow_file_selection(&mut self, selected: usize) {
-        if selected < self.drawer_scroll {
-            self.drawer_scroll = selected;
-        } else if selected >= self.drawer_scroll.saturating_add(self.drawer_height) {
-            self.drawer_scroll = selected.saturating_sub(self.drawer_height.saturating_sub(1));
-        }
-        self.scroll_to_selected_file();
+    pub(crate) fn take_drawer_follow_request(&mut self) -> bool {
+        matches!(
+            std::mem::replace(&mut self.drawer_follow, DrawerFollow::Settled),
+            DrawerFollow::Pending
+        )
     }
 
     pub(crate) fn move_row(&mut self, delta: isize) {
@@ -304,10 +396,10 @@ impl DiffReviewState {
     /// mouse wheel does. The selection may leave the viewport; the next
     /// keyboard move brings it back.
     pub(crate) fn scroll_patch(&mut self, delta: isize) {
-        let Some(range) = self.session.selected_file_range() else {
+        let Some(layout) = self.patch_visual_layout() else {
             return;
         };
-        if range.is_empty() {
+        if layout.is_empty() {
             return;
         }
         let target = if delta.is_negative() {
@@ -315,7 +407,8 @@ impl DiffReviewState {
         } else {
             self.scroll.saturating_add(delta.unsigned_abs())
         };
-        let clamped = target.clamp(range.start, range.end - 1);
+        let last = layout.len().saturating_sub(self.last_height.max(1));
+        let clamped = target.min(last);
         if clamped != self.scroll {
             self.scroll = clamped;
             self.mark_dirty();
@@ -325,8 +418,8 @@ impl DiffReviewState {
     /// Scrolls the file drawer without moving the selected file.
     pub(crate) fn scroll_drawer(&mut self, delta: isize) {
         let last = self
-            .document()
-            .files
+            .drawer
+            .entries()
             .len()
             .saturating_sub(self.drawer_height);
         let target = if delta.is_negative() {
@@ -343,7 +436,7 @@ impl DiffReviewState {
 
     pub(crate) fn page(&mut self, delta: isize) {
         let height = isize::try_from(self.last_height.max(1)).unwrap_or(isize::MAX);
-        self.move_row(delta.saturating_mul(height));
+        self.scroll_patch(delta.saturating_mul(height));
     }
 
     /// Brings the selection back into view against the height the last frame
@@ -367,53 +460,63 @@ impl DiffReviewState {
         let Some(selected) = self.session.selected_row() else {
             return;
         };
-        if selected < self.scroll {
-            self.scroll = selected;
+        let draft = self.session.draft().is_some();
+        let Some(layout) = self.patch_visual_layout() else {
             return;
-        }
-
+        };
+        let Some(target) = layout.focused_visual_row(selected, draft) else {
+            return;
+        };
         let height = self.last_height.max(1);
-        let range_start = self
-            .session
-            .selected_file_range()
-            .map_or(0, |range| range.start);
-        let mut earliest = selected;
-        let mut used = 1_usize;
-        while earliest > range_start {
-            let previous = earliest - 1;
-            let cost = self.rendered_height(previous);
-            if used.saturating_add(cost) > height {
-                break;
-            }
-            used = used.saturating_add(cost);
-            earliest = previous;
+        if target < self.scroll {
+            self.scroll = target;
+        } else if target >= self.scroll.saturating_add(height) {
+            self.scroll = target.saturating_sub(height.saturating_sub(1));
         }
-        if self.scroll < earliest {
-            self.scroll = earliest;
-        }
+        self.scroll = self.scroll.min(layout.len().saturating_sub(height));
     }
 
-    fn rendered_height(&self, index: usize) -> usize {
-        let Some(row) = self.session.presentation().row(index) else {
-            return 0;
-        };
-        let comments = self
-            .session
-            .review()
-            .comments()
-            .iter()
-            .filter(|comment| {
-                self.session
-                    .presentation()
-                    .row_shows_anchor(row, &comment.anchor)
-            })
-            .count();
-        let draft = usize::from(self.session.draft().is_some_and(|draft| {
-            self.session
-                .presentation()
-                .row_shows_anchor(row, draft.anchor())
-        }));
-        1 + comments + draft
+    pub(crate) fn patch_visual_layout(&mut self) -> Option<Arc<PatchVisualLayout>> {
+        let range = self.session.selected_file_range()?;
+        let key = self.patch_layout_key(&range);
+        let rebuild = self
+            .patch_layout
+            .as_ref()
+            .is_none_or(|cached| cached.key != key);
+        if rebuild {
+            self.patch_layout = Some(CachedPatchLayout {
+                key,
+                layout: Arc::new(PatchVisualLayout::new(
+                    &self.session,
+                    range,
+                    self.presentation_width,
+                )),
+            });
+        }
+        self.patch_layout
+            .as_ref()
+            .map(|cached| cached.layout.clone())
+    }
+
+    fn patch_layout_key(&self, range: &std::ops::Range<usize>) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        (Arc::as_ptr(self.document()) as usize).hash(&mut hasher);
+        self.presentation_width.hash(&mut hasher);
+        self.layout().is_split().hash(&mut hasher);
+        range.start.hash(&mut hasher);
+        range.end.hash(&mut hasher);
+        for comment in self.review().comments() {
+            comment.id.hash(&mut hasher);
+            comment.anchor.hash(&mut hasher);
+            comment.body.hash(&mut hasher);
+            comment.outdated.hash(&mut hasher);
+        }
+        if let Some(draft) = self.session.draft() {
+            draft.anchor().hash(&mut hasher);
+            draft.body().hash(&mut hasher);
+            draft.cursor().hash(&mut hasher);
+        }
+        hasher.finish()
     }
 
     pub(crate) fn select_clicked_row(&mut self, row: u16) {
@@ -427,6 +530,14 @@ impl DiffReviewState {
         {
             self.request_follow();
         }
+    }
+}
+
+fn offset(current: usize, delta: isize, last: usize) -> usize {
+    if delta.is_negative() {
+        current.saturating_sub(delta.unsigned_abs())
+    } else {
+        current.saturating_add(delta.unsigned_abs()).min(last)
     }
 }
 
@@ -453,6 +564,6 @@ mod tests {
         state.session.review_mut().add_comment(anchor, "note");
         state.session.move_row(2);
         state.follow_selection();
-        assert!(state.scroll > state.session.selected_file_range().unwrap().start);
+        assert!(state.scroll > 0);
     }
 }

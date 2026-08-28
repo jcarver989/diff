@@ -4,10 +4,10 @@ mod support;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use diff_core::{
-    DiffDocument, DiffReviewEvent, DiffSide, FileDiff, Layout, LineAnchor, PatchLine,
+    DiffDocument, DiffReviewEvent, DiffSide, DiffTheme, FileDiff, Layout, LineAnchor, PatchLine,
     PatchLineKind, Review, ViewMode, testing::DocumentBuilder,
 };
-use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane};
+use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane, RatatuiTheme};
 use ratatui::{Terminal, backend::TestBackend, layout::Position};
 use std::{fmt::Write, sync::Arc};
 use support::{key, key_with, mouse};
@@ -57,7 +57,8 @@ fn narrow_and_wide_views_share_core_presentation() {
     assert!(!narrow.contains("☐ M"), "narrow view must hide the drawer");
 
     let wide = draw(&mut state, 140, 12);
-    assert!(wide.contains("☐ M src/main.rs"), "{wide}");
+    assert!(wide.contains("☐ M main.rs"), "{wide}");
+    assert!(wide.contains("▾ src/"), "{wide}");
     assert!(wide.contains('│'), "{wide}");
     assert_eq!(state.layout(), Layout::Split);
 }
@@ -197,7 +198,7 @@ fn paging_mouse_selection_and_visible_highlighting_are_bounded() {
     state.handle_input(key(KeyCode::Enter));
     let before = state.selected_row().expect("selected row");
     state.handle_input(key(KeyCode::PageDown));
-    assert!(state.selected_row().expect("selected row") > before);
+    assert_eq!(state.selected_row(), Some(before));
     assert!(state.scroll_offset() > 0);
 
     state.handle_input(DiffReviewInput::Mouse(MouseEvent {
@@ -236,12 +237,12 @@ fn draft_cursor_uses_terminal_display_width() {
 
     draw(&mut state, 60, 12);
     let ascii = state.cursor_position().expect("visible draft cursor");
-    assert_eq!(ascii, Position::new(5, 4));
+    assert_eq!(ascii, Position::new(7, 5));
 
     type_text(&mut state, "界");
     draw(&mut state, 60, 12);
     let wide = state.cursor_position().expect("visible wide draft cursor");
-    assert_eq!(wide, Position::new(7, 4));
+    assert_eq!(wide, Position::new(9, 5));
 
     state.handle_input(key(KeyCode::Left));
     draw(&mut state, 60, 12);
@@ -249,6 +250,62 @@ fn draft_cursor_uses_terminal_display_width() {
 
     state.handle_input(key(KeyCode::Esc));
     assert_eq!(state.cursor_position(), None);
+}
+
+#[test]
+fn comments_render_as_padded_themed_boxes() {
+    let mut state = DiffReviewState::new(changed_document());
+    let anchor = state.session().selected_anchor().expect("selected anchor");
+    state
+        .review_mut()
+        .add_comment(anchor, "Please include the path in the error.");
+
+    let rendered = draw(&mut state, 80, 12);
+
+    assert!(rendered.contains("╭─ Comment "), "{rendered}");
+    assert!(rendered.contains("│ Please include the path"), "{rendered}");
+    assert!(rendered.contains('╰'), "{rendered}");
+
+    let mut terminal = Terminal::new(TestBackend::new(80, 12)).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), &mut state);
+        })
+        .expect("draw comment box");
+    let border = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .find(|cell| cell.symbol() == "╭")
+        .expect("top-left comment border");
+    let expected = RatatuiTheme::from(&DiffTheme::default()).accent;
+    assert_eq!(border.fg, expected);
+}
+
+#[test]
+fn tall_comment_boxes_can_be_scrolled_line_by_line() {
+    let mut state = DiffReviewState::new(changed_document());
+    let anchor = state.session().selected_anchor().expect("selected anchor");
+    let body = (0..14)
+        .map(|index| format!("comment line {index:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    state.review_mut().add_comment(anchor, body);
+    let top = draw(&mut state, 80, 8);
+    assert!(top.contains("comment line 00"), "{top}");
+    assert!(!top.contains("comment line 13"), "{top}");
+
+    for _ in 0..5 {
+        state.handle_input(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 3));
+    }
+    let bottom = draw(&mut state, 80, 8);
+
+    assert!(bottom.contains("comment line 13"), "{bottom}");
+    assert!(
+        bottom.contains('╰'),
+        "the closing border must be reachable: {bottom}"
+    );
 }
 
 #[test]
@@ -271,6 +328,108 @@ fn file_drawer_scrolls_and_mouse_selection_uses_its_offset() {
         modifiers: KeyModifiers::NONE,
     }));
     assert_eq!(state.selected_file(), Some(4));
+}
+
+#[test]
+fn directory_entries_navigate_collapse_and_expand_without_losing_the_patch_file() {
+    let document = DocumentBuilder::new()
+        .changed("src/lib.rs", "old\n", "new\n")
+        .changed("src/bin/main.rs", "old\n", "new\n")
+        .changed("README.md", "old\n", "new\n")
+        .build();
+    let mut state = DiffReviewState::new(document);
+    let initial = draw(&mut state, 100, 12);
+    assert!(initial.contains("▾ src/"), "{initial}");
+    assert!(initial.contains("▾ bin/"), "{initial}");
+    assert!(initial.contains("main.rs"), "{initial}");
+
+    state.handle_input(key(KeyCode::Up));
+    assert_eq!(state.selected_file(), Some(1));
+    state.handle_input(key(KeyCode::Up));
+    assert_eq!(
+        state.selected_file(),
+        Some(1),
+        "directory selection must leave the patch file unchanged"
+    );
+    state.handle_input(key(KeyCode::Left));
+    let collapsed = draw(&mut state, 100, 12);
+    assert!(collapsed.contains("▸ bin/"), "{collapsed}");
+    assert!(!collapsed.contains("☐ M main.rs"), "{collapsed}");
+    assert!(
+        collapsed.contains("src/bin/main.rs"),
+        "active patch remains visible"
+    );
+
+    state.handle_input(key(KeyCode::Enter));
+    let expanded = draw(&mut state, 100, 12);
+    assert!(expanded.contains("▾ bin/"), "{expanded}");
+    assert!(expanded.contains("☐ M main.rs"), "{expanded}");
+    assert_eq!(state.focus(), FocusPane::Files);
+}
+
+#[test]
+fn initial_file_selection_is_scrolled_into_a_sorted_drawer() {
+    let mut builder = DocumentBuilder::new().changed("z.rs", "old\n", "new\n");
+    for index in 0..12 {
+        builder = builder.changed(&format!("dir_{index:02}/file.rs"), "old\n", "new\n");
+    }
+    let mut state = DiffReviewState::new(builder.build());
+
+    let rendered = draw(&mut state, 100, 8);
+
+    assert_eq!(state.selected_file(), Some(0));
+    assert!(rendered.contains("☐ M z.rs"), "{rendered}");
+}
+
+#[test]
+fn document_replacement_expands_the_selected_files_ancestors() {
+    let document = DocumentBuilder::new()
+        .changed("src/lib.rs", "old\n", "new\n")
+        .build();
+    let mut state = DiffReviewState::new(document);
+    draw(&mut state, 100, 8);
+    state.handle_input(key(KeyCode::Up));
+    state.handle_input(key(KeyCode::Left));
+    assert!(draw(&mut state, 100, 8).contains("▸ src/"));
+
+    state.set_document(
+        DocumentBuilder::new()
+            .changed("src/lib.rs", "older\n", "newer\n")
+            .build(),
+    );
+    let replaced = draw(&mut state, 100, 8);
+    assert!(replaced.contains("▾ src/"), "{replaced}");
+    assert!(replaced.contains("☐ M lib.rs"), "{replaced}");
+}
+
+#[test]
+fn diff_and_drawer_render_scrollbars_without_covering_content() {
+    let mut state = DiffReviewState::new(DocumentBuilder::new().generated_files(40, 400).build());
+    let top = draw(&mut state, 100, 24);
+    assert!(
+        top.contains('▲'),
+        "drawer and patch tracks should have top arrows: {top}"
+    );
+    assert!(
+        top.contains('▼'),
+        "drawer and patch tracks should have bottom arrows: {top}"
+    );
+    assert!(top.contains("let file_00_rs_value_1"), "{top}");
+
+    let selected = state.selected_row();
+    for _ in 0..10 {
+        state.handle_input(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 5));
+    }
+    let scrolled = draw(&mut state, 100, 24);
+    assert_ne!(
+        top, scrolled,
+        "scrolling should move patch content and its thumb"
+    );
+    assert_eq!(state.selected_row(), selected);
+    assert!(
+        scrolled.contains('█') || scrolled.contains('║'),
+        "{scrolled}"
+    );
 }
 
 #[test]
@@ -369,15 +528,18 @@ fn the_wheel_over_the_drawer_scrolls_one_file_at_a_time() {
     // The stage marker prefix distinguishes a drawer row from the patch header,
     // which keeps naming the selected file.
     let first = draw(&mut state, 100, 24);
-    assert!(first.contains("\u{2610} A src/file_00.rs"), "{first}");
+    assert!(first.contains("\u{2610} A file_00.rs"), "{first}");
+    assert!(first.contains("▾ src/"), "{first}");
+
+    state.handle_input(mouse(MouseEventKind::ScrollDown, DRAWER_COLUMN, 5));
+    let one_entry = draw(&mut state, 100, 24);
+    assert!(!one_entry.contains("▾ src/"), "{one_entry}");
+    assert!(one_entry.contains("\u{2610} A file_00.rs"), "{one_entry}");
 
     state.handle_input(mouse(MouseEventKind::ScrollDown, DRAWER_COLUMN, 5));
     let scrolled = draw(&mut state, 100, 24);
-    assert!(
-        !scrolled.contains("\u{2610} A src/file_00.rs"),
-        "{scrolled}"
-    );
-    assert!(scrolled.contains("\u{2610} A src/file_01.rs"), "{scrolled}");
+    assert!(!scrolled.contains("\u{2610} A file_00.rs"), "{scrolled}");
+    assert!(scrolled.contains("\u{2610} A file_01.rs"), "{scrolled}");
     assert_eq!(
         state.selected_file(),
         Some(0),

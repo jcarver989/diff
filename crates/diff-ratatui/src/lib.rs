@@ -2,10 +2,13 @@
 //! Hosts provide [`diff_core::DiffDocument`] snapshots and route emitted
 //! [`diff_core::DiffReviewEvent`] values. This crate never executes Git.
 
+mod annotation;
+mod drawer;
 mod input;
 mod render;
 mod state;
 mod style;
+mod widgets;
 
 pub use input::{DiffReviewInput, handle_crossterm_event};
 pub use render::DiffReviewWidget;

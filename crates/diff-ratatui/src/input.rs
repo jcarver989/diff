@@ -58,7 +58,7 @@ impl DiffReviewState {
             DiffReviewInput::Paste(text) => {
                 if let Some(draft) = self.session.draft_mut() {
                     draft.insert(&text);
-                    self.mark_dirty();
+                    self.request_follow();
                 }
                 None
             }
@@ -109,8 +109,18 @@ impl DiffReviewState {
             KeyCode::Right if in_diff && self.layout().is_split() => {
                 self.session.set_selected_side(DiffSide::New);
             }
-            KeyCode::Left | KeyCode::Char('h') => self.focus = FocusPane::Files,
-            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => self.focus = FocusPane::Diff,
+            KeyCode::Left | KeyCode::Char('h') => {
+                if in_diff {
+                    self.focus = FocusPane::Files;
+                } else {
+                    self.collapse_drawer_entry();
+                }
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
+                if self.focus == FocusPane::Files && !self.expand_or_open_drawer_entry() {
+                    self.focus = FocusPane::Diff;
+                }
+            }
             KeyCode::Up | KeyCode::Char('k') => self.move_focused(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_focused(1),
             KeyCode::PageUp => self.page(-1),
@@ -119,11 +129,13 @@ impl DiffReviewState {
             KeyCode::End => self.select_boundary(true),
             KeyCode::Char('c') if in_diff => {
                 self.session.begin_draft(None);
+                self.request_follow();
             }
             KeyCode::Char('e') if in_diff => {
                 let editing = self.session.comment_id_at_selection();
                 if editing.is_some() {
                     self.session.begin_draft(editing);
+                    self.request_follow();
                 }
             }
             KeyCode::Char('x') if in_diff => {
@@ -155,7 +167,7 @@ impl DiffReviewState {
 
     fn move_focused(&mut self, delta: isize) {
         match self.focus {
-            FocusPane::Files => self.move_file(delta),
+            FocusPane::Files => self.move_drawer_entry(delta),
             FocusPane::Diff => self.move_row(delta),
         }
     }
@@ -190,6 +202,7 @@ impl DiffReviewState {
             }
             _ => {}
         }
+        self.request_follow();
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {
@@ -201,7 +214,7 @@ impl DiffReviewState {
                 if self.hit_layout.drawer.contains(position) {
                     self.focus = FocusPane::Files;
                     let relative = usize::from(mouse.row.saturating_sub(self.hit_layout.drawer.y));
-                    self.select_file(self.drawer_scroll.saturating_add(relative));
+                    self.select_drawer_entry(self.drawer_scroll.saturating_add(relative));
                     self.mark_dirty();
                 } else if self.hit_layout.patch.contains(position) {
                     self.focus = FocusPane::Diff;
