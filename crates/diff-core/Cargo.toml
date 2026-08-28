@@ -1,0 +1,23 @@
+[package]
+name = "diff-core"
+description = "Renderer-independent diff and code review domain model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3.workspace = true
+diffy.workspace = true
+serde.workspace = true
+similar.workspace = true
+syntect.workspace = true
+thiserror.workspace = true
+two-face.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
