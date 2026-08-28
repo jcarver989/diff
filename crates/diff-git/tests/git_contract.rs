@@ -124,7 +124,7 @@ async fn snapshots_keep_staged_unstaged_and_partial_content_separate() {
             .hunks
             .iter()
             .flat_map(|hunk| &hunk.lines)
-            .any(|line| line.kind == PatchLineKind::Added && line.text == "index")
+            .any(|line| line.kind == PatchLineKind::Added && line.text.as_ref() == "index")
     );
 
     let unstaged = repository
@@ -137,7 +137,7 @@ async fn snapshots_keep_staged_unstaged_and_partial_content_separate() {
             .hunks
             .iter()
             .flat_map(|hunk| &hunk.lines)
-            .any(|line| line.kind == PatchLineKind::Added && line.text == "worktree")
+            .any(|line| line.kind == PatchLineKind::Added && line.text.as_ref() == "worktree")
     );
 
     let both = repository
@@ -217,6 +217,24 @@ async fn untracked_text_binary_and_utf8_paths_are_loaded_without_loss() {
             .expect("read binary")
             .is_binary()
     );
+}
+
+#[tokio::test]
+async fn oversized_untracked_content_is_omitted_from_snapshots() {
+    let repo = Repo::init();
+    let large = fs::File::create(repo.root.join("large.bin")).expect("create large fixture");
+    large.set_len(9 * 1024 * 1024).expect("size large fixture");
+
+    let document = repo
+        .repository()
+        .await
+        .snapshot(DiffScope::Unstaged)
+        .await
+        .expect("snapshot");
+    let large = file(&document, "large.bin");
+    assert!(large.binary);
+    assert_eq!(large.omitted_bytes, Some(9 * 1024 * 1024));
+    assert!(large.hunks.is_empty());
 }
 
 #[cfg(unix)]

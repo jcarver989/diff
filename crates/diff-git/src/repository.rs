@@ -4,12 +4,12 @@ use crate::{GitError, command, path};
 use diff_core::{
     DiffDocument, DiffScope, FileStatus, RepoPath, UntrackedFile, parse_porcelain_v1_z,
 };
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const STATUS_ARGS: [&str; 4] = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+const MAX_UNTRACKED_FILE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_UNTRACKED_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Bytes read from a worktree file, classified for safe text rendering.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,7 +76,7 @@ impl GitRepository {
         let output = match command::run(
             candidate,
             "discover repository",
-            command::args(&["rev-parse", "--show-toplevel"]),
+            ["rev-parse", "--show-toplevel"],
         )
         .await
         {
@@ -109,12 +109,7 @@ impl GitRepository {
     pub async fn snapshot(&self, scope: DiffScope) -> Result<DiffDocument, GitError> {
         let has_head = scope != DiffScope::Both || self.has_head().await?;
         let diff = command::run(&self.root, "load diff", Self::diff_args(scope, has_head)).await?;
-        let status = command::run(
-            &self.root,
-            "load status",
-            command::args(&["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-        )
-        .await?;
+        let status = command::run(&self.root, "load status", STATUS_ARGS).await?;
         let untracked = if scope == DiffScope::Staged {
             Vec::new()
         } else {
@@ -192,7 +187,7 @@ impl GitRepository {
     ///
     /// Returns an error when Git cannot update the index.
     pub async fn stage_all(&self) -> Result<(), GitError> {
-        command::run(&self.root, "stage all", command::args(&["add", "-A", "--"]))
+        command::run(&self.root, "stage all", ["add", "-A", "--"])
             .await
             .map(drop)
     }
@@ -203,32 +198,23 @@ impl GitRepository {
     ///
     /// Returns an error when Git cannot update the index.
     pub async fn unstage_all(&self) -> Result<(), GitError> {
-        if self.has_head().await? {
-            command::run(
-                &self.root,
-                "unstage all",
-                command::args(&["reset", "--quiet", "HEAD", "--"]),
-            )
-            .await
-            .map(drop)
+        let args: &[&str] = if self.has_head().await? {
+            &["reset", "--quiet", "HEAD", "--"]
         } else {
-            command::run(
-                &self.root,
-                "unstage all",
-                command::args(&[
-                    "rm",
-                    "--cached",
-                    "-r",
-                    "-f",
-                    "--quiet",
-                    "--ignore-unmatch",
-                    "--",
-                    ".",
-                ]),
-            )
+            &[
+                "rm",
+                "--cached",
+                "-r",
+                "-f",
+                "--quiet",
+                "--ignore-unmatch",
+                "--",
+                ".",
+            ]
+        };
+        command::run(&self.root, "unstage all", args)
             .await
             .map(drop)
-        }
     }
 
     /// Commits the current index with the supplied non-empty message.
@@ -241,12 +227,9 @@ impl GitRepository {
         if message.trim().is_empty() {
             return Err(GitError::EmptyCommitMessage);
         }
-        let args = vec![
-            OsString::from("commit"),
-            OsString::from("-m"),
-            OsString::from(message),
-        ];
-        command::run(&self.root, "commit", args).await.map(drop)
+        command::run(&self.root, "commit", ["commit", "-m", message])
+            .await
+            .map(drop)
     }
 
     /// Discards all staged and unstaged changes for one path.
@@ -294,12 +277,7 @@ impl GitRepository {
         }
         let mut restore_paths = vec![path.clone()];
         if status == FileStatus::Renamed {
-            let output = command::run(
-                &self.root,
-                "resolve renamed path",
-                command::args(&["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-            )
-            .await?;
+            let output = command::run(&self.root, "resolve renamed path", STATUS_ARGS).await?;
             if let Some(old_path) = parse_porcelain_v1_z(&output.stdout)?
                 .into_iter()
                 .find(|entry| entry.path == *path)
@@ -320,10 +298,11 @@ impl GitRepository {
         let output = command::run(
             &self.root,
             "list untracked files",
-            command::args(&["ls-files", "--others", "--exclude-standard", "-z", "--"]),
+            ["ls-files", "--others", "--exclude-standard", "-z", "--"],
         )
         .await?;
         let mut files = Vec::new();
+        let mut loaded_bytes = 0_u64;
         for raw_path in output
             .stdout
             .split(|byte| *byte == 0)
@@ -333,13 +312,33 @@ impl GitRepository {
                 .map_err(diff_core::DiffError::UnsupportedPathEncoding)?;
             let path = RepoPath::new(text)?;
             let host_path = path::readable_path(&self.root, &path).await?;
-            let contents = tokio::fs::read(&host_path)
+            let size = tokio::fs::metadata(&host_path)
                 .await
                 .map_err(|source| GitError::Io {
-                    path: host_path,
+                    path: host_path.clone(),
                     source,
-                })?;
-            files.push(UntrackedFile { path, contents });
+                })?
+                .len();
+            let omitted = size > MAX_UNTRACKED_FILE_BYTES
+                || loaded_bytes.saturating_add(size) > MAX_UNTRACKED_SNAPSHOT_BYTES;
+            let contents = if omitted {
+                Vec::new()
+            } else {
+                let contents =
+                    tokio::fs::read(&host_path)
+                        .await
+                        .map_err(|source| GitError::Io {
+                            path: host_path,
+                            source,
+                        })?;
+                loaded_bytes = loaded_bytes.saturating_add(size);
+                contents
+            };
+            files.push(UntrackedFile {
+                path,
+                contents,
+                omitted_bytes: omitted.then_some(size),
+            });
         }
         Ok(files)
     }
@@ -348,7 +347,7 @@ impl GitRepository {
         match command::run(
             &self.root,
             "resolve HEAD",
-            command::args(&["rev-parse", "--verify", "--quiet", "HEAD"]),
+            ["rev-parse", "--verify", "--quiet", "HEAD"],
         )
         .await
         {
@@ -360,46 +359,44 @@ impl GitRepository {
         }
     }
 
-    fn diff_args(scope: DiffScope, has_head: bool) -> Vec<OsString> {
-        let mut args = command::args(&[
+    fn diff_args(scope: DiffScope, has_head: bool) -> Vec<&'static str> {
+        let mut args = vec![
             "diff",
             "--no-ext-diff",
             "--no-color",
             "--find-renames",
             "--find-copies",
             "--find-copies-harder",
-        ]);
+        ];
         match scope {
             DiffScope::Unstaged => {}
-            DiffScope::Staged => args.push(OsString::from("--cached")),
-            DiffScope::Both => {
-                args.push(OsString::from(if has_head { "HEAD" } else { EMPTY_TREE }));
-            }
+            DiffScope::Staged => args.push("--cached"),
+            DiffScope::Both => args.push(if has_head { "HEAD" } else { EMPTY_TREE }),
         }
-        args.push(OsString::from("--"));
+        args.push("--");
         args
     }
 
-    async fn run_paths(
+    async fn run_paths<'a>(
         &self,
         operation: &'static str,
-        prefix: &[&str],
-        paths: &[RepoPath],
+        prefix: &[&'a str],
+        paths: &'a [RepoPath],
     ) -> Result<(), GitError> {
-        let mut args: Vec<OsString> = prefix.iter().map(OsString::from).collect();
-        args.push(OsString::from("--"));
-        for path_value in paths {
-            path::lexical_path(&self.root, path_value)?;
-            args.push(OsString::from(path_value.as_str()));
+        let mut args = prefix.to_vec();
+        args.push("--");
+        for path in paths {
+            path::lexical_path(&self.root, path)?;
+            args.push(path.as_str());
         }
         command::run(&self.root, operation, args).await.map(drop)
     }
 }
 
 fn parse_root(stdout: &[u8]) -> Result<PathBuf, GitError> {
-    let stdout = stdout.strip_suffix(b"\n").unwrap_or(stdout);
-    let stdout = stdout.strip_suffix(b"\r").unwrap_or(stdout);
-    let root = std::str::from_utf8(stdout).map_err(|_| GitError::UnsupportedRepositoryPath)?;
+    let root = std::str::from_utf8(stdout)
+        .map_err(|_| GitError::UnsupportedRepositoryPath)?
+        .trim_end_matches(['\r', '\n']);
     if root.is_empty() {
         return Err(GitError::NotRepository);
     }

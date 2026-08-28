@@ -21,14 +21,9 @@ async fn main() -> ExitCode {
 async fn run() -> Result<String, Box<dyn std::error::Error>> {
     let mut arguments = env::args_os().skip(1);
     let repository = PathBuf::from(arguments.next().unwrap_or_else(|| ".".into()));
-    let requested_scope = arguments.next().and_then(|scope| scope.into_string().ok());
-    let scope = match requested_scope.as_deref() {
-        None | Some("unstaged") => DiffScope::Unstaged,
-        Some("staged") => DiffScope::Staged,
-        Some("both") => DiffScope::Both,
-        Some(scope) => {
-            return Err(format!("unknown scope `{scope}`; use unstaged, staged, or both").into());
-        }
+    let scope = match arguments.next() {
+        Some(value) => value.to_string_lossy().parse()?,
+        None => DiffScope::Unstaged,
     };
     if arguments.next().is_some() {
         return Err("usage: snapshot_json [REPOSITORY] [unstaged|staged|both]".into());
