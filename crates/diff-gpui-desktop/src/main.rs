@@ -6,16 +6,10 @@ mod window_chrome;
 
 use app::DesktopApp;
 use args::{ArgsError, CliArgs, USAGE};
-use diff_gpui::DiffViewer;
+use diff_gpui::{DiffViewer, load_default_fonts};
 use gpui::{
     App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
-use std::borrow::Cow;
-
-const LILEX_REGULAR: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Regular.ttf");
-const LILEX_BOLD: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Bold.ttf");
-const LILEX_ITALIC: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Italic.ttf");
-const LILEX_BOLD_ITALIC: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-BoldItalic.ttf");
 
 fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
     WindowOptions {
@@ -49,14 +43,7 @@ fn main() {
 
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_tokio::init(cx);
-        cx.text_system()
-            .add_fonts(vec![
-                Cow::Borrowed(LILEX_REGULAR),
-                Cow::Borrowed(LILEX_BOLD),
-                Cow::Borrowed(LILEX_ITALIC),
-                Cow::Borrowed(LILEX_BOLD_ITALIC),
-            ])
-            .expect("failed to load the bundled Lilex font");
+        load_default_fonts(cx).expect("failed to load the bundled fonts");
         DiffViewer::bind_keys(cx);
         DesktopApp::bind_keys(cx);
 

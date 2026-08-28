@@ -47,7 +47,7 @@ mod wasm {
     use super::{WebError, decode_document, decode_theme, demo_document};
     use async_channel::{Receiver, Sender};
     use diff_core::{DiffDocument, DiffReviewEvent, DiffTheme, ReviewSubmission};
-    use diff_gpui::DiffViewer;
+    use diff_gpui::{DiffViewer, load_default_fonts};
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
         Window, WindowBounds, WindowOptions, prelude::*, px, size,
@@ -224,6 +224,7 @@ mod wasm {
         install_host_event_listeners()?;
 
         let application = single_threaded_web().run_embedded(move |cx: &mut App| {
+            load_default_fonts(cx).expect("failed to load the bundled fonts");
             DiffViewer::bind_keys(cx);
             let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
             cx.open_window(

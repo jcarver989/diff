@@ -3,7 +3,7 @@
 use crate::{args::CliArgs, window_chrome};
 use diff_core::{DiffDocument, DiffReviewEvent, DiffScope};
 use diff_git::{GitError, GitRepository};
-use diff_gpui::DiffViewer;
+use diff_gpui::{DEFAULT_FONT_FAMILY, DiffViewer};
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
@@ -227,7 +227,7 @@ impl Render for DesktopApp {
             .on_action(cx.listener(Self::stage_all))
             .on_action(cx.listener(Self::unstage_all))
             .size_full()
-            .font_family("Lilex")
+            .font_family(DEFAULT_FONT_FAMILY)
             .child(match &self.state {
                 LoadState::Loading => {
                     Self::status_panel("Loading diff…", "Git is reading the repository")

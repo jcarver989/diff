@@ -1,7 +1,7 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
 use crate::{
-    DiffViewerEvent,
+    DEFAULT_FONT_FAMILY, DiffViewerEvent,
     comment_editor::{CommentEditor, CommentEditorEvent},
     sidebar::{SidebarResizeDrag, SidebarTree},
     style::color,
@@ -669,7 +669,7 @@ impl Render for DiffViewer {
             .flex_col()
             .bg(color(palette.background))
             .text_color(color(palette.foreground))
-            .font_family("Lilex")
+            .font_family(DEFAULT_FONT_FAMILY)
             .text_size(px(self.font_size))
             .child(
                 div()

@@ -5,12 +5,14 @@
 
 mod comment_editor;
 mod diff_view;
+mod fonts;
 mod review_bar;
 mod sidebar;
 pub mod style;
 mod viewer;
 
 pub use diff_core::DiffReviewEvent as DiffViewerEvent;
+pub use fonts::{DEFAULT_FONT_FAMILY, load_default_fonts};
 pub use viewer::{
     AddComment, Cancel, CancelComment, CopyReview, CycleViewMode, DecreaseFontSize, DeleteComment,
     DiffViewer, DiffViewerOptions, EditComment, IncreaseFontSize, NextFile, NextHunk, PreviousFile,

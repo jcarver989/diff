@@ -1,6 +1,8 @@
 //! State-level contracts for the reusable GPUI viewer.
 
-use diff_core::{DiffSide, DiffTheme, Layout, LineAnchor, ViewMode, testing::DocumentBuilder};
+use diff_core::{
+    DiffSide, DiffTheme, Layout, LineAnchor, ThemeId, ViewMode, testing::DocumentBuilder,
+};
 use diff_gpui::{DiffViewer, DiffViewerOptions};
 
 #[test]
@@ -15,6 +17,7 @@ fn defaults_to_auto_and_indexes_document() {
     assert_eq!(viewer.selected_file(), Some(0));
     assert!(viewer.presentation().row_count() > 0);
     assert_eq!(viewer.review().len(), 0);
+    assert_eq!(viewer.theme().id(), &ThemeId::Ayu);
 }
 
 #[test]
@@ -42,11 +45,15 @@ fn custom_options_are_accepted() {
             .build(),
         DiffTheme::default(),
         DiffViewerOptions {
+            sidebar_width: 360.0,
+            font_size: 16.0,
             highlight_cache_capacity: 4,
             ..DiffViewerOptions::default()
         },
     );
     assert_eq!(viewer.highlight_stats().calls, 0);
+    assert!((viewer.sidebar_width() - 360.0).abs() < f32::EPSILON);
+    assert!((viewer.font_size() - 16.0).abs() < f32::EPSILON);
 }
 
 #[test]
