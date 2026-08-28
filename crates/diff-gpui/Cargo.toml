@@ -1,0 +1,15 @@
+[package]
+name = "diff-gpui"
+description = "Reusable GPUI diff review component"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+diff-core = { path = "../diff-core" }
+gpui.workspace = true
