@@ -12,7 +12,7 @@ mod viewer;
 
 pub use diff_core::DiffReviewEvent as DiffViewerEvent;
 pub use viewer::{
-    AddComment, Cancel, CancelComment, CopyReview, CycleViewMode, DeleteComment, DiffViewer,
-    DiffViewerOptions, EditComment, NextFile, NextHunk, PreviousFile, PreviousHunk, SubmitComment,
-    SubmitReview,
+    AddComment, Cancel, CancelComment, CopyReview, CycleViewMode, DecreaseFontSize, DeleteComment,
+    DiffViewer, DiffViewerOptions, EditComment, IncreaseFontSize, NextFile, NextHunk, PreviousFile,
+    PreviousHunk, ResetFontSize, SubmitComment, SubmitReview,
 };

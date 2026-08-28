@@ -3,6 +3,7 @@
 use crate::{
     DiffViewerEvent,
     comment_editor::{CommentEditor, CommentEditorEvent},
+    sidebar::{SidebarResizeDrag, SidebarTree},
     style::color,
 };
 use diff_core::{
@@ -11,10 +12,20 @@ use diff_core::{
     SyntaxHighlighter, ViewMode,
 };
 use gpui::{
-    App, Context, Entity, EventEmitter, Focusable, KeyBinding, ListAlignment, ListState,
-    Subscription, Window, actions, div, prelude::*, px,
+    App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, ListAlignment,
+    ListState, Subscription, Window, actions, div, prelude::*, px,
 };
 use std::sync::Arc;
+
+const MIN_SIDEBAR_WIDTH: f32 = 180.0;
+const MAX_SIDEBAR_WIDTH: f32 = 600.0;
+const MIN_DIFF_WIDTH: f32 = 320.0;
+const SIDEBAR_DIVIDER_WIDTH: f32 = 1.0;
+const MIN_FONT_SIZE: f32 = 10.0;
+const MAX_FONT_SIZE: f32 = 24.0;
+const FONT_SIZE_STEP: f32 = 1.0;
+const DIFF_ROW_VERTICAL_SPACE: f32 = 19.0;
+const SIDEBAR_ROW_VERTICAL_SPACE: f32 = 20.0;
 
 actions!(
     diff_viewer,
@@ -31,6 +42,9 @@ actions!(
         CancelComment,
         CopyReview,
         SubmitReview,
+        IncreaseFontSize,
+        DecreaseFontSize,
+        ResetFontSize,
         Cancel
     ]
 );
@@ -40,6 +54,8 @@ actions!(
 pub struct DiffViewerOptions {
     /// Width of the changed-files sidebar, in logical pixels.
     pub sidebar_width: f32,
+    /// Initial viewer font size, in logical pixels.
+    pub font_size: f32,
     /// Minimum height of a diff row, in logical pixels.
     pub row_height: f32,
     /// Diff-pane width at which automatic mode switches to split layout.
@@ -52,6 +68,7 @@ impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
             sidebar_width: 280.0,
+            font_size: 13.0,
             row_height: 32.0,
             auto_split_width: 900.0,
             highlight_cache_capacity: 512,
@@ -72,16 +89,19 @@ pub struct DiffViewer {
     theme: DiffTheme,
     highlighter: SyntaxHighlighter,
     options: DiffViewerOptions,
+    sidebar_width: f32,
+    font_size: f32,
     diff_list_state: ListState,
     diff_list_file: Option<usize>,
     diff_list_split: bool,
+    pub(crate) sidebar_tree: SidebarTree,
     pub(crate) comment_target: Option<CommentTarget>,
     pub(crate) comment_editor: Option<Entity<CommentEditor>>,
     comment_editor_subscription: Option<Subscription>,
 }
 
 impl DiffViewer {
-    /// Creates a viewer with the default Sage theme and options.
+    /// Creates a viewer with the default Ayu Dark theme and options.
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
         Self::with_options(document, DiffTheme::default(), DiffViewerOptions::default())
@@ -94,6 +114,12 @@ impl DiffViewer {
         theme: DiffTheme,
         options: DiffViewerOptions,
     ) -> Self {
+        let sidebar_tree = SidebarTree::new(&document);
+        let sidebar_width = options
+            .sidebar_width
+            .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
+        let font_size = clamp_font_size(options.font_size);
+        let row_height = effective_diff_row_height(options.row_height, font_size);
         Self {
             session: ReviewSession::with_options(
                 document,
@@ -104,9 +130,12 @@ impl DiffViewer {
             theme,
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
-            diff_list_state: ListState::new(0, ListAlignment::Top, px(options.row_height * 8.0)),
+            sidebar_width,
+            font_size,
+            diff_list_state: ListState::new(0, ListAlignment::Top, px(row_height * 8.0)),
             diff_list_file: None,
             diff_list_split: false,
+            sidebar_tree,
             comment_target: None,
             comment_editor: None,
             comment_editor_subscription: None,
@@ -125,6 +154,14 @@ impl DiffViewer {
             KeyBinding::new("escape", CancelComment, Some("DiffViewer")),
             KeyBinding::new("cmd-shift-c", CopyReview, Some("DiffViewer")),
             KeyBinding::new("cmd-shift-enter", SubmitReview, Some("DiffViewer")),
+            KeyBinding::new("cmd-=", IncreaseFontSize, Some("DiffViewer")),
+            KeyBinding::new("cmd-+", IncreaseFontSize, Some("DiffViewer")),
+            KeyBinding::new("ctrl-=", IncreaseFontSize, Some("DiffViewer")),
+            KeyBinding::new("ctrl-+", IncreaseFontSize, Some("DiffViewer")),
+            KeyBinding::new("cmd--", DecreaseFontSize, Some("DiffViewer")),
+            KeyBinding::new("ctrl--", DecreaseFontSize, Some("DiffViewer")),
+            KeyBinding::new("cmd-0", ResetFontSize, Some("DiffViewer")),
+            KeyBinding::new("ctrl-0", ResetFontSize, Some("DiffViewer")),
         ]);
     }
 
@@ -177,6 +214,34 @@ impl DiffViewer {
         self.session.selected_file()
     }
 
+    /// Returns the current changed-files sidebar width.
+    #[must_use]
+    pub const fn sidebar_width(&self) -> f32 {
+        self.sidebar_width
+    }
+
+    /// Changes the changed-files sidebar width.
+    pub fn set_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
+        self.update_sidebar_width(width.clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH), cx);
+    }
+
+    /// Returns the current viewer font size.
+    #[must_use]
+    pub const fn font_size(&self) -> f32 {
+        self.font_size
+    }
+
+    /// Changes the viewer font size.
+    pub fn set_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        let size = clamp_font_size(size);
+        if (self.font_size - size).abs() <= f32::EPSILON {
+            return;
+        }
+        self.font_size = size;
+        self.diff_list_state.remeasure();
+        cx.notify();
+    }
+
     /// Returns highlighter cache/work counters.
     #[must_use]
     pub const fn highlight_stats(&self) -> HighlightStats {
@@ -185,7 +250,12 @@ impl DiffViewer {
 
     /// Replaces the document while preserving file selection and reconciling comments.
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
+        self.sidebar_tree.rebuild(&document);
         self.session.set_document(document);
+        if let Some(index) = self.selected_file() {
+            let document = self.session.document().clone();
+            self.sidebar_tree.expand_file(&document, index);
+        }
         self.clear_comment_editor();
         self.diff_list_file = None;
         cx.notify();
@@ -259,8 +329,52 @@ impl DiffViewer {
         removed
     }
 
-    pub(crate) const fn options(&self) -> &DiffViewerOptions {
-        &self.options
+    pub(crate) fn diff_row_height(&self) -> f32 {
+        effective_diff_row_height(self.options.row_height, self.font_size)
+    }
+
+    pub(crate) fn sidebar_row_height(&self) -> f32 {
+        36.0_f32.max(self.font_size + SIDEBAR_ROW_VERTICAL_SPACE)
+    }
+
+    pub(crate) fn metadata_font_size(&self) -> f32 {
+        (self.font_size - 1.0).max(MIN_FONT_SIZE)
+    }
+
+    pub(crate) fn heading_font_size(&self) -> f32 {
+        (self.font_size + 1.0).min(MAX_FONT_SIZE)
+    }
+
+    pub(crate) fn adjust_font_size(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.set_font_size(self.font_size + delta, cx);
+    }
+
+    pub(crate) fn reset_font_size(&mut self, cx: &mut Context<Self>) {
+        self.set_font_size(self.options.font_size, cx);
+    }
+
+    pub(crate) fn reset_sidebar_width(&mut self, cx: &mut Context<Self>) {
+        self.set_sidebar_width(self.options.sidebar_width, cx);
+    }
+
+    fn resize_sidebar(
+        &mut self,
+        event: &DragMoveEvent<SidebarResizeDrag>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pointer = f32::from(event.event.position.x - event.bounds.left());
+        let available = f32::from(event.bounds.size.width);
+        self.update_sidebar_width(clamp_sidebar_width(pointer, available), cx);
+    }
+
+    fn update_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
+        if (self.sidebar_width - width).abs() <= f32::EPSILON {
+            return;
+        }
+        self.sidebar_width = width;
+        self.diff_list_state.remeasure();
+        cx.notify();
     }
 
     pub(crate) fn sync_diff_list(
@@ -272,7 +386,7 @@ impl DiffViewer {
         if self.diff_list_file != Some(file_index) || self.diff_list_state.item_count() != row_count
         {
             self.diff_list_state
-                .reset_with_uniform_height(row_count, px(self.options.row_height));
+                .reset_with_uniform_height(row_count, px(self.diff_row_height()));
             self.diff_list_file = Some(file_index);
             self.diff_list_split = split;
         } else if self.diff_list_split != split {
@@ -284,9 +398,16 @@ impl DiffViewer {
 
     pub(crate) fn select_file(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.session.select_file(index) {
+            let document = self.session.document().clone();
+            self.sidebar_tree.expand_file(&document, index);
             self.clear_comment_editor();
             cx.notify();
         }
+    }
+
+    pub(crate) fn toggle_directory(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.sidebar_tree.toggle(path);
+        cx.notify();
     }
 
     pub(crate) fn begin_comment(
@@ -387,9 +508,11 @@ impl DiffViewer {
     }
 
     fn move_file(&mut self, delta: isize, cx: &mut Context<Self>) {
-        if self.session.move_file(delta).is_some() {
-            self.clear_comment_editor();
-            cx.notify();
+        let Some(current) = self.selected_file() else {
+            return;
+        };
+        if let Some(index) = self.sidebar_tree.offset_file(current, delta) {
+            self.select_file(index, cx);
         }
     }
 
@@ -419,6 +542,23 @@ impl DiffViewer {
         if self.session.cycle_view_mode() {
             cx.notify();
         }
+    }
+
+    fn increase_font_size(&mut self, _: &IncreaseFontSize, _: &mut Window, cx: &mut Context<Self>) {
+        self.adjust_font_size(FONT_SIZE_STEP, cx);
+    }
+
+    fn decrease_font_size(&mut self, _: &DecreaseFontSize, _: &mut Window, cx: &mut Context<Self>) {
+        self.adjust_font_size(-FONT_SIZE_STEP, cx);
+    }
+
+    fn reset_font_size_action(
+        &mut self,
+        _: &ResetFontSize,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reset_font_size(cx);
     }
 
     fn add_comment_action(&mut self, _: &AddComment, window: &mut Window, cx: &mut Context<Self>) {
@@ -477,11 +617,34 @@ impl DiffViewer {
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
 
+fn clamp_font_size(size: f32) -> f32 {
+    size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)
+}
+
+fn effective_diff_row_height(configured: f32, font_size: f32) -> f32 {
+    configured.max(font_size + DIFF_ROW_VERTICAL_SPACE)
+}
+
+fn clamp_sidebar_width(width: f32, available: f32) -> f32 {
+    let maximum = MAX_SIDEBAR_WIDTH.min((available - MIN_DIFF_WIDTH).max(0.0));
+    if maximum < MIN_SIDEBAR_WIDTH {
+        width.clamp(0.0, maximum)
+    } else {
+        width.clamp(MIN_SIDEBAR_WIDTH, maximum)
+    }
+}
+
 impl Render for DiffViewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let width = f32::from(window.viewport_size().width) - self.options.sidebar_width;
+        let viewport_width = f32::from(window.viewport_size().width);
+        let sidebar_width = clamp_sidebar_width(self.sidebar_width, viewport_width);
+        if (self.sidebar_width - sidebar_width).abs() > f32::EPSILON {
+            self.sidebar_width = sidebar_width;
+            self.diff_list_state.remeasure();
+        }
+        let diff_width = viewport_width - sidebar_width - SIDEBAR_DIVIDER_WIDTH;
         self.session
-            .set_split_when_auto(width >= self.options.auto_split_width);
+            .set_split_when_auto(diff_width >= self.options.auto_split_width);
         let palette = self.theme.palette().clone();
         div()
             .key_context("DiffViewer")
@@ -490,6 +653,9 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::next_hunk))
             .on_action(cx.listener(Self::previous_hunk))
             .on_action(cx.listener(Self::cycle_view_mode))
+            .on_action(cx.listener(Self::increase_font_size))
+            .on_action(cx.listener(Self::decrease_font_size))
+            .on_action(cx.listener(Self::reset_font_size_action))
             .on_action(cx.listener(Self::add_comment_action))
             .on_action(cx.listener(Self::edit_comment_action))
             .on_action(cx.listener(Self::delete_comment_action))
@@ -504,15 +670,54 @@ impl Render for DiffViewer {
             .bg(color(palette.background))
             .text_color(color(palette.foreground))
             .font_family("Lilex")
-            .text_size(px(13.0))
+            .text_size(px(self.font_size))
             .child(
                 div()
+                    .id("diff-viewer-content")
                     .flex_1()
                     .overflow_hidden()
                     .flex()
+                    .on_drag_move::<SidebarResizeDrag>(cx.listener(Self::resize_sidebar))
                     .child(self.render_sidebar(cx))
+                    .child(self.render_sidebar_resize_handle(cx))
                     .child(self.render_diff(window, cx)),
             )
             .child(self.render_review_bar(cx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn sidebar_width_is_clamped_to_preserve_the_diff_pane() {
+        assert_close(clamp_sidebar_width(100.0, 1_000.0), 180.0);
+        assert_close(clamp_sidebar_width(400.0, 1_000.0), 400.0);
+        assert_close(clamp_sidebar_width(900.0, 1_000.0), 600.0);
+        assert_close(clamp_sidebar_width(400.0, 600.0), 280.0);
+    }
+
+    #[test]
+    fn sidebar_can_shrink_below_its_normal_minimum_in_a_narrow_viewport() {
+        assert_close(clamp_sidebar_width(280.0, 450.0), 130.0);
+        assert_close(clamp_sidebar_width(280.0, 300.0), 0.0);
+    }
+
+    #[test]
+    fn font_size_is_clamped_to_the_supported_range() {
+        assert_close(clamp_font_size(8.0), 10.0);
+        assert_close(clamp_font_size(16.0), 16.0);
+        assert_close(clamp_font_size(30.0), 24.0);
+    }
+
+    #[test]
+    fn diff_rows_grow_to_fit_larger_fonts() {
+        assert_close(effective_diff_row_height(32.0, 13.0), 32.0);
+        assert_close(effective_diff_row_height(32.0, 20.0), 39.0);
     }
 }

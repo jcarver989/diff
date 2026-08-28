@@ -4,7 +4,7 @@ use gpui::{
     AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState, MouseButton,
     MouseDownEvent, Pixels, SharedString, StyledText, Window, div, list, point, prelude::*, px,
 };
-use std::{cell::Cell, rc::Rc};
+use std::cell::Cell;
 
 const GUTTER_WIDTH: f32 = 54.0;
 const MARKER_WIDTH: f32 = 20.0;
@@ -12,9 +12,26 @@ const HEADER_HEIGHT: f32 = 52.0;
 const SCROLLBAR_WIDTH: f32 = 10.0;
 const MIN_THUMB_HEIGHT: f32 = 30.0;
 
-#[derive(Clone)]
 struct DiffScrollbarDrag {
-    thumb_offset: Rc<Cell<Pixels>>,
+    thumb_offset: Cell<Pixels>,
+    list_state: ListState,
+    started: Cell<bool>,
+}
+
+impl DiffScrollbarDrag {
+    fn start(&self, thumb_offset: Pixels) {
+        self.thumb_offset.set(thumb_offset);
+        self.list_state.scrollbar_drag_started();
+        self.started.set(true);
+    }
+}
+
+impl Drop for DiffScrollbarDrag {
+    fn drop(&mut self) {
+        if self.started.get() {
+            self.list_state.scrollbar_drag_ended();
+        }
+    }
 }
 
 impl DiffViewer {
@@ -68,10 +85,15 @@ impl DiffViewer {
             .border_color(style::color(palette.border))
             .child(
                 div()
+                    .min_w_0()
                     .flex_1()
+                    .mr_2()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .child(file_path),
             )
+            .child(self.render_font_controls(cx))
             .child(
                 div()
                     .text_color(style::color(palette.addition))
@@ -101,6 +123,41 @@ impl DiffViewer {
             )
     }
 
+    fn render_font_controls(&self, cx: &mut Context<Self>) -> Div {
+        let palette = self.theme().palette();
+        let button = |id, label, aria_label| {
+            div()
+                .id(id)
+                .aria_label(aria_label)
+                .px_1()
+                .rounded_sm()
+                .cursor_pointer()
+                .text_color(style::color(palette.muted))
+                .hover(|button| button.bg(style::color(palette.selection)))
+                .child(label)
+        };
+
+        div()
+            .mr_4()
+            .flex()
+            .items_center()
+            .gap_1()
+            .text_size(px(self.metadata_font_size()))
+            .child(
+                button("decrease-font-size", "A−", "Decrease font size")
+                    .on_click(cx.listener(|viewer, _, _, cx| viewer.adjust_font_size(-1.0, cx))),
+            )
+            .child(
+                button("reset-font-size", "", "Reset font size")
+                    .on_click(cx.listener(|viewer, _, _, cx| viewer.reset_font_size(cx)))
+                    .child(format!("{:.0}", self.font_size())),
+            )
+            .child(
+                button("increase-font-size", "A+", "Increase font size")
+                    .on_click(cx.listener(|viewer, _, _, cx| viewer.adjust_font_size(1.0, cx))),
+            )
+    }
+
     fn render_scrollbar(
         &self,
         list_state: &ListState,
@@ -126,7 +183,9 @@ impl DiffViewer {
         let thumb_top = track_space * scroll_fraction;
         let palette = self.theme().palette();
         let drag = DiffScrollbarDrag {
-            thumb_offset: Rc::new(Cell::new(px(0.0))),
+            thumb_offset: Cell::new(px(0.0)),
+            list_state: list_state.clone(),
+            started: Cell::new(false),
         };
 
         let click_state = list_state.clone();
@@ -175,7 +234,7 @@ impl DiffViewer {
                         .hover(|thumb| thumb.bg(style::color(palette.accent)))
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_drag(drag, |drag, click_offset, _, cx| {
-                            drag.thumb_offset.set(click_offset.y);
+                            drag.start(click_offset.y);
                             cx.new(|_| Empty)
                         }),
                 )
@@ -197,7 +256,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let palette = self.theme().palette().clone();
-        let row_height = px(self.options().row_height);
+        let row_height = px(self.diff_row_height());
         if row.kind != RowKind::Code {
             let text = row
                 .primary_cell()
@@ -294,7 +353,7 @@ impl DiffViewer {
         let Some(cell) = cell else {
             return div()
                 .w_1_2()
-                .min_h(px(self.options().row_height))
+                .min_h(px(self.diff_row_height()))
                 .bg(style::color(palette.background))
                 .when(left, |value| value.border_r_1().border_color(border_color))
                 .into_any_element();
@@ -317,7 +376,7 @@ impl DiffViewer {
             .group(hover_group.clone())
             .when(split, gpui::Styled::w_1_2)
             .when(!split, gpui::Styled::w_full)
-            .min_h(px(self.options().row_height))
+            .min_h(px(self.diff_row_height()))
             .flex()
             .items_start()
             .py_2()
@@ -349,7 +408,7 @@ impl DiffViewer {
                     div()
                         .flex_shrink_0()
                         .px_2()
-                        .text_xs()
+                        .text_size(px(self.metadata_font_size()))
                         .text_color(style::color(palette.accent))
                         .child(format!("{comments} 💬")),
                 )
@@ -513,7 +572,7 @@ impl DiffViewer {
                                     .px_3()
                                     .py_2()
                                     .bg(style::color(palette.selection))
-                                    .text_xs()
+                                    .text_size(px(self.metadata_font_size()))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(style::color(palette.muted))
                                     .child(format!("Your comment on {side} {line}")),
@@ -650,6 +709,23 @@ fn set_scrollbar_from_pointer(list_state: &ListState, pointer_y: Pixels, thumb_o
 mod tests {
     use super::*;
     use diff_core::testing::DocumentBuilder;
+
+    #[test]
+    fn scrollbar_drag_releases_frozen_height_on_drop() {
+        let list_state = ListState::new(10, gpui::ListAlignment::Top, px(0.0));
+        let drag = DiffScrollbarDrag {
+            thumb_offset: Cell::new(px(0.0)),
+            list_state: list_state.clone(),
+            started: Cell::new(false),
+        };
+
+        drag.start(px(4.0));
+        assert!(list_state.is_scrollbar_dragging());
+        assert_eq!(drag.thumb_offset.get(), px(4.0));
+
+        drop(drag);
+        assert!(!list_state.is_scrollbar_dragging());
+    }
 
     #[test]
     fn scrollbar_thumb_stays_stable_while_rows_are_measured() {
