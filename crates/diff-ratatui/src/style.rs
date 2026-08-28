@@ -1,6 +1,6 @@
 //! Ratatui conversions for renderer-neutral diff themes.
 
-use diff_core::{DiffTheme, FontStyle, Rgba};
+use diff_core::{DiffTheme, DiffTone, FontStyle, Rgba};
 use ratatui::style::{Color, Modifier, Style};
 
 /// Ratatui colors derived from a shared [`DiffTheme`].
@@ -30,9 +30,20 @@ pub struct RatatuiTheme {
     pub border: Color,
 }
 
+impl RatatuiTheme {
+    #[must_use]
+    pub const fn tone(&self, tone: DiffTone) -> (Color, Color) {
+        match tone {
+            DiffTone::Added => (self.addition, self.addition_background),
+            DiffTone::Removed => (self.deletion, self.deletion_background),
+            DiffTone::Context | DiffTone::Meta => (self.foreground, self.background),
+        }
+    }
+}
+
 impl From<&DiffTheme> for RatatuiTheme {
     fn from(theme: &DiffTheme) -> Self {
-        let palette = &theme.palette;
+        let palette = theme.palette();
         Self {
             background: color(palette.background),
             foreground: color(palette.foreground),
@@ -55,15 +66,9 @@ pub(crate) const fn color(value: Rgba) -> Color {
 
 pub(crate) fn syntax_style(foreground: Rgba, font: FontStyle, background: Color) -> Style {
     let mut modifiers = Modifier::empty();
-    if font.contains(FontStyle::BOLD) {
-        modifiers.insert(Modifier::BOLD);
-    }
-    if font.contains(FontStyle::ITALIC) {
-        modifiers.insert(Modifier::ITALIC);
-    }
-    if font.contains(FontStyle::UNDERLINE) {
-        modifiers.insert(Modifier::UNDERLINED);
-    }
+    modifiers.set(Modifier::BOLD, font.bold);
+    modifiers.set(Modifier::ITALIC, font.italic);
+    modifiers.set(Modifier::UNDERLINED, font.underline);
     Style::new()
         .fg(color(foreground))
         .bg(background)

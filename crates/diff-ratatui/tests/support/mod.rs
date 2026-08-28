@@ -1,9 +1,7 @@
 #![allow(dead_code, missing_docs)]
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use diff_core::{
-    DiffDocument, FileDiff, FileStatus, HighlightStats, Hunk, PatchLine, RepoPath, StageState,
-};
+use diff_core::{DiffDocument, HighlightStats};
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget};
 use ratatui::{
     Terminal,
@@ -172,56 +170,6 @@ pub fn key(code: KeyCode) -> DiffReviewInput {
     DiffReviewInput::Key(KeyEvent::new(code, KeyModifiers::NONE))
 }
 
-pub fn large_document(rows: usize) -> Arc<DiffDocument> {
-    let path = RepoPath::new("src/large.rs").expect("valid fixture path");
-    let lines = (1..=rows)
-        .map(|line| PatchLine::added(format!("let value_{line} = {line};"), line))
-        .collect();
-    Arc::new(DiffDocument {
-        repo_root: "/repo".to_owned(),
-        files: vec![added_file(path, rows, lines)],
-    })
-}
-
-pub fn many_file_document(files: usize, rows_per_file: usize) -> Arc<DiffDocument> {
-    let files = (0..files)
-        .map(|file_index| {
-            let path =
-                RepoPath::new(format!("src/file_{file_index}.rs")).expect("valid fixture path");
-            let lines = (1..=rows_per_file)
-                .map(|line| {
-                    PatchLine::added(
-                        format!("let file_{file_index}_value_{line} = {line};"),
-                        line,
-                    )
-                })
-                .collect();
-            added_file(path, rows_per_file, lines)
-        })
-        .collect();
-    Arc::new(DiffDocument {
-        repo_root: "/repo".to_owned(),
-        files,
-    })
-}
-
-fn added_file(path: RepoPath, rows: usize, lines: Vec<PatchLine>) -> FileDiff {
-    FileDiff {
-        old_path: None,
-        path,
-        status: FileStatus::Added,
-        staged: StageState::Unstaged,
-        hunks: vec![Hunk {
-            header: format!("@@ -0,0 +1,{rows} @@"),
-            function_context: None,
-            old_start: 0,
-            old_count: 0,
-            new_start: 1,
-            new_count: rows,
-            lines,
-        }],
-        binary: false,
-        mode: None,
-        no_newline_at_end: false,
-    }
+pub fn key_with(code: KeyCode, modifiers: KeyModifiers) -> DiffReviewInput {
+    DiffReviewInput::Key(KeyEvent::new(code, modifiers))
 }

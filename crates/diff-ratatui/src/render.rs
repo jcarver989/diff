@@ -1,10 +1,13 @@
 //! Visible-range Ratatui rendering.
 
-use crate::{DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme};
-use diff_core::{DiffTone, HighlightSpan, PresentedCell, PresentedRow, RowKind, ViewMode};
+use crate::{DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme, style::syntax_style};
+use diff_core::{
+    CommentDraft, DiffTheme, DiffTone, HighlightSpan, PresentedCell, PresentedRow, ReviewComment,
+    RowKind, SyntaxHighlighter,
+};
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, StatefulWidget, Widget},
@@ -12,7 +15,10 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 const DRAWER_BREAKPOINT: u16 = 72;
+const DRAWER_MIN_WIDTH: u16 = 20;
+const DRAWER_MAX_WIDTH: u16 = 36;
 const FOOTER_HEIGHT: u16 = 1;
+const GUTTER_WIDTH: u16 = 6;
 
 /// Embeddable stateful diff review widget.
 #[derive(Debug, Clone)]
@@ -84,23 +90,21 @@ impl StatefulWidget for DiffReviewWidget {
 }
 
 fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
-    match &state.status {
-        DiffReviewStatus::Loading => {
-            Paragraph::new("Loading diff…")
-                .style(Style::new().fg(theme.muted))
-                .render(area, buffer);
-        }
+    let notice = match &state.status {
+        DiffReviewStatus::Loading => Some(("Loading diff…".to_owned(), theme.muted)),
         DiffReviewStatus::Error(message) => {
-            Paragraph::new(format!("Diff unavailable: {message}"))
-                .style(Style::new().fg(theme.deletion))
-                .render(area, buffer);
+            Some((format!("Diff unavailable: {message}"), theme.deletion))
         }
-        DiffReviewStatus::Ready if state.document.files.is_empty() => {
-            Paragraph::new("No changes")
-                .style(Style::new().fg(theme.muted))
-                .render(area, buffer);
+        DiffReviewStatus::Ready if state.document().files.is_empty() => {
+            Some(("No changes".to_owned(), theme.muted))
         }
-        DiffReviewStatus::Ready => render_document(area, buffer, state, theme),
+        DiffReviewStatus::Ready => None,
+    };
+    match notice {
+        Some((text, foreground)) => Paragraph::new(text)
+            .style(Style::new().fg(foreground))
+            .render(area, buffer),
+        None => render_document(area, buffer, state, theme),
     }
 }
 
@@ -111,16 +115,14 @@ fn render_document(
     theme: &RatatuiTheme,
 ) {
     let (drawer, patch) = if area.width >= DRAWER_BREAKPOINT {
-        let drawer_width = (area.width / 3).clamp(20, 36);
+        let drawer_width = (area.width / 3).clamp(DRAWER_MIN_WIDTH, DRAWER_MAX_WIDTH);
         let [drawer, separator, patch] = Layout::horizontal([
             Constraint::Length(drawer_width),
             Constraint::Length(1),
             Constraint::Min(1),
         ])
         .areas(area);
-        Paragraph::new("│")
-            .style(Style::new().fg(theme.border))
-            .render(separator, buffer);
+        render_separator(separator, buffer, theme);
         render_drawer(drawer, buffer, state, theme);
         (drawer, patch)
     } else {
@@ -132,6 +134,12 @@ fn render_document(
     render_patch(patch, buffer, state, theme);
 }
 
+fn render_separator(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
+    Paragraph::new("│")
+        .style(Style::new().fg(theme.border).bg(theme.background))
+        .render(area, buffer);
+}
+
 fn render_drawer(
     area: Rect,
     buffer: &mut Buffer,
@@ -139,43 +147,35 @@ fn render_drawer(
     theme: &RatatuiTheme,
 ) {
     state.drawer_height = usize::from(area.height).max(1);
-    state.drawer_scroll = state.drawer_scroll.min(
-        state
-            .document
-            .files
-            .len()
-            .saturating_sub(state.drawer_height),
-    );
-    for (offset, file) in state
-        .document
+    let file_count = state.document().files.len();
+    state.drawer_scroll = state
+        .drawer_scroll
+        .min(file_count.saturating_sub(state.drawer_height));
+    let selected_file = state.selected_file();
+    let DiffReviewState {
+        session,
+        drawer_scroll,
+        drawer_height,
+        focus,
+        ..
+    } = state;
+    for (offset, file) in session
+        .document()
         .files
         .iter()
-        .skip(state.drawer_scroll)
-        .take(state.drawer_height)
+        .skip(*drawer_scroll)
+        .take(*drawer_height)
         .enumerate()
     {
         let y = area
             .y
             .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX));
-        let selected = state.drawer_scroll.saturating_add(offset) == state.selected_file;
-        let marker = match file.staged {
-            diff_core::StageState::Unstaged => "☐",
-            diff_core::StageState::Staged => "☑",
-            diff_core::StageState::PartiallyStaged => "◩",
-        };
-        let status = match file.status {
-            diff_core::FileStatus::Modified => "M",
-            diff_core::FileStatus::Added => "A",
-            diff_core::FileStatus::Deleted => "D",
-            diff_core::FileStatus::Renamed => "R",
-            diff_core::FileStatus::Copied => "C",
-            diff_core::FileStatus::Untracked => "?",
-        };
-        let style = if selected {
+        let index = drawer_scroll.saturating_add(offset);
+        let style = if selected_file == Some(index) {
             Style::new()
                 .fg(theme.background)
                 .bg(theme.accent)
-                .add_modifier(if state.focus == FocusPane::Files {
+                .add_modifier(if *focus == FocusPane::Files {
                     Modifier::BOLD
                 } else {
                     Modifier::default()
@@ -183,15 +183,26 @@ fn render_drawer(
         } else {
             Style::new().fg(theme.foreground).bg(theme.background)
         };
-        buffer.set_style(Rect::new(area.x, y, area.width, 1), style);
+        let row = Rect::new(area.x, y, area.width, 1);
+        buffer.set_style(row, style);
         Paragraph::new(format!(
-            " {marker} {status} {} +{} -{}",
+            " {} {} {} +{} -{}",
+            stage_marker(file.staged),
+            file.status.code(),
             file.path,
             file.additions(),
             file.deletions()
         ))
         .style(style)
-        .render(Rect::new(area.x, y, area.width, 1), buffer);
+        .render(row, buffer);
+    }
+}
+
+const fn stage_marker(state: diff_core::StageState) -> &'static str {
+    match state {
+        diff_core::StageState::Unstaged => "☐",
+        diff_core::StageState::Staged => "☑",
+        diff_core::StageState::PartiallyStaged => "◩",
     }
 }
 
@@ -204,66 +215,81 @@ fn render_patch(
     if area.is_empty() {
         return;
     }
-    let Some(range) = state.presentation.file_range(state.selected_file) else {
+    let Some(range) = state.session.selected_file_range() else {
         return;
     };
-    state.selected_row = state
-        .selected_row
-        .clamp(range.start, range.end.saturating_sub(1));
     state.last_height = usize::from(area.height).max(1);
     state.follow_selection();
     state.scroll = state.scroll.clamp(range.start, range.end.saturating_sub(1));
-    state.visible_rows.clear();
+
+    let DiffReviewState {
+        session,
+        theme: diff_theme,
+        highlighter,
+        focus,
+        scroll,
+        visible_rows,
+        cursor_position,
+        ..
+    } = state;
+    visible_rows.clear();
+    let presentation = session.presentation();
+    let selected_row = session.selected_row();
+    let selected_side = session.selected_side();
+    let draft = session.draft();
+    let comments = session.review().comments();
+    let layout = session.layout();
 
     let mut y = area.y;
-    let mut index = state.scroll;
+    let mut index = *scroll;
     while y < area.bottom() && index < range.end {
-        let Some(row) = state.presentation.row(index).cloned() else {
+        let Some(row) = presentation.row(index) else {
             break;
         };
+        let mut context = CellContext {
+            theme,
+            diff_theme,
+            highlighter,
+            presentation,
+            row,
+        };
+        let selected = selected_row == Some(index) && *focus == FocusPane::Diff;
         render_row(
             Rect::new(area.x, y, area.width, 1),
             buffer,
-            state,
-            theme,
-            &row,
-            index,
+            &mut context,
+            row,
+            &RowStyle {
+                selected,
+                selected_side,
+                layout,
+                file_stats: file_stats(session, row),
+            },
         );
-        state.visible_rows.push((y, index));
+        visible_rows.push((y, index));
         y = y.saturating_add(1);
+
         if row.kind == RowKind::Code {
-            for comment in comments_for_row(state, &row) {
+            for comment in comments
+                .iter()
+                .filter(|comment| presentation.row_shows_anchor(row, &comment.anchor))
+            {
                 if y >= area.bottom() {
                     break;
                 }
-                let prefix = if comment.outdated {
-                    "↳ [outdated] "
-                } else {
-                    "↳ "
-                };
-                Paragraph::new(format!("{prefix}{}", comment.body.replace('\n', " ⏎ ")))
-                    .style(Style::new().fg(theme.accent).bg(theme.background))
-                    .render(Rect::new(area.x, y, area.width, 1), buffer);
+                render_annotation(Rect::new(area.x, y, area.width, 1), buffer, theme, comment);
                 y = y.saturating_add(1);
             }
-            if let Some(draft) = state
-                .draft
-                .as_ref()
-                .filter(|draft| row_has_anchor(&row, &draft.anchor))
+            if let Some(draft) =
+                draft.filter(|draft| presentation.row_shows_anchor(row, draft.anchor()))
                 && y < area.bottom()
             {
-                let before_cursor = draft.text[..draft.cursor].replace('\n', " ⏎ ");
-                let cursor_offset = u16::try_from(before_cursor.width()).unwrap_or(u16::MAX);
-                state.cursor_position = Some(ratatui::layout::Position::new(
-                    area.x
-                        .saturating_add(2)
-                        .saturating_add(cursor_offset)
-                        .min(area.right().saturating_sub(1)),
-                    y,
+                *cursor_position = Some(render_draft(
+                    Rect::new(area.x, y, area.width, 1),
+                    buffer,
+                    theme,
+                    draft,
                 ));
-                Paragraph::new(format!("✎ {}", draft.text.replace('\n', " ⏎ ")))
-                    .style(Style::new().fg(theme.accent).bg(theme.background))
-                    .render(Rect::new(area.x, y, area.width, 1), buffer);
                 y = y.saturating_add(1);
             }
         }
@@ -271,59 +297,99 @@ fn render_patch(
     }
 }
 
-fn comments_for_row<'a>(
-    state: &'a DiffReviewState,
-    row: &'a PresentedRow,
-) -> impl Iterator<Item = &'a diff_core::ReviewComment> {
-    state
-        .review
-        .comments()
-        .iter()
-        .filter(|comment| row_has_anchor(row, &comment.anchor))
+fn file_stats(session: &diff_core::ReviewSession, row: &PresentedRow) -> Option<(usize, usize)> {
+    (row.kind == RowKind::FileHeader)
+        .then(|| session.document().files.get(row.file_index))
+        .flatten()
+        .map(|file| (file.additions(), file.deletions()))
 }
 
-fn row_has_anchor(row: &PresentedRow, anchor: &diff_core::LineAnchor) -> bool {
-    [row.left.as_ref(), row.right.as_ref()]
-        .into_iter()
-        .flatten()
-        .any(|cell| cell.anchor.as_ref() == Some(anchor))
+struct RowStyle {
+    selected: bool,
+    selected_side: diff_core::DiffSide,
+    layout: diff_core::Layout,
+    file_stats: Option<(usize, usize)>,
+}
+
+struct CellContext<'a> {
+    theme: &'a RatatuiTheme,
+    diff_theme: &'a DiffTheme,
+    highlighter: &'a mut SyntaxHighlighter,
+    presentation: &'a diff_core::DiffPresentation,
+    row: &'a PresentedRow,
+}
+
+fn render_annotation(
+    area: Rect,
+    buffer: &mut Buffer,
+    theme: &RatatuiTheme,
+    comment: &ReviewComment,
+) {
+    let prefix = if comment.outdated {
+        "↳ [outdated] "
+    } else {
+        "↳ "
+    };
+    Paragraph::new(format!("{prefix}{}", comment.body.replace('\n', " ⏎ ")))
+        .style(Style::new().fg(theme.accent).bg(theme.background))
+        .render(area, buffer);
+}
+
+fn render_draft(
+    area: Rect,
+    buffer: &mut Buffer,
+    theme: &RatatuiTheme,
+    draft: &CommentDraft,
+) -> Position {
+    let before_cursor = draft.body_before_cursor().replace('\n', " ⏎ ");
+    let cursor_offset = u16::try_from(before_cursor.width()).unwrap_or(u16::MAX);
+    Paragraph::new(format!("✎ {}", draft.body().replace('\n', " ⏎ ")))
+        .style(Style::new().fg(theme.accent).bg(theme.background))
+        .render(area, buffer);
+    Position::new(
+        area.x
+            .saturating_add(2)
+            .saturating_add(cursor_offset)
+            .min(area.right().saturating_sub(1)),
+        area.y,
+    )
 }
 
 fn render_row(
     area: Rect,
     buffer: &mut Buffer,
-    state: &mut DiffReviewState,
-    theme: &RatatuiTheme,
+    context: &mut CellContext<'_>,
     row: &PresentedRow,
-    index: usize,
+    style: &RowStyle,
 ) {
-    let selected = index == state.selected_row && state.focus == FocusPane::Diff;
     match row.kind {
         RowKind::FileHeader => {
-            let file = &state.document.files[row.file_index];
-            let line = Line::from(vec![
+            let text = row.primary_cell().map_or("", |cell| cell.text.as_ref());
+            let (additions, deletions) = style.file_stats.unwrap_or_default();
+            Paragraph::new(Line::from(vec![
                 Span::styled(
-                    format!(" {} ", file.path),
-                    Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+                    format!(" {text} "),
+                    Style::new()
+                        .fg(context.theme.accent)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("+{} -{}", file.additions(), file.deletions()),
-                    Style::new().fg(theme.muted),
+                    format!("+{additions} -{deletions}"),
+                    Style::new().fg(context.theme.muted),
                 ),
-            ]);
-            Paragraph::new(line).render(area, buffer);
+            ]))
+            .render(area, buffer);
         }
         RowKind::HunkHeader | RowKind::Meta => {
-            let text = row
-                .right
-                .as_ref()
-                .or(row.left.as_ref())
-                .map_or("", |cell| cell.text.as_ref());
-            Paragraph::new(text)
-                .style(Style::new().fg(theme.muted).bg(theme.background))
+            Paragraph::new(row.primary_cell().map_or("", |cell| cell.text.as_ref()))
+                .style(
+                    Style::new()
+                        .fg(context.theme.muted)
+                        .bg(context.theme.background),
+                )
                 .render(area, buffer);
         }
-        RowKind::Code if state.presentation.view_mode() == ViewMode::Split => {
+        RowKind::Code if style.layout.is_split() => {
             let left_width = area.width.saturating_sub(1) / 2;
             let right_width = area.width.saturating_sub(left_width + 1);
             let [left, separator, right] = Layout::horizontal([
@@ -332,21 +398,25 @@ fn render_row(
                 Constraint::Length(right_width),
             ])
             .areas(area);
-            render_cell(left, buffer, state, theme, row.left.as_ref(), selected);
-            Paragraph::new("│")
-                .style(Style::new().fg(theme.border).bg(theme.background))
-                .render(separator, buffer);
-            render_cell(right, buffer, state, theme, row.right.as_ref(), selected);
+            let focused = |side| style.selected && style.selected_side == side;
+            render_cell(
+                left,
+                buffer,
+                context,
+                row.left.as_ref(),
+                focused(diff_core::DiffSide::Old),
+            );
+            render_separator(separator, buffer, context.theme);
+            render_cell(
+                right,
+                buffer,
+                context,
+                row.right.as_ref(),
+                focused(diff_core::DiffSide::New),
+            );
         }
         RowKind::Code => {
-            render_cell(
-                area,
-                buffer,
-                state,
-                theme,
-                row.right.as_ref().or(row.left.as_ref()),
-                selected,
-            );
+            render_cell(area, buffer, context, row.primary_cell(), style.selected);
         }
     }
 }
@@ -354,21 +424,16 @@ fn render_row(
 fn render_cell(
     area: Rect,
     buffer: &mut Buffer,
-    state: &mut DiffReviewState,
-    theme: &RatatuiTheme,
+    context: &mut CellContext<'_>,
     cell: Option<&PresentedCell>,
     selected: bool,
 ) {
     let tone = cell.map_or(DiffTone::Context, |cell| cell.tone);
-    let (foreground, background) = match tone {
-        DiffTone::Added => (theme.addition, theme.addition_background),
-        DiffTone::Removed => (theme.deletion, theme.deletion_background),
-        DiffTone::Context | DiffTone::Meta => (theme.foreground, theme.background),
-    };
+    let (foreground, tone_background) = context.theme.tone(tone);
     let background = if selected {
-        theme.selection
+        context.theme.selection
     } else {
-        background
+        tone_background
     };
     buffer.set_style(area, Style::new().fg(foreground).bg(background));
     let Some(cell) = cell else {
@@ -377,30 +442,20 @@ fn render_cell(
     let number = cell
         .line_number
         .map_or_else(String::new, |number| number.to_string());
-    let marker = match cell.tone {
-        DiffTone::Added => '+',
-        DiffTone::Removed => '-',
-        DiffTone::Context | DiffTone::Meta => ' ',
-    };
-    let gutter = format!("{number:>4} {marker}");
-    let language = state.document.files[cell
-        .anchor
-        .as_ref()
-        .and_then(|anchor| {
-            state
-                .document
-                .files
-                .iter()
-                .position(|file| file.path == anchor.path)
-        })
-        .unwrap_or(state.selected_file)]
-    .language();
-    let highlights = state
-        .highlighter
-        .highlight_cached(&state.theme, language, &cell.text);
+    let gutter = format!(
+        "{number:>width$} {marker}",
+        width = usize::from(GUTTER_WIDTH) - 2,
+        marker = tone.marker()
+    );
+    let highlights = context.presentation.highlight_cell(
+        context.highlighter,
+        context.diff_theme,
+        context.row,
+        cell,
+    );
     let mut spans = vec![Span::styled(
         gutter,
-        Style::new().fg(theme.gutter).bg(background),
+        Style::new().fg(context.theme.gutter).bg(background),
     )];
     spans.extend(highlighted_spans(&cell.text, &highlights, background));
     Paragraph::new(Line::from(spans)).render(area, buffer);
@@ -414,30 +469,25 @@ fn highlighted_spans(
     if highlights.is_empty() {
         return vec![Span::styled(source.to_owned(), Style::new().bg(background))];
     }
+    let plain = Style::new().bg(background);
     let mut spans = Vec::new();
     let mut offset = 0;
     for highlight in highlights {
         let start = highlight.range.start.min(source.len());
         let end = highlight.range.end.min(source.len());
         if start > offset && source.is_char_boundary(offset) && source.is_char_boundary(start) {
-            spans.push(Span::styled(
-                source[offset..start].to_owned(),
-                Style::new().bg(background),
-            ));
+            spans.push(Span::styled(source[offset..start].to_owned(), plain));
         }
         if end > start && source.is_char_boundary(start) && source.is_char_boundary(end) {
             spans.push(Span::styled(
                 source[start..end].to_owned(),
-                crate::style::syntax_style(highlight.foreground, highlight.font_style, background),
+                syntax_style(highlight.foreground, highlight.font_style, background),
             ));
             offset = end;
         }
     }
     if offset < source.len() && source.is_char_boundary(offset) {
-        spans.push(Span::styled(
-            source[offset..].to_owned(),
-            Style::new().bg(background),
-        ));
+        spans.push(Span::styled(source[offset..].to_owned(), plain));
     }
     spans
 }
@@ -446,23 +496,21 @@ fn render_footer(area: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme
     if area.is_empty() {
         return;
     }
-    let text = if state.draft.is_some() {
+    let hint = if state.session.draft().is_some() {
         "[Enter] save  [Shift-Enter] newline  [Esc] cancel"
     } else if state.focus == FocusPane::Files {
         "[j/k] file  [Enter/l] diff  [v] view  [?] help"
+    } else if state.layout().is_split() {
+        "[j/k] line  [←/→] side  [c] comment  [s] submit  [h] files  [?] help"
     } else {
         "[j/k] line  [c] comment  [e/x] edit/delete  [s] submit  [y] copy  [h] files"
     };
-    let outdated = state
-        .review
-        .comments()
-        .iter()
-        .filter(|comment| comment.outdated)
-        .count();
+    let review = state.review();
+    let outdated = review.outdated_count();
     let status = format!(
         "  {} comment{}{}",
-        state.review.len(),
-        if state.review.len() == 1 { "" } else { "s" },
+        review.len(),
+        if review.len() == 1 { "" } else { "s" },
         if outdated == 0 {
             String::new()
         } else {
@@ -470,7 +518,7 @@ fn render_footer(area: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme
         }
     );
     Paragraph::new(Line::from(vec![
-        Span::styled(text, Style::new().fg(theme.muted)),
+        Span::styled(hint, Style::new().fg(theme.muted)),
         Span::styled(status, Style::new().fg(theme.accent)),
     ]))
     .render(area, buffer);
@@ -478,7 +526,7 @@ fn render_footer(area: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme
 
 fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     let width = area.width.saturating_sub(4).min(58);
-    let height = area.height.saturating_sub(4).min(12);
+    let height = area.height.saturating_sub(4).min(13);
     let popup = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,
@@ -487,7 +535,7 @@ fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     );
     Clear.render(popup, buffer);
     Paragraph::new(
-        "Navigation\n  j/k or arrows   move selection\n  h/l or Tab      change pane\n  PgUp/PgDn       move a page\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  v                cycle layout\n  Esc              cancel or close\n  ?                close help",
+        "Navigation\n  j/k or arrows   move selection\n  h/l or Tab      change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  v                cycle layout\n  Esc              cancel or close\n  ?                close help",
     )
     .block(Block::bordered().title(" Review shortcuts "))
     .style(Style::new().fg(theme.foreground).bg(theme.background))

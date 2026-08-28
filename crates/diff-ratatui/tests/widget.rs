@@ -1,50 +1,16 @@
 #![allow(missing_docs, unused_must_use)]
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+mod support;
+
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use diff_core::{
-    DiffDocument, DiffReviewEvent, FileDiff, FileStatus, LineAnchor, PatchLine, PatchLineKind,
-    RepoPath, Review, StageState, ViewMode,
+    DiffDocument, DiffReviewEvent, DiffSide, FileDiff, Layout, LineAnchor, PatchLine,
+    PatchLineKind, Review, ViewMode, testing::DocumentBuilder,
 };
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane};
 use ratatui::{Terminal, backend::TestBackend, layout::Position};
 use std::{fmt::Write, sync::Arc};
-
-struct DocumentBuilder {
-    files: Vec<FileDiff>,
-}
-
-impl DocumentBuilder {
-    fn new() -> Self {
-        Self { files: Vec::new() }
-    }
-
-    fn changed(mut self, path: &str, old: &str, new: &str) -> Self {
-        self.files
-            .push(FileDiff::from_texts(path, old, new).expect("valid fixture"));
-        self
-    }
-
-    fn binary(mut self, path: &str) -> Self {
-        self.files.push(FileDiff {
-            old_path: Some(RepoPath::new(path).expect("valid fixture path")),
-            path: RepoPath::new(path).expect("valid fixture path"),
-            status: FileStatus::Modified,
-            staged: StageState::Unstaged,
-            hunks: Vec::new(),
-            binary: true,
-            mode: None,
-            no_newline_at_end: false,
-        });
-        self
-    }
-
-    fn build(self) -> Arc<DiffDocument> {
-        Arc::new(DiffDocument {
-            repo_root: "/repo".to_owned(),
-            files: self.files,
-        })
-    }
-}
+use support::{key, key_with};
 
 fn changed_document() -> Arc<DiffDocument> {
     DocumentBuilder::new()
@@ -74,10 +40,6 @@ fn draw(state: &mut DiffReviewState, width: u16, height: u16) -> String {
         })
 }
 
-fn key(code: KeyCode) -> DiffReviewInput {
-    DiffReviewInput::Key(KeyEvent::new(code, KeyModifiers::NONE))
-}
-
 fn type_text(state: &mut DiffReviewState, text: &str) {
     for character in text.chars() {
         state.handle_input(key(KeyCode::Char(character)));
@@ -91,13 +53,13 @@ fn narrow_and_wide_views_share_core_presentation() {
     assert!(narrow.contains("src/main.rs"), "{narrow}");
     assert!(narrow.contains("fn old() {}"), "{narrow}");
     assert!(narrow.contains("fn new() {}"), "{narrow}");
-    assert_eq!(state.presentation().view_mode(), ViewMode::Unified);
+    assert_eq!(state.layout(), Layout::Unified);
     assert!(!narrow.contains("☐ M"), "narrow view must hide the drawer");
 
     let wide = draw(&mut state, 140, 12);
     assert!(wide.contains("☐ M src/main.rs"), "{wide}");
     assert!(wide.contains('│'), "{wide}");
-    assert_eq!(state.presentation().view_mode(), ViewMode::Split);
+    assert_eq!(state.layout(), Layout::Split);
 }
 
 #[test]
@@ -117,16 +79,17 @@ fn comment_crud_and_host_events_are_structured() {
     let rendered = draw(&mut state, 100, 12);
     assert!(rendered.contains("please fix 界"), "{rendered}");
 
-    let submitted = state.handle_input(key(KeyCode::Char('s')));
-    let [DiffReviewEvent::SubmitReview(submission)] = submitted.as_slice() else {
-        panic!("expected review submission: {submitted:?}");
+    let Some(DiffReviewEvent::SubmitReview(submission)) =
+        state.handle_input(key(KeyCode::Char('s')))
+    else {
+        panic!("expected a review submission");
     };
     assert_eq!(submission.comments.len(), 1);
     assert!(submission.formatted.contains("please fix 界"));
 
     let copied = state.handle_input(key(KeyCode::Char('y')));
     assert!(
-        matches!(copied.as_slice(), [DiffReviewEvent::CopyFormattedReview(text)] if text.contains("please fix"))
+        matches!(copied, Some(DiffReviewEvent::CopyFormattedReview(ref text)) if text.contains("please fix"))
     );
 
     state.handle_input(key(KeyCode::Char('e')));
@@ -139,15 +102,48 @@ fn comment_crud_and_host_events_are_structured() {
 
     assert_eq!(
         state.handle_input(key(KeyCode::Esc)),
-        [DiffReviewEvent::Cancel]
+        Some(DiffReviewEvent::Cancel)
     );
+    assert_eq!(
+        state.handle_input(key_with(KeyCode::Char('g'), KeyModifiers::CONTROL)),
+        Some(DiffReviewEvent::Cancel)
+    );
+}
+
+#[test]
+fn split_view_can_comment_on_the_removed_side() {
+    let mut state = DiffReviewState::new(changed_document());
+    state.set_view_mode(ViewMode::Split);
+    draw(&mut state, 140, 12);
+    state.handle_input(key(KeyCode::Enter));
+
+    state.handle_input(key(KeyCode::Left));
+    assert_eq!(state.selected_side(), DiffSide::Old);
+    state.handle_input(key(KeyCode::Char('c')));
+    type_text(&mut state, "removed side");
+    state.handle_input(key(KeyCode::Enter));
+
+    state.handle_input(key(KeyCode::Right));
+    assert_eq!(state.selected_side(), DiffSide::New);
+    state.handle_input(key(KeyCode::Char('c')));
+    type_text(&mut state, "added side");
+    state.handle_input(key(KeyCode::Enter));
+
+    let comments = state.review().comments();
+    assert_eq!(comments.len(), 2);
+    assert_eq!(comments[0].anchor.side, DiffSide::Old);
+    assert_eq!(comments[0].context.line_text, "fn old() {}");
+    assert_eq!(comments[1].anchor.side, DiffSide::New);
+    assert_eq!(comments[1].context.line_text, "fn new() {}");
+
+    state.handle_input(key(KeyCode::Char('h')));
+    assert_eq!(state.focus(), FocusPane::Files);
 }
 
 #[test]
 fn document_replacement_retains_outdated_comments() {
     let before = changed_document();
-    let file = &before.files[0];
-    let anchor = LineAnchor::for_line(file, diff_core::DiffSide::Old, 0, 0).expect("anchor");
+    let anchor = LineAnchor::for_line(&before.files[0], DiffSide::Old, 0, 0).expect("anchor");
     let mut review = Review::default();
     review.add_comment_with_context(anchor, "fn old() {}", "still relevant");
     let mut state = DiffReviewState::new(before);
@@ -257,10 +253,7 @@ fn draft_cursor_uses_terminal_display_width() {
 
 #[test]
 fn file_drawer_scrolls_and_mouse_selection_uses_its_offset() {
-    let document = (0..12).fold(DocumentBuilder::new(), |builder, index| {
-        builder.changed(&format!("src/file_{index:02}.rs"), "old\n", "new\n")
-    });
-    let mut state = DiffReviewState::new(document.build());
+    let mut state = DiffReviewState::new(DocumentBuilder::new().generated_files(12, 1).build());
     draw(&mut state, 100, 8);
 
     for _ in 0..8 {
@@ -288,17 +281,17 @@ fn help_popup_and_explicit_view_mode_cycle_render() {
     state.handle_input(key(KeyCode::Char('v')));
     assert_eq!(state.view_mode(), ViewMode::Unified);
     draw(&mut state, 140, 12);
-    assert_eq!(state.presentation().view_mode(), ViewMode::Unified);
+    assert_eq!(state.layout(), Layout::Unified);
 
     state.handle_input(key(KeyCode::Char('v')));
     assert_eq!(state.view_mode(), ViewMode::Split);
     draw(&mut state, 60, 12);
-    assert_eq!(state.presentation().view_mode(), ViewMode::Split);
+    assert_eq!(state.layout(), Layout::Split);
 
     state.handle_input(key(KeyCode::Char('v')));
     assert_eq!(state.view_mode(), ViewMode::Auto);
     draw(&mut state, 60, 12);
-    assert_eq!(state.presentation().view_mode(), ViewMode::Unified);
+    assert_eq!(state.layout(), Layout::Unified);
 
     state.handle_input(key(KeyCode::Char('?')));
     let help = draw(&mut state, 80, 16);
@@ -314,16 +307,12 @@ fn unusual_patch_metadata_does_not_become_commentable() {
     let mut file = FileDiff::from_texts("meta.txt", "old", "new").expect("fixture");
     file.hunks[0].lines.push(PatchLine {
         kind: PatchLineKind::Meta,
-        text: "metadata".to_owned(),
+        text: "metadata".into(),
         old_line_no: None,
         new_line_no: None,
         no_newline: false,
     });
-    let document = Arc::new(DiffDocument {
-        repo_root: "/repo".to_owned(),
-        files: vec![file],
-    });
-    let mut state = DiffReviewState::new(document);
+    let mut state = DiffReviewState::new(DocumentBuilder::new().file(file).build());
     state.handle_input(key(KeyCode::Enter));
     state.handle_input(key(KeyCode::End));
     state.handle_input(key(KeyCode::Char('c')));

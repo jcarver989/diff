@@ -3,7 +3,15 @@
 mod support;
 
 use crossterm::event::KeyCode;
-use support::{ReviewHarness, key, large_document};
+use diff_core::{DiffDocument, testing::DocumentBuilder};
+use std::sync::Arc;
+use support::{ReviewHarness, key};
+
+fn large_document(rows: usize) -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .generated("src/large.rs", rows)
+        .build()
+}
 
 #[test]
 fn settled_frame_emits_no_terminal_cells_and_reuses_highlights() {

@@ -1,11 +1,11 @@
-//! Stateful document, selection, viewport, and review behavior.
-
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffTheme, HighlightStats, LineAnchor, PresentationOptions,
-    PresentedCell, Review, RowKind, SyntaxHighlighter, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, DiffTheme, HighlightStats, Layout, Review,
+    ReviewSession, SyntaxHighlighter, ViewMode,
 };
 use ratatui::layout::{Position, Rect};
 use std::sync::Arc;
+
+pub(crate) const SPLIT_BREAKPOINT: u16 = 96;
 
 /// Which pane receives navigation input.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -28,15 +28,6 @@ pub enum DiffReviewStatus {
     Error(String),
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct Draft {
-    pub anchor: LineAnchor,
-    pub line_text: String,
-    pub text: String,
-    pub cursor: usize,
-    pub editing: Option<u64>,
-}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct HitLayout {
     pub drawer: Rect,
@@ -46,25 +37,19 @@ pub(crate) struct HitLayout {
 /// Persistent state for [`crate::DiffReviewWidget`].
 #[derive(Debug)]
 pub struct DiffReviewState {
-    pub(crate) document: Arc<DiffDocument>,
-    pub(crate) presentation: DiffPresentation,
-    pub(crate) presentation_width: u16,
+    pub(crate) session: ReviewSession,
     pub(crate) theme: DiffTheme,
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) status: DiffReviewStatus,
     pub(crate) focus: FocusPane,
-    pub(crate) selected_file: usize,
     pub(crate) drawer_scroll: usize,
     pub(crate) drawer_height: usize,
-    pub(crate) selected_row: usize,
     pub(crate) scroll: usize,
-    pub(crate) view_mode: ViewMode,
-    pub(crate) review: Review,
-    pub(crate) draft: Option<Draft>,
+    pub(crate) last_height: usize,
+    pub(crate) presentation_width: u16,
     pub(crate) help: bool,
     pub(crate) hit_layout: HitLayout,
     pub(crate) visible_rows: Vec<(u16, usize)>,
-    pub(crate) last_height: usize,
     pub(crate) cursor_position: Option<Position>,
 }
 
@@ -78,59 +63,63 @@ impl DiffReviewState {
     /// Creates ready state with a shared neutral theme.
     #[must_use]
     pub fn with_theme(document: Arc<DiffDocument>, theme: DiffTheme) -> Self {
-        let presentation = DiffPresentation::new(document.clone(), PresentationOptions::default());
         let mut state = Self {
-            document,
-            presentation,
-            presentation_width: 0,
+            session: ReviewSession::new(document),
             theme,
             highlighter: SyntaxHighlighter::default(),
             status: DiffReviewStatus::Ready,
             focus: FocusPane::Files,
-            selected_file: 0,
             drawer_scroll: 0,
             drawer_height: 1,
-            selected_row: 0,
             scroll: 0,
-            view_mode: ViewMode::Auto,
-            review: Review::default(),
-            draft: None,
+            last_height: 1,
+            presentation_width: 0,
             help: false,
             hit_layout: HitLayout::default(),
             visible_rows: Vec::new(),
-            last_height: 1,
             cursor_position: None,
         };
-        state.select_file_row();
+        state.scroll_to_selected_file();
         state
     }
 
     /// Creates loading state with an empty placeholder document.
     #[must_use]
     pub fn loading() -> Self {
-        let mut state = Self::new(Arc::new(DiffDocument {
-            repo_root: String::new(),
-            files: Vec::new(),
-        }));
+        let mut state = Self::new(Arc::new(DiffDocument::empty()));
         state.status = DiffReviewStatus::Loading;
         state
     }
 
+    #[must_use]
+    pub const fn session(&self) -> &ReviewSession {
+        &self.session
+    }
+
+    pub const fn session_mut(&mut self) -> &mut ReviewSession {
+        &mut self.session
+    }
+
     /// Returns the current immutable snapshot.
     #[must_use]
-    pub fn document(&self) -> &Arc<DiffDocument> {
-        &self.document
+    pub const fn document(&self) -> &Arc<DiffDocument> {
+        self.session.document()
     }
 
     /// Returns the structured review.
     #[must_use]
     pub const fn review(&self) -> &Review {
-        &self.review
+        self.session.review()
     }
 
     /// Returns mutable review access for host-driven operations.
     pub const fn review_mut(&mut self) -> &mut Review {
-        &mut self.review
+        self.session.review_mut()
+    }
+
+    #[must_use]
+    pub const fn presentation(&self) -> &DiffPresentation {
+        self.session.presentation()
     }
 
     /// Returns the current load status.
@@ -148,24 +137,23 @@ impl DiffReviewState {
     /// Returns the selected file index, when the document has files.
     #[must_use]
     pub fn selected_file(&self) -> Option<usize> {
-        (!self.document.files.is_empty()).then_some(self.selected_file)
+        self.session.selected_file()
     }
 
     /// Returns the selected presentation-row index, when rows exist.
     #[must_use]
     pub fn selected_row(&self) -> Option<usize> {
-        (self.presentation.row_count() != 0).then_some(self.selected_row)
+        self.session.selected_row()
     }
 
-    /// Returns the currently indexed presentation.
     #[must_use]
-    pub const fn presentation(&self) -> &DiffPresentation {
-        &self.presentation
+    pub const fn selected_side(&self) -> DiffSide {
+        self.session.selected_side()
     }
 
     /// Returns syntax cache and work counters.
     #[must_use]
-    pub fn highlight_stats(&self) -> HighlightStats {
+    pub const fn highlight_stats(&self) -> HighlightStats {
         self.highlighter.stats()
     }
 
@@ -178,7 +166,12 @@ impl DiffReviewState {
     /// Returns the requested view mode.
     #[must_use]
     pub const fn view_mode(&self) -> ViewMode {
-        self.view_mode
+        self.session.view_mode()
+    }
+
+    #[must_use]
+    pub const fn layout(&self) -> Layout {
+        self.session.layout()
     }
 
     /// Returns the terminal cursor position for an active comment draft.
@@ -191,36 +184,26 @@ impl DiffReviewState {
 
     /// Replaces the snapshot while retaining and reconciling review comments.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
-        let selected_path = self
-            .document
-            .files
-            .get(self.selected_file)
-            .map(|file| file.path.clone());
-        self.review.reconcile(&document);
-        self.selected_file = selected_path
-            .and_then(|path| document.files.iter().position(|file| file.path == path))
-            .unwrap_or(0)
-            .min(document.files.len().saturating_sub(1));
-        self.document = document;
-        self.drawer_scroll = self.drawer_scroll.min(self.selected_file);
+        self.session.set_document(document);
         self.status = DiffReviewStatus::Ready;
-        self.draft = None;
         self.cursor_position = None;
-        self.rebuild_presentation(self.presentation_width);
-        self.select_file_row();
+        self.drawer_scroll = self
+            .drawer_scroll
+            .min(self.session.selected_file().unwrap_or(0));
+        self.scroll_to_selected_file();
     }
 
     /// Marks the state as waiting for a host snapshot.
     pub fn set_loading(&mut self) {
         self.status = DiffReviewStatus::Loading;
-        self.draft = None;
+        self.session.cancel_draft();
         self.cursor_position = None;
     }
 
     /// Shows a host-provided loading error.
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.status = DiffReviewStatus::Error(message.into());
-        self.draft = None;
+        self.session.cancel_draft();
         self.cursor_position = None;
     }
 
@@ -232,106 +215,61 @@ impl DiffReviewState {
 
     /// Selects automatic, unified, or split presentation.
     pub fn set_view_mode(&mut self, mode: ViewMode) {
-        if self.view_mode != mode {
-            self.view_mode = mode;
-            self.rebuild_presentation(self.presentation_width);
-            self.select_file_row();
+        if self.session.set_view_mode(mode) {
+            self.scroll_to_selected_file();
         }
     }
 
     /// Clears all queued comments and any active draft.
     pub fn clear_review(&mut self) {
-        self.review.clear();
-        self.draft = None;
+        self.session.clear_review();
         self.cursor_position = None;
     }
 
     pub(crate) fn ensure_presentation(&mut self, width: u16) {
-        let auto_changed =
-            self.view_mode == ViewMode::Auto && (self.presentation_width >= 96) != (width >= 96);
-        if self.presentation_width != width && auto_changed {
-            self.rebuild_presentation(width);
-            self.select_file_row();
-        } else {
-            self.presentation_width = width;
-        }
-    }
-
-    pub(crate) fn rebuild_presentation(&mut self, width: u16) {
         self.presentation_width = width;
-        self.presentation = DiffPresentation::new(
-            self.document.clone(),
-            PresentationOptions {
-                view_mode: self.view_mode,
-                split_when_auto: width >= 96,
-                include_file_headers: true,
-            },
-        );
-        self.selected_row = self
-            .selected_row
-            .min(self.presentation.row_count().saturating_sub(1));
-        self.scroll = self.scroll.min(self.selected_row);
+        if self.session.set_split_when_auto(width >= SPLIT_BREAKPOINT) {
+            self.scroll_to_selected_file();
+        }
     }
 
-    pub(crate) fn select_file_row(&mut self) {
-        if let Some(range) = self.presentation.file_range(self.selected_file) {
-            self.scroll = range.start;
-            self.selected_row = range
-                .clone()
-                .find(|index| self.row_is_selectable(*index))
-                .unwrap_or(range.start);
-        } else {
-            self.selected_row = 0;
-            self.scroll = 0;
-        }
+    pub(crate) fn scroll_to_selected_file(&mut self) {
+        self.scroll = self
+            .session
+            .selected_file_range()
+            .map_or(0, |range| range.start);
     }
 
     pub(crate) fn move_file(&mut self, delta: isize) {
-        if self.document.files.is_empty() {
+        let Some(selected) = self.session.move_file(delta) else {
             return;
+        };
+        self.follow_file_selection(selected);
+    }
+
+    pub(crate) fn select_file(&mut self, index: usize) {
+        if self.session.select_file(index) {
+            self.follow_file_selection(index);
         }
-        self.selected_file = offset(self.selected_file, delta, self.document.files.len() - 1);
-        if self.selected_file < self.drawer_scroll {
-            self.drawer_scroll = self.selected_file;
-        } else if self.selected_file >= self.drawer_scroll.saturating_add(self.drawer_height) {
-            self.drawer_scroll = self
-                .selected_file
-                .saturating_sub(self.drawer_height.saturating_sub(1));
+    }
+
+    fn follow_file_selection(&mut self, selected: usize) {
+        if selected < self.drawer_scroll {
+            self.drawer_scroll = selected;
+        } else if selected >= self.drawer_scroll.saturating_add(self.drawer_height) {
+            self.drawer_scroll = selected.saturating_sub(self.drawer_height.saturating_sub(1));
         }
-        self.select_file_row();
+        self.scroll_to_selected_file();
     }
 
     pub(crate) fn move_row(&mut self, delta: isize) {
-        let Some(range) = self.presentation.file_range(self.selected_file) else {
-            return;
-        };
-        let selectable: Vec<usize> = range
-            .filter(|index| self.row_is_selectable(*index))
-            .collect();
-        if selectable.is_empty() {
-            return;
-        }
-        let position = selectable
-            .iter()
-            .position(|index| *index == self.selected_row)
-            .unwrap_or(0);
-        self.selected_row = selectable[offset(position, delta, selectable.len() - 1)];
+        self.session.move_row(delta);
         self.follow_selection();
     }
 
     pub(crate) fn select_boundary(&mut self, end: bool) {
-        let Some(mut range) = self.presentation.file_range(self.selected_file) else {
-            return;
-        };
-        let selected = if end {
-            range.rev().find(|index| self.row_is_selectable(*index))
-        } else {
-            range.find(|index| self.row_is_selectable(*index))
-        };
-        if let Some(index) = selected {
-            self.selected_row = index;
-            self.follow_selection();
-        }
+        self.session.select_boundary(end);
+        self.follow_selection();
     }
 
     pub(crate) fn page(&mut self, delta: isize) {
@@ -340,96 +278,89 @@ impl DiffReviewState {
     }
 
     pub(crate) fn follow_selection(&mut self) {
-        if self.selected_row < self.scroll {
-            self.scroll = self.selected_row;
-        } else if self.selected_row >= self.scroll.saturating_add(self.last_height) {
-            self.scroll = self
-                .selected_row
-                .saturating_sub(self.last_height.saturating_sub(1));
+        let Some(selected) = self.session.selected_row() else {
+            return;
+        };
+        if selected < self.scroll {
+            self.scroll = selected;
+            return;
+        }
+
+        let height = self.last_height.max(1);
+        let range_start = self
+            .session
+            .selected_file_range()
+            .map_or(0, |range| range.start);
+        let mut earliest = selected;
+        let mut used = 1_usize;
+        while earliest > range_start {
+            let previous = earliest - 1;
+            let cost = self.rendered_height(previous);
+            if used.saturating_add(cost) > height {
+                break;
+            }
+            used = used.saturating_add(cost);
+            earliest = previous;
+        }
+        if self.scroll < earliest {
+            self.scroll = earliest;
         }
     }
 
-    pub(crate) fn selected_cell(&self) -> Option<&PresentedCell> {
-        let row = self.presentation.row(self.selected_row)?;
-        row.right.as_ref().or(row.left.as_ref())
-    }
-
-    pub(crate) fn begin_draft(&mut self, editing: Option<u64>) {
-        let Some(cell) = self.selected_cell() else {
-            return;
+    fn rendered_height(&self, index: usize) -> usize {
+        let Some(row) = self.session.presentation().row(index) else {
+            return 0;
         };
-        let Some(anchor) = cell.anchor.clone() else {
-            return;
-        };
-        let text = editing
-            .and_then(|id| {
-                self.review
-                    .comments()
-                    .iter()
-                    .find(|comment| comment.id == id)
-            })
-            .map_or_else(String::new, |comment| comment.body.clone());
-        let cursor = text.len();
-        self.draft = Some(Draft {
-            anchor,
-            line_text: cell.text.to_string(),
-            text,
-            cursor,
-            editing,
-        });
-    }
-
-    pub(crate) fn submit_draft(&mut self) {
-        let Some(draft) = self.draft.take() else {
-            return;
-        };
-        if draft.text.trim().is_empty() {
-            return;
-        }
-        if let Some(id) = draft.editing {
-            self.review.edit_comment(id, draft.text);
-        } else {
-            self.review
-                .add_comment_with_context(draft.anchor, draft.line_text, draft.text);
-        }
-    }
-
-    pub(crate) fn last_comment_for_selection(&self) -> Option<u64> {
-        let anchor = self.selected_cell()?.anchor.as_ref()?;
-        self.review
+        let comments = self
+            .session
+            .review()
             .comments()
             .iter()
-            .rev()
-            .find(|comment| &comment.anchor == anchor)
-            .map(|comment| comment.id)
-    }
-
-    pub(crate) fn row_is_selectable(&self, index: usize) -> bool {
-        self.presentation.row(index).is_some_and(|row| {
-            row.kind == RowKind::Code
-                && [row.left.as_ref(), row.right.as_ref()]
-                    .into_iter()
-                    .flatten()
-                    .any(|cell| cell.anchor.is_some())
-        })
+            .filter(|comment| {
+                self.session
+                    .presentation()
+                    .row_shows_anchor(row, &comment.anchor)
+            })
+            .count();
+        let draft = usize::from(self.session.draft().is_some_and(|draft| {
+            self.session
+                .presentation()
+                .row_shows_anchor(row, draft.anchor())
+        }));
+        1 + comments + draft
     }
 
     pub(crate) fn select_clicked_row(&mut self, row: u16) {
-        if let Some((_, index)) = self
+        let clicked = self
             .visible_rows
             .iter()
-            .find(|(screen_row, index)| *screen_row == row && self.row_is_selectable(*index))
+            .find(|(screen_row, _)| *screen_row == row)
+            .map(|(_, index)| *index);
+        if let Some(index) = clicked
+            && self.session.select_row(index)
         {
-            self.selected_row = *index;
             self.follow_selection();
         }
     }
 }
 
-fn offset(value: usize, delta: isize, maximum: usize) -> usize {
-    if delta.is_negative() {
-        value.saturating_sub(delta.unsigned_abs())
-    } else {
-        value.saturating_add(delta.unsigned_abs()).min(maximum)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diff_core::FileDiff;
+
+    #[test]
+    fn comments_above_selection_count_toward_viewport_height() {
+        let document = Arc::new(DiffDocument {
+            repo_root: "/repo".into(),
+            files: vec![FileDiff::from_texts("a.rs", "a\nb\nc\n", "A\nB\nC\n").unwrap()],
+        });
+        let mut state = DiffReviewState::new(document);
+        state.last_height = 3;
+        let anchor = state.session.selected_anchor().unwrap();
+        state.session.review_mut().add_comment(anchor, "note");
+        state.session.move_row(2);
+        state.follow_selection();
+        assert!(state.scroll > state.session.selected_file_range().unwrap().start);
     }
 }

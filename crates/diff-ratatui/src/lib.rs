@@ -1,5 +1,4 @@
 //! An embeddable, repository-agnostic Ratatui diff review widget.
-//!
 //! Hosts provide [`diff_core::DiffDocument`] snapshots and route emitted
 //! [`diff_core::DiffReviewEvent`] values. This crate never executes Git.
 

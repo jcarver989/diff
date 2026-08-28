@@ -89,10 +89,7 @@ fn run_tui(document: Arc<DiffDocument>) -> io::Result<Outcome> {
             }
         })?;
 
-        if let Some(event) = handle_crossterm_event(&mut state, event::read()?)
-            .into_iter()
-            .next()
-        {
+        if let Some(event) = handle_crossterm_event(&mut state, event::read()?) {
             match event {
                 DiffReviewEvent::Cancel => return Ok(Outcome::Cancelled),
                 DiffReviewEvent::SubmitReview(submission) => {
@@ -118,14 +115,14 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> io::Result<Options> 
             "--scope" => {
                 let value = args
                     .next()
-                    .ok_or_else(|| invalid_input("--scope needs a value"))?;
-                scope = parse_scope(&value)?;
+                    .ok_or_else(|| invalid_input(&"--scope needs a value"))?;
+                scope = value.parse().map_err(|error| invalid_input(&error))?;
             }
             value if value.starts_with('-') => {
-                return Err(invalid_input(format!("unknown option: {value}")));
+                return Err(invalid_input(&format!("unknown option: {value}")));
             }
             value if path.is_none() => path = Some(PathBuf::from(value)),
-            value => return Err(invalid_input(format!("unexpected argument: {value}"))),
+            value => return Err(invalid_input(&format!("unexpected argument: {value}"))),
         }
     }
 
@@ -136,19 +133,8 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> io::Result<Options> 
     })
 }
 
-fn parse_scope(value: &str) -> io::Result<DiffScope> {
-    match value {
-        "both" => Ok(DiffScope::Both),
-        "unstaged" => Ok(DiffScope::Unstaged),
-        "staged" => Ok(DiffScope::Staged),
-        _ => Err(invalid_input(format!(
-            "unknown scope `{value}`; expected both, unstaged, or staged"
-        ))),
-    }
-}
-
-fn invalid_input(message: impl Into<String>) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, message.into())
+fn invalid_input(message: &impl ToString) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, message.to_string())
 }
 
 #[cfg(test)]

@@ -2,14 +2,26 @@
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use crossterm::event::KeyCode;
-use diff_core::DiffDocument;
+use diff_core::{DiffDocument, testing::DocumentBuilder};
 use diff_ratatui::DiffReviewState;
 use std::{hint::black_box, sync::Arc};
 
 #[path = "../tests/support/mod.rs"]
 mod support;
 
-use support::{ReviewHarness, key, large_document, many_file_document};
+use support::{ReviewHarness, key};
+
+fn large_document(rows: usize) -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .generated("src/large.rs", rows)
+        .build()
+}
+
+fn many_file_document(files: usize, rows_per_file: usize) -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .generated_files(files, rows_per_file)
+        .build()
+}
 
 const SCROLL_STEPS: u64 = 100;
 const PAGE_STEPS: u64 = 10;
@@ -18,10 +30,12 @@ const FILE_SWITCHES: u64 = 50;
 fn presentation_creation(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("presentation_creation");
     group.sample_size(20);
+    let theme = diff_core::DiffTheme::default();
     for rows in [1_000, 10_000, 100_000] {
         let document = large_document(rows);
         group.bench_with_input(BenchmarkId::from_parameter(rows), &rows, |bencher, _| {
-            bencher.iter(|| DiffReviewState::new(black_box(document.clone())));
+            bencher
+                .iter(|| DiffReviewState::with_theme(black_box(document.clone()), theme.clone()));
         });
     }
     group.finish();
