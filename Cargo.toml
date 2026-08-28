@@ -1,0 +1,49 @@
+[workspace]
+members = [
+    "crates/diff-core",
+    "crates/diff-git",
+    "crates/diff-gpui",
+    "crates/diff-gpui-desktop",
+    "crates/diff-gpui-web",
+    "crates/diff-ratatui",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.0"
+license = "MIT"
+repository = "https://github.com/contextbridge/diff"
+
+[workspace.dependencies]
+async-channel = "2.5.0"
+blake3 = "1.8.7"
+diffy = "0.5.1"
+console_error_panic_hook = "0.1.7"
+gpui = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
+gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", features = ["font-kit", "runtime_shaders"] }
+gpui_tokio = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d" }
+gpui_web = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
+crossterm = "0.29.0"
+criterion = "0.7.0"
+ratatui = { version = "0.30.0", default-features = false, features = ["crossterm", "layout-cache"] }
+serde = { version = "1.0.229", features = ["derive", "rc"] }
+similar = "3.2.0"
+syntect = { version = "5.3.0", default-features = false, features = ["default-fancy", "plist-load"] }
+thiserror = "2.0.20"
+tokio = { version = "1.47.1", features = ["fs", "process", "rt-multi-thread"] }
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
+unicode-width = "0.2.2"
+serde_json = "1.0.151"
+tempfile = "3.21.0"
+wasm-bindgen = "0.2.120"
+web-sys = "0.3.97"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
