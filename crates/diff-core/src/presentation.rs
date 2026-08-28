@@ -6,7 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
-use std::{ops::Range, sync::Arc};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 
 const NO_NEWLINE_TEXT: &str = "\\ No newline at end of file";
 
@@ -202,6 +202,7 @@ pub struct DiffPresentation {
     document: Arc<DiffDocument>,
     layout: Layout,
     rows: Vec<PresentedRow>,
+    anchor_rows: HashMap<(usize, DiffSide, usize), usize>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
 }
@@ -246,10 +247,23 @@ impl DiffPresentation {
             file_ranges.push(file_start..rows.len());
             hunk_ranges.push(file_hunks);
         }
+        let anchor_rows = rows
+            .iter()
+            .enumerate()
+            .flat_map(|(row_index, row)| {
+                row.cells().filter_map(move |cell| {
+                    Some((
+                        (row.file_index, cell.source?.side, cell.line_number?),
+                        row_index,
+                    ))
+                })
+            })
+            .collect();
         Self {
             document,
             layout,
             rows,
+            anchor_rows,
             file_ranges,
             hunk_ranges,
         }
@@ -366,6 +380,16 @@ impl DiffPresentation {
             .files
             .get(row.file_index)
             .map_or("", FileDiff::language)
+    }
+
+    /// Returns the presentation row displaying an anchor in O(1) after its file
+    /// has been located.
+    #[must_use]
+    pub fn row_showing_anchor(&self, anchor: &LineAnchor) -> Option<usize> {
+        let file_index = self.document.file_index(&anchor.path)?;
+        self.anchor_rows
+            .get(&(file_index, anchor.side, anchor.line_number()?))
+            .copied()
     }
 
     #[must_use]
@@ -905,6 +929,7 @@ mod tests {
             Some(anchor.clone())
         );
         assert!(presentation.row_shows_anchor(row, &anchor));
+        assert_eq!(presentation.row_showing_anchor(&anchor), Some(index));
     }
 
     #[test]
