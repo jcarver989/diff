@@ -1,4 +1,4 @@
-use diff_core::DiffScope;
+use diff_core::{DiffScope, ParseDiffScopeError};
 use std::{ffi::OsString, path::PathBuf};
 use thiserror::Error;
 
@@ -30,10 +30,10 @@ impl CliArgs {
                 "--both" => scope = DiffScope::Both,
                 "-s" | "--scope" => {
                     let value = arguments.next().ok_or(ArgsError::MissingScope)?;
-                    scope = parse_scope(&value.to_string_lossy())?;
+                    scope = value.to_string_lossy().parse()?;
                 }
                 value if value.starts_with("--scope=") => {
-                    scope = parse_scope(&value["--scope=".len()..])?;
+                    scope = value["--scope=".len()..].parse()?;
                 }
                 value if value.starts_with('-') => {
                     return Err(ArgsError::UnknownOption(value.to_owned()));
@@ -50,23 +50,14 @@ impl CliArgs {
     }
 }
 
-fn parse_scope(value: &str) -> Result<DiffScope, ArgsError> {
-    match value {
-        "unstaged" => Ok(DiffScope::Unstaged),
-        "staged" => Ok(DiffScope::Staged),
-        "both" => Ok(DiffScope::Both),
-        _ => Err(ArgsError::InvalidScope(value.to_owned())),
-    }
-}
-
 #[derive(Debug, Error)]
 pub(crate) enum ArgsError {
     #[error("help requested")]
     Help,
     #[error("--scope requires unstaged, staged, or both")]
     MissingScope,
-    #[error("invalid diff scope `{0}`; expected unstaged, staged, or both")]
-    InvalidScope(String),
+    #[error(transparent)]
+    InvalidScope(#[from] ParseDiffScopeError),
     #[error("unknown option `{0}`")]
     UnknownOption(String),
     #[error("only one repository path may be supplied")]

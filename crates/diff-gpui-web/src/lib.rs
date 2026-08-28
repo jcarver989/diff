@@ -5,7 +5,6 @@
 //! Review submission is dispatched on `document` as a `diff-review-submit`
 //! `CustomEvent`; its `detail` is a serialized `ReviewSubmission` JSON string.
 
-#[cfg(any(target_arch = "wasm32", test))]
 use diff_core::{DiffDocument, DiffTheme};
 
 /// Errors returned while validating commands from JavaScript.
@@ -25,19 +24,17 @@ pub enum WebError {
     CommandChannelClosed,
 }
 
-#[cfg(any(target_arch = "wasm32", test))]
-fn decode_document(json: &str) -> Result<DiffDocument, WebError> {
+pub fn decode_document(json: &str) -> Result<DiffDocument, WebError> {
     serde_json::from_str(json).map_err(WebError::from)
 }
 
-#[cfg(any(target_arch = "wasm32", test))]
-fn demo_document() -> DiffDocument {
+#[must_use]
+pub fn demo_document() -> DiffDocument {
     decode_document(include_str!("../demo-document.json"))
         .expect("the checked-in web demo document must be valid")
 }
 
-#[cfg(any(target_arch = "wasm32", test))]
-fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
+pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
     match name.trim().to_ascii_lowercase().as_str() {
         "sage" => Ok(DiffTheme::default()),
         "ayu" | "ayu-dark" => DiffTheme::ayu().map_err(|_| WebError::UnknownTheme(name.into())),

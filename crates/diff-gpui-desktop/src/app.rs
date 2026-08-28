@@ -8,7 +8,9 @@ use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{future::Future, path::PathBuf, sync::Arc};
+
+type LoadResult = Result<(Option<GitRepository>, DiffDocument), GitError>;
 
 actions!(desktop_diff, [Refresh, CycleScope, StageAll, UnstageAll]);
 
@@ -76,20 +78,19 @@ impl DesktopApp {
         ]);
     }
 
-    fn discover(&mut self, cx: &mut Context<Self>) {
+    fn load<F>(&mut self, cx: &mut Context<Self>, work: F)
+    where
+        F: Future<Output = LoadResult> + Send + 'static,
+    {
         self.state = LoadState::Loading;
-        let path = self.repository_path.clone();
-        let scope = self.scope;
-        let operation = gpui_tokio::Tokio::spawn(cx, async move {
-            let repository = GitRepository::discover(path).await?;
-            let document = repository.snapshot(scope).await?;
-            Ok::<_, GitError>((repository, document))
-        });
+        let operation = gpui_tokio::Tokio::spawn(cx, work);
         self.load_task = cx.spawn(async move |this, cx| {
             let result = operation.await;
             let _ = this.update(cx, |this, cx| match result {
                 Ok(Ok((repository, document))) => {
-                    this.repository = Some(repository);
+                    if let Some(repository) = repository {
+                        this.repository = Some(repository);
+                    }
                     this.install_document(document, cx);
                 }
                 Ok(Err(error)) => this.set_error(&error, cx),
@@ -102,55 +103,46 @@ impl DesktopApp {
         cx.notify();
     }
 
+    fn discover(&mut self, cx: &mut Context<Self>) {
+        let path = self.repository_path.clone();
+        let scope = self.scope;
+        self.load(cx, async move {
+            let repository = GitRepository::discover(path).await?;
+            let document = repository.snapshot(scope).await?;
+            Ok((Some(repository), document))
+        });
+    }
+
     fn reload(&mut self, cx: &mut Context<Self>) {
         let Some(repository) = self.repository.clone() else {
             self.discover(cx);
             return;
         };
-        self.state = LoadState::Loading;
         let scope = self.scope;
-        let operation =
-            gpui_tokio::Tokio::spawn(cx, async move { repository.snapshot(scope).await });
-        self.load_task = cx.spawn(async move |this, cx| {
-            let result = operation.await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok(document)) => this.install_document(document, cx),
-                Ok(Err(error)) => this.set_error(&error, cx),
-                Err(error) => {
-                    this.state = LoadState::Error(format!("background task failed: {error}"));
-                    cx.notify();
-                }
-            });
+        self.load(cx, async move {
+            repository
+                .snapshot(scope)
+                .await
+                .map(|document| (None, document))
         });
-        cx.notify();
     }
 
     fn mutate_all(&mut self, stage: bool, cx: &mut Context<Self>) {
         let Some(repository) = self.repository.clone() else {
             return;
         };
-        self.state = LoadState::Loading;
         let scope = self.scope;
-        let operation = gpui_tokio::Tokio::spawn(cx, async move {
+        self.load(cx, async move {
             if stage {
                 repository.stage_all().await?;
             } else {
                 repository.unstage_all().await?;
             }
-            repository.snapshot(scope).await
+            repository
+                .snapshot(scope)
+                .await
+                .map(|document| (None, document))
         });
-        self.load_task = cx.spawn(async move |this, cx| {
-            let result = operation.await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok(document)) => this.install_document(document, cx),
-                Ok(Err(error)) => this.set_error(&error, cx),
-                Err(error) => {
-                    this.state = LoadState::Error(format!("background task failed: {error}"));
-                    cx.notify();
-                }
-            });
-        });
-        cx.notify();
     }
 
     fn install_document(&mut self, document: DiffDocument, cx: &mut Context<Self>) {
@@ -194,11 +186,7 @@ impl DesktopApp {
     }
 
     fn cycle_scope(&mut self, _: &CycleScope, _: &mut Window, cx: &mut Context<Self>) {
-        self.scope = match self.scope {
-            DiffScope::Unstaged => DiffScope::Staged,
-            DiffScope::Staged => DiffScope::Both,
-            DiffScope::Both => DiffScope::Unstaged,
-        };
+        self.scope = self.scope.next();
         self.reload(cx);
     }
 
@@ -252,7 +240,7 @@ impl Render for DesktopApp {
                 .into_any_element(),
                 LoadState::Empty => Self::status_panel(
                     "No changes",
-                    &format!("Scope: {:?} · press ⇧⌘/Ctrl+V to change scope", self.scope),
+                    &format!("Scope: {} · press ⇧⌘/Ctrl+V to change scope", self.scope),
                 )
                 .into_any_element(),
                 LoadState::Ready => self.viewer.as_ref().map_or_else(
