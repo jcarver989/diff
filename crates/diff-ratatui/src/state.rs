@@ -433,7 +433,13 @@ impl DiffReviewState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::FileDiff;
+    use diff_core::{FileDiff, ThemeId};
+
+    #[test]
+    fn new_uses_the_default_ayu_dark_theme() {
+        let state = DiffReviewState::new(Arc::new(DiffDocument::empty()));
+        assert_eq!(state.theme.id(), &ThemeId::Ayu);
+    }
 
     #[test]
     fn comments_above_selection_count_toward_viewport_height() {

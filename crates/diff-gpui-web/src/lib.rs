@@ -36,7 +36,7 @@ pub fn demo_document() -> DiffDocument {
 
 pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
     match name.trim().to_ascii_lowercase().as_str() {
-        "sage" => Ok(DiffTheme::default()),
+        "sage" => DiffTheme::sage().map_err(|_| WebError::UnknownTheme(name.into())),
         "ayu" | "ayu-dark" => DiffTheme::ayu().map_err(|_| WebError::UnknownTheme(name.into())),
         _ => Err(WebError::UnknownTheme(name.into())),
     }
@@ -268,6 +268,7 @@ pub use wasm::{clear_review, set_document_json, set_theme, start};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use diff_core::ThemeId;
 
     #[test]
     fn bundled_demo_is_the_captured_workspace_diff() {
@@ -293,8 +294,8 @@ mod tests {
 
     #[test]
     fn accepts_embedded_theme_names() {
-        assert!(decode_theme("sage").is_ok());
-        assert!(decode_theme("ayu-dark").is_ok());
+        assert_eq!(decode_theme("sage").unwrap().id(), &ThemeId::Sage);
+        assert_eq!(decode_theme("ayu-dark").unwrap().id(), &ThemeId::Ayu);
         assert!(matches!(
             decode_theme("unknown"),
             Err(WebError::UnknownTheme(_))
