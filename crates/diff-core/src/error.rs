@@ -3,7 +3,6 @@
 /// Errors produced while constructing or decoding a repository-relative path.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RepoPathError {
-    /// The supplied path was empty.
     #[error("repository path is empty")]
     Empty,
     /// The path contained a NUL byte.
@@ -15,9 +14,6 @@ pub enum RepoPathError {
     /// The path attempted to escape its repository root.
     #[error("repository path contains '.' or '..' component")]
     Traversal,
-    /// A path supplied as bytes was not valid UTF-8.
-    #[error("repository path is not valid UTF-8")]
-    UnsupportedEncoding,
 }
 
 impl From<std::convert::Infallible> for RepoPathError {
@@ -25,6 +21,18 @@ impl From<std::convert::Infallible> for RepoPathError {
         match value {}
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FingerprintError {
+    #[error("fingerprint must be 64 hexadecimal characters, found {0}")]
+    Length(usize),
+    #[error("fingerprint contains non-hexadecimal character `{0}`")]
+    Digit(char),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown diff scope `{0}`; expected unstaged, staged, or both")]
+pub struct ParseDiffScopeError(pub String);
 
 /// Errors shared by model and parser adapters.
 #[derive(Debug, thiserror::Error)]
@@ -53,11 +61,5 @@ pub enum DiffError {
 impl From<std::string::FromUtf8Error> for DiffError {
     fn from(error: std::string::FromUtf8Error) -> Self {
         Self::UnsupportedPathEncoding(error.utf8_error())
-    }
-}
-
-impl From<DiffError> for String {
-    fn from(error: DiffError) -> Self {
-        error.to_string()
     }
 }

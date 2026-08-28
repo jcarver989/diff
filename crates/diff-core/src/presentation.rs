@@ -1,9 +1,14 @@
 //! Framework-neutral, random-access unified and split row presentation.
 
-use crate::{DiffDocument, DiffSide, FileDiff, LineAnchor, PatchLine, PatchLineKind, RepoPath};
+use crate::{
+    DiffDocument, DiffSide, DiffTheme, FileDiff, Fingerprint, HighlightSpan, LineAnchor, PatchLine,
+    PatchLineKind, RepoPath, SyntaxHighlighter,
+};
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
 use std::{ops::Range, sync::Arc};
+
+const NO_NEWLINE_TEXT: &str = "\\ No newline at end of file";
 
 /// Requested diff layout.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,10 +16,43 @@ pub enum ViewMode {
     /// Let an adapter choose based on its own width units.
     #[default]
     Auto,
+    Unified,
+    Split,
+}
+
+impl ViewMode {
+    #[must_use]
+    pub const fn resolve(self, split_when_auto: bool) -> Layout {
+        match self {
+            Self::Split => Layout::Split,
+            Self::Auto if split_when_auto => Layout::Split,
+            Self::Unified | Self::Auto => Layout::Unified,
+        }
+    }
+
+    #[must_use]
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Unified,
+            Self::Unified => Self::Split,
+            Self::Split => Self::Auto,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Layout {
     /// One code column.
     Unified,
     /// Old and new columns aligned side by side.
     Split,
+}
+
+impl Layout {
+    #[must_use]
+    pub const fn is_split(self) -> bool {
+        matches!(self, Self::Split)
+    }
 }
 
 /// Options used while indexing presentation rows.
@@ -40,12 +78,9 @@ impl Default for PresentationOptions {
 
 impl PresentationOptions {
     /// Resolves the requested mode to a concrete layout.
-    pub const fn resolved_mode(self) -> ViewMode {
-        match (self.view_mode, self.split_when_auto) {
-            (ViewMode::Auto, true) => ViewMode::Split,
-            (ViewMode::Auto, false) => ViewMode::Unified,
-            (mode, _) => mode,
-        }
+    #[must_use]
+    pub const fn layout(self) -> Layout {
+        self.view_mode.resolve(self.split_when_auto)
     }
 }
 
@@ -67,14 +102,42 @@ pub enum DiffTone {
     Meta,
 }
 
+impl DiffTone {
+    #[must_use]
+    pub const fn for_kind(kind: PatchLineKind) -> Self {
+        match kind {
+            PatchLineKind::Added => Self::Added,
+            PatchLineKind::Removed => Self::Removed,
+            PatchLineKind::Meta | PatchLineKind::HunkHeader => Self::Meta,
+            PatchLineKind::Context => Self::Context,
+        }
+    }
+
+    #[must_use]
+    pub const fn marker(self) -> char {
+        match self {
+            Self::Added => '+',
+            Self::Removed => '-',
+            Self::Context | Self::Meta => ' ',
+        }
+    }
+}
+
 /// Stable identity for a presented row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RowId(pub u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CellSource {
+    pub side: DiffSide,
+    pub hunk_index: usize,
+    pub line_index: usize,
+}
+
 /// One side of a presented row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PresentedCell {
-    pub anchor: Option<LineAnchor>,
+    pub source: Option<CellSource>,
     pub line_number: Option<usize>,
     pub text: Arc<str>,
     pub tone: DiffTone,
@@ -91,12 +154,53 @@ pub struct PresentedRow {
     pub right: Option<PresentedCell>,
 }
 
+impl PresentedRow {
+    #[must_use]
+    pub const fn cell(&self, side: DiffSide) -> Option<&PresentedCell> {
+        match side {
+            DiffSide::Old => self.left.as_ref(),
+            DiffSide::New => self.right.as_ref(),
+        }
+    }
+
+    #[must_use]
+    pub const fn primary_cell(&self) -> Option<&PresentedCell> {
+        match &self.right {
+            Some(cell) => Some(cell),
+            None => self.left.as_ref(),
+        }
+    }
+
+    #[must_use]
+    pub const fn preferred_cell(&self, side: DiffSide) -> Option<&PresentedCell> {
+        match self.cell(side) {
+            Some(cell) => Some(cell),
+            None => self.primary_cell(),
+        }
+    }
+
+    pub fn cells(&self) -> impl Iterator<Item = &PresentedCell> {
+        [self.left.as_ref(), self.right.as_ref()]
+            .into_iter()
+            .flatten()
+    }
+
+    pub fn sources(&self) -> impl Iterator<Item = CellSource> {
+        self.cells().filter_map(|cell| cell.source)
+    }
+
+    #[must_use]
+    pub fn is_commentable(&self) -> bool {
+        self.kind == RowKind::Code && self.sources().next().is_some()
+    }
+}
+
 /// Eager row indexes and cheap descriptors. Syntax and frontend widgets are not
 /// constructed here.
 #[derive(Debug, Clone)]
 pub struct DiffPresentation {
     document: Arc<DiffDocument>,
-    mode: ViewMode,
+    layout: Layout,
     rows: Vec<PresentedRow>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
@@ -104,8 +208,9 @@ pub struct DiffPresentation {
 
 impl DiffPresentation {
     /// Indexes a document once for O(1) row lookup and slicing.
+    #[must_use]
     pub fn new(document: Arc<DiffDocument>, options: PresentationOptions) -> Self {
-        let mode = options.resolved_mode();
+        let layout = options.layout();
         let mut rows = Vec::new();
         let mut file_ranges = Vec::with_capacity(document.files.len());
         let mut hunk_ranges = Vec::with_capacity(document.files.len());
@@ -117,47 +222,33 @@ impl DiffPresentation {
             let mut file_hunks = Vec::with_capacity(file.hunks.len());
             for (hunk_index, hunk) in file.hunks.iter().enumerate() {
                 let hunk_start = rows.len();
-                rows.push(hunk_header_row(
-                    file_index,
-                    hunk_index,
-                    &hunk.header,
-                    &file.path,
-                ));
-                match mode {
-                    ViewMode::Unified | ViewMode::Auto => {
-                        for (line_index, line) in hunk.lines.iter().enumerate() {
-                            rows.push(unified_row(file_index, hunk_index, line_index, file, line));
-                            if line.no_newline {
-                                rows.push(meta_row(
-                                    file_index,
-                                    Some(hunk_index),
-                                    &file.path,
-                                    format!("no-newline:{line_index}"),
-                                    "\\ No newline at end of file",
-                                ));
-                            }
-                        }
+                rows.push(hunk_header_row(file_index, hunk_index, hunk, &file.path));
+                match layout {
+                    Layout::Unified => {
+                        append_unified_rows(&mut rows, file_index, hunk_index, file);
                     }
-                    ViewMode::Split => append_split_rows(&mut rows, file_index, hunk_index, file),
+                    Layout::Split => {
+                        append_split_rows(&mut rows, file_index, hunk_index, file);
+                    }
                 }
                 file_hunks.push(hunk_start..rows.len());
             }
             if file.hunks.is_empty() {
-                let text = if file.binary {
-                    "Binary file changed"
-                } else if file.mode.is_some() {
-                    "File mode changed"
-                } else {
-                    "Empty file changed"
-                };
-                rows.push(meta_row(file_index, None, &file.path, "placeholder", text));
+                rows.push(meta_row(
+                    file_index,
+                    None,
+                    &file.path,
+                    "placeholder",
+                    None,
+                    placeholder_text(file),
+                ));
             }
             file_ranges.push(file_start..rows.len());
             hunk_ranges.push(file_hunks);
         }
         Self {
             document,
-            mode,
+            layout,
             rows,
             file_ranges,
             hunk_ranges,
@@ -165,26 +256,30 @@ impl DiffPresentation {
     }
 
     /// Returns the retained immutable snapshot.
-    pub fn document(&self) -> &Arc<DiffDocument> {
+    #[must_use]
+    pub const fn document(&self) -> &Arc<DiffDocument> {
         &self.document
     }
 
-    /// Returns the concrete indexed mode.
-    pub const fn view_mode(&self) -> ViewMode {
-        self.mode
+    #[must_use]
+    pub const fn layout(&self) -> Layout {
+        self.layout
     }
 
     /// Total number of rows.
+    #[must_use]
     pub fn row_count(&self) -> usize {
         self.rows.len()
     }
 
     /// Returns one row in O(1).
+    #[must_use]
     pub fn row(&self, index: usize) -> Option<&PresentedRow> {
         self.rows.get(index)
     }
 
     /// Returns a clamped visible row slice without allocating.
+    #[must_use]
     pub fn rows(&self, range: Range<usize>) -> &[PresentedRow] {
         let start = range.start.min(self.rows.len());
         let end = range.end.max(start).min(self.rows.len());
@@ -192,13 +287,139 @@ impl DiffPresentation {
     }
 
     /// Returns the row range occupied by a file.
+    #[must_use]
     pub fn file_range(&self, file_index: usize) -> Option<Range<usize>> {
         self.file_ranges.get(file_index).cloned()
     }
 
     /// Returns the row range occupied by a hunk, including its header.
+    #[must_use]
     pub fn hunk_range(&self, file_index: usize, hunk_index: usize) -> Option<Range<usize>> {
         self.hunk_ranges.get(file_index)?.get(hunk_index).cloned()
+    }
+
+    #[must_use]
+    pub fn cell_anchor(&self, row: &PresentedRow, cell: &PresentedCell) -> Option<LineAnchor> {
+        let source = cell.source?;
+        let file = self.document.files.get(row.file_index)?;
+        LineAnchor::for_line(file, source.side, source.hunk_index, source.line_index)
+    }
+
+    #[must_use]
+    pub fn anchor_at(&self, row_index: usize, side: DiffSide) -> Option<LineAnchor> {
+        let row = self.row(row_index)?;
+        self.cell_anchor(row, row.preferred_cell(side)?)
+    }
+
+    pub fn highlight_cell(
+        &self,
+        highlighter: &mut SyntaxHighlighter,
+        theme: &DiffTheme,
+        row: &PresentedRow,
+        cell: &PresentedCell,
+    ) -> Vec<HighlightSpan> {
+        let Some(source) = cell.source else {
+            return highlighter.highlight(theme, self.language_at_row(row), &cell.text);
+        };
+        let Some(file) = self.document.files.get(row.file_index) else {
+            return Vec::new();
+        };
+        let Some(hunk) = file.hunks.get(source.hunk_index) else {
+            return Vec::new();
+        };
+        if hunk.lines.get(source.line_index).is_none() {
+            return Vec::new();
+        }
+        let target = hunk.lines[..=source.line_index]
+            .iter()
+            .filter(|line| line.line_number(source.side).is_some())
+            .count()
+            .saturating_sub(1);
+        let hunk_index = index_field(Some(source.hunk_index));
+        let document_id = (Arc::as_ptr(&self.document) as usize).to_le_bytes();
+        let sequence = Fingerprint::of([
+            document_id.as_slice(),
+            file.path.as_str().as_bytes(),
+            source.side.as_str().as_bytes(),
+            hunk_index.as_slice(),
+        ]);
+        highlighter.highlight_in_sequence(
+            theme,
+            file.language(),
+            sequence,
+            target,
+            hunk.lines
+                .iter()
+                .filter(|line| line.line_number(source.side).is_some())
+                .map(|line| line.text.as_ref()),
+        )
+    }
+
+    #[must_use]
+    pub fn language_at(&self, row_index: usize) -> &str {
+        self.row(row_index)
+            .map_or("", |row| self.language_at_row(row))
+    }
+
+    fn language_at_row(&self, row: &PresentedRow) -> &str {
+        self.document
+            .files
+            .get(row.file_index)
+            .map_or("", FileDiff::language)
+    }
+
+    #[must_use]
+    pub fn row_shows_anchor(&self, row: &PresentedRow, anchor: &LineAnchor) -> bool {
+        self.document
+            .files
+            .get(row.file_index)
+            .is_some_and(|file| file.path == anchor.path)
+            && row.cells().any(|cell| {
+                cell.source.is_some_and(|source| source.side == anchor.side)
+                    && cell.line_number == anchor.line_number()
+            })
+    }
+
+    #[must_use]
+    pub fn is_commentable(&self, index: usize) -> bool {
+        self.row(index).is_some_and(PresentedRow::is_commentable)
+    }
+
+    #[must_use]
+    pub fn first_commentable(&self, range: Range<usize>) -> Option<usize> {
+        range.into_iter().find(|index| self.is_commentable(*index))
+    }
+
+    #[must_use]
+    pub fn last_commentable(&self, range: Range<usize>) -> Option<usize> {
+        range.rev().find(|index| self.is_commentable(*index))
+    }
+
+    #[must_use]
+    pub fn step_commentable(
+        &self,
+        from: usize,
+        backward: bool,
+        range: &Range<usize>,
+    ) -> Option<usize> {
+        if backward {
+            self.last_commentable(range.start..from.min(range.end))
+        } else {
+            self.first_commentable(from.saturating_add(1).max(range.start)..range.end)
+        }
+    }
+}
+
+fn placeholder_text(file: &FileDiff) -> Arc<str> {
+    if let Some(bytes) = file.omitted_bytes {
+        return format!("File content omitted ({bytes} bytes)").into();
+    }
+    if file.binary {
+        "Binary file changed".into()
+    } else if file.mode.is_some() {
+        "File mode changed".into()
+    } else {
+        "Empty file changed".into()
     }
 }
 
@@ -212,7 +433,7 @@ fn header_row(file_index: usize, file: &FileDiff) -> PresentedRow {
             |old| format!("{old} → {}", file.path),
         );
     PresentedRow {
-        id: row_id(&file.path, "file", None, None),
+        id: row_id(&file.path, "file", None, None, None),
         kind: RowKind::FileHeader,
         file_index,
         hunk_index: None,
@@ -224,16 +445,30 @@ fn header_row(file_index: usize, file: &FileDiff) -> PresentedRow {
 fn hunk_header_row(
     file_index: usize,
     hunk_index: usize,
-    text: &str,
+    hunk: &crate::Hunk,
     path: &RepoPath,
 ) -> PresentedRow {
     PresentedRow {
-        id: row_id(path, "hunk", Some(hunk_index), None),
+        id: row_id(path, "hunk", Some(hunk_index), None, None),
         kind: RowKind::HunkHeader,
         file_index,
         hunk_index: Some(hunk_index),
         left: None,
-        right: Some(cell(None, None, text, DiffTone::Meta)),
+        right: Some(cell(None, None, hunk.header.as_str(), DiffTone::Meta)),
+    }
+}
+
+fn append_unified_rows(
+    rows: &mut Vec<PresentedRow>,
+    file_index: usize,
+    hunk_index: usize,
+    file: &FileDiff,
+) {
+    for (line_index, line) in file.hunks[hunk_index].lines.iter().enumerate() {
+        rows.push(unified_row(
+            file_index, hunk_index, line_index, &file.path, line,
+        ));
+        append_no_newline_meta(rows, file_index, hunk_index, &file.path, line_index, line);
     }
 }
 
@@ -241,31 +476,25 @@ fn unified_row(
     file_index: usize,
     hunk_index: usize,
     line_index: usize,
-    file: &FileDiff,
+    path: &RepoPath,
     line: &PatchLine,
 ) -> PresentedRow {
-    let (side, tone) = match line.kind {
-        PatchLineKind::Removed => (DiffSide::Old, DiffTone::Removed),
-        PatchLineKind::Added => (DiffSide::New, DiffTone::Added),
-        _ => (DiffSide::New, DiffTone::Context),
+    let side = match line.kind {
+        PatchLineKind::Removed => DiffSide::Old,
+        _ => DiffSide::New,
     };
-    let anchor = LineAnchor::for_line(file, side, hunk_index, line_index);
-    let presented = cell(
-        anchor.clone(),
-        line.line_number(side),
-        line.text.as_str(),
-        tone,
-    );
+    let presented = code_cell(side, hunk_index, line_index, line);
+    let (left, right) = match side {
+        DiffSide::Old => (Some(presented), None),
+        DiffSide::New => (None, Some(presented)),
+    };
     PresentedRow {
-        id: anchor.as_ref().map_or_else(
-            || row_id(&file.path, "code", Some(hunk_index), Some(line_index)),
-            anchor_row_id,
-        ),
+        id: code_row_id(path, hunk_index, left.as_ref(), right.as_ref()),
         kind: RowKind::Code,
         file_index,
         hunk_index: Some(hunk_index),
-        left: (side == DiffSide::Old).then_some(presented.clone()),
-        right: (side == DiffSide::New).then_some(presented),
+        left,
+        right,
     }
 }
 
@@ -279,31 +508,13 @@ fn append_split_rows(
     for group in split_groups(lines) {
         match group {
             SplitGroup::Single { line, index } => {
-                if line.kind == PatchLineKind::Context {
-                    rows.push(split_code_row(
-                        file_index,
-                        hunk_index,
-                        file,
-                        Some((index, line)),
-                        Some((index, line)),
-                    ));
-                } else if line.kind == PatchLineKind::Added {
-                    rows.push(split_code_row(
-                        file_index,
-                        hunk_index,
-                        file,
-                        None,
-                        Some((index, line)),
-                    ));
-                } else {
-                    rows.push(split_code_row(
-                        file_index,
-                        hunk_index,
-                        file,
-                        Some((index, line)),
-                        None,
-                    ));
-                }
+                let present = Some((index, line));
+                let (left, right) = match line.kind {
+                    PatchLineKind::Added => (None, present),
+                    PatchLineKind::Removed => (present, None),
+                    _ => (present, present),
+                };
+                rows.push(split_code_row(file_index, hunk_index, file, left, right));
                 append_no_newline_meta(rows, file_index, hunk_index, &file.path, index, line);
             }
             SplitGroup::Changed { removed, added } => {
@@ -342,8 +553,9 @@ fn append_no_newline_meta(
             file_index,
             Some(hunk_index),
             path,
-            format!("no-newline:{line_index}"),
-            "\\ No newline at end of file",
+            "no-newline",
+            Some(line_index),
+            NO_NEWLINE_TEXT,
         ));
     }
 }
@@ -355,34 +567,15 @@ fn split_code_row(
     left: Option<(usize, &PatchLine)>,
     right: Option<(usize, &PatchLine)>,
 ) -> PresentedRow {
-    let left = left.and_then(|(index, line)| {
-        let anchor = LineAnchor::for_line(file, DiffSide::Old, hunk_index, index)?;
-        Some(cell(
-            Some(anchor),
-            line.old_line_no,
-            line.text.as_str(),
-            tone(line.kind),
-        ))
-    });
-    let right = right.and_then(|(index, line)| {
-        let anchor = LineAnchor::for_line(file, DiffSide::New, hunk_index, index)?;
-        Some(cell(
-            Some(anchor),
-            line.new_line_no,
-            line.text.as_str(),
-            tone(line.kind),
-        ))
-    });
-    let id = match (
-        left.as_ref().and_then(|value| value.anchor.as_ref()),
-        right.as_ref().and_then(|value| value.anchor.as_ref()),
-    ) {
-        (Some(left), Some(right)) => paired_row_id(left, right),
-        (Some(anchor), None) | (None, Some(anchor)) => anchor_row_id(anchor),
-        (None, None) => row_id(&file.path, "empty-code", Some(hunk_index), None),
+    let build = |side: DiffSide, source: Option<(usize, &PatchLine)>| {
+        let (index, line) = source?;
+        line.line_number(side)?;
+        Some(code_cell(side, hunk_index, index, line))
     };
+    let left = build(DiffSide::Old, left);
+    let right = build(DiffSide::New, right);
     PresentedRow {
-        id,
+        id: code_row_id(&file.path, hunk_index, left.as_ref(), right.as_ref()),
         kind: RowKind::Code,
         file_index,
         hunk_index: Some(hunk_index),
@@ -392,28 +585,48 @@ fn split_code_row(
 }
 
 fn cell(
-    anchor: Option<LineAnchor>,
+    source: Option<CellSource>,
     line_number: Option<usize>,
     text: impl Into<Arc<str>>,
     tone: DiffTone,
 ) -> PresentedCell {
     PresentedCell {
-        anchor,
+        source,
         line_number,
         text: text.into(),
         tone,
     }
 }
 
+fn code_cell(
+    side: DiffSide,
+    hunk_index: usize,
+    line_index: usize,
+    line: &PatchLine,
+) -> PresentedCell {
+    let source = line.line_number(side).is_some().then_some(CellSource {
+        side,
+        hunk_index,
+        line_index,
+    });
+    cell(
+        source,
+        line.line_number(side),
+        Arc::clone(&line.text),
+        DiffTone::for_kind(line.kind),
+    )
+}
+
 fn meta_row(
     file_index: usize,
     hunk_index: Option<usize>,
     path: &RepoPath,
-    discriminator: impl AsRef<str>,
+    kind: &str,
+    line_index: Option<usize>,
     text: impl Into<Arc<str>>,
 ) -> PresentedRow {
     PresentedRow {
-        id: row_id(path, discriminator.as_ref(), hunk_index, None),
+        id: row_id(path, kind, hunk_index, line_index, None),
         kind: RowKind::Meta,
         file_index,
         hunk_index,
@@ -422,62 +635,54 @@ fn meta_row(
     }
 }
 
-fn tone(kind: PatchLineKind) -> DiffTone {
-    match kind {
-        PatchLineKind::Added => DiffTone::Added,
-        PatchLineKind::Removed => DiffTone::Removed,
-        _ => DiffTone::Context,
+fn index_field(value: Option<usize>) -> [u8; 9] {
+    let mut field = [0_u8; 9];
+    if let Some(index) = value {
+        field[0] = 1;
+        field[1..].copy_from_slice(&u64::try_from(index).unwrap_or(u64::MAX).to_le_bytes());
     }
+    field
 }
 
-fn anchor_row_id(anchor: &LineAnchor) -> RowId {
-    let old = anchor
-        .old_line_no
-        .map(|value| value.to_string())
-        .unwrap_or_default();
-    let new = anchor
-        .new_line_no
-        .map(|value| value.to_string())
-        .unwrap_or_default();
-    hash_id([
-        anchor.path.as_str().as_bytes(),
-        match anchor.side {
-            DiffSide::Old => b"old",
-            DiffSide::New => b"new",
-        },
-        old.as_bytes(),
-        new.as_bytes(),
-        anchor.fingerprint.as_bytes(),
-    ])
+fn row_id(
+    path: &RepoPath,
+    kind: &str,
+    hunk: Option<usize>,
+    left: Option<usize>,
+    right: Option<usize>,
+) -> RowId {
+    let hunk = index_field(hunk);
+    let left = index_field(left);
+    let right = index_field(right);
+    RowId(
+        Fingerprint::of([
+            path.as_str().as_bytes(),
+            kind.as_bytes(),
+            hunk.as_slice(),
+            left.as_slice(),
+            right.as_slice(),
+        ])
+        .to_u64(),
+    )
 }
 
-fn paired_row_id(left: &LineAnchor, right: &LineAnchor) -> RowId {
-    let left_id = anchor_row_id(left).0.to_le_bytes();
-    let right_id = anchor_row_id(right).0.to_le_bytes();
-    hash_id([&left_id, b"pair", &right_id])
-}
-
-fn row_id(path: &RepoPath, kind: &str, hunk: Option<usize>, line: Option<usize>) -> RowId {
-    let hunk = hunk.map(|value| value.to_string()).unwrap_or_default();
-    let line = line.map(|value| value.to_string()).unwrap_or_default();
-    hash_id([
-        path.as_str().as_bytes(),
-        kind.as_bytes(),
-        hunk.as_bytes(),
-        line.as_bytes(),
-    ])
-}
-
-fn hash_id<const N: usize>(parts: [&[u8]; N]) -> RowId {
-    let mut hasher = blake3::Hasher::new();
-    for part in parts {
-        hasher.update(part);
-        hasher.update(&[0]);
-    }
-    let bytes: [u8; 8] = hasher.finalize().as_bytes()[..8]
-        .try_into()
-        .expect("BLAKE3 digest has eight bytes");
-    RowId(u64::from_le_bytes(bytes))
+fn code_row_id(
+    path: &RepoPath,
+    hunk_index: usize,
+    left: Option<&PresentedCell>,
+    right: Option<&PresentedCell>,
+) -> RowId {
+    let line_index = |cell: Option<&PresentedCell>| {
+        cell.and_then(|cell| cell.source)
+            .map(|source| source.line_index)
+    };
+    row_id(
+        path,
+        "code",
+        Some(hunk_index),
+        line_index(left),
+        line_index(right),
+    )
 }
 
 fn split_groups(lines: &[PatchLine]) -> Vec<SplitGroup<'_>> {
@@ -529,75 +734,62 @@ enum SplitGroup<'a> {
     },
 }
 
+#[derive(Clone, Copy)]
 struct SplitSide<'a> {
     line: &'a PatchLine,
     index: usize,
 }
 
+type ChangedPair<'a> = (Option<&'a SplitSide<'a>>, Option<&'a SplitSide<'a>>);
+
 fn pair_changed_block<'a>(
     removed: &'a [SplitSide<'a>],
     added: &'a [SplitSide<'a>],
-) -> Vec<(Option<&'a SplitSide<'a>>, Option<&'a SplitSide<'a>>)> {
-    let old: Vec<&str> = removed.iter().map(|side| side.line.text.as_str()).collect();
-    let new: Vec<&str> = added.iter().map(|side| side.line.text.as_str()).collect();
-    let diff = TextDiff::from_slices(&old, &new);
+) -> Vec<ChangedPair<'a>> {
+    let old: Vec<&str> = removed.iter().map(|side| side.line.text.as_ref()).collect();
+    let new: Vec<&str> = added.iter().map(|side| side.line.text.as_ref()).collect();
     let mut pairs = Vec::new();
-    for op in diff.ops() {
+    let mut align = |old_range: Range<usize>, new_range: Range<usize>| {
+        let paired = old_range.len().min(new_range.len());
+        for offset in 0..paired {
+            pairs.push((
+                Some(&removed[old_range.start + offset]),
+                Some(&added[new_range.start + offset]),
+            ));
+        }
+        pairs.extend(
+            removed[old_range.start + paired..old_range.end]
+                .iter()
+                .map(|side| (Some(side), None)),
+        );
+        pairs.extend(
+            added[new_range.start + paired..new_range.end]
+                .iter()
+                .map(|side| (None, Some(side))),
+        );
+    };
+    for op in TextDiff::from_slices(&old, &new).ops() {
         match *op {
             DiffOp::Equal {
                 old_index,
                 new_index,
                 len,
-            } => {
-                for offset in 0..len {
-                    pairs.push((
-                        Some(&removed[old_index + offset]),
-                        Some(&added[new_index + offset]),
-                    ));
-                }
-            }
+            } => align(old_index..old_index + len, new_index..new_index + len),
             DiffOp::Delete {
                 old_index, old_len, ..
-            } => {
-                pairs.extend(
-                    removed[old_index..old_index + old_len]
-                        .iter()
-                        .map(|side| (Some(side), None)),
-                );
-            }
+            } => align(old_index..old_index + old_len, 0..0),
             DiffOp::Insert {
                 new_index, new_len, ..
-            } => {
-                pairs.extend(
-                    added[new_index..new_index + new_len]
-                        .iter()
-                        .map(|side| (None, Some(side))),
-                );
-            }
+            } => align(0..0, new_index..new_index + new_len),
             DiffOp::Replace {
                 old_index,
                 old_len,
                 new_index,
                 new_len,
-            } => {
-                let paired = old_len.min(new_len);
-                for offset in 0..paired {
-                    pairs.push((
-                        Some(&removed[old_index + offset]),
-                        Some(&added[new_index + offset]),
-                    ));
-                }
-                pairs.extend(
-                    removed[old_index + paired..old_index + old_len]
-                        .iter()
-                        .map(|side| (Some(side), None)),
-                );
-                pairs.extend(
-                    added[new_index + paired..new_index + new_len]
-                        .iter()
-                        .map(|side| (None, Some(side))),
-                );
-            }
+            } => align(
+                old_index..old_index + old_len,
+                new_index..new_index + new_len,
+            ),
         }
     }
     pairs
@@ -622,6 +814,24 @@ mod tests {
         })
     }
 
+    fn presentation(view_mode: ViewMode) -> DiffPresentation {
+        DiffPresentation::new(
+            document(),
+            PresentationOptions {
+                view_mode,
+                ..PresentationOptions::default()
+            },
+        )
+    }
+
+    #[test]
+    fn view_modes_resolve_and_cycle() {
+        assert_eq!(ViewMode::Auto.resolve(true), Layout::Split);
+        assert_eq!(ViewMode::Auto.resolve(false), Layout::Unified);
+        assert_eq!(ViewMode::Unified.resolve(true), Layout::Unified);
+        assert_eq!(ViewMode::Split.next().next(), ViewMode::Unified);
+    }
+
     #[test]
     fn random_access_ranges_are_clamped() {
         let presentation = DiffPresentation::new(document(), PresentationOptions::default());
@@ -631,66 +841,152 @@ mod tests {
             0..presentation.row_count()
         );
         assert!(presentation.hunk_range(0, 0).is_some());
+        assert_eq!(presentation.language_at(1), "rs");
     }
 
     #[test]
     fn split_pairs_equal_lines_inside_changed_blocks() {
-        let options = PresentationOptions {
-            view_mode: ViewMode::Split,
-            ..PresentationOptions::default()
-        };
-        let first = DiffPresentation::new(document(), options);
-        let second = DiffPresentation::new(document(), options);
-        assert_eq!(first.row_count(), second.row_count());
-        assert_eq!(
-            first
-                .rows(0..first.row_count())
-                .iter()
-                .map(|row| row.id)
-                .collect::<Vec<_>>(),
-            second
-                .rows(0..second.row_count())
+        let first = presentation(ViewMode::Split);
+        let second = presentation(ViewMode::Split);
+        let ids = |value: &DiffPresentation| {
+            value
+                .rows(0..value.row_count())
                 .iter()
                 .map(|row| row.id)
                 .collect::<Vec<_>>()
-        );
+        };
+        assert_eq!(ids(&first), ids(&second));
         assert!(first.rows(0..first.row_count()).iter().any(|row| {
-            row.left
-                .as_ref()
-                .is_some_and(|cell| cell.text.as_ref() == "keep")
+            row.left.as_ref().is_some_and(|c| c.text.as_ref() == "keep")
                 && row
                     .right
                     .as_ref()
-                    .is_some_and(|cell| cell.text.as_ref() == "keep")
+                    .is_some_and(|c| c.text.as_ref() == "keep")
         }));
     }
 
     #[test]
     fn unified_and_split_expose_all_code_anchors() {
-        let unified = DiffPresentation::new(
-            document(),
-            PresentationOptions {
-                view_mode: ViewMode::Unified,
-                ..PresentationOptions::default()
-            },
-        );
-        let split = DiffPresentation::new(
-            document(),
-            PresentationOptions {
-                view_mode: ViewMode::Split,
-                ..PresentationOptions::default()
-            },
-        );
-        let anchor_count = |presentation: &DiffPresentation| {
-            presentation
-                .rows(0..presentation.row_count())
+        let unified = presentation(ViewMode::Unified);
+        let split = presentation(ViewMode::Split);
+        let commentable_cells = |value: &DiffPresentation| {
+            value
+                .rows(0..value.row_count())
                 .iter()
-                .flat_map(|row| [row.left.as_ref(), row.right.as_ref()])
-                .flatten()
-                .filter(|cell| cell.anchor.is_some())
+                .flat_map(PresentedRow::sources)
                 .count()
         };
         assert!(split.row_count() <= unified.row_count());
-        assert!(anchor_count(&split) >= anchor_count(&unified));
+        assert!(commentable_cells(&split) >= commentable_cells(&unified));
+    }
+
+    #[test]
+    fn anchors_are_resolved_on_demand_and_match_the_document() {
+        let presentation = presentation(ViewMode::Unified);
+        let index = presentation
+            .first_commentable(presentation.file_range(0).unwrap())
+            .unwrap();
+        let row = presentation.row(index).unwrap();
+        let cell = row.primary_cell().unwrap();
+        let source = cell.source.unwrap();
+        let anchor = presentation.cell_anchor(row, cell).unwrap();
+        assert_eq!(
+            anchor,
+            LineAnchor::for_line(
+                &presentation.document().files[0],
+                source.side,
+                source.hunk_index,
+                source.line_index
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            presentation.anchor_at(index, source.side),
+            Some(anchor.clone())
+        );
+        assert!(presentation.row_shows_anchor(row, &anchor));
+    }
+
+    #[test]
+    fn stepping_skips_non_source_rows_and_stops_at_boundaries() {
+        let unified = presentation(ViewMode::Unified);
+        let range = unified.file_range(0).unwrap();
+        let first = unified.first_commentable(range.clone()).unwrap();
+        let last = unified.last_commentable(range.clone()).unwrap();
+        assert!(unified.step_commentable(first, true, &range).is_none());
+        assert!(unified.step_commentable(last, false, &range).is_none());
+        let second = unified.step_commentable(first, false, &range).unwrap();
+        assert_eq!(unified.step_commentable(second, true, &range), Some(first));
+    }
+
+    #[test]
+    fn anchors_do_not_match_rows_from_other_files() {
+        let document = Arc::new(DiffDocument {
+            repo_root: "/repo".into(),
+            files: vec![
+                FileDiff::from_texts("a.rs", "old\n", "new\n").unwrap(),
+                FileDiff::from_texts("b.rs", "old\n", "new\n").unwrap(),
+            ],
+        });
+        let presentation = DiffPresentation::new(document, PresentationOptions::default());
+        let first = presentation
+            .first_commentable(presentation.file_range(0).unwrap())
+            .unwrap();
+        let second = presentation
+            .first_commentable(presentation.file_range(1).unwrap())
+            .unwrap();
+        let anchor = presentation.anchor_at(first, DiffSide::New).unwrap();
+        assert!(presentation.row_shows_anchor(presentation.row(first).unwrap(), &anchor));
+        assert!(!presentation.row_shows_anchor(presentation.row(second).unwrap(), &anchor));
+    }
+
+    #[test]
+    fn cells_are_addressable_by_side() {
+        let split = presentation(ViewMode::Split);
+        let row = split
+            .rows(0..split.row_count())
+            .iter()
+            .find(|row| row.left.is_some() && row.right.is_some())
+            .unwrap();
+        assert_eq!(row.cell(DiffSide::New), row.right.as_ref());
+        assert_eq!(row.preferred_cell(DiffSide::Old), row.left.as_ref());
+        assert_eq!(row.cells().count(), 2);
+        assert!(row.is_commentable());
+    }
+
+    #[test]
+    fn cell_highlighting_preserves_multiline_state() {
+        let document = Arc::new(DiffDocument {
+            repo_root: "/repo".into(),
+            files: vec![FileDiff::from_texts("a.rs", "", "/*\n comment */\n").unwrap()],
+        });
+        let presentation = DiffPresentation::new(document, PresentationOptions::default());
+        let row = presentation
+            .rows(0..presentation.row_count())
+            .iter()
+            .find(|row| {
+                row.primary_cell()
+                    .is_some_and(|cell| cell.text.as_ref() == " comment */")
+            })
+            .unwrap();
+        let cell = row.primary_cell().unwrap();
+        let theme = DiffTheme::default();
+        let expected =
+            SyntaxHighlighter::new(0).highlight_sequential(&theme, "rust", ["/*", " comment */"]);
+        let actual = presentation.highlight_cell(&mut SyntaxHighlighter::new(8), &theme, row, cell);
+        assert_eq!(actual, expected[1]);
+    }
+
+    #[test]
+    fn presentation_shares_document_text_instead_of_copying_it() {
+        let document = document();
+        let presentation = DiffPresentation::new(document.clone(), PresentationOptions::default());
+        let line = &document.files[0].hunks[0].lines[0];
+        let cell = presentation
+            .rows(0..presentation.row_count())
+            .iter()
+            .find_map(|row| row.primary_cell().filter(|c| c.text == line.text))
+            .unwrap();
+        assert!(Arc::ptr_eq(&cell.text, &line.text));
     }
 }

@@ -1,4 +1,3 @@
-
 use crate::FingerprintError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -59,6 +58,7 @@ impl Fingerprint {
         let mut digest = [0_u8; 32];
         let (pairs, _) = bytes.as_chunks::<2>();
         for (slot, pair) in digest.iter_mut().zip(pairs) {
+            *slot = (nibble(pair[0])? << 4) | nibble(pair[1])?;
         }
         Ok(Self(digest))
     }

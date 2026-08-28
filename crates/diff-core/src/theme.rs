@@ -1,11 +1,8 @@
 //! Renderer-neutral colors, semantic diff palettes, and syntax themes.
 
+use crate::{DiffTone, Fingerprint};
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt,
-    io::Cursor,
-    ops::{BitOr, BitOrAssign},
-};
+use std::{fmt, io::Cursor};
 use syntect::highlighting::{Color, Theme as SyntectTheme, ThemeSet};
 
 /// An sRGB color with an explicit alpha channel.
@@ -16,14 +13,23 @@ pub struct Rgba {
     pub b: u8,
     pub a: u8,
 }
+
 impl Rgba {
+    #[must_use]
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
-    fn from_syntect(c: Color) -> Self {
-        Self::new(c.r, c.g, c.b, c.a)
+
+    #[must_use]
+    pub const fn to_bytes(self) -> [u8; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
+
+    const fn from_syntect(color: Color) -> Self {
+        Self::new(color.r, color.g, color.b, color.a)
     }
 }
+
 impl Default for Rgba {
     fn default() -> Self {
         Self::new(212, 221, 214, 255)
@@ -33,40 +39,24 @@ impl Default for Rgba {
 /// Text modifiers returned by the syntax engine.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FontStyle {
-    bits: u8,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
 }
+
 impl FontStyle {
-    pub const BOLD: Self = Self { bits: 1 };
-    pub const UNDERLINE: Self = Self { bits: 2 };
-    pub const ITALIC: Self = Self { bits: 4 };
-    pub const fn empty() -> Self {
-        Self { bits: 0 }
-    }
-    pub const fn bits(self) -> u8 {
-        self.bits
-    }
-    pub const fn contains(self, other: Self) -> bool {
-        self.bits & other.bits == other.bits
-    }
-    pub const fn from_bits(bits: u8) -> Option<Self> {
-        if bits & !7 == 0 {
-            Some(Self { bits })
-        } else {
-            None
-        }
-    }
-}
-impl BitOr for FontStyle {
-    type Output = Self;
-    fn bitor(self, rhs: Self) -> Self {
+    #[must_use]
+    pub const fn none() -> Self {
         Self {
-            bits: self.bits | rhs.bits,
+            bold: false,
+            italic: false,
+            underline: false,
         }
     }
-}
-impl BitOrAssign for FontStyle {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.bits |= rhs.bits;
+
+    #[must_use]
+    pub const fn is_plain(self) -> bool {
+        !self.bold && !self.italic && !self.underline
     }
 }
 
@@ -76,6 +66,12 @@ pub struct HighlightSpan {
     pub range: std::ops::Range<usize>,
     pub foreground: Rgba,
     pub font_style: FontStyle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToneColors {
+    pub foreground: Rgba,
+    pub background: Rgba,
 }
 
 /// Colors used by diff renderers. Frontends are responsible for converting these values.
@@ -93,6 +89,44 @@ pub struct DiffPalette {
     pub muted: Rgba,
     pub border: Rgba,
 }
+
+impl DiffPalette {
+    #[must_use]
+    pub const fn tone(&self, tone: DiffTone) -> ToneColors {
+        match tone {
+            DiffTone::Added => ToneColors {
+                foreground: self.addition,
+                background: self.addition_background,
+            },
+            DiffTone::Removed => ToneColors {
+                foreground: self.deletion,
+                background: self.deletion_background,
+            },
+            DiffTone::Context | DiffTone::Meta => ToneColors {
+                foreground: self.foreground,
+                background: self.background,
+            },
+        }
+    }
+
+    #[must_use]
+    pub const fn colors(&self) -> [Rgba; 11] {
+        [
+            self.background,
+            self.foreground,
+            self.gutter,
+            self.addition,
+            self.deletion,
+            self.addition_background,
+            self.deletion_background,
+            self.selection,
+            self.accent,
+            self.muted,
+            self.border,
+        ]
+    }
+}
+
 impl Default for DiffPalette {
     fn default() -> Self {
         Self {
@@ -112,30 +146,20 @@ impl Default for DiffPalette {
 }
 
 /// Stable identifiers for embedded and host-provided themes.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ThemeId {
+    #[default]
     Sage,
     Ayu,
     Custom(String),
 }
-impl ThemeId {
-    pub const SAGE: Self = Self::Sage;
-    pub const AYU: Self = Self::Ayu;
-    pub fn custom(name: impl Into<String>) -> Self {
-        Self::Custom(name.into())
-    }
-}
-impl Default for ThemeId {
-    fn default() -> Self {
-        Self::Sage
-    }
-}
+
 impl fmt::Display for ThemeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Sage => f.write_str("sage"),
             Self::Ayu => f.write_str("ayu-dark"),
-            Self::Custom(s) => f.write_str(s),
+            Self::Custom(name) => f.write_str(name),
         }
     }
 }
@@ -143,11 +167,12 @@ impl fmt::Display for ThemeId {
 /// A syntax theme plus semantic colors for the diff UI.
 #[derive(Debug, Clone)]
 pub struct DiffTheme {
-    pub id: ThemeId,
-    pub palette: DiffPalette,
-    pub syntax: SyntectTheme,
-    revision: [u8; 32],
+    id: ThemeId,
+    palette: DiffPalette,
+    syntax: SyntectTheme,
+    revision: Fingerprint,
 }
+
 impl DiffTheme {
     pub fn from_bytes(id: ThemeId, bytes: &[u8]) -> Result<Self, ThemeError> {
         let syntax = ThemeSet::load_from_reader(&mut Cursor::new(bytes)).map_err(|source| {
@@ -156,65 +181,76 @@ impl DiffTheme {
             }
         })?;
         let mut theme = Self::from_syntect(id, syntax);
-        theme.revision = *blake3::hash(bytes).as_bytes();
+        theme.revision = Fingerprint::of([bytes]);
         Ok(theme)
     }
-    /// Parses a Sublime Text `.tmTheme` payload.
-    pub fn from_tm_theme_bytes(id: ThemeId, bytes: &[u8]) -> Result<Self, ThemeError> {
-        Self::from_bytes(id, bytes)
-    }
-    /// Returns the embedded Sage theme.
-    pub fn default_sage() -> Result<Self, ThemeError> {
-        Self::sage()
-    }
-    /// Returns the embedded Ayu Dark theme.
-    pub fn ayu_dark() -> Result<Self, ThemeError> {
-        Self::ayu()
-    }
+
+    #[must_use]
     pub fn from_syntect(id: ThemeId, syntax: SyntectTheme) -> Self {
         let fallback = DiffPalette::default();
-        let s = syntax.settings.clone();
-        let fg = s
-            .foreground
-            .map(Rgba::from_syntect)
-            .unwrap_or(fallback.foreground);
-        let bg = s
-            .background
-            .map(Rgba::from_syntect)
-            .unwrap_or(fallback.background);
-        let accent = s.accent.map(Rgba::from_syntect).unwrap_or(fallback.accent);
-        let revision = *blake3::hash(format!("{syntax:?}").as_bytes()).as_bytes();
+        let settings = &syntax.settings;
+        let derive =
+            |color: Option<Color>, default: Rgba| color.map_or(default, Rgba::from_syntect);
+        let palette = DiffPalette {
+            foreground: derive(settings.foreground, fallback.foreground),
+            background: derive(settings.background, fallback.background),
+            accent: derive(settings.accent, fallback.accent),
+            gutter: derive(settings.gutter_foreground, fallback.gutter),
+            selection: derive(settings.selection, fallback.selection),
+            ..fallback
+        };
+        let revision = parsed_theme_revision(&id, &palette, &syntax);
         Self {
             id,
+            palette,
             syntax,
             revision,
-            palette: DiffPalette {
-                foreground: fg,
-                background: bg,
-                accent,
-                gutter: s
-                    .gutter_foreground
-                    .map(Rgba::from_syntect)
-                    .unwrap_or(fallback.gutter),
-                selection: s
-                    .selection
-                    .map(Rgba::from_syntect)
-                    .unwrap_or(fallback.selection),
-                ..fallback
-            },
         }
     }
-    pub(crate) const fn revision(&self) -> [u8; 32] {
+
+    #[must_use]
+    pub const fn id(&self) -> &ThemeId {
+        &self.id
+    }
+
+    #[must_use]
+    pub const fn palette(&self) -> &DiffPalette {
+        &self.palette
+    }
+
+    #[must_use]
+    pub const fn syntax(&self) -> &SyntectTheme {
+        &self.syntax
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> Fingerprint {
         self.revision
     }
 
     pub fn sage() -> Result<Self, ThemeError> {
         Self::from_bytes(ThemeId::Sage, include_bytes!("../assets/sage.tmTheme"))
     }
+
     pub fn ayu() -> Result<Self, ThemeError> {
         Self::from_bytes(ThemeId::Ayu, include_bytes!("../assets/ayu-dark.tmTheme"))
     }
 }
+
+fn parsed_theme_revision(
+    id: &ThemeId,
+    palette: &DiffPalette,
+    syntax: &SyntectTheme,
+) -> Fingerprint {
+    let name = id.to_string();
+    let syntax = format!("{syntax:?}");
+    let mut channels = Vec::with_capacity(palette.colors().len() * 4);
+    for color in palette.colors() {
+        channels.extend_from_slice(&color.to_bytes());
+    }
+    Fingerprint::of([name.as_bytes(), channels.as_slice(), syntax.as_bytes()])
+}
+
 impl Default for DiffTheme {
     fn default() -> Self {
         Self::sage().expect("bundled Sage theme must parse")
@@ -226,22 +262,57 @@ impl Default for DiffTheme {
 pub enum ThemeError {
     #[error("failed to parse theme: {message}")]
     Parse { message: String },
-    #[error("theme has no syntax settings")]
-    MissingSettings,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn bundled_themes_parse() {
-        assert_eq!(DiffTheme::default().id, ThemeId::Sage);
-        assert!(DiffTheme::ayu().is_ok());
+    fn bundled_themes_parse_with_distinct_revisions() {
+        let sage = DiffTheme::default();
+        let ayu = DiffTheme::ayu().unwrap();
+        assert_eq!(sage.id(), &ThemeId::Sage);
+        assert_ne!(sage.revision(), ayu.revision());
     }
+
     #[test]
-    fn flags_serialize() {
-        let f = FontStyle::BOLD | FontStyle::ITALIC;
-        assert!(f.contains(FontStyle::BOLD));
-        assert_eq!(serde_json::to_string(&f).unwrap(), "{\"bits\":5}");
+    fn parsed_themes_with_different_rules_have_different_revisions() {
+        let first = DiffTheme::default();
+        let mut syntax = first.syntax().clone();
+        syntax.scopes[0].style.foreground = Some(Color {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 255,
+        });
+        let second = DiffTheme::from_syntect(first.id().clone(), syntax);
+        assert_eq!(first.palette(), second.palette());
+        assert_ne!(first.revision(), second.revision());
+    }
+
+    #[test]
+    fn tone_mapping_is_shared_by_adapters() {
+        let palette = DiffPalette::default();
+        assert_eq!(palette.tone(DiffTone::Added).foreground, palette.addition);
+        assert_eq!(
+            palette.tone(DiffTone::Meta).background,
+            palette.tone(DiffTone::Context).background
+        );
+    }
+
+    #[test]
+    fn font_style_serializes_as_named_flags() {
+        let style = FontStyle {
+            bold: true,
+            italic: true,
+            underline: false,
+        };
+        assert!(!style.is_plain());
+        assert_eq!(
+            serde_json::to_string(&style).unwrap(),
+            r#"{"bold":true,"italic":true,"underline":false}"#
+        );
+        assert!(FontStyle::none().is_plain());
     }
 }

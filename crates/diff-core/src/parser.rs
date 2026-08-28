@@ -5,9 +5,10 @@ use crate::{
     PatchLineKind, RepoPath, StageState,
 };
 use diffy::{
-    Line,
+    Line, Patch,
     patch_set::{FileMode, FileOperation, FilePatch, ParseOptions, PatchKind, PatchSet},
 };
+use std::collections::HashMap;
 
 /// One entry from `git status --porcelain=v1 -z`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,43 +32,63 @@ pub struct GitStatusEntry {
 pub struct UntrackedFile {
     /// Repository-relative path.
     pub path: RepoPath,
-    /// File bytes from the worktree.
     pub contents: Vec<u8>,
+    pub omitted_bytes: Option<u64>,
 }
 
 /// Parses and normalizes a multi-file Git diff.
-///
 /// Paths are decoded by `diffy`, stripped of Git's synthetic `a/` and `b/`
 /// prefixes, and then validated as UTF-8 repository-relative paths.
 pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(Vec::new());
     }
-
     PatchSet::parse_bytes(bytes, ParseOptions::gitdiff())
-        .map(|patch| {
-            let patch = patch.map_err(|source| DiffError::Parse { source })?;
-            normalize_patch(&patch)
-        })
+        .map(|patch| normalize_patch(&patch.map_err(|source| DiffError::Parse { source })?))
         .collect()
 }
 
 fn normalize_patch(patch: &FilePatch<'_, [u8]>) -> Result<FileDiff, DiffError> {
-    let (old_path, path, status) = match patch.operation() {
-        FileOperation::Create(path) => (None, decode_path(path, Some(b"b/"))?, FileStatus::Added),
-        FileOperation::Delete(path) => {
-            let path = decode_path(path, Some(b"a/"))?;
+    let (previous, current, status) = normalize_operation(patch.operation())?;
+    let hunks = match patch.patch() {
+        PatchKind::Text(text) => normalize_hunks(text)?,
+        PatchKind::Binary(_) => Vec::new(),
+    };
+    let no_newline_at_end = hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .any(|line| line.no_newline);
+    Ok(FileDiff {
+        old_path: previous,
+        path: current,
+        status,
+        staged: StageState::Unstaged,
+        hunks,
+        binary: patch.patch().is_binary(),
+        mode: normalize_mode(patch),
+        no_newline_at_end,
+        omitted_bytes: None,
+    })
+}
+
+fn normalize_operation(
+    operation: &FileOperation<'_, [u8]>,
+) -> Result<(Option<RepoPath>, RepoPath, FileStatus), DiffError> {
+    Ok(match operation {
+        FileOperation::Create(raw) => (None, decode_path(raw, Some(b"b/"))?, FileStatus::Added),
+        FileOperation::Delete(raw) => {
+            let path = decode_path(raw, Some(b"a/"))?;
             (Some(path.clone()), path, FileStatus::Deleted)
         }
         FileOperation::Modify { original, modified } => {
-            let original = decode_path(original, Some(b"a/"))?;
-            let modified = decode_path(modified, Some(b"b/"))?;
-            let status = if original == modified {
+            let before = decode_path(original, Some(b"a/"))?;
+            let after = decode_path(modified, Some(b"b/"))?;
+            let status = if before == after {
                 FileStatus::Modified
             } else {
                 FileStatus::Renamed
             };
-            (Some(original), modified, status)
+            (Some(before), after, status)
         }
         FileOperation::Rename { from, to } => (
             Some(decode_path(from, None)?),
@@ -79,104 +100,74 @@ fn normalize_patch(patch: &FilePatch<'_, [u8]>) -> Result<FileDiff, DiffError> {
             decode_path(to, None)?,
             FileStatus::Copied,
         ),
-    };
-
-    let binary = patch.patch().is_binary();
-    let mut no_newline_at_end = false;
-    let hunks = match patch.patch() {
-        PatchKind::Text(text) => text
-            .hunks()
-            .iter()
-            .map(|hunk| {
-                let old = hunk.old_range();
-                let new = hunk.new_range();
-                let mut old_line = old.start();
-                let mut new_line = new.start();
-                let lines = hunk
-                    .lines()
-                    .iter()
-                    .map(|line| {
-                        let (kind, bytes, old_line_no, new_line_no) = match line {
-                            Line::Context(bytes) => {
-                                let result = (
-                                    PatchLineKind::Context,
-                                    *bytes,
-                                    Some(old_line),
-                                    Some(new_line),
-                                );
-                                old_line += 1;
-                                new_line += 1;
-                                result
-                            }
-                            Line::Delete(bytes) => {
-                                let result = (PatchLineKind::Removed, *bytes, Some(old_line), None);
-                                old_line += 1;
-                                result
-                            }
-                            Line::Insert(bytes) => {
-                                let result = (PatchLineKind::Added, *bytes, None, Some(new_line));
-                                new_line += 1;
-                                result
-                            }
-                        };
-                        let no_newline = !bytes.ends_with(b"\n");
-                        no_newline_at_end |= no_newline;
-                        let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-                        let text = std::str::from_utf8(bytes)?.to_owned();
-                        Ok(PatchLine {
-                            kind,
-                            text,
-                            old_line_no,
-                            new_line_no,
-                            no_newline,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, DiffError>>()?;
-                let function_context = hunk
-                    .function_context()
-                    .map(|bytes| std::str::from_utf8(bytes).map(str::to_owned))
-                    .transpose()?;
-                let header = format!(
-                    "@@ -{} +{} @@{}",
-                    old,
-                    new,
-                    function_context
-                        .as_deref()
-                        .map_or(String::new(), |context| format!(" {context}"))
-                );
-                Ok(Hunk {
-                    header,
-                    function_context,
-                    old_start: old.start(),
-                    old_count: old.len(),
-                    new_start: new.start(),
-                    new_count: new.len(),
-                    lines,
-                })
-            })
-            .collect::<Result<Vec<_>, DiffError>>()?,
-        PatchKind::Binary(_) => Vec::new(),
-    };
-
-    let old_mode = patch.old_mode().map(mode_string);
-    let new_mode = patch.new_mode().map(mode_string);
-    let mode = (old_mode != new_mode && (old_mode.is_some() || new_mode.is_some())).then_some(
-        ModeChange {
-            old: old_mode,
-            new: new_mode,
-        },
-    );
-
-    Ok(FileDiff {
-        old_path,
-        path,
-        status,
-        staged: StageState::Unstaged,
-        hunks,
-        binary,
-        mode,
-        no_newline_at_end,
     })
+}
+
+fn normalize_hunks(text: &Patch<'_, [u8]>) -> Result<Vec<Hunk>, DiffError> {
+    text.hunks()
+        .iter()
+        .map(|hunk| {
+            let old = hunk.old_range();
+            let new = hunk.new_range();
+            let mut old_line = old.start();
+            let mut new_line = new.start();
+            let lines = hunk
+                .lines()
+                .iter()
+                .map(|line| {
+                    let (kind, bytes) = match line {
+                        Line::Context(bytes) => (PatchLineKind::Context, *bytes),
+                        Line::Delete(bytes) => (PatchLineKind::Removed, *bytes),
+                        Line::Insert(bytes) => (PatchLineKind::Added, *bytes),
+                    };
+                    let old_line_no = (kind != PatchLineKind::Added).then(|| {
+                        let number = old_line;
+                        old_line += 1;
+                        number
+                    });
+                    let new_line_no = (kind != PatchLineKind::Removed).then(|| {
+                        let number = new_line;
+                        new_line += 1;
+                        number
+                    });
+                    let no_newline = !bytes.ends_with(b"\n");
+                    let text = std::str::from_utf8(bytes.strip_suffix(b"\n").unwrap_or(bytes))?;
+                    Ok(PatchLine {
+                        kind,
+                        text: text.into(),
+                        old_line_no,
+                        new_line_no,
+                        no_newline,
+                    })
+                })
+                .collect::<Result<Vec<_>, DiffError>>()?;
+            let function_context = hunk
+                .function_context()
+                .map(|bytes| {
+                    std::str::from_utf8(bytes)
+                        .map(|context| context.trim_end_matches(['\r', '\n']).to_owned())
+                })
+                .transpose()?;
+            let suffix = function_context
+                .as_deref()
+                .map_or_else(String::new, |context| format!(" {context}"));
+            Ok(Hunk {
+                header: format!("@@ -{old} +{new} @@{suffix}"),
+                function_context,
+                old_start: old.start(),
+                old_count: old.len(),
+                new_start: new.start(),
+                new_count: new.len(),
+                lines,
+            })
+        })
+        .collect()
+}
+
+fn normalize_mode(patch: &FilePatch<'_, [u8]>) -> Option<ModeChange> {
+    let old = patch.old_mode().copied().map(mode_string);
+    let new = patch.new_mode().copied().map(mode_string);
+    (old != new && (old.is_some() || new.is_some())).then_some(ModeChange { old, new })
 }
 
 fn decode_path(bytes: &[u8], expected_prefix: Option<&[u8]>) -> Result<RepoPath, DiffError> {
@@ -187,7 +178,7 @@ fn decode_path(bytes: &[u8], expected_prefix: Option<&[u8]>) -> Result<RepoPath,
     RepoPath::new(path).map_err(DiffError::InvalidPath)
 }
 
-fn mode_string(mode: &FileMode) -> String {
+fn mode_string(mode: FileMode) -> String {
     match mode {
         FileMode::Regular => "100644",
         FileMode::Executable => "100755",
@@ -200,7 +191,7 @@ fn mode_string(mode: &FileMode) -> String {
 /// Parses `git status --porcelain=v1 -z` output without treating paths as
 /// whitespace-delimited text.
 pub fn parse_porcelain_v1_z(bytes: &[u8]) -> Result<Vec<GitStatusEntry>, DiffError> {
-    let mut fields = bytes.split(|byte| *byte == 0).peekable();
+    let mut fields = bytes.split(|byte| *byte == 0);
     let mut entries = Vec::new();
     while let Some(field) = fields.next() {
         if field.is_empty() {
@@ -209,24 +200,33 @@ pub fn parse_porcelain_v1_z(bytes: &[u8]) -> Result<Vec<GitStatusEntry>, DiffErr
         if field.len() < 3 || field[2] != b' ' {
             return Err(DiffError::InvalidPorcelainEntry);
         }
-        let x = field[0] as char;
-        let y = field[1] as char;
+        let index_column = char::from(field[0]);
+        let worktree_column = char::from(field[1]);
         let path = decode_path(&field[3..], None)?;
-        let renamed_or_copied = matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C');
-        let old_path = if renamed_or_copied {
-            let old = fields.next().ok_or(DiffError::InvalidPorcelainEntry)?;
-            Some(decode_path(old, None)?)
+        let old_path = if matches!(index_column, 'R' | 'C') || matches!(worktree_column, 'R' | 'C')
+        {
+            let previous = fields.next().filter(|field| !field.is_empty());
+            Some(decode_path(
+                previous.ok_or(DiffError::InvalidPorcelainEntry)?,
+                None,
+            )?)
         } else {
             None
         };
-        let index = status_column(x);
-        let worktree = status_column(y);
-        let staged = match (index, worktree) {
-            (Some(_), Some(_)) if x != '?' => StageState::PartiallyStaged,
-            (Some(_), _) if x != '?' => StageState::Staged,
-            _ => StageState::Unstaged,
+        let index = status_column(index_column);
+        let worktree = status_column(worktree_column);
+        let staged = if index.is_none() || index_column == '?' {
+            StageState::Unstaged
+        } else if worktree.is_some() {
+            StageState::PartiallyStaged
+        } else {
+            StageState::Staged
         };
-        let relevant = if y != ' ' { y } else { x };
+        let relevant = if worktree_column == ' ' {
+            index_column
+        } else {
+            worktree_column
+        };
         entries.push(GitStatusEntry {
             path,
             old_path,
@@ -243,7 +243,7 @@ fn status_column(value: char) -> Option<char> {
     (!matches!(value, ' ' | '!')).then_some(value)
 }
 
-fn file_status(value: char) -> FileStatus {
+const fn file_status(value: char) -> FileStatus {
     match value {
         'A' => FileStatus::Added,
         'D' => FileStatus::Deleted,
@@ -275,21 +275,33 @@ impl DiffDocument {
     ) -> Result<Self, DiffError> {
         let statuses = parse_porcelain_v1_z(porcelain)?;
         let mut files = parse_git_diff(diff)?;
+        let mut statuses_by_path = HashMap::with_capacity(statuses.len().saturating_mul(2));
+        for status in &statuses {
+            statuses_by_path
+                .entry(status.path.clone())
+                .or_insert(status);
+            if let Some(old_path) = &status.old_path {
+                statuses_by_path.entry(old_path.clone()).or_insert(status);
+            }
+        }
+        let fallback_stage = match scope {
+            DiffScope::Staged => StageState::Staged,
+            DiffScope::Unstaged | DiffScope::Both => StageState::Unstaged,
+        };
         for file in &mut files {
-            if let Some(status) = statuses.iter().find(|status| {
-                status.path == file.path
-                    || status.old_path.as_ref() == Some(&file.path)
-                    || file.old_path.as_ref() == Some(&status.path)
-            }) {
-                file.staged = status.staged;
-                if file.status == FileStatus::Modified {
-                    file.status = status.status;
+            let status = statuses_by_path.get(&file.path).copied().or_else(|| {
+                file.old_path
+                    .as_ref()
+                    .and_then(|path| statuses_by_path.get(path).copied())
+            });
+            match status {
+                Some(status) => {
+                    file.staged = status.staged;
+                    if file.status == FileStatus::Modified {
+                        file.status = status.status;
+                    }
                 }
-            } else {
-                file.staged = match scope {
-                    DiffScope::Staged => StageState::Staged,
-                    DiffScope::Unstaged | DiffScope::Both => StageState::Unstaged,
-                };
+                None => file.staged = fallback_stage,
             }
         }
 
@@ -297,24 +309,7 @@ impl DiffDocument {
             if files.iter().any(|file| file.path == untracked_file.path) {
                 continue;
             }
-            let mut file = match std::str::from_utf8(&untracked_file.contents) {
-                Ok(text) if !text.contains('\0') => {
-                    FileDiff::from_texts(untracked_file.path.clone(), "", text)?
-                }
-                _ => FileDiff {
-                    old_path: None,
-                    path: untracked_file.path.clone(),
-                    status: FileStatus::Untracked,
-                    staged: StageState::Unstaged,
-                    hunks: Vec::new(),
-                    binary: true,
-                    mode: None,
-                    no_newline_at_end: false,
-                },
-            };
-            file.status = FileStatus::Untracked;
-            file.staged = StageState::Unstaged;
-            files.push(file);
+            files.push(untracked_diff(untracked_file)?);
         }
 
         Ok(Self {
@@ -322,6 +317,28 @@ impl DiffDocument {
             files,
         })
     }
+}
+
+fn untracked_diff(file: &UntrackedFile) -> Result<FileDiff, DiffError> {
+    let mut diff = match (file.omitted_bytes, std::str::from_utf8(&file.contents)) {
+        (None, Ok(text)) if !text.contains('\0') => {
+            FileDiff::from_texts(file.path.clone(), "", text)?
+        }
+        _ => FileDiff {
+            old_path: None,
+            path: file.path.clone(),
+            status: FileStatus::Untracked,
+            staged: StageState::Unstaged,
+            hunks: Vec::new(),
+            binary: true,
+            mode: None,
+            no_newline_at_end: false,
+            omitted_bytes: file.omitted_bytes,
+        },
+    };
+    diff.status = FileStatus::Untracked;
+    diff.staged = StageState::Unstaged;
+    Ok(diff)
 }
 
 #[cfg(test)]
@@ -339,6 +356,30 @@ mod tests {
             Some("100755")
         );
         assert!(files[0].hunks[0].lines[1].no_newline);
+        assert!(files[0].no_newline_at_end);
+        assert_eq!(
+            files[0].hunks[0].function_context.as_deref(),
+            Some("function")
+        );
+        assert_eq!(files[0].hunks[0].header, "@@ -1 +1 @@ function");
+    }
+
+    #[test]
+    fn numbers_lines_on_the_sides_they_belong_to() {
+        let patch = b"diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n";
+        let lines = &parse_git_diff(patch).unwrap()[0].hunks[0].lines;
+        assert_eq!(
+            (lines[0].old_line_no, lines[0].new_line_no),
+            (Some(1), Some(1))
+        );
+        assert_eq!(
+            (lines[1].old_line_no, lines[1].new_line_no),
+            (Some(2), None)
+        );
+        assert_eq!(
+            (lines[2].old_line_no, lines[2].new_line_no),
+            (None, Some(2))
+        );
     }
 
     #[test]
@@ -347,8 +388,10 @@ mod tests {
         let entries = parse_porcelain_v1_z(status).unwrap();
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].staged, StageState::Unstaged);
+        assert_eq!(entries[1].staged, StageState::Staged);
         assert_eq!(entries[1].old_path.as_ref().unwrap().as_str(), "old.rs");
         assert_eq!(entries[2].status, FileStatus::Untracked);
+        assert_eq!(entries[2].staged, StageState::Unstaged);
     }
 
     #[test]
@@ -378,10 +421,12 @@ mod tests {
                 UntrackedFile {
                     path: RepoPath::new("note.txt").unwrap(),
                     contents: b"hello\n".to_vec(),
+                    omitted_bytes: None,
                 },
                 UntrackedFile {
                     path: RepoPath::new("data.bin").unwrap(),
                     contents: b"a\0b".to_vec(),
+                    omitted_bytes: None,
                 },
             ],
         )
@@ -393,11 +438,42 @@ mod tests {
     }
 
     #[test]
+    fn represents_omitted_untracked_content_without_diffing_it() {
+        let document = DiffDocument::from_git_outputs_with_untracked(
+            "/repo",
+            b"",
+            b"?? large.bin\0",
+            DiffScope::Unstaged,
+            &[UntrackedFile {
+                path: RepoPath::new("large.bin").unwrap(),
+                contents: Vec::new(),
+                omitted_bytes: Some(10_000_000),
+            }],
+        )
+        .unwrap();
+        assert!(document.files[0].binary);
+        assert_eq!(document.files[0].omitted_bytes, Some(10_000_000));
+        assert!(document.files[0].hunks.is_empty());
+    }
+
+    #[test]
     fn rejects_non_utf8_path() {
         let patch = b"diff --git a/ok b/\xff\n--- a/ok\n+++ b/\xff\n@@ -1 +1 @@\n-a\n+b\n";
         assert!(matches!(
             parse_git_diff(patch),
             Err(DiffError::UnsupportedPathEncoding(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_malformed_porcelain_records() {
+        assert!(matches!(
+            parse_porcelain_v1_z(b"XY\0"),
+            Err(DiffError::InvalidPorcelainEntry)
+        ));
+        assert!(matches!(
+            parse_porcelain_v1_z(b"R  renamed.rs\0"),
+            Err(DiffError::InvalidPorcelainEntry)
         ));
     }
 }
