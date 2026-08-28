@@ -1,0 +1,35 @@
+[package]
+name = "diff-gpui-web"
+description = "Browser WASM shell for the GPUI diff viewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+diff-core = { path = "../diff-core" }
+diff-gpui = { path = "../diff-gpui" }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+async-channel.workspace = true
+console_error_panic_hook.workspace = true
+gpui.workspace = true
+gpui_web.workspace = true
+wasm-bindgen.workspace = true
+web-sys = { workspace = true, features = [
+    "console",
+    "CustomEvent",
+    "CustomEventInit",
+    "Document",
+    "EventTarget",
+    "Window",
+] }
