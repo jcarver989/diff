@@ -1,6 +1,6 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
-use crate::args::CliArgs;
+use crate::{args::CliArgs, window_chrome};
 use diff_core::{DiffDocument, DiffReviewEvent, DiffScope};
 use diff_git::{GitError, GitRepository};
 use diff_gpui::DiffViewer;
@@ -219,8 +219,8 @@ impl DesktopApp {
 }
 
 impl Render for DesktopApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = div()
             .key_context("DesktopDiff")
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cycle_scope))
@@ -251,6 +251,9 @@ impl Render for DesktopApp {
                     |viewer| viewer.clone().into_any_element(),
                 ),
             })
+            .into_any_element();
+
+        window_chrome::decorate(content, window, cx)
     }
 }
 
