@@ -104,12 +104,18 @@ impl CommentEditor {
                 cx.stop_propagation();
                 cx.notify();
             }
-            "enter" if event.keystroke.modifiers.platform || event.keystroke.modifiers.control => {
-                cx.emit(CommentEditorEvent::Submit);
+            "enter"
+                if event.keystroke.modifiers.shift
+                    && !event.keystroke.modifiers.control
+                    && !event.keystroke.modifiers.platform
+                    && !event.keystroke.modifiers.alt
+                    && !event.keystroke.modifiers.function =>
+            {
+                self.replace_range(self.cursor..self.cursor, "\n", cx);
                 cx.stop_propagation();
             }
-            "enter" => {
-                self.replace_range(self.cursor..self.cursor, "\n", cx);
+            "enter" if !event.keystroke.modifiers.alt && !event.keystroke.modifiers.function => {
+                cx.emit(CommentEditorEvent::Submit);
                 cx.stop_propagation();
             }
             "escape" => {
@@ -317,6 +323,7 @@ impl Render for CommentEditor {
                 cx.listener(|editor, _, window, cx| {
                     editor.cursor = editor.body.len();
                     editor.focus_handle.focus(window, cx);
+                    cx.stop_propagation();
                     cx.notify();
                 }),
             )

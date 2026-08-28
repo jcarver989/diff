@@ -1,4 +1,4 @@
-use crate::{DiffViewer, comment_editor::CommentEditor, style};
+use crate::{DiffViewer, ViewerPane, comment_editor::CommentEditor, style};
 use diff_core::{DiffSide, PresentedCell, PresentedRow, ReviewComment, RowKind};
 use gpui::{
     AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState, MouseButton,
@@ -9,7 +9,7 @@ use std::cell::Cell;
 const GUTTER_WIDTH: f32 = 54.0;
 const MARKER_WIDTH: f32 = 20.0;
 const HEADER_HEIGHT: f32 = 52.0;
-const SCROLLBAR_WIDTH: f32 = 10.0;
+const SCROLLBAR_WIDTH: f32 = 20.0;
 const MIN_THUMB_HEIGHT: f32 = 30.0;
 
 struct DiffScrollbarDrag {
@@ -109,6 +109,9 @@ impl DiffViewer {
         div()
             .flex_1()
             .h_full()
+            .when(self.pane == ViewerPane::Diff, |pane| {
+                pane.border_l_1().border_color(style::color(palette.accent))
+            })
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -370,6 +373,8 @@ impl DiffViewer {
         let commentable = cell.source.is_some();
         let comments = self.comments_on(index, cell);
         let hover_group: SharedString = format!("comment-cell-{index}-{side:?}").into();
+        let selected =
+            self.session().selected_row() == Some(index) && self.session().selected_side() == side;
 
         let mut element = div()
             .id((if left { "old-cell" } else { "new-cell" }, index))
@@ -379,10 +384,17 @@ impl DiffViewer {
             .min_h(px(self.diff_row_height()))
             .flex()
             .items_start()
-            .py_2()
             .overflow_hidden()
-            .bg(style::color(colors.background))
-            .when(left, |value| value.border_r_1().border_color(border_color));
+            .bg(style::color(if selected {
+                palette.selection
+            } else {
+                colors.background
+            }))
+            .when(left, |value| value.border_r_1().border_color(border_color))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |viewer, _, _, cx| viewer.select_diff_cell(index, side, cx)),
+            );
         if commentable {
             element = element.hover(|hover| hover.bg(style::color(palette.selection)));
         }
@@ -443,9 +455,9 @@ impl DiffViewer {
                     div()
                         .id(format!("add-comment-{index}-{side:?}"))
                         .absolute()
-                        .left(px(3.0))
-                        .top(px(-2.0))
-                        .size(px(22.0))
+                        .left(px(5.0))
+                        .top(px(1.0))
+                        .size(px(18.0))
                         .flex()
                         .items_center()
                         .justify_center()
@@ -535,6 +547,7 @@ impl DiffViewer {
 
     fn render_comment_thread(&self, index: usize, comments: Vec<ReviewComment>) -> AnyElement {
         let palette = self.theme().palette().clone();
+        let last_comment = comments.len().saturating_sub(1);
         div()
             .id(("comment-thread", index))
             .w_full()
@@ -550,7 +563,7 @@ impl DiffViewer {
                     .border_1()
                     .border_color(style::color(palette.border))
                     .overflow_hidden()
-                    .children(comments.into_iter().map(|comment| {
+                    .children(comments.into_iter().enumerate().map(|(offset, comment)| {
                         let side = if comment.anchor.side == DiffSide::Old {
                             "old"
                         } else {
@@ -565,8 +578,11 @@ impl DiffViewer {
                             .w_full()
                             .flex()
                             .flex_col()
-                            .border_b_1()
-                            .border_color(style::color(palette.border))
+                            .when(offset != last_comment, |comment| {
+                                comment
+                                    .border_b_1()
+                                    .border_color(style::color(palette.border))
+                            })
                             .child(
                                 div()
                                     .px_3()

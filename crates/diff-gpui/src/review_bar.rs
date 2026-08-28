@@ -1,9 +1,18 @@
-use crate::{Cancel, CopyReview, DiffViewer, SubmitReview, style::color};
+use crate::{Cancel, CopyReview, DiffViewer, SubmitReview, ViewerPane, style::color};
 use gpui::{Context, Div, div, prelude::*, px};
 
 impl DiffViewer {
     pub(crate) fn render_review_bar(&self, cx: &mut Context<Self>) -> Div {
         let palette = self.theme().palette();
+        let hint = if self.comment_editor.is_some() {
+            "Enter save · Shift-Enter newline · Esc cancel"
+        } else if self.pane == ViewerPane::Files {
+            "j/k entry · h/l fold/open · Tab pane · ? help"
+        } else if self.layout().is_split() {
+            "j/k line · ←/→ side · c comment · s submit · ? help"
+        } else {
+            "j/k line · c comment · e/x edit/delete · s submit · y copy · ? help"
+        };
         div()
             .h(px(44.0))
             .flex_shrink_0()
@@ -15,9 +24,15 @@ impl DiffViewer {
             .border_color(color(palette.border))
             .child(
                 div()
+                    .min_w_0()
                     .flex_1()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
                     .text_color(color(palette.muted))
-                    .child(format!("{} review comments", self.review().len())),
+                    .child(format!(
+                        "{hint}    ·    {} review comments",
+                        self.review().len()
+                    )),
             )
             .when(!self.review().is_empty(), |bar| {
                 bar.child(

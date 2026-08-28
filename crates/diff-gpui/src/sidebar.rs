@@ -1,4 +1,4 @@
-use crate::{DiffViewer, style::color};
+use crate::{DiffViewer, ViewerPane, style::color};
 use diff_core::{DiffDocument, FileStatus, StageState};
 use gpui::{ClickEvent, Context, Div, Empty, Role, Stateful, div, prelude::*, px};
 use std::collections::{BTreeMap, HashSet};
@@ -55,6 +55,21 @@ enum VisibleNode<'a> {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SidebarEntry {
+    Directory(String),
+    File(usize),
+}
+
+impl VisibleNode<'_> {
+    fn entry(&self) -> SidebarEntry {
+        match self {
+            Self::Directory { directory, .. } => SidebarEntry::Directory(directory.path.clone()),
+            Self::File { file, .. } => SidebarEntry::File(file.index),
+        }
+    }
+}
+
 impl SidebarTree {
     pub(crate) fn new(document: &DiffDocument) -> Self {
         let mut tree = Self::default();
@@ -87,6 +102,14 @@ impl SidebarTree {
         collect_directory_paths(&self.roots, &mut directory_paths);
         self.collapsed
             .retain(|path| directory_paths.contains(path.as_str()));
+    }
+
+    pub(crate) fn expand(&mut self, path: &str) {
+        self.collapsed.remove(path);
+    }
+
+    pub(crate) fn collapse(&mut self, path: &str) {
+        self.collapsed.insert(path.to_owned());
     }
 
     pub(crate) fn toggle(&mut self, path: &str) {
@@ -123,6 +146,37 @@ impl SidebarTree {
         let mut indices = Vec::new();
         collect_file_indices(&self.roots, &mut indices);
         indices
+    }
+
+    pub(crate) fn position_of(&self, selected: &SidebarEntry) -> Option<usize> {
+        self.visible_nodes()
+            .iter()
+            .position(|node| node.entry() == *selected)
+    }
+
+    pub(crate) fn offset_entry(
+        &self,
+        current: &SidebarEntry,
+        delta: isize,
+    ) -> Option<SidebarEntry> {
+        let nodes = self.visible_nodes();
+        let position = nodes
+            .iter()
+            .position(|node| node.entry() == *current)
+            .unwrap_or(0);
+        let target = if delta.is_negative() {
+            position.saturating_sub(delta.unsigned_abs())
+        } else {
+            position
+                .saturating_add(delta.unsigned_abs())
+                .min(nodes.len().saturating_sub(1))
+        };
+        nodes.get(target).map(VisibleNode::entry)
+    }
+
+    pub(crate) fn boundary_entry(&self, end: bool) -> Option<SidebarEntry> {
+        let nodes = self.visible_nodes();
+        if end { nodes.last() } else { nodes.first() }.map(VisibleNode::entry)
     }
 
     pub(crate) fn offset_file(&self, current: usize, delta: isize) -> Option<usize> {
@@ -226,6 +280,7 @@ impl DiffViewer {
             .role(Role::Tree)
             .flex_1()
             .overflow_y_scroll()
+            .track_scroll(&self.sidebar_scroll_handle)
             .py_2();
 
         for node in self.sidebar_tree.visible_nodes() {
@@ -262,6 +317,9 @@ impl DiffViewer {
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .child(format!("CHANGED FILES  {}", self.document().files.len())),
             )
+            .when(self.pane == ViewerPane::Files, |pane| {
+                pane.border_r_1().border_color(color(palette.accent))
+            })
             .child(rows)
     }
 
@@ -303,12 +361,15 @@ impl DiffViewer {
     ) -> Stateful<Div> {
         let palette = self.theme().palette();
         let path = directory.path.clone();
+        let selected = self.sidebar_selection == SidebarEntry::Directory(path.clone());
         sidebar_row(depth, self.sidebar_row_height())
             .id(format!("diff-directory:{path}"))
             .role(Role::TreeItem)
             .aria_label(directory.name.clone())
             .aria_level(usize::from(depth) + 1)
             .aria_expanded(expanded)
+            .aria_selected(selected)
+            .when(selected, |row| row.bg(color(palette.selection)))
             .text_color(color(palette.muted))
             .hover(|row| row.bg(color(palette.selection)))
             .on_click(cx.listener(move |viewer, _, _, cx| {
@@ -344,7 +405,8 @@ impl DiffViewer {
             FileStatus::Deleted => palette.deletion,
             FileStatus::Modified | FileStatus::Renamed | FileStatus::Copied => palette.accent,
         };
-        let selected = self.selected_file() == Some(index);
+        let opened = self.selected_file() == Some(index);
+        let selected = self.sidebar_selection == SidebarEntry::File(index);
         let stage = stage_marker(diff.staged);
         Some(
             sidebar_row(depth, self.sidebar_row_height())
@@ -354,8 +416,12 @@ impl DiffViewer {
                 .aria_level(usize::from(depth) + 1)
                 .aria_selected(selected)
                 .when(selected, |row| row.bg(color(palette.selection)))
+                .when(opened && !selected, |row| {
+                    row.border_l_2().border_color(color(palette.accent))
+                })
                 .hover(|row| row.bg(color(palette.selection)))
                 .on_click(cx.listener(move |viewer, _, _, cx| {
+                    viewer.pane = ViewerPane::Files;
                     viewer.select_file(index, cx);
                 }))
                 .child(div().w(px(DISCLOSURE_WIDTH)).flex_shrink_0())
@@ -506,5 +572,31 @@ mod tests {
         assert_eq!(tree.offset_file(1, 1), Some(2));
         assert_eq!(tree.offset_file(3, 1), Some(0));
         assert_eq!(tree.offset_file(0, 1), Some(0));
+    }
+
+    #[test]
+    fn keyboard_entries_include_directories_and_follow_collapses() {
+        let document = nested_document();
+        let mut tree = SidebarTree::new(&document);
+        let crates = SidebarEntry::Directory("crates".to_owned());
+
+        assert_eq!(tree.boundary_entry(false), Some(crates.clone()));
+        assert_eq!(
+            tree.offset_entry(&crates, 1),
+            Some(SidebarEntry::Directory("crates/z".to_owned()))
+        );
+
+        tree.collapse("crates");
+        assert_eq!(
+            tree.offset_entry(&crates, 1),
+            Some(SidebarEntry::Directory("src".to_owned()))
+        );
+        assert_eq!(tree.position_of(&crates), Some(0));
+
+        tree.expand("crates");
+        assert_eq!(
+            tree.offset_entry(&crates, 1),
+            Some(SidebarEntry::Directory("crates/z".to_owned()))
+        );
     }
 }

@@ -12,8 +12,8 @@ use diff_core::{
     SyntaxHighlighter, ViewMode,
 };
 use gpui::{
-    App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, ListAlignment,
-    ListState, Subscription, Window, actions, div, prelude::*, px,
+    App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
+    ListAlignment, ListState, ScrollHandle, Subscription, Window, actions, div, prelude::*, px,
 };
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ const SIDEBAR_DIVIDER_WIDTH: f32 = 1.0;
 const MIN_FONT_SIZE: f32 = 10.0;
 const MAX_FONT_SIZE: f32 = 24.0;
 const FONT_SIZE_STEP: f32 = 1.0;
-const DIFF_ROW_VERTICAL_SPACE: f32 = 19.0;
+const DIFF_ROW_VERTICAL_SPACE: f32 = 7.0;
 const SIDEBAR_ROW_VERTICAL_SPACE: f32 = 20.0;
 
 actions!(
@@ -34,14 +34,30 @@ actions!(
         PreviousFile,
         NextHunk,
         PreviousHunk,
+        NextItem,
+        PreviousItem,
+        FirstItem,
+        LastItem,
+        PageUp,
+        PageDown,
+        TogglePane,
+        FocusFiles,
+        FocusDiff,
+        SelectOldSide,
+        SelectNewSide,
+        ExpandOrOpen,
+        Collapse,
         CycleViewMode,
         AddComment,
         EditComment,
         DeleteComment,
+        UndoComment,
         SubmitComment,
         CancelComment,
         CopyReview,
         SubmitReview,
+        ShowShortcuts,
+        HideShortcuts,
         IncreaseFontSize,
         DecreaseFontSize,
         ResetFontSize,
@@ -68,8 +84,8 @@ impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
             sidebar_width: 280.0,
-            font_size: 13.0,
-            row_height: 32.0,
+            font_size: 16.0,
+            row_height: 20.0,
             auto_split_width: 900.0,
             highlight_cache_capacity: 512,
         }
@@ -80,6 +96,15 @@ impl Default for DiffViewerOptions {
 pub(crate) struct CommentTarget {
     pub(crate) row_index: usize,
     pub(crate) side: DiffSide,
+}
+
+/// The pane currently receiving browse-mode navigation commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewerPane {
+    /// The changed-files tree.
+    Files,
+    /// The selected file's diff.
+    Diff,
 }
 
 /// Shared GPUI diff review view.
@@ -95,9 +120,14 @@ pub struct DiffViewer {
     diff_list_file: Option<usize>,
     diff_list_split: bool,
     pub(crate) sidebar_tree: SidebarTree,
+    pub(crate) sidebar_selection: crate::sidebar::SidebarEntry,
+    pub(crate) sidebar_scroll_handle: ScrollHandle,
+    pub(crate) pane: ViewerPane,
+    shortcuts_open: bool,
     pub(crate) comment_target: Option<CommentTarget>,
     pub(crate) comment_editor: Option<Entity<CommentEditor>>,
     comment_editor_subscription: Option<Subscription>,
+    focus_handle: Option<gpui::FocusHandle>,
 }
 
 impl DiffViewer {
@@ -136,24 +166,67 @@ impl DiffViewer {
             diff_list_file: None,
             diff_list_split: false,
             sidebar_tree,
+            sidebar_selection: crate::sidebar::SidebarEntry::File(0),
+            sidebar_scroll_handle: ScrollHandle::new(),
+            pane: ViewerPane::Diff,
+            shortcuts_open: false,
             comment_target: None,
             comment_editor: None,
             comment_editor_subscription: None,
+            focus_handle: None,
         }
     }
 
     /// Installs the actions' default keyboard shortcuts on an application.
     pub fn bind_keys(cx: &mut App) {
+        const BROWSE: &str = "DiffViewer && mode == browse";
+        const DIFF: &str = "DiffViewer && mode == browse && pane == diff";
+        const DIFF_SPLIT: &str = "DiffViewer && mode == browse && pane == diff && layout == split";
+        const DIFF_UNIFIED: &str =
+            "DiffViewer && mode == browse && pane == diff && layout == unified";
+        const FILES: &str = "DiffViewer && mode == browse && pane == files";
+        const DRAFT: &str = "DiffViewer && mode == draft";
+        const SHORTCUTS: &str = "DiffViewer && mode == shortcuts";
         cx.bind_keys([
-            KeyBinding::new("down", NextHunk, Some("DiffViewer")),
-            KeyBinding::new("up", PreviousHunk, Some("DiffViewer")),
-            KeyBinding::new("cmd-]", NextFile, Some("DiffViewer")),
-            KeyBinding::new("cmd-[", PreviousFile, Some("DiffViewer")),
-            KeyBinding::new("cmd-enter", SubmitComment, Some("DiffViewer")),
-            KeyBinding::new("ctrl-enter", SubmitComment, Some("DiffViewer")),
-            KeyBinding::new("escape", CancelComment, Some("DiffViewer")),
-            KeyBinding::new("cmd-shift-c", CopyReview, Some("DiffViewer")),
-            KeyBinding::new("cmd-shift-enter", SubmitReview, Some("DiffViewer")),
+            KeyBinding::new("down", NextItem, Some(BROWSE)),
+            KeyBinding::new("j", NextItem, Some(BROWSE)),
+            KeyBinding::new("up", PreviousItem, Some(BROWSE)),
+            KeyBinding::new("k", PreviousItem, Some(BROWSE)),
+            KeyBinding::new("home", FirstItem, Some(BROWSE)),
+            KeyBinding::new("g", FirstItem, Some(BROWSE)),
+            KeyBinding::new("end", LastItem, Some(BROWSE)),
+            KeyBinding::new("shift-g", LastItem, Some(BROWSE)),
+            KeyBinding::new("pageup", PageUp, Some(BROWSE)),
+            KeyBinding::new("pagedown", PageDown, Some(BROWSE)),
+            KeyBinding::new("tab", TogglePane, Some(BROWSE)),
+            KeyBinding::new("h", FocusFiles, Some(DIFF)),
+            KeyBinding::new("left", SelectOldSide, Some(DIFF_SPLIT)),
+            KeyBinding::new("left", FocusFiles, Some(DIFF_UNIFIED)),
+            KeyBinding::new("right", SelectNewSide, Some(DIFF_SPLIT)),
+            KeyBinding::new("h", Collapse, Some(FILES)),
+            KeyBinding::new("left", Collapse, Some(FILES)),
+            KeyBinding::new("l", ExpandOrOpen, Some(FILES)),
+            KeyBinding::new("right", ExpandOrOpen, Some(FILES)),
+            KeyBinding::new("enter", ExpandOrOpen, Some(FILES)),
+            KeyBinding::new("c", AddComment, Some(DIFF)),
+            KeyBinding::new("e", EditComment, Some(DIFF)),
+            KeyBinding::new("x", DeleteComment, Some(DIFF)),
+            KeyBinding::new("u", UndoComment, Some(DIFF)),
+            KeyBinding::new("s", SubmitReview, Some(DIFF)),
+            KeyBinding::new("y", CopyReview, Some(DIFF)),
+            KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
+            KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
+            KeyBinding::new("escape", HideShortcuts, Some(SHORTCUTS)),
+            KeyBinding::new("shift-/", HideShortcuts, Some(SHORTCUTS)),
+            KeyBinding::new("escape", Cancel, Some(BROWSE)),
+            KeyBinding::new("ctrl-g", Cancel, Some(BROWSE)),
+            KeyBinding::new("cmd-]", NextFile, Some(BROWSE)),
+            KeyBinding::new("cmd-[", PreviousFile, Some(BROWSE)),
+            KeyBinding::new("cmd-enter", SubmitComment, Some(DRAFT)),
+            KeyBinding::new("ctrl-enter", SubmitComment, Some(DRAFT)),
+            KeyBinding::new("escape", CancelComment, Some(DRAFT)),
+            KeyBinding::new("cmd-shift-c", CopyReview, Some(BROWSE)),
+            KeyBinding::new("cmd-shift-enter", SubmitReview, Some(BROWSE)),
             KeyBinding::new("cmd-=", IncreaseFontSize, Some("DiffViewer")),
             KeyBinding::new("cmd-+", IncreaseFontSize, Some("DiffViewer")),
             KeyBinding::new("ctrl-=", IncreaseFontSize, Some("DiffViewer")),
@@ -214,6 +287,18 @@ impl DiffViewer {
         self.session.selected_file()
     }
 
+    /// Returns the pane that receives browse-mode navigation commands.
+    #[must_use]
+    pub const fn pane(&self) -> ViewerPane {
+        self.pane
+    }
+
+    /// Returns whether the keyboard shortcut reference is open.
+    #[must_use]
+    pub const fn shortcuts_open(&self) -> bool {
+        self.shortcuts_open
+    }
+
     /// Returns the current changed-files sidebar width.
     #[must_use]
     pub const fn sidebar_width(&self) -> f32 {
@@ -252,6 +337,8 @@ impl DiffViewer {
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         self.sidebar_tree.rebuild(&document);
         self.session.set_document(document);
+        self.sidebar_selection =
+            crate::sidebar::SidebarEntry::File(self.session.selected_file().unwrap_or(0));
         if let Some(index) = self.selected_file() {
             let document = self.session.document().clone();
             self.sidebar_tree.expand_file(&document, index);
@@ -397,6 +484,7 @@ impl DiffViewer {
     }
 
     pub(crate) fn select_file(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.sidebar_selection = crate::sidebar::SidebarEntry::File(index);
         if self.session.select_file(index) {
             let document = self.session.document().clone();
             self.sidebar_tree.expand_file(&document, index);
@@ -406,8 +494,22 @@ impl DiffViewer {
     }
 
     pub(crate) fn toggle_directory(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.pane = ViewerPane::Files;
+        self.sidebar_selection = crate::sidebar::SidebarEntry::Directory(path.to_owned());
         self.sidebar_tree.toggle(path);
         cx.notify();
+    }
+
+    pub(crate) fn select_diff_cell(
+        &mut self,
+        row_index: usize,
+        side: DiffSide,
+        cx: &mut Context<Self>,
+    ) {
+        if self.session.select_row(row_index) && self.session.set_selected_side(side) {
+            self.pane = ViewerPane::Diff;
+            cx.notify();
+        }
     }
 
     pub(crate) fn begin_comment(
@@ -417,11 +519,22 @@ impl DiffViewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.open_comment_editor(row_index, side, None, window, cx);
+    }
+
+    fn open_comment_editor(
+        &mut self,
+        row_index: usize,
+        side: DiffSide,
+        editing: Option<u64>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let previous_row = self.comment_target.as_ref().map(|target| target.row_index);
         if !self.session.select_row(row_index) || !self.session.set_selected_side(side) {
             return;
         }
-        if !self.session.begin_draft(None) {
+        if !self.session.begin_draft(editing) {
             return;
         }
 
@@ -444,6 +557,7 @@ impl DiffViewer {
                 CommentEditorEvent::Cancel => viewer.discard_comment(cx),
             },
         ));
+        self.pane = ViewerPane::Diff;
         self.comment_target = Some(CommentTarget { row_index, side });
         self.comment_editor = Some(editor.clone());
         self.remeasure_row(previous_row);
@@ -518,8 +632,115 @@ impl DiffViewer {
 
     fn move_hunk(&mut self, delta: isize, cx: &mut Context<Self>) {
         if self.session.move_hunk(delta) {
+            self.reveal_selected_row();
             cx.notify();
         }
+    }
+
+    fn reveal_selected_row(&self) {
+        let Some(selected) = self.session.selected_row() else {
+            return;
+        };
+        let Some(range) = self.session.selected_file_range() else {
+            return;
+        };
+        if range.contains(&selected) {
+            self.diff_list_state
+                .scroll_to_reveal_item(selected - range.start);
+        }
+    }
+
+    fn move_item(&mut self, delta: isize, cx: &mut Context<Self>) {
+        match self.pane {
+            ViewerPane::Diff => {
+                self.session.move_row(delta);
+                self.reveal_selected_row();
+            }
+            ViewerPane::Files => {
+                if let Some(selection) = self
+                    .sidebar_tree
+                    .offset_entry(&self.sidebar_selection, delta)
+                {
+                    self.sidebar_selection = selection.clone();
+                    if let crate::sidebar::SidebarEntry::File(index) = selection {
+                        self.select_file(index, cx);
+                    }
+                    self.reveal_sidebar_selection();
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    fn reveal_sidebar_selection(&self) {
+        if let Some(index) = self.sidebar_tree.position_of(&self.sidebar_selection) {
+            self.sidebar_scroll_handle.scroll_to_item(index);
+        }
+    }
+
+    fn select_boundary(&mut self, end: bool, cx: &mut Context<Self>) {
+        match self.pane {
+            ViewerPane::Diff => {
+                self.session.select_boundary(end);
+                self.reveal_selected_row();
+            }
+            ViewerPane::Files => {
+                if let Some(selection) = self.sidebar_tree.boundary_entry(end) {
+                    self.sidebar_selection = selection.clone();
+                    if let crate::sidebar::SidebarEntry::File(index) = selection {
+                        self.select_file(index, cx);
+                    }
+                    self.reveal_sidebar_selection();
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the viewport row count is a small, non-negative UI measurement"
+    )]
+    fn page_items(&mut self, direction: isize, cx: &mut Context<Self>) {
+        let rows = match self.pane {
+            ViewerPane::Diff => {
+                let height = f32::from(self.diff_list_state.viewport_bounds().size.height);
+                (height / self.diff_row_height()).floor().max(1.0) as isize
+            }
+            ViewerPane::Files => self
+                .sidebar_scroll_handle
+                .bottom_item()
+                .saturating_sub(self.sidebar_scroll_handle.top_item())
+                .saturating_add(1)
+                .max(1)
+                .try_into()
+                .unwrap_or(isize::MAX),
+        };
+        self.move_item(direction * rows, cx);
+    }
+
+    fn next_item(&mut self, _: &NextItem, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_item(1, cx);
+    }
+
+    fn previous_item(&mut self, _: &PreviousItem, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_item(-1, cx);
+    }
+
+    fn first_item(&mut self, _: &FirstItem, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_boundary(false, cx);
+    }
+
+    fn last_item(&mut self, _: &LastItem, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_boundary(true, cx);
+    }
+
+    fn page_up(&mut self, _: &PageUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.page_items(-1, cx);
+    }
+
+    fn page_down(&mut self, _: &PageDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.page_items(1, cx);
     }
 
     fn next_file(&mut self, _: &NextFile, _: &mut Window, cx: &mut Context<Self>) {
@@ -536,6 +757,56 @@ impl DiffViewer {
 
     fn previous_hunk(&mut self, _: &PreviousHunk, _: &mut Window, cx: &mut Context<Self>) {
         self.move_hunk(-1, cx);
+    }
+
+    fn toggle_pane(&mut self, _: &TogglePane, _: &mut Window, cx: &mut Context<Self>) {
+        self.pane = match self.pane {
+            ViewerPane::Files => ViewerPane::Diff,
+            ViewerPane::Diff => ViewerPane::Files,
+        };
+        cx.notify();
+    }
+
+    fn focus_files(&mut self, _: &FocusFiles, _: &mut Window, cx: &mut Context<Self>) {
+        self.pane = ViewerPane::Files;
+        cx.notify();
+    }
+
+    fn focus_diff(&mut self, _: &FocusDiff, _: &mut Window, cx: &mut Context<Self>) {
+        self.pane = ViewerPane::Diff;
+        cx.notify();
+    }
+
+    fn select_old_side(&mut self, _: &SelectOldSide, _: &mut Window, cx: &mut Context<Self>) {
+        if self.layout().is_split() && self.session.set_selected_side(DiffSide::Old) {
+            cx.notify();
+        }
+    }
+
+    fn select_new_side(&mut self, _: &SelectNewSide, _: &mut Window, cx: &mut Context<Self>) {
+        if self.layout().is_split() && self.session.set_selected_side(DiffSide::New) {
+            cx.notify();
+        }
+    }
+
+    fn expand_or_open(&mut self, _: &ExpandOrOpen, _: &mut Window, cx: &mut Context<Self>) {
+        match self.sidebar_selection.clone() {
+            crate::sidebar::SidebarEntry::Directory(path) => self.sidebar_tree.expand(&path),
+            crate::sidebar::SidebarEntry::File(index) => {
+                self.select_file(index, cx);
+                self.pane = ViewerPane::Diff;
+            }
+        }
+        self.reveal_sidebar_selection();
+        cx.notify();
+    }
+
+    fn collapse(&mut self, _: &Collapse, _: &mut Window, cx: &mut Context<Self>) {
+        if let crate::sidebar::SidebarEntry::Directory(path) = self.sidebar_selection.clone() {
+            self.sidebar_tree.collapse(&path);
+            self.reveal_sidebar_selection();
+            cx.notify();
+        }
     }
 
     fn cycle_view_mode(&mut self, _: &CycleViewMode, _: &mut Window, cx: &mut Context<Self>) {
@@ -567,15 +838,38 @@ impl DiffViewer {
         }
     }
 
-    fn edit_comment_action(&mut self, _: &EditComment, _: &mut Window, cx: &mut Context<Self>) {
-        let editing = self.session.comment_id_at_selection();
-        if editing.is_some() && self.session.begin_draft(editing) {
-            cx.notify();
-        }
+    fn edit_comment_action(
+        &mut self,
+        _: &EditComment,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(editing) = self.session.comment_id_at_selection() else {
+            return;
+        };
+        let Some(row_index) = self.session.selected_row() else {
+            return;
+        };
+        self.open_comment_editor(
+            row_index,
+            self.session.selected_side(),
+            Some(editing),
+            window,
+            cx,
+        );
     }
 
     fn delete_comment_action(&mut self, _: &DeleteComment, _: &mut Window, cx: &mut Context<Self>) {
         if self.session.delete_comment_at_selection() {
+            self.diff_list_state.remeasure();
+            cx.notify();
+        }
+    }
+
+    fn undo_comment(&mut self, _: &UndoComment, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(id) = self.session.last_comment_id()
+            && self.session.review_mut().remove_comment(id).is_some()
+        {
             self.diff_list_state.remeasure();
             cx.notify();
         }
@@ -595,6 +889,16 @@ impl DiffViewer {
                 self.session.submission().formatted,
             ));
         }
+    }
+
+    fn show_shortcuts(&mut self, _: &ShowShortcuts, _: &mut Window, cx: &mut Context<Self>) {
+        self.shortcuts_open = true;
+        cx.notify();
+    }
+
+    fn hide_shortcuts(&mut self, _: &HideShortcuts, _: &mut Window, cx: &mut Context<Self>) {
+        self.shortcuts_open = false;
+        cx.notify();
     }
 
     pub(crate) fn submit_review(
@@ -646,8 +950,53 @@ impl Render for DiffViewer {
         self.session
             .set_split_when_auto(diff_width >= self.options.auto_split_width);
         let palette = self.theme.palette().clone();
+        let focus_handle = self
+            .focus_handle
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone();
+        if window.focused(cx).is_none() && self.comment_editor.is_none() {
+            focus_handle.focus(window, cx);
+        }
+        let mode = if self.shortcuts_open {
+            "shortcuts"
+        } else if self.comment_editor.is_some() {
+            "draft"
+        } else {
+            "browse"
+        };
+        let pane = match self.pane {
+            ViewerPane::Files => "files",
+            ViewerPane::Diff => "diff",
+        };
+        let layout = if self.layout().is_split() {
+            "split"
+        } else {
+            "unified"
+        };
+        let mut key_context = KeyContext::default();
+        key_context.add("DiffViewer");
+        key_context.set("mode", mode);
+        key_context.set("pane", pane);
+        key_context.set("layout", layout);
         div()
-            .key_context("DiffViewer")
+            .key_context(key_context)
+            .track_focus(&focus_handle)
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                focus_handle.focus(window, cx);
+            })
+            .on_action(cx.listener(Self::next_item))
+            .on_action(cx.listener(Self::previous_item))
+            .on_action(cx.listener(Self::first_item))
+            .on_action(cx.listener(Self::last_item))
+            .on_action(cx.listener(Self::page_up))
+            .on_action(cx.listener(Self::page_down))
+            .on_action(cx.listener(Self::toggle_pane))
+            .on_action(cx.listener(Self::focus_files))
+            .on_action(cx.listener(Self::focus_diff))
+            .on_action(cx.listener(Self::select_old_side))
+            .on_action(cx.listener(Self::select_new_side))
+            .on_action(cx.listener(Self::expand_or_open))
+            .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::next_file))
             .on_action(cx.listener(Self::previous_file))
             .on_action(cx.listener(Self::next_hunk))
@@ -659,12 +1008,16 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::add_comment_action))
             .on_action(cx.listener(Self::edit_comment_action))
             .on_action(cx.listener(Self::delete_comment_action))
+            .on_action(cx.listener(Self::undo_comment))
             .on_action(cx.listener(Self::submit_comment))
             .on_action(cx.listener(Self::cancel_comment))
             .on_action(cx.listener(Self::copy_review))
             .on_action(cx.listener(Self::submit_review))
+            .on_action(cx.listener(Self::show_shortcuts))
+            .on_action(cx.listener(Self::hide_shortcuts))
             .on_action(cx.listener(Self::cancel))
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(color(palette.background))
@@ -683,6 +1036,9 @@ impl Render for DiffViewer {
                     .child(self.render_diff(window, cx)),
             )
             .child(self.render_review_bar(cx))
+            .when(self.shortcuts_open, |viewer| {
+                viewer.child(self.render_shortcuts())
+            })
     }
 }
 
@@ -717,7 +1073,8 @@ mod tests {
 
     #[test]
     fn diff_rows_grow_to_fit_larger_fonts() {
-        assert_close(effective_diff_row_height(32.0, 13.0), 32.0);
-        assert_close(effective_diff_row_height(32.0, 20.0), 39.0);
+        assert_close(effective_diff_row_height(20.0, 13.0), 20.0);
+        assert_close(effective_diff_row_height(20.0, 16.0), 23.0);
+        assert_close(effective_diff_row_height(20.0, 20.0), 27.0);
     }
 }

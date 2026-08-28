@@ -18,6 +18,7 @@ fn defaults_to_auto_and_indexes_document() {
     assert!(viewer.presentation().row_count() > 0);
     assert_eq!(viewer.review().len(), 0);
     assert_eq!(viewer.theme().id(), &ThemeId::Ayu);
+    assert!((viewer.font_size() - 16.0).abs() < f32::EPSILON);
 }
 
 #[test]
