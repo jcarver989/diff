@@ -7,7 +7,8 @@ use diff_core::{
     SyntaxHighlighter, ViewMode,
 };
 use gpui::{
-    App, Context, EventEmitter, KeyBinding, KeyDownEvent, Window, actions, div, prelude::*, px,
+    App, Context, EventEmitter, KeyBinding, KeyDownEvent, ListAlignment, ListState, Window,
+    actions, div, prelude::*, px,
 };
 use std::sync::Arc;
 
@@ -35,7 +36,7 @@ actions!(
 pub struct DiffViewerOptions {
     /// Width of the changed-files sidebar, in logical pixels.
     pub sidebar_width: f32,
-    /// Height of every virtualized diff row, in logical pixels.
+    /// Minimum height of a diff row, in logical pixels.
     pub row_height: f32,
     /// Diff-pane width at which automatic mode switches to split layout.
     pub auto_split_width: f32,
@@ -61,6 +62,9 @@ pub struct DiffViewer {
     theme: DiffTheme,
     highlighter: SyntaxHighlighter,
     options: DiffViewerOptions,
+    diff_list_state: ListState,
+    diff_list_file: Option<usize>,
+    diff_list_split: bool,
 }
 
 impl DiffViewer {
@@ -87,6 +91,9 @@ impl DiffViewer {
             theme,
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
+            diff_list_state: ListState::new(0, ListAlignment::Top, px(options.row_height * 8.0)),
+            diff_list_file: None,
+            diff_list_split: false,
         }
     }
 
@@ -163,6 +170,7 @@ impl DiffViewer {
     /// Replaces the document while preserving file selection and reconciling comments.
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         self.session.set_document(document);
+        self.diff_list_file = None;
         cx.notify();
     }
 
@@ -170,6 +178,7 @@ impl DiffViewer {
     pub fn set_theme(&mut self, theme: DiffTheme, cx: &mut Context<Self>) {
         self.theme = theme;
         self.highlighter.clear_cache();
+        self.diff_list_state.remeasure();
         cx.notify();
     }
 
@@ -183,6 +192,7 @@ impl DiffViewer {
     /// Clears queued comments and the active draft.
     pub fn clear_review(&mut self, cx: &mut Context<Self>) {
         self.session.clear_review();
+        self.diff_list_state.remeasure();
         cx.notify();
     }
 
@@ -198,6 +208,7 @@ impl DiffViewer {
             .session
             .review_mut()
             .add_comment_with_context(anchor, line_text, body);
+        self.diff_list_state.remeasure();
         cx.notify();
         id
     }
@@ -220,6 +231,7 @@ impl DiffViewer {
     pub fn remove_comment(&mut self, id: u64, cx: &mut Context<Self>) -> bool {
         let removed = self.session.review_mut().remove_comment(id).is_some();
         if removed {
+            self.diff_list_state.remeasure();
             cx.notify();
         }
         removed
@@ -227,6 +239,25 @@ impl DiffViewer {
 
     pub(crate) const fn options(&self) -> &DiffViewerOptions {
         &self.options
+    }
+
+    pub(crate) fn sync_diff_list(
+        &mut self,
+        file_index: usize,
+        row_count: usize,
+        split: bool,
+    ) -> ListState {
+        if self.diff_list_file != Some(file_index) || self.diff_list_state.item_count() != row_count
+        {
+            self.diff_list_state
+                .reset_with_uniform_height(row_count, px(self.options.row_height));
+            self.diff_list_file = Some(file_index);
+            self.diff_list_split = split;
+        } else if self.diff_list_split != split {
+            self.diff_list_state.remeasure();
+            self.diff_list_split = split;
+        }
+        self.diff_list_state.clone()
     }
 
     pub(crate) fn select_file(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -307,6 +338,7 @@ impl DiffViewer {
 
     fn delete_comment_action(&mut self, _: &DeleteComment, _: &mut Window, cx: &mut Context<Self>) {
         if self.session.delete_comment_at_selection() {
+            self.diff_list_state.remeasure();
             cx.notify();
         }
     }
@@ -333,7 +365,9 @@ impl DiffViewer {
     }
 
     fn submit_comment(&mut self, _: &SubmitComment, _: &mut Window, cx: &mut Context<Self>) {
-        self.session.submit_draft();
+        if self.session.submit_draft().is_some() {
+            self.diff_list_state.remeasure();
+        }
         cx.notify();
     }
 

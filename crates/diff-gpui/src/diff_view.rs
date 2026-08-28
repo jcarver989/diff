@@ -1,10 +1,8 @@
 use crate::{DiffViewer, style};
 use diff_core::{DiffSide, PresentedCell, PresentedRow, RowKind};
 use gpui::{
-    AnyElement, Context, Div, HighlightStyle, SharedString, StyledText, div, prelude::*, px,
-    uniform_list,
+    AnyElement, Context, Div, HighlightStyle, SharedString, StyledText, div, list, prelude::*, px,
 };
-use std::ops::Range;
 
 const GUTTER_WIDTH: f32 = 54.0;
 const MARKER_WIDTH: f32 = 20.0;
@@ -24,15 +22,20 @@ impl DiffViewer {
                 .child("No changes to review");
         };
         let file = &self.document().files[file_index];
+        let file_path = file.path.to_string();
+        let additions = file.additions();
+        let deletions = file.deletions();
         let Some(file_range) = self.presentation().file_range(file_index) else {
             return div().flex_1();
         };
         let start = file_range.start;
-        let list = uniform_list(
-            ("diff-rows", file_index),
-            file_range.len(),
-            cx.processor(move |viewer, range: Range<usize>, _window, cx| {
-                viewer.render_visible_rows(start, range, cx)
+        let row_count = file_range.len();
+        let split = self.layout().is_split();
+        let list_state = self.sync_diff_list(file_index, row_count, split);
+        let list = list(
+            list_state,
+            cx.processor(move |viewer, offset: usize, _window, cx| {
+                viewer.render_visible_row(start + offset, cx)
             }),
         )
         .h_full();
@@ -49,18 +52,18 @@ impl DiffViewer {
                 div()
                     .flex_1()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(file.path.to_string()),
+                    .child(file_path),
             )
             .child(
                 div()
                     .text_color(style::color(palette.addition))
-                    .child(format!("+{}", file.additions())),
+                    .child(format!("+{additions}")),
             )
             .child(
                 div()
                     .ml_2()
                     .text_color(style::color(palette.deletion))
-                    .child(format!("−{}", file.deletions())),
+                    .child(format!("−{deletions}")),
             );
 
         div()
@@ -73,19 +76,11 @@ impl DiffViewer {
             .child(div().flex_1().overflow_hidden().child(list))
     }
 
-    fn render_visible_rows(
-        &mut self,
-        file_start: usize,
-        range: Range<usize>,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        range
-            .filter_map(|offset| {
-                let index = file_start + offset;
-                let row = self.presentation().row(index)?.clone();
-                Some(self.render_presented_row(index, &row, cx))
-            })
-            .collect()
+    fn render_visible_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(row) = self.presentation().row(index).cloned() else {
+            return div().into_any_element();
+        };
+        self.render_presented_row(index, &row, cx)
     }
 
     fn render_presented_row(
@@ -118,7 +113,7 @@ impl DiffViewer {
         let split = self.layout().is_split();
         let mut element = div()
             .id(("diff-row", row.id.0))
-            .h(row_height)
+            .min_h(row_height)
             .w_full()
             .flex();
         if split {
@@ -152,7 +147,7 @@ impl DiffViewer {
         let Some(cell) = cell else {
             return div()
                 .w_1_2()
-                .h_full()
+                .min_h(px(self.options().row_height))
                 .bg(style::color(palette.background))
                 .when(left, |value| value.border_r_1().border_color(border_color))
                 .into_any_element();
@@ -173,9 +168,10 @@ impl DiffViewer {
             .id((if left { "old-cell" } else { "new-cell" }, index))
             .when(split, gpui::Styled::w_1_2)
             .when(!split, gpui::Styled::w_full)
-            .h_full()
+            .min_h(px(self.options().row_height))
             .flex()
-            .items_center()
+            .items_start()
+            .py_2()
             .overflow_hidden()
             .bg(style::color(colors.background))
             .when(left, |value| value.border_r_1().border_color(border_color));
@@ -209,14 +205,16 @@ impl DiffViewer {
             )
             .child(
                 div()
+                    .min_w_0()
                     .flex_1()
                     .overflow_hidden()
-                    .whitespace_nowrap()
+                    .whitespace_normal()
                     .child(styled),
             )
             .when(comments != 0, |value| {
                 value.child(
                     div()
+                        .flex_shrink_0()
                         .px_2()
                         .text_xs()
                         .text_color(style::color(palette.accent))
