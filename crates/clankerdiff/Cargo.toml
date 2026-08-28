@@ -1,0 +1,29 @@
+[package]
+name = "clankerdiff"
+description = "Agent-driven code review CLI for Diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.dist]
+dist = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace = true
+crossterm.workspace = true
+diff-core = { path = "../diff-core" }
+diff-git = { path = "../diff-git" }
+diff-gpui-desktop = { path = "../diff-gpui-desktop" }
+diff-ratatui = { path = "../diff-ratatui" }
+open.workspace = true
+rand.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
