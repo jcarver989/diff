@@ -1,0 +1,21 @@
+[package]
+name = "diff-gpui-desktop"
+description = "Native desktop shell for the GPUI diff viewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+diff-core = { path = "../diff-core" }
+diff-git = { path = "../diff-git" }
+diff-gpui = { path = "../diff-gpui" }
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui_tokio.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
