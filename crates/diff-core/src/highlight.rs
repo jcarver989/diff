@@ -12,7 +12,7 @@ use syntect::{
     highlighting::{
         FontStyle as SyntectFontStyle, HighlightIterator, HighlightState, Highlighter, Style,
     },
-    parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet},
+    parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxReference, SyntaxSet},
 };
 
 /// Span sets a highlighter caches by default. One visible cell asks for one
@@ -54,7 +54,19 @@ pub struct HighlightStats {
 
 fn syntax_set() -> &'static SyntaxSet {
     static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SYNTAX_SET.get_or_init(two_face::syntax::extra_newlines)
+    SYNTAX_SET.get_or_init(|| {
+        let rust = SyntaxDefinition::load_from_str(
+            include_str!("../assets/syntaxes/Rust.sublime-syntax"),
+            true,
+            Some("Rust"),
+        )
+        .expect("vendored Rust syntax must parse");
+        let mut builder = two_face::syntax::extra_newlines().into_builder();
+        // Syntax lookup searches newest definitions first, so this current Rust
+        // grammar supersedes the older one embedded in two-face.
+        builder.add(rust);
+        builder.build()
+    })
 }
 
 /// A reusable syntax highlighter. Entries are evicted oldest-first when full.
@@ -418,12 +430,13 @@ fn spans_for_state(
     set: &SyntaxSet,
     line: &str,
 ) -> Vec<HighlightSpan> {
-    let Ok(ops) = parse.parse_line(line, set) else {
+    let logical_line = logical_line(line);
+    let Ok(ops) = parse.parse_line(&logical_line, set) else {
         return fallback_span(line);
     };
     let parts: Vec<(Style, &str)> =
-        HighlightIterator::new(state, &ops, line, highlighter).collect();
-    spans_for_parts(parts, line)
+        HighlightIterator::new(state, &ops, &logical_line, highlighter).collect();
+    spans_for_parts(parts, line.len())
 }
 
 fn spans_for_line(
@@ -431,10 +444,19 @@ fn spans_for_line(
     set: &SyntaxSet,
     line: &str,
 ) -> Vec<HighlightSpan> {
-    let Ok(parts) = highlighter.highlight_line(line, set) else {
+    let logical_line = logical_line(line);
+    let Ok(parts) = highlighter.highlight_line(&logical_line, set) else {
         return fallback_span(line);
     };
-    spans_for_parts(parts, line)
+    spans_for_parts(parts, line.len())
+}
+
+fn logical_line(line: &str) -> Cow<'_, str> {
+    if line.ends_with('\n') {
+        Cow::Borrowed(line)
+    } else {
+        Cow::Owned(format!("{line}\n"))
+    }
 }
 
 fn fallback_span(line: &str) -> Vec<HighlightSpan> {
@@ -445,11 +467,12 @@ fn fallback_span(line: &str) -> Vec<HighlightSpan> {
     }]
 }
 
-fn spans_for_parts(parts: Vec<(Style, &str)>, _line: &str) -> Vec<HighlightSpan> {
+fn spans_for_parts(parts: Vec<(Style, &str)>, display_len: usize) -> Vec<HighlightSpan> {
     let mut offset = 0;
     let mut spans = Vec::with_capacity(parts.len());
     for (style, text) in parts {
-        let end = offset + text.len();
+        let part_end = offset + text.len();
+        let end = part_end.min(display_len);
         if end > offset {
             spans.push(HighlightSpan {
                 range: offset..end,
@@ -462,7 +485,7 @@ fn spans_for_parts(parts: Vec<(Style, &str)>, _line: &str) -> Vec<HighlightSpan>
                 font_style: font_style(style),
             });
         }
-        offset = end;
+        offset = part_end;
     }
     spans
 }
@@ -579,5 +602,21 @@ mod tests {
         let highlighter = SyntaxHighlighter::new(0);
         let spans = highlighter.highlight_sequential(&theme, "rust", ["/*", " comment */"]);
         assert_eq!(spans.len(), 2);
+    }
+
+    #[test]
+    fn synthetic_newlines_do_not_escape_display_ranges() {
+        let theme = DiffTheme::default();
+        let engine = SyntaxHighlighter::new(0);
+        let lines = ["// comment", "let café = 1;"];
+        let rendered = engine.highlight_sequential(&theme, "rust", lines);
+
+        for (line, spans) in lines.into_iter().zip(rendered) {
+            assert!(spans.iter().all(|span| {
+                span.range.end <= line.len()
+                    && line.is_char_boundary(span.range.start)
+                    && line.is_char_boundary(span.range.end)
+            }));
+        }
     }
 }
