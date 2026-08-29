@@ -1,4 +1,4 @@
-use diff_core::{DiffReviewEvent, ViewMode, testing::DocumentBuilder};
+use diff_core::{DiffReviewEvent, RepositoryAction, ViewMode, testing::DocumentBuilder};
 use diff_gpui::{DiffViewer, DiffViewerEvent, ViewerPane};
 use gpui::{Context, Entity, Render, TestAppContext, Window, WindowOptions, div, prelude::*};
 
@@ -114,6 +114,38 @@ fn comment_shortcuts_add_edit_delete_undo_and_cancel_drafts(cx: &mut TestAppCont
     });
     cx.simulate_keystrokes(*window, "escape x");
     assert!(viewer.read_with(cx, |viewer, _| viewer.review().is_empty()));
+}
+
+#[gpui::test]
+fn repository_shortcuts_emit_path_bulk_commit_and_discard_actions(cx: &mut TestAppContext) {
+    let window = open_viewer(cx);
+
+    cx.simulate_keystrokes(*window, "h space a shift-a d y shift-c s h i p enter");
+    window
+        .read_with(cx, |root, _| {
+            assert!(matches!(
+                &root.events[0],
+                DiffReviewEvent::RepositoryAction(RepositoryAction::StagePaths(paths))
+                    if paths.len() == 1 && paths[0].as_str() == "a.rs"
+            ));
+            assert!(root.events.contains(&DiffReviewEvent::RepositoryAction(
+                RepositoryAction::StageAll
+            )));
+            assert!(root.events.contains(&DiffReviewEvent::RepositoryAction(
+                RepositoryAction::UnstageAll
+            )));
+            assert!(root.events.iter().any(|event| matches!(
+                event,
+                DiffReviewEvent::RepositoryAction(RepositoryAction::Discard { path, .. })
+                    if path.as_str() == "a.rs"
+            )));
+            assert!(root.events.contains(&DiffReviewEvent::RepositoryAction(
+                RepositoryAction::Commit {
+                    message: "ship".to_owned(),
+                }
+            )));
+        })
+        .unwrap();
 }
 
 #[gpui::test]

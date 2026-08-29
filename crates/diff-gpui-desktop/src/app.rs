@@ -1,7 +1,7 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
 use crate::{args::CliArgs, window_chrome};
-use diff_core::{DiffDocument, DiffReviewEvent, DiffScope, ReviewSubmission};
+use diff_core::{DiffDocument, DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
 use diff_git::{GitError, GitRepository};
 use diff_gpui::{DEFAULT_FONT_FAMILY, DiffViewer};
 use gpui::{
@@ -28,6 +28,7 @@ enum LoadState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum HostEventEffect {
+    None,
     Copy(String),
     PrintSubmission(String),
     Quit,
@@ -35,6 +36,7 @@ enum HostEventEffect {
 
 fn host_event_effect(event: &DiffReviewEvent) -> HostEventEffect {
     match event {
+        DiffReviewEvent::RepositoryAction(_) => HostEventEffect::None,
         DiffReviewEvent::CopyFormattedReview(text) => HostEventEffect::Copy(text.clone()),
         DiffReviewEvent::SubmitReview(submission) => HostEventEffect::PrintSubmission(
             serde_json::to_string_pretty(submission)
@@ -156,6 +158,53 @@ impl DesktopApp {
         });
     }
 
+    fn mutate(&mut self, action: RepositoryAction, cx: &mut Context<Self>) {
+        let Some(repository) = self.repository.clone() else {
+            return;
+        };
+        if let Some(viewer) = &self.viewer {
+            viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+        }
+        let scope = self.scope;
+        let operation = gpui_tokio::Tokio::spawn(cx, async move {
+            match action {
+                RepositoryAction::StagePaths(paths) => repository.stage(&paths).await?,
+                RepositoryAction::UnstagePaths(paths) => repository.unstage(&paths).await?,
+                RepositoryAction::StageAll => repository.stage_all().await?,
+                RepositoryAction::UnstageAll => repository.unstage_all().await?,
+                RepositoryAction::Commit { message } => repository.commit(&message).await?,
+                RepositoryAction::Discard { path, status } => {
+                    repository.discard(&path, status).await?;
+                }
+                RepositoryAction::Refresh => {}
+            }
+            repository.snapshot(scope).await
+        });
+        self.load_task = cx.spawn(async move |this, cx| {
+            let result = operation.await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(Ok(document)) => this.install_document(document, cx),
+                Ok(Err(error)) => {
+                    if let Some(viewer) = &this.viewer {
+                        viewer.update(cx, |viewer, cx| {
+                            viewer.set_repository_error(error.to_string(), cx);
+                        });
+                    }
+                }
+                Err(error) => {
+                    if let Some(viewer) = &this.viewer {
+                        viewer.update(cx, |viewer, cx| {
+                            viewer.set_repository_error(
+                                format!("background task failed: {error}"),
+                                cx,
+                            );
+                        });
+                    }
+                }
+            });
+        });
+    }
+
     fn install_document(&mut self, document: DiffDocument, cx: &mut Context<Self>) {
         let is_empty = document.files.is_empty();
         let document = Arc::new(document);
@@ -184,9 +233,14 @@ impl DesktopApp {
         cx.notify();
     }
 
-    fn handle_viewer_event(&self, event: &DiffReviewEvent, cx: &mut Context<Self>) {
+    fn handle_viewer_event(&mut self, event: &DiffReviewEvent, cx: &mut Context<Self>) {
+        if let DiffReviewEvent::RepositoryAction(action) = event {
+            self.mutate(action.clone(), cx);
+            return;
+        }
         if let Some(sender) = &self.outcome_sender {
             match event {
+                DiffReviewEvent::RepositoryAction(_) => unreachable!("handled above"),
                 DiffReviewEvent::CopyFormattedReview(text) => {
                     cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
                 }
@@ -203,6 +257,7 @@ impl DesktopApp {
         }
 
         match host_event_effect(event) {
+            HostEventEffect::None => {}
             HostEventEffect::Copy(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             HostEventEffect::PrintSubmission(json) => println!("{json}"),
             HostEventEffect::Quit => cx.quit(),

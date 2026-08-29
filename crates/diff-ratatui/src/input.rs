@@ -1,10 +1,14 @@
 //! Crossterm keyboard, mouse, and paste input helpers.
 
-use crate::{DiffReviewEvent, DiffReviewState, FocusPane};
+use crate::{
+    DiffReviewEvent, DiffReviewState, FocusPane,
+    drawer::DrawerEntry,
+    state::{RepositoryOperationStatus, RepositoryPrompt},
+};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
-use diff_core::DiffSide;
+use diff_core::{DiffSide, RepositoryAction};
 use ratatui::layout::Position;
 
 /// Files one wheel notch scrolls the drawer. A notch is a line, not a file, so
@@ -59,14 +63,14 @@ impl DiffReviewState {
                 }
                 None
             }
-            DiffReviewInput::Mouse(mouse) => {
-                self.handle_mouse(mouse);
-                None
-            }
+            DiffReviewInput::Mouse(mouse) => self.handle_mouse(mouse),
         }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
+        if self.repository_prompt.is_some() {
+            return self.handle_repository_prompt_key(key);
+        }
         if self.help {
             if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
                 self.help = false;
@@ -92,6 +96,11 @@ impl DiffReviewState {
     }
 
     fn handle_browse_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
+        if matches!(self.repository_status, RepositoryOperationStatus::Pending)
+            && matches!(key.code, KeyCode::Char(' ' | 'a' | 'A' | 'C' | 'd' | 'r'))
+        {
+            return None;
+        }
         let in_diff = self.focus == FocusPane::Diff;
         match key.code {
             KeyCode::Tab => {
@@ -151,6 +160,26 @@ impl DiffReviewState {
                     self.session.submission().formatted,
                 ));
             }
+            KeyCode::Char(' ') if self.focus == FocusPane::Files => {
+                if let Some(action) = self.toggle_stage_action() {
+                    return Some(DiffReviewEvent::RepositoryAction(action));
+                }
+            }
+            KeyCode::Char('a') if self.focus == FocusPane::Files => {
+                return Some(DiffReviewEvent::RepositoryAction(
+                    RepositoryAction::StageAll,
+                ));
+            }
+            KeyCode::Char('A') if self.focus == FocusPane::Files => {
+                return Some(DiffReviewEvent::RepositoryAction(
+                    RepositoryAction::UnstageAll,
+                ));
+            }
+            KeyCode::Char('C') => self.begin_commit(),
+            KeyCode::Char('d') => self.begin_discard(),
+            KeyCode::Char('r') => {
+                return Some(DiffReviewEvent::RepositoryAction(RepositoryAction::Refresh));
+            }
             KeyCode::Char('v') => {
                 if self.session.cycle_view_mode() {
                     self.scroll_to_selected_file();
@@ -167,6 +196,47 @@ impl DiffReviewState {
             FocusPane::Files => self.move_drawer_entry(delta),
             FocusPane::Diff => self.move_row(delta),
         }
+    }
+
+    fn handle_repository_prompt_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
+        match self.repository_prompt.as_mut()? {
+            RepositoryPrompt::Commit { message } => match key.code {
+                KeyCode::Esc => self.repository_prompt = None,
+                KeyCode::Enter => {
+                    let message = message.trim().to_owned();
+                    if message.is_empty() {
+                        self.set_repository_error("Commit message cannot be empty");
+                    } else {
+                        self.repository_prompt = None;
+                        return Some(DiffReviewEvent::RepositoryAction(
+                            RepositoryAction::Commit { message },
+                        ));
+                    }
+                }
+                KeyCode::Backspace => {
+                    message.pop();
+                }
+                KeyCode::Char(character)
+                    if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+                {
+                    message.push(character);
+                }
+                _ => {}
+            },
+            RepositoryPrompt::Discard { path, status } => match key.code {
+                KeyCode::Char('y' | 'Y') => {
+                    let action = RepositoryAction::Discard {
+                        path: path.clone(),
+                        status: *status,
+                    };
+                    self.repository_prompt = None;
+                    return Some(DiffReviewEvent::RepositoryAction(action));
+                }
+                KeyCode::Char('n' | 'N') | KeyCode::Esc => self.repository_prompt = None,
+                _ => {}
+            },
+        }
+        None
     }
 
     fn handle_draft_key(&mut self, key: KeyEvent) {
@@ -202,7 +272,7 @@ impl DiffReviewState {
         self.request_follow();
     }
 
-    fn handle_mouse(&mut self, mouse: MouseEvent) {
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> Option<DiffReviewEvent> {
         let position = Position::new(mouse.column, mouse.row);
         match mouse.kind {
             MouseEventKind::ScrollUp => self.scroll_at(position, -1),
@@ -213,6 +283,27 @@ impl DiffReviewState {
                     let relative = usize::from(mouse.row.saturating_sub(self.hit_layout.drawer.y));
                     self.select_drawer_entry(self.drawer_scroll.saturating_add(relative));
                     self.mark_dirty();
+                    let checkbox_column = self.drawer.entry(self.drawer_selected).map(|entry| {
+                        self.hit_layout.drawer.x
+                            + match entry {
+                                DrawerEntry::Directory { depth, name, .. } => u16::try_from(
+                                    depth
+                                        .saturating_mul(2)
+                                        .saturating_add(name.len())
+                                        .saturating_add(3),
+                                )
+                                .unwrap_or(u16::MAX),
+                                DrawerEntry::File { depth, .. } => {
+                                    u16::try_from(depth.saturating_mul(2)).unwrap_or(u16::MAX)
+                                }
+                            }
+                    });
+                    if checkbox_column == Some(mouse.column)
+                        && !matches!(self.repository_status, RepositoryOperationStatus::Pending)
+                        && let Some(action) = self.toggle_stage_action()
+                    {
+                        return Some(DiffReviewEvent::RepositoryAction(action));
+                    }
                 } else if self.hit_layout.patch.contains(position) {
                     self.focus = FocusPane::Diff;
                     self.select_clicked_row(mouse.row);
@@ -223,6 +314,7 @@ impl DiffReviewState {
             // and a terminal in all-motion mode reports one per pointer step.
             _ => {}
         }
+        None
     }
 
     /// Navigates the pane under the pointer, falling back to the focused pane

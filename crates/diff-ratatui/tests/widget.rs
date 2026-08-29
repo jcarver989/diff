@@ -5,7 +5,7 @@ mod support;
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use diff_core::{
     DiffDocument, DiffReviewEvent, DiffSide, DiffTheme, FileDiff, Layout, LineAnchor, PatchLine,
-    PatchLineKind, Review, ViewMode, testing::DocumentBuilder,
+    PatchLineKind, RepositoryAction, Review, StageState, ViewMode, testing::DocumentBuilder,
 };
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane, RatatuiTheme};
 use ratatui::{Terminal, backend::TestBackend, layout::Position};
@@ -606,6 +606,69 @@ fn events_that_change_nothing_do_not_ask_for_a_frame() {
 
     state.handle_input(key(KeyCode::Down));
     assert!(state.is_dirty(), "moving the selection needs a frame");
+}
+
+#[test]
+fn repository_actions_follow_file_and_directory_stage_state() {
+    let document = changed_document();
+    let mut state = DiffReviewState::new(document.clone());
+
+    assert_eq!(
+        state.handle_input(key(KeyCode::Char(' '))),
+        Some(DiffReviewEvent::RepositoryAction(
+            RepositoryAction::StagePaths(vec![document.files[0].path.clone(),])
+        ))
+    );
+    assert_eq!(
+        state.handle_input(key(KeyCode::Char('a'))),
+        Some(DiffReviewEvent::RepositoryAction(
+            RepositoryAction::StageAll
+        ))
+    );
+    assert_eq!(
+        state.handle_input(key(KeyCode::Char('A'))),
+        Some(DiffReviewEvent::RepositoryAction(
+            RepositoryAction::UnstageAll
+        ))
+    );
+
+    let mut staged = (*document).clone();
+    staged.files[0].staged = StageState::Staged;
+    state.set_document(Arc::new(staged.clone()));
+    assert_eq!(
+        state.handle_input(key(KeyCode::Char(' '))),
+        Some(DiffReviewEvent::RepositoryAction(
+            RepositoryAction::UnstagePaths(vec![staged.files[0].path.clone(),])
+        ))
+    );
+}
+
+#[test]
+fn commit_and_discard_require_explicit_input() {
+    let mut document = (*changed_document()).clone();
+    document.files[0].staged = StageState::Staged;
+    let path = document.files[0].path.clone();
+    let status = document.files[0].status;
+    let mut state = DiffReviewState::new(Arc::new(document));
+
+    state.handle_input(key(KeyCode::Char('C')));
+    type_text(&mut state, "ship it");
+    assert_eq!(
+        state.handle_input(key(KeyCode::Enter)),
+        Some(DiffReviewEvent::RepositoryAction(
+            RepositoryAction::Commit {
+                message: "ship it".to_owned(),
+            }
+        ))
+    );
+
+    state.handle_input(key(KeyCode::Char('d')));
+    assert_eq!(
+        state.handle_input(key(KeyCode::Char('y'))),
+        Some(DiffReviewEvent::RepositoryAction(
+            RepositoryAction::Discard { path, status }
+        ))
+    );
 }
 
 #[test]

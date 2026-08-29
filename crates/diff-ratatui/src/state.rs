@@ -3,8 +3,8 @@ use crate::{
     patch_layout::PatchVisualLayout,
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, DiffTheme, HighlightStats, Layout, Review,
-    ReviewSession, SyntaxHighlighter, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, DiffTheme, FileStatus, HighlightStats, Layout,
+    RepositoryAction, Review, ReviewSession, StageState, SyntaxHighlighter, ViewMode,
 };
 use ratatui::layout::{Position, Rect};
 use std::{
@@ -50,6 +50,26 @@ enum DrawerFollow {
 }
 
 #[derive(Debug)]
+pub(crate) enum RepositoryPrompt {
+    Commit {
+        message: String,
+    },
+    Discard {
+        path: diff_core::RepoPath,
+        status: FileStatus,
+    },
+}
+
+/// Status of the most recent repository mutation requested by the UI.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum RepositoryOperationStatus {
+    #[default]
+    Idle,
+    Pending,
+    Error(String),
+}
+
+#[derive(Debug)]
 struct CachedPatchLayout {
     key: u64,
     layout: Arc<PatchVisualLayout>,
@@ -73,6 +93,8 @@ pub struct DiffReviewState {
     pub(crate) presentation_width: u16,
     patch_layout: Option<CachedPatchLayout>,
     pub(crate) help: bool,
+    pub(crate) repository_prompt: Option<RepositoryPrompt>,
+    pub(crate) repository_status: RepositoryOperationStatus,
     pub(crate) hit_layout: HitLayout,
     pub(crate) visible_rows: Vec<(u16, usize)>,
     pub(crate) cursor_position: Option<Position>,
@@ -108,6 +130,8 @@ impl DiffReviewState {
             presentation_width: 0,
             patch_layout: None,
             help: false,
+            repository_prompt: None,
+            repository_status: RepositoryOperationStatus::Idle,
             hit_layout: HitLayout::default(),
             visible_rows: Vec::new(),
             cursor_position: None,
@@ -238,6 +262,7 @@ impl DiffReviewState {
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
         self.session.set_document(document);
         self.status = DiffReviewStatus::Ready;
+        self.repository_status = RepositoryOperationStatus::Idle;
         self.cursor_position = None;
         self.mark_dirty();
         let document = self.document().clone();
@@ -266,6 +291,54 @@ impl DiffReviewState {
         self.session.cancel_draft();
         self.cursor_position = None;
         self.mark_dirty();
+    }
+
+    /// Marks a repository mutation as in flight while retaining the current snapshot.
+    pub fn set_repository_pending(&mut self) {
+        self.repository_status = RepositoryOperationStatus::Pending;
+        self.repository_prompt = None;
+        self.mark_dirty();
+    }
+
+    /// Shows a repository mutation error while retaining the current snapshot.
+    pub fn set_repository_error(&mut self, message: impl Into<String>) {
+        self.repository_status = RepositoryOperationStatus::Error(message.into());
+        self.repository_prompt = None;
+        self.mark_dirty();
+    }
+
+    pub(crate) fn toggle_stage_action(&self) -> Option<RepositoryAction> {
+        let entry = self.drawer.entry(self.drawer_selected)?;
+        let document = self.document();
+        let state = DrawerTree::stage_state_for_entry(document, entry);
+        let paths = DrawerTree::paths_for_entry(document, entry);
+        if paths.is_empty() {
+            return None;
+        }
+        Some(if state == StageState::Staged {
+            RepositoryAction::UnstagePaths(paths)
+        } else {
+            RepositoryAction::StagePaths(paths)
+        })
+    }
+
+    pub(crate) fn begin_commit(&mut self) {
+        self.repository_prompt = Some(RepositoryPrompt::Commit {
+            message: String::new(),
+        });
+    }
+
+    pub(crate) fn begin_discard(&mut self) {
+        let Some(file) = self
+            .selected_file()
+            .and_then(|index| self.document().files.get(index))
+        else {
+            return;
+        };
+        self.repository_prompt = Some(RepositoryPrompt::Discard {
+            path: file.path.clone(),
+            status: file.status,
+        });
     }
 
     /// Changes the neutral theme and clears cached syntax spans.

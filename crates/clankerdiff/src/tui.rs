@@ -3,7 +3,9 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{DiffDocument, MarkdownDocument, MarkdownReviewSubmission, ReviewSubmission};
+use diff_core::{
+    DiffDocument, MarkdownDocument, MarkdownReviewSubmission, RepositoryAction, ReviewSubmission,
+};
 use diff_ratatui::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
     MarkdownReviewWidget, handle_crossterm_event, handle_markdown_crossterm_event,
@@ -59,12 +61,15 @@ fn parse_command(command: &str) -> Result<(String, Vec<String>), TuiError> {
 pub fn attach(session_url: &str) -> Result<(), TuiError> {
     let session = Session::parse(session_url)?;
     let document = session.document()?;
-    let outcome = run(Arc::new(document))?;
+    let outcome = run(Arc::new(document), &session)?;
     session.complete(outcome.as_ref())?;
     Ok(())
 }
 
-fn run(document: Arc<DiffDocument>) -> Result<Option<ReviewSubmission>, TuiError> {
+fn run(
+    document: Arc<DiffDocument>,
+    session: &Session,
+) -> Result<Option<ReviewSubmission>, TuiError> {
     if !stdin().is_terminal() || !stderr().is_terminal() {
         return Err(TuiError::NoTerminal);
     }
@@ -84,7 +89,7 @@ fn run(document: Arc<DiffDocument>) -> Result<Option<ReviewSubmission>, TuiError
             })?;
         }
 
-        match apply_event(&mut state, event::read()?) {
+        match apply_event(&mut state, event::read()?, session) {
             EventOutcome::Continue => {}
             EventOutcome::Cancelled => return Ok(None),
             EventOutcome::Submitted(submission) => return Ok(Some(submission)),
@@ -93,7 +98,7 @@ fn run(document: Arc<DiffDocument>) -> Result<Option<ReviewSubmission>, TuiError
             if !event::poll(Duration::ZERO)? {
                 break;
             }
-            match apply_event(&mut state, event::read()?) {
+            match apply_event(&mut state, event::read()?, session) {
                 EventOutcome::Continue => {}
                 EventOutcome::Cancelled => return Ok(None),
                 EventOutcome::Submitted(submission) => return Ok(Some(submission)),
@@ -179,6 +184,13 @@ impl Session {
         serde_json::from_slice(&body).map_err(TuiError::ProtocolJson)
     }
 
+    fn repository_action(&self, action: &RepositoryAction) -> Result<DiffDocument, TuiError> {
+        let path = format!("/api/{}/repository-action", self.token);
+        let body = serde_json::to_vec(action).map_err(TuiError::ProtocolJson)?;
+        let response = self.request("POST", &path, &body)?;
+        serde_json::from_slice(&response).map_err(TuiError::ProtocolJson)
+    }
+
     fn complete(&self, submission: Option<&ReviewSubmission>) -> Result<(), TuiError> {
         let (path, body) = match submission {
             Some(submission) => (
@@ -228,8 +240,16 @@ impl Session {
     }
 }
 
-fn apply_event(state: &mut DiffReviewState, event: Event) -> EventOutcome {
+fn apply_event(state: &mut DiffReviewState, event: Event, session: &Session) -> EventOutcome {
     match handle_crossterm_event(state, event) {
+        Some(DiffReviewEvent::RepositoryAction(action)) => {
+            state.set_repository_pending();
+            match session.repository_action(&action) {
+                Ok(document) => state.set_document(Arc::new(document)),
+                Err(error) => state.set_repository_error(error.to_string()),
+            }
+            EventOutcome::Continue
+        }
         Some(DiffReviewEvent::Cancel) => EventOutcome::Cancelled,
         Some(DiffReviewEvent::SubmitReview(submission)) => EventOutcome::Submitted(submission),
         Some(DiffReviewEvent::CopyFormattedReview(_)) | None => EventOutcome::Continue,

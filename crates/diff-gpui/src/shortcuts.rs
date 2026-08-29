@@ -8,6 +8,12 @@ const NAVIGATION: &[(&str, &str)] = &[
     ("g / G, Home / End", "first / last item"),
     ("PgUp / PgDn", "move a page"),
 ];
+const GIT: &[(&str, &str)] = &[
+    ("Space", "stage / unstage file or directory"),
+    ("a / A", "stage / unstage all"),
+    ("C", "commit staged changes"),
+    ("d", "discard selected file"),
+];
 const REVIEW: &[(&str, &str)] = &[
     ("c / e / x", "add / edit / delete comment"),
     ("u", "undo last comment"),
@@ -90,7 +96,14 @@ impl DiffViewer {
                             .child(section("Navigation", NAVIGATION))
                             .child(section("Review", REVIEW)),
                     )
-                    .child(div().mt_4().child(section("Comment editor", DRAFT))),
+                    .child(
+                        div()
+                            .mt_4()
+                            .flex()
+                            .gap_5()
+                            .child(section("Git", GIT))
+                            .child(section("Comment editor", DRAFT)),
+                    ),
             )
     }
 }

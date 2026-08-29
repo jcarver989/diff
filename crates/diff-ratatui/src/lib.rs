@@ -18,7 +18,7 @@ pub use markdown_review::{
     MarkdownReviewWidget, handle_crossterm_event as handle_markdown_crossterm_event,
 };
 pub use render::DiffReviewWidget;
-pub use state::{DiffReviewState, DiffReviewStatus, FocusPane};
+pub use state::{DiffReviewState, DiffReviewStatus, FocusPane, RepositoryOperationStatus};
 pub use style::RatatuiTheme;
 
 /// Review event emitted to the embedding host.

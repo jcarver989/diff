@@ -1,10 +1,11 @@
 //! Visible-range Ratatui rendering.
 
 use crate::{
-    DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme,
+    DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme, RepositoryOperationStatus,
     annotation::render_annotation_line,
-    drawer::DrawerEntry,
+    drawer::{DrawerEntry, DrawerTree},
     patch_layout::PatchVisualRow,
+    state::RepositoryPrompt,
     style::syntax_style,
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
@@ -147,6 +148,7 @@ fn render_separator(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
         .render(area, buffer);
 }
 
+#[expect(clippy::too_many_lines, reason = "tree row rendering is kept together")]
 fn render_drawer(
     area: Rect,
     buffer: &mut Buffer,
@@ -189,9 +191,11 @@ fn render_drawer(
                 ..
             } => {
                 let marker = if *expanded { "▾" } else { "▸" };
+                let entry_stage = DrawerTree::stage_state_for_entry(state.document(), entry);
                 Paragraph::new(Line::from(vec![
                     Span::raw(format!("{}{} ", "  ".repeat(*depth), marker)),
                     Span::styled(format!("{name}/"), Style::new().fg(theme.accent)),
+                    Span::raw(format!(" {}", stage_marker(entry_stage))),
                 ]))
                 .render(row, buffer);
             }
@@ -532,11 +536,47 @@ fn highlighted_spans<'a>(
     spans
 }
 
-fn render_footer(area: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme: &RatatuiTheme) {
+fn render_footer(
+    area: Rect,
+    buffer: &mut Buffer,
+    state: &mut DiffReviewState,
+    theme: &RatatuiTheme,
+) {
     if area.is_empty() {
         return;
     }
-    let hint = if state.session.draft().is_some() {
+    if let Some(prompt) = &state.repository_prompt {
+        match prompt {
+            RepositoryPrompt::Commit { message } => {
+                let prefix = "commit › ";
+                Paragraph::new(format!("{prefix}{message}"))
+                    .style(Style::new().fg(theme.foreground))
+                    .render(area, buffer);
+                let x = area
+                    .x
+                    .saturating_add(u16::try_from(prefix.len() + message.len()).unwrap_or(u16::MAX))
+                    .min(area.right().saturating_sub(1));
+                state.cursor_position = Some(Position::new(x, area.y));
+            }
+            RepositoryPrompt::Discard { path, status } => {
+                Paragraph::new(format!(
+                    "Discard all staged and unstaged changes to {path} ({status:?})? [y/N]"
+                ))
+                .style(Style::new().fg(theme.deletion))
+                .render(area, buffer);
+            }
+        }
+        return;
+    }
+    if let RepositoryOperationStatus::Error(message) = &state.repository_status {
+        Paragraph::new(message.clone())
+            .style(Style::new().fg(theme.deletion))
+            .render(area, buffer);
+        return;
+    }
+    let hint = if matches!(state.repository_status, RepositoryOperationStatus::Pending) {
+        "Git operation in progress…"
+    } else if state.session.draft().is_some() {
         "[Enter] save  [Shift-Enter] newline  [Esc] cancel"
     } else if state.focus == FocusPane::Files {
         "[j/k] entry  [h/l] fold/open  [?] help"
@@ -566,7 +606,7 @@ fn render_footer(area: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme
 
 fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     let width = area.width.saturating_sub(4).min(58);
-    let height = area.height.saturating_sub(4).min(13);
+    let height = area.height.saturating_sub(4).min(18);
     let popup = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,
@@ -575,7 +615,7 @@ fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     );
     Clear.render(popup, buffer);
     Paragraph::new(
-        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  v                cycle layout\n  Esc              cancel or close\n  ?                close help",
+        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  r                refresh\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  Esc              cancel or close",
     )
     .block(Block::bordered().title(" Review shortcuts "))
     .style(Style::new().fg(theme.foreground).bg(theme.background))

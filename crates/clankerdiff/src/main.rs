@@ -54,14 +54,20 @@ async fn run(args: ReviewArgs) -> Result<ReviewOutcome, AppError> {
         Ui::Desktop => diff_gpui_desktop::run_review(root.clone(), args.scope),
         Ui::Tui => {
             let document = repository.snapshot(args.scope).await?;
-            web::run_tui_session(&document, args.port, |session_url| {
-                tui::launch(session_url).map_err(|error| error.to_string())
-            })?
+            web::run_tui_session(
+                &repository,
+                &document,
+                args.scope,
+                args.port,
+                |session_url| tui::launch(session_url).map_err(|error| error.to_string()),
+            )?
         }
         Ui::Web => {
             let document = repository.snapshot(args.scope).await?;
             web::run(
+                &repository,
                 &document,
+                args.scope,
                 &web::Options {
                     port: args.port,
                     no_open: args.no_open,

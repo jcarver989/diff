@@ -117,6 +117,8 @@ mod wasm {
         SetDocument(Arc<DiffDocument>),
         SetTheme(DiffTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
+        RepositoryPending,
+        RepositoryError(String),
         ClearReview,
     }
 
@@ -185,6 +187,14 @@ mod wasm {
                             .update(cx, |viewer, cx| viewer.set_theme(theme, cx));
                     }
                 }
+                WebCommand::RepositoryPending => {
+                    self.viewer
+                        .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+                }
+                WebCommand::RepositoryError(message) => {
+                    self.viewer
+                        .update(cx, |viewer, cx| viewer.set_repository_error(message, cx));
+                }
                 WebCommand::ClearReview => {
                     if let Some(markdown) = &self.markdown {
                         markdown.update(cx, MarkdownReviewer::clear_review);
@@ -208,6 +218,12 @@ mod wasm {
 
     fn dispatch_viewer_event(event: &DiffReviewEvent) {
         let result = match event {
+            DiffReviewEvent::RepositoryAction(action) => {
+                if let Err(error) = send(WebCommand::RepositoryPending) {
+                    return web_sys::console::error_1(&js_error(error));
+                }
+                dispatch_repository_action(action)
+            }
             DiffReviewEvent::SubmitReview(submission) => dispatch_submission(submission),
             DiffReviewEvent::CopyFormattedReview(text) => {
                 dispatch_custom_event("diff-review-copy", Some(text))
@@ -237,6 +253,13 @@ mod wasm {
             JsValue::from_str(&format!("failed to serialize Markdown review: {error}"))
         })?;
         dispatch_custom_event(MARKDOWN_SUBMIT_EVENT, Some(&json))
+    }
+
+    fn dispatch_repository_action(action: &diff_core::RepositoryAction) -> Result<(), JsValue> {
+        let json = serde_json::to_string(action).map_err(|error| {
+            JsValue::from_str(&format!("failed to serialize repository action: {error}"))
+        })?;
+        dispatch_custom_event("diff-review-repository-action", Some(&json))
     }
 
     fn dispatch_submission(submission: &ReviewSubmission) -> Result<(), JsValue> {
@@ -290,6 +313,11 @@ mod wasm {
             set_markdown_document_json,
         )?;
         install_string_command(&document, "diff-review-set-theme", set_theme)?;
+        install_string_command(
+            &document,
+            "diff-review-repository-error",
+            set_repository_error,
+        )?;
 
         let clear = Closure::<dyn FnMut(CustomEvent)>::new(|_event: CustomEvent| {
             if let Err(error) = clear_review() {
@@ -383,6 +411,10 @@ mod wasm {
     pub fn set_markdown_document_json(json: &str) -> Result<(), JsValue> {
         let document = decode_markdown_document(json).map_err(js_error)?;
         send(WebCommand::SetMarkdownDocument(Arc::new(document))).map_err(js_error)
+    }
+
+    fn set_repository_error(message: &str) -> Result<(), JsValue> {
+        send(WebCommand::RepositoryError(message.to_owned())).map_err(js_error)
     }
 
     /// Selects an embedded theme (`sage`, `ayu`, or `ayu-dark`).

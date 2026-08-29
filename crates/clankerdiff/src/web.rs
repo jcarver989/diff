@@ -1,4 +1,8 @@
-use diff_core::{DiffDocument, MarkdownDocument, MarkdownReviewSubmission, ReviewSubmission};
+use diff_core::{
+    DiffDocument, DiffScope, MarkdownDocument, MarkdownReviewSubmission, RepositoryAction,
+    ReviewSubmission,
+};
+use diff_git::{GitError, GitRepository};
 use rand::RngCore;
 use std::{
     env,
@@ -39,7 +43,9 @@ pub struct Options {
 }
 
 pub fn run(
+    repository: &GitRepository,
     document: &DiffDocument,
+    scope: DiffScope,
     options: &Options,
 ) -> Result<Option<ReviewSubmission>, WebError> {
     let assets = resolve_assets(options.assets.as_deref())?;
@@ -53,14 +59,21 @@ pub fn run(
         None => BUILTIN_INDEX.to_owned(),
     };
     let host = WebHost { assets, index };
-    serve(document, options.port, Some(&host), |url| {
-        eprintln!("Review ready at {url}");
-        if options.no_open {
-            Ok(())
-        } else {
-            open::that(url).map_err(|error| error.to_string())
-        }
-    })
+    serve(
+        repository,
+        document,
+        scope,
+        options.port,
+        Some(&host),
+        |url| {
+            eprintln!("Review ready at {url}");
+            if options.no_open {
+                Ok(())
+            } else {
+                open::that(url).map_err(|error| error.to_string())
+            }
+        },
+    )
 }
 
 pub fn run_markdown(
@@ -89,15 +102,19 @@ pub fn run_markdown(
 }
 
 pub fn run_tui_session(
+    repository: &GitRepository,
     document: &DiffDocument,
+    scope: DiffScope,
     port: u16,
     launch: impl FnOnce(&str) -> Result<(), String>,
 ) -> Result<Option<ReviewSubmission>, WebError> {
-    serve(document, port, None, launch)
+    serve(repository, document, scope, port, None, launch)
 }
 
 fn serve(
+    repository: &GitRepository,
     document: &DiffDocument,
+    scope: DiffScope,
     port: u16,
     host: Option<&WebHost>,
     launch: impl FnOnce(&str) -> Result<(), String>,
@@ -108,10 +125,17 @@ fn serve(
     let url = format!("http://127.0.0.1:{}/session/{token}/", address.port());
     launch(&url).map_err(WebError::Launch)?;
 
-    let document_json = serde_json::to_vec(document)?;
+    let mut document_json = serde_json::to_vec(document)?;
     for connection in listener.incoming() {
         let mut stream = connection?;
-        match handle_connection(&mut stream, host, &token, &document_json, ReviewKind::Diff) {
+        match handle_connection(
+            &mut stream,
+            host,
+            &token,
+            &mut document_json,
+            ReviewKind::Diff,
+            Some((repository, scope)),
+        ) {
             Ok(ConnectionOutcome::Continue) => {}
             Ok(ConnectionOutcome::DiffSubmitted(submission)) => return Ok(Some(submission)),
             Ok(ConnectionOutcome::MarkdownSubmitted(_)) => unreachable!("diff session kind"),
@@ -146,15 +170,16 @@ fn serve_markdown(
         "source_path": document.source_path(),
         "title": document.title(),
     });
-    let document_json = serde_json::to_vec(&payload)?;
+    let mut document_json = serde_json::to_vec(&payload)?;
     for connection in listener.incoming() {
         let mut stream = connection?;
         match handle_connection(
             &mut stream,
             Some(host),
             &token,
-            &document_json,
+            &mut document_json,
             ReviewKind::Markdown,
+            None,
         ) {
             Ok(ConnectionOutcome::Continue) => {}
             Ok(ConnectionOutcome::MarkdownSubmitted(submission)) => return Ok(Some(submission)),
@@ -189,14 +214,16 @@ fn handle_connection(
     stream: &mut TcpStream,
     host: Option<&WebHost>,
     token: &str,
-    document: &[u8],
+    document: &mut Vec<u8>,
     kind: ReviewKind,
+    repository: Option<(&GitRepository, DiffScope)>,
 ) -> Result<ConnectionOutcome, WebError> {
     let request = Request::read(stream)?;
     let session_root = format!("/session/{token}/");
     let document_path = format!("/api/{token}/document");
     let submit_path = format!("/api/{token}/submit");
     let cancel_path = format!("/api/{token}/cancel");
+    let repository_action_path = format!("/api/{token}/repository-action");
 
     if request.method == "GET"
         && request.path == session_root
@@ -208,6 +235,39 @@ fn handle_connection(
     }
     if request.method == "GET" && request.path == document_path {
         respond(stream, 200, "application/json", document)?;
+        return Ok(ConnectionOutcome::Continue);
+    }
+    if request.method == "POST" && request.path == repository_action_path {
+        let Some((repository, scope)) = repository else {
+            respond(
+                stream,
+                404,
+                "text/plain; charset=utf-8",
+                b"repository unavailable",
+            )?;
+            return Ok(ConnectionOutcome::Continue);
+        };
+        let action: RepositoryAction = serde_json::from_slice(&request.body)?;
+        let result = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                execute_repository_action(repository, action).await?;
+                repository.snapshot(scope).await
+            })
+        });
+        match result {
+            Ok(snapshot) => {
+                *document = serde_json::to_vec(&snapshot)?;
+                respond(stream, 200, "application/json", document)?;
+            }
+            Err(error) => {
+                respond(
+                    stream,
+                    422,
+                    "text/plain; charset=utf-8",
+                    error.to_string().as_bytes(),
+                )?;
+            }
+        }
         return Ok(ConnectionOutcome::Continue);
     }
     if request.method == "POST" && request.path == submit_path {
@@ -255,6 +315,21 @@ fn handle_connection(
     Ok(ConnectionOutcome::Continue)
 }
 
+async fn execute_repository_action(
+    repository: &GitRepository,
+    action: RepositoryAction,
+) -> Result<(), GitError> {
+    match action {
+        RepositoryAction::StagePaths(paths) => repository.stage(&paths).await,
+        RepositoryAction::UnstagePaths(paths) => repository.unstage(&paths).await,
+        RepositoryAction::StageAll => repository.stage_all().await,
+        RepositoryAction::UnstageAll => repository.unstage_all().await,
+        RepositoryAction::Commit { message } => repository.commit(&message).await,
+        RepositoryAction::Discard { path, status } => repository.discard(&path, status).await,
+        RepositoryAction::Refresh => Ok(()),
+    }
+}
+
 fn inject_bridge(index: &str, token: &str, kind: ReviewKind) -> String {
     let (set_event, submit_event, cancel_event, noun) = match kind {
         ReviewKind::Diff => (
@@ -294,6 +369,21 @@ document.addEventListener("{submit_event}", async event => {{
 document.addEventListener("{cancel_event}", async () => {{
   await fetch(reviewApi + "/cancel", {{ method: "POST" }});
   document.body.innerHTML = '<main style="display:grid;place-items:center;height:100%;color:#d6d9dc;font:18px sans-serif">Review cancelled. You can close this tab.</main>';
+}});
+document.addEventListener("diff-review-repository-action", async event => {{
+  const response = await fetch(reviewApi + "/repository-action", {{
+    method: "POST",
+    headers: {{ "Content-Type": "application/json" }},
+    body: event.detail,
+  }});
+  if (!response.ok) {{
+    const message = await response.text();
+    console.error(message);
+    document.dispatchEvent(new CustomEvent("diff-review-repository-error", {{ detail: message }}));
+    return;
+  }}
+  const documentJson = await response.text();
+  document.dispatchEvent(new CustomEvent("diff-review-set-document", {{ detail: documentJson }}));
 }});
 </script>"#
     );
@@ -476,6 +566,8 @@ mod tests {
         assert!(html.contains("diff-review-submit"));
         assert!(html.contains("diff-review-set-document"));
         assert!(html.contains("diff-review-cancel"));
+        assert!(html.contains("diff-review-repository-action"));
+        assert!(html.contains("/repository-action"));
 
         let markdown = inject_bridge("<body></body>", "secret", ReviewKind::Markdown);
         assert!(markdown.contains("markdown-review-set-document"));

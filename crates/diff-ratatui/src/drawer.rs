@@ -1,4 +1,4 @@
-use diff_core::DiffDocument;
+use diff_core::{DiffDocument, RepoPath, StageState};
 use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,10 +136,63 @@ impl DrawerTree {
         )
     }
 
+    pub(crate) fn paths_for_entry(document: &DiffDocument, entry: &DrawerEntry) -> Vec<RepoPath> {
+        match entry {
+            DrawerEntry::File { index, .. } => document
+                .files
+                .get(*index)
+                .map(|file| vec![file.path.clone()])
+                .unwrap_or_default(),
+            DrawerEntry::Directory { path, .. } => {
+                let prefix = format!("{path}/");
+                document
+                    .files
+                    .iter()
+                    .filter(|file| file.path.as_str().starts_with(&prefix))
+                    .map(|file| file.path.clone())
+                    .collect()
+            }
+        }
+    }
+
+    pub(crate) fn stage_state_for_entry(
+        document: &DiffDocument,
+        entry: &DrawerEntry,
+    ) -> StageState {
+        match entry {
+            DrawerEntry::File { index, .. } => document
+                .files
+                .get(*index)
+                .map_or(StageState::Unstaged, |file| file.staged),
+            DrawerEntry::Directory { path, .. } => {
+                let prefix = format!("{path}/");
+                aggregate_stage_states(
+                    document
+                        .files
+                        .iter()
+                        .filter(|file| file.path.as_str().starts_with(&prefix))
+                        .map(|file| file.staged),
+                )
+            }
+        }
+    }
+
     fn refresh_visible(&mut self) {
         let mut visible = Vec::new();
         collect_visible(&self.roots, 0, &self.collapsed, &mut visible);
         self.visible = visible;
+    }
+}
+
+fn aggregate_stage_states(states: impl IntoIterator<Item = StageState>) -> StageState {
+    let mut states = states.into_iter();
+    let Some(first) = states.next() else {
+        return StageState::Unstaged;
+    };
+    if first == StageState::PartiallyStaged || states.any(|state| state != first) {
+        StageState::PartiallyStaged
+    } else {
+        first
     }
 }
 
@@ -294,6 +347,31 @@ mod tests {
             tree.entry(tree.position_of_directory("docs").unwrap()),
             Some(DrawerEntry::Directory { expanded: true, .. })
         ));
+    }
+
+    #[test]
+    fn directories_aggregate_and_include_collapsed_descendants() {
+        let mut document = (*nested_document()).clone();
+        document.files[3].staged = StageState::Staged;
+        document.files[4].staged = StageState::Unstaged;
+        let mut tree = DrawerTree::new(&document);
+        let entry = tree
+            .entry(tree.position_of_directory("src").unwrap())
+            .unwrap()
+            .clone();
+        tree.collapse("src");
+
+        assert_eq!(
+            DrawerTree::stage_state_for_entry(&document, &entry),
+            StageState::PartiallyStaged
+        );
+        assert_eq!(
+            DrawerTree::paths_for_entry(&document, &entry)
+                .iter()
+                .map(RepoPath::as_str)
+                .collect::<Vec<_>>(),
+            ["src/main.rs", "src/lib.rs"]
+        );
     }
 
     #[test]

@@ -25,9 +25,11 @@ pub use markdown_viewer::{
     MarkdownUndoComment,
 };
 pub use viewer::{
-    AddComment, Cancel, CancelComment, Collapse, CopyReview, CycleViewMode, DecreaseFontSize,
-    DeleteComment, DiffViewer, DiffViewerOptions, EditComment, ExpandOrOpen, FirstItem, FocusDiff,
-    FocusFiles, HideShortcuts, IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, PageDown,
-    PageUp, PreviousFile, PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide, SelectOldSide,
-    ShowShortcuts, SubmitComment, SubmitReview, TogglePane, UndoComment, ViewerPane,
+    AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse, CommitChanges,
+    ConfirmDiscard, CopyReview, CycleViewMode, DecreaseFontSize, DeleteComment, DiffViewer,
+    DiffViewerOptions, DiscardChanges, EditComment, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles,
+    HideShortcuts, IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, PageDown, PageUp,
+    PreviousFile, PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide, SelectOldSide,
+    ShowShortcuts, StageAll, SubmitComment, SubmitReview, TogglePane, ToggleStage, UndoComment,
+    UnstageAll, ViewerPane,
 };

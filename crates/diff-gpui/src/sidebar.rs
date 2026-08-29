@@ -1,5 +1,5 @@
 use crate::{DiffViewer, ViewerPane, style::color};
-use diff_core::{DiffDocument, FileStatus, StageState};
+use diff_core::{DiffDocument, FileStatus, RepoPath, StageState};
 use gpui::{ClickEvent, Context, Div, Empty, Role, Stateful, div, prelude::*, px};
 use std::collections::{BTreeMap, HashSet};
 
@@ -179,6 +179,47 @@ impl SidebarTree {
         if end { nodes.last() } else { nodes.first() }.map(VisibleNode::entry)
     }
 
+    pub(crate) fn paths_for_entry(document: &DiffDocument, entry: &SidebarEntry) -> Vec<RepoPath> {
+        match entry {
+            SidebarEntry::File(index) => document
+                .files
+                .get(*index)
+                .map(|file| vec![file.path.clone()])
+                .unwrap_or_default(),
+            SidebarEntry::Directory(path) => {
+                let prefix = format!("{path}/");
+                document
+                    .files
+                    .iter()
+                    .filter(|file| file.path.as_str().starts_with(&prefix))
+                    .map(|file| file.path.clone())
+                    .collect()
+            }
+        }
+    }
+
+    pub(crate) fn stage_state_for_entry(
+        document: &DiffDocument,
+        entry: &SidebarEntry,
+    ) -> StageState {
+        match entry {
+            SidebarEntry::File(index) => document
+                .files
+                .get(*index)
+                .map_or(StageState::Unstaged, |file| file.staged),
+            SidebarEntry::Directory(path) => {
+                let prefix = format!("{path}/");
+                aggregate_stage_states(
+                    document
+                        .files
+                        .iter()
+                        .filter(|file| file.path.as_str().starts_with(&prefix))
+                        .map(|file| file.staged),
+                )
+            }
+        }
+    }
+
     pub(crate) fn offset_file(&self, current: usize, delta: isize) -> Option<usize> {
         let order = self.file_order();
         let position = order.iter().position(|index| *index == current)?;
@@ -190,6 +231,18 @@ impl SidebarTree {
                 .min(order.len().saturating_sub(1))
         };
         order.get(target).copied()
+    }
+}
+
+fn aggregate_stage_states(states: impl IntoIterator<Item = StageState>) -> StageState {
+    let mut states = states.into_iter();
+    let Some(first) = states.next() else {
+        return StageState::Unstaged;
+    };
+    if first == StageState::PartiallyStaged || states.any(|state| state != first) {
+        StageState::PartiallyStaged
+    } else {
+        first
     }
 }
 
@@ -362,6 +415,9 @@ impl DiffViewer {
         let palette = self.theme().palette();
         let path = directory.path.clone();
         let selected = self.sidebar_selection == SidebarEntry::Directory(path.clone());
+        let entry = SidebarEntry::Directory(path.clone());
+        let stage = stage_marker(SidebarTree::stage_state_for_entry(self.document(), &entry));
+        let checkbox_path = path.clone();
         sidebar_row(depth, self.sidebar_row_height())
             .id(format!("diff-directory:{path}"))
             .role(Role::TreeItem)
@@ -381,6 +437,19 @@ impl DiffViewer {
                     .flex_shrink_0()
                     .text_center()
                     .child(if expanded { "▾" } else { "▸" }),
+            )
+            .child(
+                div()
+                    .id(format!("diff-directory-checkbox:{checkbox_path}"))
+                    .w(px(18.0))
+                    .flex_shrink_0()
+                    .text_center()
+                    .child(stage)
+                    .on_click(cx.listener(move |viewer, _, _, cx| {
+                        viewer
+                            .toggle_stage_entry(SidebarEntry::Directory(checkbox_path.clone()), cx);
+                        cx.stop_propagation();
+                    })),
             )
             .child(
                 div()
@@ -427,6 +496,18 @@ impl DiffViewer {
                 .child(div().w(px(DISCLOSURE_WIDTH)).flex_shrink_0())
                 .child(
                     div()
+                        .id(("diff-file-checkbox", index))
+                        .w(px(18.0))
+                        .flex_shrink_0()
+                        .text_center()
+                        .child(stage)
+                        .on_click(cx.listener(move |viewer, _, _, cx| {
+                            viewer.toggle_stage_entry(SidebarEntry::File(index), cx);
+                            cx.stop_propagation();
+                        })),
+                )
+                .child(
+                    div()
                         .w(px(14.0))
                         .flex_shrink_0()
                         .text_color(color(status_color))
@@ -444,11 +525,7 @@ impl DiffViewer {
                         .flex_shrink_0()
                         .text_size(px(self.metadata_font_size()))
                         .text_color(color(palette.muted))
-                        .child(format!(
-                            "+{} −{} {stage}",
-                            diff.additions(),
-                            diff.deletions()
-                        )),
+                        .child(format!("+{} −{}", diff.additions(), diff.deletions())),
                 ),
         )
     }
@@ -456,9 +533,9 @@ impl DiffViewer {
 
 const fn stage_marker(state: StageState) -> &'static str {
     match state {
-        StageState::Staged => "●",
-        StageState::PartiallyStaged => "◐",
-        StageState::Unstaged => "○",
+        StageState::Staged => "☑",
+        StageState::PartiallyStaged => "◩",
+        StageState::Unstaged => "☐",
     }
 }
 
@@ -548,6 +625,28 @@ mod tests {
         assert!(tree.collapsed.contains("src"));
         assert!(!tree.collapsed.contains("crates/z"));
         assert!(!tree.collapsed.contains("docs"));
+    }
+
+    #[test]
+    fn directories_aggregate_and_include_collapsed_descendants() {
+        let mut document = (*nested_document()).clone();
+        document.files[3].staged = StageState::Staged;
+        document.files[4].staged = StageState::Unstaged;
+        let mut tree = SidebarTree::new(&document);
+        let entry = SidebarEntry::Directory("src".to_owned());
+        tree.collapse("src");
+
+        assert_eq!(
+            SidebarTree::stage_state_for_entry(&document, &entry),
+            StageState::PartiallyStaged
+        );
+        assert_eq!(
+            SidebarTree::paths_for_entry(&document, &entry)
+                .iter()
+                .map(RepoPath::as_str)
+                .collect::<Vec<_>>(),
+            ["src/main.rs", "src/lib.rs"]
+        );
     }
 
     #[test]

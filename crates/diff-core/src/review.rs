@@ -1,6 +1,6 @@
 //! Structured review comments, reconciliation, and agent-facing output.
 
-use crate::{DiffDocument, DiffSide, Fingerprint, LineAnchor, PatchLineKind, RepoPath};
+use crate::{DiffDocument, DiffSide, FileStatus, Fingerprint, LineAnchor, PatchLineKind, RepoPath};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -271,9 +271,25 @@ pub fn format_review(review: &Review, options: &AgentFeedbackOptions) -> String 
     out
 }
 
+/// A repository mutation requested by a diff review UI.
+///
+/// Renderers emit intents but never execute Git themselves. Embedding hosts
+/// execute the action and install a refreshed [`crate::DiffDocument`] snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RepositoryAction {
+    StagePaths(Vec<RepoPath>),
+    UnstagePaths(Vec<RepoPath>),
+    StageAll,
+    UnstageAll,
+    Commit { message: String },
+    Discard { path: RepoPath, status: FileStatus },
+    Refresh,
+}
+
 /// Events emitted by a diff review UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiffReviewEvent {
+    RepositoryAction(RepositoryAction),
     SubmitReview(ReviewSubmission),
     CopyFormattedReview(String),
     Cancel,
@@ -286,6 +302,19 @@ mod tests {
 
     fn anchor(file: &FileDiff, side: DiffSide, line: usize) -> LineAnchor {
         LineAnchor::for_line(file, side, 0, line).expect("anchor")
+    }
+
+    #[test]
+    fn repository_actions_round_trip() {
+        let event = DiffReviewEvent::RepositoryAction(RepositoryAction::Discard {
+            path: crate::RepoPath::new("src/lib.rs").unwrap(),
+            status: crate::FileStatus::Modified,
+        });
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            serde_json::from_str::<DiffReviewEvent>(&json).unwrap(),
+            event
+        );
     }
 
     #[test]

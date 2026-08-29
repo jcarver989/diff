@@ -44,8 +44,8 @@ pub use presentation::{
     RowKind, ViewMode,
 };
 pub use review::{
-    AgentFeedbackOptions, CommentContext, DiffReviewEvent, Review, ReviewComment, ReviewSubmission,
-    format_review,
+    AgentFeedbackOptions, CommentContext, DiffReviewEvent, RepositoryAction, Review, ReviewComment,
+    ReviewSubmission, format_review,
 };
 pub use session::{CommentDraft, ReviewSession, SessionOptions};
 pub use theme::{

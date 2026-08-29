@@ -7,9 +7,9 @@ use crate::{
     style::color,
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, DiffTheme, HighlightSpan, HighlightStats, Layout,
-    LineAnchor, PresentedCell, PresentedRow, Review, ReviewSession, SessionOptions,
-    SyntaxHighlighter, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, DiffTheme, FileStatus, HighlightSpan, HighlightStats,
+    Layout, LineAnchor, PresentedCell, PresentedRow, RepoPath, RepositoryAction, Review,
+    ReviewSession, SessionOptions, StageState, SyntaxHighlighter, ViewMode,
 };
 use gpui::{
     App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
@@ -61,6 +61,13 @@ actions!(
         IncreaseFontSize,
         DecreaseFontSize,
         ResetFontSize,
+        ToggleStage,
+        StageAll,
+        UnstageAll,
+        CommitChanges,
+        DiscardChanges,
+        ConfirmDiscard,
+        CancelRepositoryPrompt,
         Cancel
     ]
 );
@@ -98,6 +105,12 @@ pub(crate) struct CommentTarget {
     pub(crate) side: DiffSide,
 }
 
+#[derive(Debug, Clone)]
+enum RepositoryPrompt {
+    Commit,
+    Discard { path: RepoPath, status: FileStatus },
+}
+
 /// The pane currently receiving browse-mode navigation commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewerPane {
@@ -127,6 +140,11 @@ pub struct DiffViewer {
     pub(crate) comment_target: Option<CommentTarget>,
     pub(crate) comment_editor: Option<Entity<CommentEditor>>,
     comment_editor_subscription: Option<Subscription>,
+    repository_prompt: Option<RepositoryPrompt>,
+    repository_editor: Option<Entity<CommentEditor>>,
+    repository_editor_subscription: Option<Subscription>,
+    repository_error: Option<String>,
+    repository_pending: bool,
     focus_handle: Option<gpui::FocusHandle>,
 }
 
@@ -173,6 +191,11 @@ impl DiffViewer {
             comment_target: None,
             comment_editor: None,
             comment_editor_subscription: None,
+            repository_prompt: None,
+            repository_editor: None,
+            repository_editor_subscription: None,
+            repository_error: None,
+            repository_pending: false,
             focus_handle: None,
         }
     }
@@ -208,6 +231,26 @@ impl DiffViewer {
             KeyBinding::new("l", ExpandOrOpen, Some(FILES)),
             KeyBinding::new("right", ExpandOrOpen, Some(FILES)),
             KeyBinding::new("enter", ExpandOrOpen, Some(FILES)),
+            KeyBinding::new("space", ToggleStage, Some(FILES)),
+            KeyBinding::new("a", StageAll, Some(FILES)),
+            KeyBinding::new("shift-a", UnstageAll, Some(FILES)),
+            KeyBinding::new("shift-c", CommitChanges, Some(BROWSE)),
+            KeyBinding::new("d", DiscardChanges, Some(BROWSE)),
+            KeyBinding::new(
+                "y",
+                ConfirmDiscard,
+                Some("DiffViewer && mode == repository-discard"),
+            ),
+            KeyBinding::new(
+                "n",
+                CancelRepositoryPrompt,
+                Some("DiffViewer && mode == repository-discard"),
+            ),
+            KeyBinding::new(
+                "escape",
+                CancelRepositoryPrompt,
+                Some("DiffViewer && mode == repository-discard"),
+            ),
             KeyBinding::new("c", AddComment, Some(DIFF)),
             KeyBinding::new("e", EditComment, Some(DIFF)),
             KeyBinding::new("x", DeleteComment, Some(DIFF)),
@@ -337,6 +380,8 @@ impl DiffViewer {
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         self.sidebar_tree.rebuild(&document);
         self.session.set_document(document);
+        self.repository_pending = false;
+        self.repository_error = None;
         self.sidebar_selection =
             crate::sidebar::SidebarEntry::File(self.session.selected_file().unwrap_or(0));
         if let Some(index) = self.selected_file() {
@@ -345,6 +390,24 @@ impl DiffViewer {
         }
         self.clear_comment_editor();
         self.diff_list_file = None;
+        cx.notify();
+    }
+
+    /// Marks a repository operation as pending.
+    pub fn set_repository_pending(&mut self, pending: bool, cx: &mut Context<Self>) {
+        self.repository_pending = pending;
+        if pending {
+            self.repository_error = None;
+            self.clear_repository_prompt();
+        }
+        cx.notify();
+    }
+
+    /// Shows a repository error without replacing the current document.
+    pub fn set_repository_error(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
+        self.repository_pending = false;
+        self.repository_error = Some(message.into());
+        self.clear_repository_prompt();
         cx.notify();
     }
 
@@ -491,6 +554,31 @@ impl DiffViewer {
             self.clear_comment_editor();
             cx.notify();
         }
+    }
+
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "GPUI click handlers construct owned entries"
+    )]
+    pub(crate) fn toggle_stage_entry(
+        &mut self,
+        entry: crate::sidebar::SidebarEntry,
+        cx: &mut Context<Self>,
+    ) {
+        if self.repository_pending {
+            return;
+        }
+        let state = SidebarTree::stage_state_for_entry(self.document(), &entry);
+        let paths = SidebarTree::paths_for_entry(self.document(), &entry);
+        if paths.is_empty() {
+            return;
+        }
+        let action = if state == StageState::Staged {
+            RepositoryAction::UnstagePaths(paths)
+        } else {
+            RepositoryAction::StagePaths(paths)
+        };
+        cx.emit(DiffViewerEvent::RepositoryAction(action));
     }
 
     pub(crate) fn toggle_directory(&mut self, path: &str, cx: &mut Context<Self>) {
@@ -809,6 +897,122 @@ impl DiffViewer {
         }
     }
 
+    fn toggle_stage(&mut self, _: &ToggleStage, _: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_stage_entry(self.sidebar_selection.clone(), cx);
+    }
+
+    fn stage_all(&mut self, _: &StageAll, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.repository_pending {
+            cx.emit(DiffViewerEvent::RepositoryAction(
+                RepositoryAction::StageAll,
+            ));
+        }
+    }
+
+    fn unstage_all(&mut self, _: &UnstageAll, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.repository_pending {
+            cx.emit(DiffViewerEvent::RepositoryAction(
+                RepositoryAction::UnstageAll,
+            ));
+        }
+    }
+
+    fn begin_commit_action(
+        &mut self,
+        _: &CommitChanges,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.repository_pending {
+            return;
+        }
+        let editor = cx.new(|cx| {
+            CommentEditor::with_placeholder(
+                String::new(),
+                self.theme.clone(),
+                "Commit message…",
+                cx,
+            )
+        });
+        self.repository_editor_subscription = Some(cx.subscribe(
+            &editor,
+            |viewer, _editor, event: &CommentEditorEvent, cx| match event {
+                CommentEditorEvent::Changed(_) => cx.notify(),
+                CommentEditorEvent::Submit => viewer.finish_repository_commit(cx),
+                CommentEditorEvent::Cancel => {
+                    viewer.clear_repository_prompt();
+                    cx.notify();
+                }
+            },
+        ));
+        self.repository_prompt = Some(RepositoryPrompt::Commit);
+        self.repository_editor = Some(editor.clone());
+        editor.focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    fn begin_discard_action(&mut self, _: &DiscardChanges, _: &mut Window, cx: &mut Context<Self>) {
+        if self.repository_pending {
+            return;
+        }
+        let Some(file) = self
+            .selected_file()
+            .and_then(|index| self.document().files.get(index))
+        else {
+            return;
+        };
+        self.repository_prompt = Some(RepositoryPrompt::Discard {
+            path: file.path.clone(),
+            status: file.status,
+        });
+        cx.notify();
+    }
+
+    fn finish_repository_commit(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = &self.repository_editor else {
+            return;
+        };
+        let message = editor.read(cx).body().trim().to_owned();
+        if message.is_empty() {
+            self.repository_error = Some("Commit message cannot be empty".to_owned());
+            cx.notify();
+            return;
+        }
+        self.clear_repository_prompt();
+        cx.emit(DiffViewerEvent::RepositoryAction(
+            RepositoryAction::Commit { message },
+        ));
+        cx.notify();
+    }
+
+    fn confirm_discard(&mut self, _: &ConfirmDiscard, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(RepositoryPrompt::Discard { path, status }) = self.repository_prompt.clone()
+        else {
+            return;
+        };
+        self.clear_repository_prompt();
+        cx.emit(DiffViewerEvent::RepositoryAction(
+            RepositoryAction::Discard { path, status },
+        ));
+        cx.notify();
+    }
+
+    fn cancel_repository_prompt(
+        &mut self,
+        _: &CancelRepositoryPrompt,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.clear_repository_prompt();
+        cx.notify();
+    }
+
+    fn clear_repository_prompt(&mut self) {
+        self.repository_prompt = None;
+        self.repository_editor = None;
+        self.repository_editor_subscription = None;
+    }
+
     fn cycle_view_mode(&mut self, _: &CycleViewMode, _: &mut Window, cx: &mut Context<Self>) {
         if self.session.cycle_view_mode() {
             cx.notify();
@@ -917,6 +1121,71 @@ impl DiffViewer {
     pub(crate) fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(DiffViewerEvent::Cancel);
     }
+
+    fn render_repository_prompt(&self) -> gpui::Stateful<gpui::Div> {
+        let palette = self.theme.palette();
+        let prompt = self.repository_prompt.clone();
+        div()
+            .id("repository-prompt-backdrop")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(color(palette.background))
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .id("repository-prompt")
+                    .w(px(560.0))
+                    .max_w_full()
+                    .p_5()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(color(palette.border))
+                    .bg(color(palette.background))
+                    .shadow_lg()
+                    .child(
+                        div()
+                            .mb_3()
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .child(match &prompt {
+                                Some(RepositoryPrompt::Commit) => {
+                                    "Commit staged changes".to_owned()
+                                }
+                                Some(RepositoryPrompt::Discard { path, .. }) => {
+                                    format!("Discard changes to {path}?")
+                                }
+                                None => String::new(),
+                            }),
+                    )
+                    .when_some(self.repository_editor.clone(), |panel, editor| {
+                        panel.child(editor).child(
+                            div()
+                                .mt_2()
+                                .text_color(color(palette.muted))
+                                .child("Enter to commit · Esc to cancel"),
+                        )
+                    })
+                    .when(
+                        matches!(prompt, Some(RepositoryPrompt::Discard { .. })),
+                        |panel| {
+                            panel
+                                .child(
+                                    div()
+                                        .text_color(color(palette.deletion))
+                                        .child("This removes both staged and unstaged changes."),
+                                )
+                                .child(
+                                    div()
+                                        .mt_2()
+                                        .text_color(color(palette.muted))
+                                        .child("y to confirm · n or Esc to cancel"),
+                                )
+                        },
+                    ),
+            )
+    }
 }
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
@@ -939,6 +1208,10 @@ fn clamp_sidebar_width(width: f32, available: f32) -> f32 {
 }
 
 impl Render for DiffViewer {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "GPUI action and overlay wiring is declarative"
+    )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let viewport_width = f32::from(window.viewport_size().width);
         let sidebar_width = clamp_sidebar_width(self.sidebar_width, viewport_width);
@@ -954,11 +1227,21 @@ impl Render for DiffViewer {
             .focus_handle
             .get_or_insert_with(|| cx.focus_handle())
             .clone();
-        if window.focused(cx).is_none() && self.comment_editor.is_none() {
+        if window.focused(cx).is_none()
+            && self.comment_editor.is_none()
+            && self.repository_editor.is_none()
+        {
             focus_handle.focus(window, cx);
         }
         let mode = if self.shortcuts_open {
             "shortcuts"
+        } else if matches!(
+            self.repository_prompt,
+            Some(RepositoryPrompt::Discard { .. })
+        ) {
+            "repository-discard"
+        } else if self.repository_editor.is_some() {
+            "repository-commit"
         } else if self.comment_editor.is_some() {
             "draft"
         } else {
@@ -1005,6 +1288,13 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::increase_font_size))
             .on_action(cx.listener(Self::decrease_font_size))
             .on_action(cx.listener(Self::reset_font_size_action))
+            .on_action(cx.listener(Self::toggle_stage))
+            .on_action(cx.listener(Self::stage_all))
+            .on_action(cx.listener(Self::unstage_all))
+            .on_action(cx.listener(Self::begin_commit_action))
+            .on_action(cx.listener(Self::begin_discard_action))
+            .on_action(cx.listener(Self::confirm_discard))
+            .on_action(cx.listener(Self::cancel_repository_prompt))
             .on_action(cx.listener(Self::add_comment_action))
             .on_action(cx.listener(Self::edit_comment_action))
             .on_action(cx.listener(Self::delete_comment_action))
@@ -1038,6 +1328,25 @@ impl Render for DiffViewer {
             .child(self.render_review_bar(cx))
             .when(self.shortcuts_open, |viewer| {
                 viewer.child(self.render_shortcuts())
+            })
+            .when(self.repository_prompt.is_some(), |viewer| {
+                viewer.child(self.render_repository_prompt())
+            })
+            .when_some(self.repository_error.clone(), |viewer, error| {
+                viewer.child(
+                    div()
+                        .absolute()
+                        .bottom_4()
+                        .left_4()
+                        .right_4()
+                        .p_3()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(color(palette.deletion))
+                        .bg(color(palette.background))
+                        .text_color(color(palette.deletion))
+                        .child(error),
+                )
             })
     }
 }

@@ -20,16 +20,27 @@ pub(crate) struct CommentEditor {
     cursor: usize,
     marked_range: Option<Range<usize>>,
     theme: DiffTheme,
+    placeholder: &'static str,
 }
 
 impl CommentEditor {
     pub(crate) fn new(body: String, theme: DiffTheme, cx: &mut Context<Self>) -> Self {
+        Self::with_placeholder(body, theme, "Leave a comment…", cx)
+    }
+
+    pub(crate) fn with_placeholder(
+        body: String,
+        theme: DiffTheme,
+        placeholder: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
             cursor: body.len(),
             body,
             marked_range: None,
             theme,
+            placeholder,
         }
     }
 
@@ -289,7 +300,7 @@ impl Render for CommentEditor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = self.theme.palette();
         let display = if self.body.is_empty() {
-            "Leave a comment…".to_owned()
+            self.placeholder.to_owned()
         } else {
             format!(
                 "{}▏{}",
