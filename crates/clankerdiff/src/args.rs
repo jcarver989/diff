@@ -16,6 +16,14 @@ pub struct Cli {
 pub enum Command {
     /// Review changes and return the submitted feedback on stdout.
     Review(ReviewArgs),
+    /// Attach the TUI to an active review session.
+    #[command(hide = true)]
+    Attach(AttachArgs),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ClapArgs)]
+pub struct AttachArgs {
+    pub session_url: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
@@ -44,6 +52,10 @@ pub struct ReviewArgs {
     pub scope: DiffScope,
 
     /// User interface used for the review.
+    ///
+    /// TUI reviews require `CLANKERDIFF_TUI_COMMAND`. Clankerdiff executes that command and appends
+    /// `<current-clankerdiff-executable> attach <session-url>` to its arguments. For example:
+    /// `CLANKERDIFF_TUI_COMMAND='ghostty +new-window -e'`.
     #[arg(long, value_enum, default_value_t)]
     pub ui: Ui,
 
@@ -71,8 +83,10 @@ mod tests {
 
     fn review_args(arguments: impl IntoIterator<Item = &'static str>) -> ReviewArgs {
         let cli = Cli::try_parse_from(arguments).expect("arguments should parse");
-        let Command::Review(args) = cli.command;
-        args
+        match cli.command {
+            Command::Review(args) => args,
+            Command::Attach(_) => panic!("expected the review command"),
+        }
     }
 
     #[test]

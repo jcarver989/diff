@@ -7,22 +7,27 @@ use clap::Parser;
 use diff_core::ReviewSubmission;
 use diff_git::GitRepository;
 use serde_json::json;
-use std::{io, process::ExitCode, sync::Arc};
+use std::{io, process::ExitCode};
 use thiserror::Error;
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let Cli {
-        command: Command::Review(args),
-    } = Cli::parse();
-
-    match run(args).await {
-        Ok(ReviewOutcome::Submitted) => ExitCode::SUCCESS,
-        Ok(ReviewOutcome::Cancelled) => ExitCode::from(2),
-        Err(error) => {
-            eprintln!("error: {error}");
-            ExitCode::FAILURE
-        }
+    match Cli::parse().command {
+        Command::Review(args) => match run(args).await {
+            Ok(ReviewOutcome::Submitted) => ExitCode::SUCCESS,
+            Ok(ReviewOutcome::Cancelled) => ExitCode::from(2),
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Attach(args) => match tui::attach(&args.session_url) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        },
     }
 }
 
@@ -32,13 +37,15 @@ async fn run(args: ReviewArgs) -> Result<ReviewOutcome, AppError> {
     let submission = match args.ui {
         Ui::Desktop => diff_gpui_desktop::run_review(root.clone(), args.scope),
         Ui::Tui => {
-            let document = Arc::new(repository.snapshot(args.scope).await?);
-            tui::run(document)?
+            let document = repository.snapshot(args.scope).await?;
+            web::run_tui_session(&document, args.port, |session_url| {
+                tui::launch(session_url).map_err(|error| error.to_string())
+            })?
         }
         Ui::Web => {
-            let document = Arc::new(repository.snapshot(args.scope).await?);
+            let document = repository.snapshot(args.scope).await?;
             web::run(
-                document.as_ref(),
+                &document,
                 &web::Options {
                     port: args.port,
                     no_open: args.no_open,

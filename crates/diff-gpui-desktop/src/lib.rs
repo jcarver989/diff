@@ -79,7 +79,7 @@ mod tests {
         assert_eq!(options.window_decorations, None);
         assert_eq!(
             options.titlebar.and_then(|titlebar| titlebar.title),
-            Some("Diff Review".into())
+            Some("ClankerDiff".into())
         );
     }
 }

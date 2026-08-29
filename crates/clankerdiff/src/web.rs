@@ -52,33 +52,46 @@ pub fn run(
         }
         None => BUILTIN_INDEX.to_owned(),
     };
+    let host = WebHost { assets, index };
+    serve(document, options.port, Some(&host), |url| {
+        eprintln!("Review ready at {url}");
+        if options.no_open {
+            Ok(())
+        } else {
+            open::that(url).map_err(|error| error.to_string())
+        }
+    })
+}
+
+pub fn run_tui_session(
+    document: &DiffDocument,
+    port: u16,
+    launch: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<Option<ReviewSubmission>, WebError> {
+    serve(document, port, None, launch)
+}
+
+fn serve(
+    document: &DiffDocument,
+    port: u16,
+    host: Option<&WebHost>,
+    launch: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<Option<ReviewSubmission>, WebError> {
     let token = session_token();
-    let listener = TcpListener::bind(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::LOCALHOST),
-        options.port,
-    ))?;
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))?;
     let address = listener.local_addr()?;
     let url = format!("http://127.0.0.1:{}/session/{token}/", address.port());
-    eprintln!("Review ready at {url}");
-    if !options.no_open {
-        open::that(&url).map_err(|source| WebError::OpenBrowser(source.to_string()))?;
-    }
+    launch(&url).map_err(WebError::Launch)?;
 
     let document_json = serde_json::to_vec(document)?;
     for connection in listener.incoming() {
         let mut stream = connection?;
-        match handle_connection(
-            &mut stream,
-            assets.as_deref(),
-            &index,
-            &token,
-            &document_json,
-        ) {
+        match handle_connection(&mut stream, host, &token, &document_json) {
             Ok(ConnectionOutcome::Continue) => {}
             Ok(ConnectionOutcome::Submitted(submission)) => return Ok(Some(submission)),
             Ok(ConnectionOutcome::Cancelled) => return Ok(None),
             Err(error) => {
-                eprintln!("web review request failed: {error}");
+                eprintln!("review session request failed: {error}");
                 let _ = respond(
                     &mut stream,
                     400,
@@ -91,10 +104,14 @@ pub fn run(
     Err(WebError::ServerStopped)
 }
 
+struct WebHost {
+    assets: Option<PathBuf>,
+    index: String,
+}
+
 fn handle_connection(
     stream: &mut TcpStream,
-    assets: Option<&Path>,
-    index: &str,
+    host: Option<&WebHost>,
     token: &str,
     document: &[u8],
 ) -> Result<ConnectionOutcome, WebError> {
@@ -104,8 +121,11 @@ fn handle_connection(
     let submit_path = format!("/api/{token}/submit");
     let cancel_path = format!("/api/{token}/cancel");
 
-    if request.method == "GET" && request.path == session_root {
-        let html = inject_bridge(index, token);
+    if request.method == "GET"
+        && request.path == session_root
+        && let Some(host) = host
+    {
+        let html = inject_bridge(&host.index, token);
         respond(stream, 200, "text/html; charset=utf-8", html.as_bytes())?;
         return Ok(ConnectionOutcome::Continue);
     }
@@ -124,8 +144,12 @@ fn handle_connection(
     }
     if request.method == "GET" {
         let relative = request.path.trim_start_matches('/');
-        if !relative.is_empty() && !relative.contains('/') && !relative.contains("..") {
-            if let Some(assets) = assets {
+        if !relative.is_empty()
+            && !relative.contains('/')
+            && !relative.contains("..")
+            && let Some(host) = host
+        {
+            if let Some(assets) = &host.assets {
                 let path = assets.join(relative);
                 if path.is_file() {
                     let body =
@@ -326,8 +350,8 @@ pub enum WebError {
     MissingAssets,
     #[error("could not read web asset `{path}`: {source}")]
     Asset { path: PathBuf, source: io::Error },
-    #[error("could not open the browser: {0}")]
-    OpenBrowser(String),
+    #[error("could not launch the review client: {0}")]
+    Launch(String),
     #[error("the web review server stopped before receiving feedback")]
     ServerStopped,
     #[error("malformed HTTP request")]
