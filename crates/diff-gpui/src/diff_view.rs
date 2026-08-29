@@ -463,8 +463,7 @@ impl DiffViewer {
             .flex_shrink_0()
             .relative()
             .text_color(style::color(foreground))
-            .text_right()
-            .pr_2()
+            .text_center()
             .child(
                 cell.line_number
                     .map_or_else(String::new, |number| number.to_string()),
