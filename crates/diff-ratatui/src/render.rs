@@ -7,6 +7,7 @@ use crate::{
     patch_layout::PatchVisualRow,
     state::RepositoryPrompt,
     style::syntax_style,
+    theme_picker::render_theme_picker,
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
 use diff_core::{
@@ -91,6 +92,9 @@ impl StatefulWidget for DiffReviewWidget {
         render_footer(footer, buffer, state, &theme);
         if state.help {
             render_help(area, buffer, &theme);
+        }
+        if let Some(picker) = &state.theme_picker {
+            render_theme_picker(area, buffer, picker, &theme);
         }
         state.dirty = false;
     }
@@ -594,9 +598,9 @@ fn render_footer(
     } else if state.session.draft().is_some() {
         "[Enter] save  [Shift-Enter] newline  [Esc] cancel"
     } else if state.focus == FocusPane::Files {
-        "[j/k] entry  [h/l] fold/open  [?] help"
+        "[j/k] entry  [h/l] fold/open  [t] theme  [?] help"
     } else if state.layout().is_split() {
-        "[j/k] line  [←/→] side  [c] comment  [s] submit  [h] files  [?] help"
+        "[j/k] line  [←/→] side  [c] comment  [s] submit  [t] theme  [?] help"
     } else {
         "[j/k] line  [c] comment  [e/x] edit/delete  [s] submit  [y] copy  [h] files"
     };
@@ -630,7 +634,7 @@ fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     );
     Clear.render(popup, buffer);
     Paragraph::new(
-        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  r                refresh\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  Esc              cancel or close",
+        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  r                refresh\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
     )
     .block(Block::bordered().title(" Review shortcuts "))
     .style(Style::new().fg(theme.foreground).bg(theme.background))

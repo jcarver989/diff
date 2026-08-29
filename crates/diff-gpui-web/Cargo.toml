@@ -32,5 +32,6 @@ web-sys = { workspace = true, features = [
     "CustomEventInit",
     "Document",
     "EventTarget",
+    "Storage",
     "Window",
 ] }

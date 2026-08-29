@@ -3,6 +3,7 @@
 use crate::{
     DiffReviewEvent, DiffReviewState, FocusPane,
     state::{RepositoryOperationStatus, RepositoryPrompt},
+    theme_picker::{ThemePicker, ThemePickerAction},
 };
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
@@ -67,6 +68,19 @@ impl DiffReviewState {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
+        if let Some(picker) = self.theme_picker.as_mut() {
+            let action = picker.handle_key(key);
+            match action {
+                ThemePickerAction::Preview(theme) => self.set_theme(theme),
+                ThemePickerAction::Restore(theme) => {
+                    self.set_theme(theme);
+                    self.theme_picker = None;
+                }
+                ThemePickerAction::Commit => self.theme_picker = None,
+                ThemePickerAction::None => {}
+            }
+            return None;
+        }
         if self.repository_prompt.is_some() {
             return self.handle_repository_prompt_key(key);
         }
@@ -178,6 +192,9 @@ impl DiffReviewState {
             KeyCode::Char('d') => self.begin_discard(),
             KeyCode::Char('r') => {
                 return Some(DiffReviewEvent::RepositoryAction(RepositoryAction::Refresh));
+            }
+            KeyCode::Char('t') => {
+                self.theme_picker = Some(ThemePicker::new(&self.theme));
             }
             KeyCode::Char('v') => {
                 if self.session.cycle_view_mode() {

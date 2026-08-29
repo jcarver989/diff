@@ -78,7 +78,7 @@ fn run(
     let backend = CrosstermBackend::new(stderr());
     let mut terminal = Terminal::new(backend)?;
     let mut terminal_size = terminal.size()?;
-    let mut state = DiffReviewState::new(document);
+    let mut state = DiffReviewState::with_theme(document, crate::preferences::load_theme());
 
     loop {
         terminal.autoresize()?;
@@ -128,7 +128,7 @@ pub fn run_markdown(
     let backend = CrosstermBackend::new(stderr());
     let mut terminal = Terminal::new(backend)?;
     let mut terminal_size = terminal.size()?;
-    let mut state = MarkdownReviewState::new(document);
+    let mut state = MarkdownReviewState::with_theme(document, crate::preferences::load_theme());
     loop {
         terminal.autoresize()?;
         let current_size = terminal.size()?;
@@ -159,13 +159,19 @@ fn apply_markdown_event(
     state: &mut MarkdownReviewState,
     event: Event,
 ) -> Result<MarkdownEventOutcome, TuiError> {
-    Ok(match handle_markdown_crossterm_event(state, event)? {
+    let previous_theme = state.theme().id().to_string();
+    let outcome = match handle_markdown_crossterm_event(state, event)? {
         Some(MarkdownReviewEvent::Submit(submission)) => {
             MarkdownEventOutcome::Submitted(submission)
         }
         Some(MarkdownReviewEvent::Cancel) => MarkdownEventOutcome::Cancelled,
         Some(MarkdownReviewEvent::CopyFormatted(_)) | None => MarkdownEventOutcome::Continue,
-    })
+    };
+    let current_theme = state.theme().id().to_string();
+    if current_theme != previous_theme {
+        let _ = crate::preferences::save_theme(&current_theme);
+    }
+    Ok(outcome)
 }
 
 enum MarkdownEventOutcome {
@@ -261,7 +267,8 @@ impl Session {
 }
 
 fn apply_event(state: &mut DiffReviewState, event: Event, session: &Session) -> EventOutcome {
-    match handle_crossterm_event(state, event) {
+    let previous_theme = state.theme().id().to_string();
+    let outcome = match handle_crossterm_event(state, event) {
         Some(DiffReviewEvent::RepositoryAction(action)) => {
             state.set_repository_pending();
             match session.repository_action(&action) {
@@ -273,7 +280,12 @@ fn apply_event(state: &mut DiffReviewState, event: Event, session: &Session) -> 
         Some(DiffReviewEvent::Cancel) => EventOutcome::Cancelled,
         Some(DiffReviewEvent::SubmitReview(submission)) => EventOutcome::Submitted(submission),
         Some(DiffReviewEvent::CopyFormattedReview(_)) | None => EventOutcome::Continue,
+    };
+    let current_theme = state.theme().id().to_string();
+    if current_theme != previous_theme {
+        let _ = crate::preferences::save_theme(&current_theme);
     }
+    outcome
 }
 
 enum EventOutcome {

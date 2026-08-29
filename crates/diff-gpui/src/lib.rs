@@ -17,19 +17,25 @@ mod viewer;
 pub use diff_core::DiffReviewEvent as DiffViewerEvent;
 pub use diff_core::MarkdownReviewEvent as MarkdownReviewerEvent;
 pub use fonts::{DEFAULT_FONT_FAMILY, load_default_fonts};
+
+/// Emitted when an in-app theme selection is committed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemeChanged {
+    pub id: String,
+}
 pub use markdown_viewer::{
     MarkdownAddComment, MarkdownApprove, MarkdownCancel, MarkdownCancelComment,
-    MarkdownDeleteComment, MarkdownEditComment, MarkdownFirstTarget, MarkdownLastTarget,
-    MarkdownNextHeading, MarkdownNextTarget, MarkdownPreviousHeading, MarkdownPreviousTarget,
-    MarkdownRequestChanges, MarkdownReviewer, MarkdownReviewerOptions, MarkdownSubmitComment,
-    MarkdownUndoComment,
+    MarkdownDeleteComment, MarkdownEditComment, MarkdownFirstTarget, MarkdownHideThemePicker,
+    MarkdownLastTarget, MarkdownNextHeading, MarkdownNextTarget, MarkdownPreviousHeading,
+    MarkdownPreviousTarget, MarkdownRequestChanges, MarkdownReviewer, MarkdownReviewerOptions,
+    MarkdownShowThemePicker, MarkdownSubmitComment, MarkdownUndoComment,
 };
 pub use viewer::{
     AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse, CommitChanges,
     ConfirmDiscard, CopyReview, CycleViewMode, DecreaseFontSize, DeleteComment, DiffViewer,
     DiffViewerOptions, DiscardChanges, EditComment, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles,
-    HideShortcuts, IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, PageDown, PageUp,
-    PreviousFile, PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide, SelectOldSide,
-    ShowShortcuts, StageAll, SubmitComment, SubmitReview, TogglePane, ToggleStage, UndoComment,
-    UnstageAll, ViewerPane,
+    HideShortcuts, HideThemePicker, IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem,
+    PageDown, PageUp, PreviousFile, PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide,
+    SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment, SubmitReview,
+    TogglePane, ToggleStage, UndoComment, UnstageAll, ViewerPane,
 };

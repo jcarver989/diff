@@ -1,4 +1,5 @@
 use super::layout::MarkdownVisualLayout;
+use crate::theme_picker::ThemePicker;
 use diff_core::{
     DiffTheme, HighlightStats, MarkdownDocument, MarkdownReview, MarkdownReviewSession,
     MarkdownTargetId,
@@ -48,6 +49,7 @@ pub struct MarkdownReviewState {
     pub(crate) hit_regions: Vec<MarkdownHitRegion>,
     pub(crate) cursor_position: Option<Position>,
     pub(crate) help: bool,
+    pub(crate) theme_picker: Option<ThemePicker>,
     pub(crate) dirty: bool,
     pub(crate) follow_pending: bool,
 }
@@ -75,6 +77,7 @@ impl MarkdownReviewState {
             hit_regions: Vec::new(),
             cursor_position: None,
             help: false,
+            theme_picker: None,
             dirty: true,
             follow_pending: true,
         }
@@ -135,6 +138,12 @@ impl MarkdownReviewState {
 
     pub const fn mark_dirty(&mut self) {
         self.dirty = true;
+    }
+
+    /// Returns the active renderer-neutral theme.
+    #[must_use]
+    pub const fn theme(&self) -> &DiffTheme {
+        &self.theme
     }
 
     #[must_use]

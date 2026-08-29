@@ -10,6 +10,7 @@ mod patch_layout;
 mod render;
 mod state;
 mod style;
+mod theme_picker;
 mod widgets;
 
 pub use input::{DiffReviewInput, handle_crossterm_event};

@@ -1,4 +1,5 @@
 use super::{MarkdownFocusPane, MarkdownReviewEvent, MarkdownReviewState};
+use crate::theme_picker::{ThemePicker, ThemePickerAction};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
@@ -78,6 +79,19 @@ impl MarkdownReviewState {
         &mut self,
         key: KeyEvent,
     ) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
+        if let Some(picker) = self.theme_picker.as_mut() {
+            let action = picker.handle_key(key);
+            match action {
+                ThemePickerAction::Preview(theme) => self.set_theme(theme),
+                ThemePickerAction::Restore(theme) => {
+                    self.set_theme(theme);
+                    self.theme_picker = None;
+                }
+                ThemePickerAction::Commit => self.theme_picker = None,
+                ThemePickerAction::None => {}
+            }
+            return Ok(None);
+        }
         if self.help {
             if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
                 self.help = false;
@@ -156,6 +170,9 @@ impl MarkdownReviewState {
             }
             KeyCode::Char('a') => return self.session.approve().map(Some),
             KeyCode::Char('r') => return self.session.request_changes().map(Some),
+            KeyCode::Char('t') => {
+                self.theme_picker = Some(ThemePicker::new(&self.theme));
+            }
             KeyCode::Char('?') => self.help = true,
             _ => {}
         }

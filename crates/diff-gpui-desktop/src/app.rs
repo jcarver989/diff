@@ -1,9 +1,11 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
-use crate::{args::CliArgs, window_chrome};
-use diff_core::{DiffDocument, DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
+use crate::{args::CliArgs, preferences, window_chrome};
+use diff_core::{
+    DiffDocument, DiffReviewEvent, DiffScope, DiffTheme, RepositoryAction, ReviewSubmission,
+};
 use diff_git::{GitError, GitRepository};
-use diff_gpui::{DEFAULT_FONT_FAMILY, DiffViewer};
+use diff_gpui::{DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged};
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
@@ -53,6 +55,8 @@ pub(crate) struct DesktopApp {
     state: LoadState,
     viewer: Option<Entity<DiffViewer>>,
     viewer_subscription: Option<Subscription>,
+    theme_subscription: Option<Subscription>,
+    theme: DiffTheme,
     load_task: Task<()>,
     outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
 }
@@ -71,6 +75,8 @@ impl DesktopApp {
             state: LoadState::Loading,
             viewer: None,
             viewer_subscription: None,
+            theme_subscription: None,
+            theme: preferences::load_theme(),
             load_task: Task::ready(()),
             outcome_sender,
         };
@@ -211,11 +217,22 @@ impl DesktopApp {
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |viewer, cx| viewer.set_document(document, cx));
         } else {
-            let viewer = cx.new(|_| DiffViewer::new(document));
+            let theme = self.theme.clone();
+            let viewer =
+                cx.new(|_| DiffViewer::with_options(document, theme, DiffViewerOptions::default()));
             self.viewer_subscription = Some(cx.subscribe(
                 &viewer,
                 |this, _viewer, event: &DiffReviewEvent, cx| {
                     this.handle_viewer_event(event, cx);
+                },
+            ));
+            self.theme_subscription = Some(cx.subscribe(
+                &viewer,
+                |this, _viewer, event: &ThemeChanged, _cx| {
+                    if let Ok(theme) = DiffTheme::builtin(&event.id) {
+                        this.theme = theme;
+                    }
+                    let _ = preferences::save_theme(&event.id);
                 },
             ));
             self.viewer = Some(viewer);
@@ -281,7 +298,8 @@ impl DesktopApp {
         self.mutate_all(false, cx);
     }
 
-    fn status_panel(title: &str, detail: &str) -> impl IntoElement {
+    fn status_panel(&self, title: &str, detail: &str) -> impl IntoElement {
+        let palette = self.theme.palette();
         div()
             .size_full()
             .flex()
@@ -289,13 +307,13 @@ impl DesktopApp {
             .items_center()
             .justify_center()
             .gap_2()
-            .bg(gpui::rgb(0x0010_1418))
-            .text_color(gpui::rgb(0x00d6_d9dc))
+            .bg(diff_gpui::style::color(palette.background))
+            .text_color(diff_gpui::style::color(palette.foreground))
             .child(div().text_xl().child(title.to_owned()))
             .child(
                 div()
                     .text_sm()
-                    .text_color(gpui::rgb(0x008d_969f))
+                    .text_color(diff_gpui::style::color(palette.muted))
                     .child(detail.to_owned()),
             )
     }
@@ -312,23 +330,24 @@ impl Render for DesktopApp {
             .size_full()
             .font_family(DEFAULT_FONT_FAMILY)
             .child(match &self.state {
-                LoadState::Loading => {
-                    Self::status_panel("Loading diff…", "Git is reading the repository")
-                        .into_any_element()
-                }
-                LoadState::Error(error) => Self::status_panel(
-                    "Could not load diff",
-                    &format!("{error} · press ⌘/Ctrl+R to retry"),
-                )
-                .into_any_element(),
-                LoadState::Empty => Self::status_panel(
-                    "No changes",
-                    &format!("Scope: {} · press ⇧⌘/Ctrl+V to change scope", self.scope),
-                )
-                .into_any_element(),
+                LoadState::Loading => self
+                    .status_panel("Loading diff…", "Git is reading the repository")
+                    .into_any_element(),
+                LoadState::Error(error) => self
+                    .status_panel(
+                        "Could not load diff",
+                        &format!("{error} · press ⌘/Ctrl+R to retry"),
+                    )
+                    .into_any_element(),
+                LoadState::Empty => self
+                    .status_panel(
+                        "No changes",
+                        &format!("Scope: {} · press ⇧⌘/Ctrl+V to change scope", self.scope),
+                    )
+                    .into_any_element(),
                 LoadState::Ready => self.viewer.as_ref().map_or_else(
                     || {
-                        Self::status_panel("No viewer", "Press ⌘/Ctrl+R to retry")
+                        self.status_panel("No viewer", "Press ⌘/Ctrl+R to retry")
                             .into_any_element()
                     },
                     |viewer| viewer.clone().into_any_element(),

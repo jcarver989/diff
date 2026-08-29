@@ -17,8 +17,10 @@ impl TestRoot {
                     .build(),
             )
         });
-        cx.subscribe(&viewer, |root, _, event, _| root.events.push(event.clone()))
-            .detach();
+        cx.subscribe(&viewer, |root, _, event: &DiffViewerEvent, _| {
+            root.events.push(event.clone());
+        })
+        .detach();
         Self {
             viewer,
             events: Vec::new(),

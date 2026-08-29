@@ -18,7 +18,7 @@ pub enum WebError {
     #[error("invalid Markdown document payload: {0}")]
     InvalidMarkdownPayload(serde_json::Error),
     /// The selected embedded theme is not available.
-    #[error("unknown theme `{0}`; expected `sage` or `ayu-dark`")]
+    #[error("unknown built-in theme `{0}`")]
     UnknownTheme(String),
     /// The GPUI command channel has not been installed yet.
     #[error("the diff viewer has not started")]
@@ -80,11 +80,7 @@ pub fn demo_document() -> DiffDocument {
 /// # Errors
 /// Returns an error when the name is unknown or its theme cannot be parsed.
 pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
-    match name.trim().to_ascii_lowercase().as_str() {
-        "sage" => DiffTheme::sage().map_err(|_| WebError::UnknownTheme(name.into())),
-        "ayu" | "ayu-dark" => DiffTheme::ayu().map_err(|_| WebError::UnknownTheme(name.into())),
-        _ => Err(WebError::UnknownTheme(name.into())),
-    }
+    DiffTheme::builtin(name).map_err(|_| WebError::UnknownTheme(name.into()))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -99,7 +95,10 @@ mod wasm {
         DiffDocument, DiffReviewEvent, DiffTheme, MarkdownDocument, MarkdownReviewEvent,
         MarkdownReviewSubmission, ReviewSubmission,
     };
-    use diff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
+    use diff_gpui::{
+        DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
+        load_default_fonts,
+    };
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
         Window, WindowBounds, WindowOptions, prelude::*, px, size,
@@ -125,17 +124,30 @@ mod wasm {
     struct WebRoot {
         viewer: Entity<DiffViewer>,
         _viewer_subscription: Subscription,
+        _viewer_theme_subscription: Subscription,
         markdown: Option<Entity<MarkdownReviewer>>,
         markdown_subscription: Option<Subscription>,
+        markdown_theme_subscription: Option<Subscription>,
         _command_task: Task<()>,
     }
 
     impl WebRoot {
         fn new(receiver: Receiver<WebCommand>, cx: &mut Context<Self>) -> Self {
-            let viewer = cx.new(|_| DiffViewer::new(Arc::new(demo_document())));
+            let theme = stored_theme();
+            let viewer = cx.new(|_| {
+                DiffViewer::with_options(
+                    Arc::new(demo_document()),
+                    theme,
+                    DiffViewerOptions::default(),
+                )
+            });
             let viewer_subscription = cx
                 .subscribe(&viewer, |_this, _viewer, event: &DiffReviewEvent, _cx| {
                     dispatch_viewer_event(event)
+                });
+            let viewer_theme_subscription = cx
+                .subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
+                    store_theme(&event.id)
                 });
             let command_task = cx.spawn(async move |this, cx| {
                 while let Ok(command) = receiver.recv().await {
@@ -151,8 +163,10 @@ mod wasm {
             Self {
                 viewer,
                 _viewer_subscription: viewer_subscription,
+                _viewer_theme_subscription: viewer_theme_subscription,
                 markdown: None,
                 markdown_subscription: None,
+                markdown_theme_subscription: None,
                 _command_task: command_task,
             }
         }
@@ -162,6 +176,7 @@ mod wasm {
                 WebCommand::SetDocument(document) => {
                     self.markdown = None;
                     self.markdown_subscription = None;
+                    self.markdown_theme_subscription = None;
                     self.viewer
                         .update(cx, |viewer, cx| viewer.set_document(document, cx));
                 }
@@ -169,12 +184,23 @@ mod wasm {
                     if let Some(markdown) = &self.markdown {
                         markdown.update(cx, |reviewer, cx| reviewer.set_document(document, cx));
                     } else {
-                        let markdown = cx.new(|_| MarkdownReviewer::new(document));
+                        let theme = stored_theme();
+                        let markdown = cx.new(|_| {
+                            MarkdownReviewer::with_options(
+                                document,
+                                theme,
+                                MarkdownReviewerOptions::default(),
+                            )
+                        });
                         self.markdown_subscription = Some(cx.subscribe(
                             &markdown,
                             |_this, _reviewer, event: &MarkdownReviewEvent, _cx| {
                                 dispatch_markdown_event(event);
                             },
+                        ));
+                        self.markdown_theme_subscription = Some(cx.subscribe(
+                            &markdown,
+                            |_this, _reviewer, event: &ThemeChanged, _cx| store_theme(&event.id),
                         ));
                         self.markdown = Some(markdown);
                     }
@@ -289,6 +315,24 @@ mod wasm {
                 .try_send(command)
                 .map_err(|_| WebError::CommandChannelClosed)
         })
+    }
+
+    const THEME_STORAGE_KEY: &str = "clankerdiff.theme.v1";
+
+    fn stored_theme() -> DiffTheme {
+        web_sys::window()
+            .and_then(|window| window.local_storage().ok().flatten())
+            .and_then(|storage| storage.get_item(THEME_STORAGE_KEY).ok().flatten())
+            .and_then(|id| decode_theme(&id).ok())
+            .unwrap_or_default()
+    }
+
+    fn store_theme(id: &str) {
+        if let Some(storage) =
+            web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+        {
+            let _ = storage.set_item(THEME_STORAGE_KEY, id);
+        }
     }
 
     fn js_error(error: WebError) -> JsValue {
@@ -417,10 +461,11 @@ mod wasm {
         send(WebCommand::RepositoryError(message.to_owned())).map_err(js_error)
     }
 
-    /// Selects an embedded theme (`sage`, `ayu`, or `ayu-dark`).
+    /// Selects one of the themes returned by the built-in theme catalog.
     #[wasm_bindgen]
     pub fn set_theme(name: &str) -> Result<(), JsValue> {
         let theme = decode_theme(name).map_err(js_error)?;
+        store_theme(&theme.id().to_string());
         send(WebCommand::SetTheme(theme)).map_err(js_error)
     }
 
@@ -488,6 +533,10 @@ mod tests {
     fn accepts_embedded_theme_names() {
         assert_eq!(decode_theme("sage").unwrap().id(), &ThemeId::Sage);
         assert_eq!(decode_theme("ayu-dark").unwrap().id(), &ThemeId::Ayu);
+        assert_eq!(
+            decode_theme("tokyo-night").unwrap().id().to_string(),
+            "tokyo-night"
+        );
         assert!(matches!(
             decode_theme("unknown"),
             Err(WebError::UnknownTheme(_))

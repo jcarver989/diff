@@ -1,6 +1,6 @@
-use crate::window_chrome;
+use crate::{preferences, window_chrome};
 use diff_core::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
-use diff_gpui::{DEFAULT_FONT_FAMILY, MarkdownReviewer};
+use diff_gpui::{DEFAULT_FONT_FAMILY, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged};
 use gpui::{AppContext, ClipboardItem, Context, Entity, Subscription, Window, div, prelude::*};
 use std::sync::{Arc, mpsc::Sender};
 
@@ -8,6 +8,7 @@ use std::sync::{Arc, mpsc::Sender};
 pub(crate) struct MarkdownDesktopApp {
     reviewer: Entity<MarkdownReviewer>,
     _subscription: Subscription,
+    _theme_subscription: Subscription,
 }
 
 impl MarkdownDesktopApp {
@@ -16,7 +17,10 @@ impl MarkdownDesktopApp {
         outcome: Sender<Option<MarkdownReviewSubmission>>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let reviewer = cx.new(|_| MarkdownReviewer::new(document));
+        let theme = preferences::load_theme();
+        let reviewer = cx.new(|_| {
+            MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default())
+        });
         let subscription = cx.subscribe(
             &reviewer,
             move |_this, _reviewer, event: &MarkdownReviewEvent, cx| match event {
@@ -33,9 +37,14 @@ impl MarkdownDesktopApp {
                 }
             },
         );
+        let theme_subscription =
+            cx.subscribe(&reviewer, |_this, _reviewer, event: &ThemeChanged, _cx| {
+                let _ = preferences::save_theme(&event.id);
+            });
         Self {
             reviewer,
             _subscription: subscription,
+            _theme_subscription: theme_subscription,
         }
     }
 }

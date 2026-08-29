@@ -1,7 +1,7 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
 use crate::{
-    DEFAULT_FONT_FAMILY,
+    DEFAULT_FONT_FAMILY, ThemeChanged,
     annotation::{comment_card, comment_count_marker},
     comment_editor::{CommentEditor, CommentEditorEvent},
     style,
@@ -33,6 +33,8 @@ actions!(
         MarkdownCancelComment,
         MarkdownApprove,
         MarkdownRequestChanges,
+        MarkdownShowThemePicker,
+        MarkdownHideThemePicker,
         MarkdownCancel
     ]
 );
@@ -62,6 +64,7 @@ pub struct MarkdownReviewer {
     options: MarkdownReviewerOptions,
     editor: Option<Entity<CommentEditor>>,
     editor_subscription: Option<Subscription>,
+    theme_picker_open: bool,
     focus_handle: Option<gpui::FocusHandle>,
 }
 
@@ -87,6 +90,7 @@ impl MarkdownReviewer {
             options,
             editor: None,
             editor_subscription: None,
+            theme_picker_open: false,
             focus_handle: None,
         }
     }
@@ -111,6 +115,14 @@ impl MarkdownReviewer {
             KeyBinding::new("u", MarkdownUndoComment, Some(BROWSE)),
             KeyBinding::new("a", MarkdownApprove, Some(BROWSE)),
             KeyBinding::new("r", MarkdownRequestChanges, Some(BROWSE)),
+            KeyBinding::new("t", MarkdownShowThemePicker, Some(BROWSE)),
+            KeyBinding::new("cmd-shift-t", MarkdownShowThemePicker, Some(BROWSE)),
+            KeyBinding::new("ctrl-shift-t", MarkdownShowThemePicker, Some(BROWSE)),
+            KeyBinding::new(
+                "escape",
+                MarkdownHideThemePicker,
+                Some("MarkdownReviewer && mode == themes"),
+            ),
             KeyBinding::new("escape", MarkdownCancel, Some(BROWSE)),
             KeyBinding::new("escape", MarkdownCancelComment, Some(DRAFT)),
             KeyBinding::new("cmd-enter", MarkdownSubmitComment, Some(DRAFT)),
@@ -391,6 +403,11 @@ impl MarkdownReviewer {
                 "{count} comment(s) · c add · e edit · x delete · u undo"
             ))
             .child(div().flex_1())
+            .child(button("markdown-theme", "Theme").on_click(cx.listener(
+                |reviewer, _, window, cx| {
+                    reviewer.show_theme_picker(&MarkdownShowThemePicker, window, cx);
+                },
+            )))
             .child(
                 button("markdown-request-changes", "Request changes")
                     .on_click(cx.listener(|reviewer, _, _, cx| reviewer.emit_request_changes(cx))),
@@ -499,6 +516,120 @@ impl MarkdownReviewer {
     ) {
         self.emit_request_changes(cx);
     }
+
+    fn show_theme_picker(
+        &mut self,
+        _: &MarkdownShowThemePicker,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.theme_picker_open = true;
+        cx.notify();
+    }
+
+    fn hide_theme_picker(
+        &mut self,
+        _: &MarkdownHideThemePicker,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.theme_picker_open = false;
+        cx.notify();
+    }
+
+    fn select_theme(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Ok(theme) = DiffTheme::builtin(id) {
+            self.theme_picker_open = false;
+            self.set_theme(theme, cx);
+            cx.emit(ThemeChanged { id: id.to_owned() });
+        }
+    }
+
+    fn render_theme_picker(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let palette = self.theme.palette();
+        let current = self.theme.id().to_string();
+        let viewport = window.viewport_size();
+        let panel_width = (f32::from(viewport.width) - 32.0).max(1.0).min(440.0);
+        let panel_height = (f32::from(viewport.height) - 48.0).max(1.0).min(620.0);
+        let mut scrim = style::color(palette.background);
+        scrim.a = 0.72;
+        let rows = DiffTheme::catalog().into_iter().map(|descriptor| {
+            let id = descriptor.id.clone();
+            let selected = descriptor.id == current;
+            div()
+                .id(format!("markdown-theme-{}", descriptor.id))
+                .px_3()
+                .py_2()
+                .rounded_sm()
+                .cursor_pointer()
+                .flex()
+                .justify_between()
+                .bg(if selected {
+                    style::color(palette.selection)
+                } else {
+                    style::color(palette.background)
+                })
+                .text_color(if selected {
+                    style::color(palette.accent)
+                } else {
+                    style::color(palette.foreground)
+                })
+                .hover(|row| row.bg(style::color(palette.selection)))
+                .child(descriptor.name)
+                .child(if descriptor.is_dark { "Dark" } else { "Light" })
+                .on_click(cx.listener(move |reviewer, _, _, cx| reviewer.select_theme(&id, cx)))
+        });
+        div()
+            .id("markdown-theme-picker-backdrop")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(scrim)
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .id("markdown-theme-picker")
+                    .w(px(panel_width))
+                    .h(px(panel_height))
+                    .p_4()
+                    .rounded_md()
+                    .flex()
+                    .flex_col()
+                    .border_1()
+                    .border_color(style::color(palette.border))
+                    .bg(style::color(palette.background))
+                    .shadow_lg()
+                    .child(
+                        div()
+                            .mb_3()
+                            .flex_shrink_0()
+                            .flex()
+                            .justify_between()
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .child("Select theme")
+                            .child(
+                                div()
+                                    .text_color(style::color(palette.muted))
+                                    .child("Esc to close"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("markdown-theme-picker-list")
+                            .min_h_0()
+                            .flex_1()
+                            .overflow_y_scroll()
+                            .children(rows),
+                    ),
+            )
+    }
+
     #[expect(
         clippy::unused_self,
         reason = "GPUI action handlers must take the entity as their receiver"
@@ -509,6 +640,7 @@ impl MarkdownReviewer {
 }
 
 impl EventEmitter<MarkdownReviewEvent> for MarkdownReviewer {}
+impl EventEmitter<ThemeChanged> for MarkdownReviewer {}
 
 impl Focusable for MarkdownReviewer {
     fn focus_handle(&self, cx: &App) -> gpui::FocusHandle {
@@ -519,7 +651,7 @@ impl Focusable for MarkdownReviewer {
 }
 
 impl Render for MarkdownReviewer {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focus = self
             .focus_handle
             .get_or_insert_with(|| cx.focus_handle())
@@ -531,7 +663,9 @@ impl Render for MarkdownReviewer {
             .iter()
             .map(|target| target.id)
             .collect::<Vec<_>>();
-        let mode = if self.editor.is_some() {
+        let mode = if self.theme_picker_open {
+            "themes"
+        } else if self.editor.is_some() {
             "draft"
         } else {
             "browse"
@@ -557,6 +691,8 @@ impl Render for MarkdownReviewer {
             .on_action(cx.listener(Self::cancel_comment))
             .on_action(cx.listener(Self::approve))
             .on_action(cx.listener(Self::request_changes))
+            .on_action(cx.listener(Self::show_theme_picker))
+            .on_action(cx.listener(Self::hide_theme_picker))
             .on_action(cx.listener(Self::cancel))
             .size_full()
             .flex()
@@ -596,5 +732,8 @@ impl Render for MarkdownReviewer {
                     ),
             )
             .child(self.render_bar(cx))
+            .when(self.theme_picker_open, |reviewer| {
+                reviewer.child(self.render_theme_picker(window, cx))
+            })
     }
 }

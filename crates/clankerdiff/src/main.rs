@@ -1,4 +1,5 @@
 mod args;
+mod preferences;
 mod tui;
 mod web;
 

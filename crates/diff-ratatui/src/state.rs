@@ -1,6 +1,7 @@
 use crate::{
     drawer::{DrawerEntry, DrawerTree},
     patch_layout::PatchVisualLayout,
+    theme_picker::ThemePicker,
 };
 use diff_core::{
     DiffDocument, DiffPresentation, DiffSide, DiffTheme, FileStatus, HighlightStats, Layout,
@@ -94,6 +95,7 @@ pub struct DiffReviewState {
     pub(crate) presentation_width: u16,
     patch_layout: Option<CachedPatchLayout>,
     pub(crate) help: bool,
+    pub(crate) theme_picker: Option<ThemePicker>,
     pub(crate) repository_prompt: Option<RepositoryPrompt>,
     pub(crate) repository_status: RepositoryOperationStatus,
     pub(crate) hit_layout: HitLayout,
@@ -131,6 +133,7 @@ impl DiffReviewState {
             presentation_width: 0,
             patch_layout: None,
             help: false,
+            theme_picker: None,
             repository_prompt: None,
             repository_status: RepositoryOperationStatus::Idle,
             hit_layout: HitLayout::default(),
@@ -209,6 +212,12 @@ impl DiffReviewState {
     #[must_use]
     pub const fn selected_side(&self) -> DiffSide {
         self.session.selected_side()
+    }
+
+    /// Returns the active renderer-neutral theme.
+    #[must_use]
+    pub const fn theme(&self) -> &DiffTheme {
+        &self.theme
     }
 
     /// Returns syntax cache and work counters.

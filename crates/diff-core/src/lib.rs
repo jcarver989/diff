@@ -50,6 +50,6 @@ pub use review::{
 };
 pub use session::{CommentDraft, ReviewSession, SessionOptions};
 pub use theme::{
-    DiffPalette, DiffTheme, FontStyle, HighlightSpan, Rgba, SyntaxStyle, ThemeError, ThemeId,
-    ToneColors,
+    DiffPalette, DiffTheme, FontStyle, HighlightSpan, Rgba, SyntaxStyle, ThemeDescriptor,
+    ThemeError, ThemeId, ToneColors,
 };

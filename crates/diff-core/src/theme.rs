@@ -1,6 +1,7 @@
 //! Renderer-neutral colors, semantic diff palettes, and syntax themes.
 
 use crate::{DiffTone, Fingerprint};
+use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
 
@@ -180,6 +181,7 @@ pub enum ThemeId {
     #[default]
     Sage,
     Ayu,
+    Builtin(String),
     Custom(String),
 }
 
@@ -188,9 +190,18 @@ impl fmt::Display for ThemeId {
         match self {
             Self::Sage => f.write_str("sage"),
             Self::Ayu => f.write_str("ayu-dark"),
-            Self::Custom(name) => f.write_str(name),
+            Self::Builtin(name) | Self::Custom(name) => f.write_str(name),
         }
     }
+}
+
+/// Summary metadata for a theme offered by the built-in catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemeDescriptor {
+    pub id: String,
+    pub name: String,
+    pub is_dark: bool,
+    pub source_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -268,6 +279,94 @@ impl DiffTheme {
         }
     }
 
+    /// Returns all selectable built-in themes, with stable kebab-case identifiers.
+    #[must_use]
+    pub fn catalog() -> Vec<ThemeDescriptor> {
+        let mut themes = vec![ThemeDescriptor {
+            id: "sage".to_owned(),
+            name: "Sage".to_owned(),
+            is_dark: true,
+            source_url: None,
+        }];
+        themes.extend(builtin::all().into_iter().map(|theme| ThemeDescriptor {
+            id: theme_slug(&theme.name),
+            name: theme.name,
+            is_dark: theme.is_dark,
+            source_url: theme.source_url,
+        }));
+        themes.sort_by(|left, right| {
+            left.is_dark
+                .cmp(&right.is_dark)
+                .reverse()
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        themes
+    }
+
+    /// Loads a selectable built-in theme by its stable identifier.
+    ///
+    /// Aliases are matched case-insensitively and with spaces or underscores
+    /// normalized to dashes.
+    ///
+    /// # Errors
+    /// Returns an error when no built-in theme has the supplied identifier.
+    pub fn builtin(name: &str) -> Result<Self, ThemeError> {
+        let id = theme_slug(name);
+        if id == "sage" {
+            return Self::sage();
+        }
+        if id == "ayu" || id == "ayu-dark" {
+            return Self::ayu();
+        }
+        let source = builtin::all()
+            .into_iter()
+            .find(|theme| theme_slug(&theme.name) == id)
+            .ok_or_else(|| ThemeError::UnknownTheme {
+                name: name.to_owned(),
+            })?;
+        Ok(Self::from_arborium(ThemeId::Builtin(id), &source))
+    }
+
+    fn from_arborium(id: ThemeId, source: &arborium_theme::Theme) -> Self {
+        let palette = palette_from_arborium(source);
+        let syntax = HIGHLIGHTS
+            .iter()
+            .zip(source.styles.iter())
+            .filter_map(|(highlight, style)| {
+                let foreground = style.fg?;
+                Some((
+                    highlight.name.to_owned(),
+                    SyntaxStyle {
+                        foreground: rgba(foreground),
+                        font_style: FontStyle {
+                            bold: style.modifiers.bold,
+                            italic: style.modifiers.italic,
+                            underline: style.modifiers.underline,
+                        },
+                    },
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut revision_parts = vec![id.to_string().into_bytes()];
+        revision_parts.extend(palette.colors().map(|color| color.to_bytes().to_vec()));
+        for (capture, style) in &syntax {
+            revision_parts.push(capture.as_bytes().to_vec());
+            revision_parts.push(style.foreground.to_bytes().to_vec());
+            revision_parts.push(vec![
+                u8::from(style.font_style.bold),
+                u8::from(style.font_style.italic),
+                u8::from(style.font_style.underline),
+            ]);
+        }
+        let revision = Fingerprint::of(revision_parts.iter().map(Vec::as_slice));
+        Self {
+            id,
+            palette,
+            syntax,
+            revision,
+        }
+    }
+
     /// Loads the bundled Sage theme.
     ///
     /// # Errors
@@ -285,6 +384,84 @@ impl DiffTheme {
             include_bytes!("../assets/themes/ayu-dark.json"),
         )
     }
+}
+
+fn theme_slug(name: &str) -> String {
+    name.trim()
+        .chars()
+        .map(|character| match character {
+            ' ' | '_' => '-',
+            character => character.to_ascii_lowercase(),
+        })
+        .collect()
+}
+
+const fn rgba(color: arborium_theme::Color) -> Rgba {
+    Rgba::new(color.r, color.g, color.b, u8::MAX)
+}
+
+fn palette_from_arborium(theme: &arborium_theme::Theme) -> DiffPalette {
+    let background = theme.background.map_or_else(
+        || {
+            if theme.is_dark {
+                Rgba::new(21, 29, 31, 255)
+            } else {
+                Rgba::new(250, 250, 250, 255)
+            }
+        },
+        rgba,
+    );
+    let foreground = theme.foreground.map_or_else(
+        || {
+            if theme.is_dark {
+                Rgba::new(220, 220, 220, 255)
+            } else {
+                Rgba::new(35, 35, 35, 255)
+            }
+        },
+        rgba,
+    );
+    let style_color = |slot| {
+        slot_to_highlight_index(slot)
+            .and_then(|index| theme.style(index))
+            .and_then(|style| style.fg)
+            .map(rgba)
+    };
+    let addition = style_color(ThemeSlot::DiffAdd).unwrap_or_else(|| {
+        if theme.is_dark {
+            Rgba::new(128, 190, 120, 255)
+        } else {
+            Rgba::new(40, 125, 55, 255)
+        }
+    });
+    let deletion = style_color(ThemeSlot::DiffDelete).unwrap_or_else(|| {
+        if theme.is_dark {
+            Rgba::new(225, 115, 115, 255)
+        } else {
+            Rgba::new(185, 45, 45, 255)
+        }
+    });
+    let accent = style_color(ThemeSlot::Link)
+        .or_else(|| style_color(ThemeSlot::Function))
+        .or_else(|| style_color(ThemeSlot::Keyword))
+        .unwrap_or_else(|| mix(foreground, background, 72));
+    DiffPalette {
+        background,
+        foreground,
+        gutter: mix(foreground, background, 45),
+        addition,
+        deletion,
+        addition_background: diff_background(addition, background),
+        deletion_background: diff_background(deletion, background),
+        selection: mix(accent, background, 28),
+        accent,
+        muted: mix(foreground, background, 62),
+        border: mix(foreground, background, 25),
+    }
+}
+
+const fn mix(foreground: Rgba, background: Rgba, amount: u8) -> Rgba {
+    Rgba::new(foreground.r, foreground.g, foreground.b, amount).over(background)
 }
 
 const DIFF_BACKGROUND_ALPHA: u8 = 31;
@@ -307,6 +484,8 @@ impl Default for DiffTheme {
 /// Errors produced while loading theme JSON.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ThemeError {
+    #[error("unknown built-in theme `{name}`")]
+    UnknownTheme { name: String },
     #[error("failed to parse theme JSON: {message}")]
     Parse { message: String },
     #[error("unsupported theme JSON version {version}")]
@@ -324,6 +503,24 @@ mod tests {
         assert_eq!(sage.id(), &ThemeId::Sage);
         assert_eq!(ayu.id(), &ThemeId::Ayu);
         assert_ne!(sage.revision(), ayu.revision());
+    }
+
+    #[test]
+    fn arborium_catalog_loads_every_theme() {
+        let catalog = DiffTheme::catalog();
+        assert!(catalog.len() > 30);
+        let mut ids = catalog
+            .iter()
+            .map(|theme| theme.id.as_str())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), catalog.len());
+        for descriptor in catalog {
+            let theme = DiffTheme::builtin(&descriptor.id).unwrap();
+            assert_eq!(theme.id().to_string(), descriptor.id);
+            assert_ne!(theme.palette().foreground, theme.palette().background);
+        }
     }
 
     #[test]

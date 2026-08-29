@@ -3,6 +3,7 @@
 mod app;
 pub mod args;
 mod markdown_app;
+mod preferences;
 mod window_chrome;
 
 use app::DesktopApp;

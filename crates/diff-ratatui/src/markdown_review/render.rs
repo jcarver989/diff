@@ -6,6 +6,7 @@ use crate::{
     RatatuiTheme,
     annotation::render_annotation_line,
     style::syntax_style,
+    theme_picker::render_theme_picker,
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
 use diff_core::HighlightSpan;
@@ -91,6 +92,9 @@ impl StatefulWidget for MarkdownReviewWidget {
         render_footer(footer, buffer, state, &theme);
         if state.help {
             render_help(area, buffer, &theme);
+        }
+        if let Some(picker) = &state.theme_picker {
+            render_theme_picker(area, buffer, picker, &theme);
         }
         state.dirty = false;
     }
@@ -378,7 +382,7 @@ fn render_footer(
     let hint = if state.session.draft().is_some() {
         "[Enter] save  [Shift-Enter] newline  [Esc] cancel"
     } else {
-        "[j/k] target  [n/p] heading  [c] comment  [a] approve  [r] request changes  [?] help"
+        "[j/k] target  [n/p] heading  [c] comment  [a] approve  [r] request changes  [t] theme  [?] help"
     };
     let count = state.review().len();
     Paragraph::new(Line::from(vec![
@@ -404,7 +408,7 @@ fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
         height,
     );
     Clear.render(popup, buffer);
-    Paragraph::new("Navigation\n  j/k or arrows   move target\n  g/G or Home/End first/last\n  n/p             next/previous heading\n  h/l or Enter    outline/document\n\nReview\n  c/e/x/u         add/edit/delete/undo\n  a/r             approve/request changes\n  Esc             cancel draft/review\n  ?               close help")
+    Paragraph::new("Navigation\n  j/k or arrows   move target\n  g/G or Home/End first/last\n  n/p             next/previous heading\n  h/l or Enter    outline/document\n\nReview\n  c/e/x/u         add/edit/delete/undo\n  a/r             approve/request changes\n  t               select theme\n  Esc             cancel draft/review\n  ?               close help")
         .block(Block::bordered().title(" Markdown shortcuts "))
         .style(Style::new().fg(theme.foreground).bg(theme.background))
         .render(popup, buffer);

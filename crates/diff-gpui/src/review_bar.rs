@@ -1,4 +1,6 @@
-use crate::{Cancel, CopyReview, DiffViewer, SubmitReview, ViewerPane, style::color};
+use crate::{
+    Cancel, CopyReview, DiffViewer, ShowThemePicker, SubmitReview, ViewerPane, style::color,
+};
 use gpui::{Context, Div, div, prelude::*, px};
 
 impl DiffViewer {
@@ -33,6 +35,13 @@ impl DiffViewer {
                         "{hint}    ·    {} review comments",
                         self.review().len()
                     )),
+            )
+            .child(
+                button("select-theme", "Theme", palette.muted).on_click(cx.listener(
+                    |viewer, _, window, cx| {
+                        viewer.show_theme_picker(&ShowThemePicker, window, cx);
+                    },
+                )),
             )
             .when(!self.review().is_empty(), |bar| {
                 bar.child(

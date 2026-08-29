@@ -1,7 +1,7 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
 use crate::{
-    DEFAULT_FONT_FAMILY, DiffViewerEvent,
+    DEFAULT_FONT_FAMILY, DiffViewerEvent, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
     sidebar::{SidebarResizeDrag, SidebarTree},
     style::color,
@@ -58,6 +58,8 @@ actions!(
         SubmitReview,
         ShowShortcuts,
         HideShortcuts,
+        ShowThemePicker,
+        HideThemePicker,
         IncreaseFontSize,
         DecreaseFontSize,
         ResetFontSize,
@@ -137,6 +139,7 @@ pub struct DiffViewer {
     pub(crate) sidebar_scroll_handle: ScrollHandle,
     pub(crate) pane: ViewerPane,
     shortcuts_open: bool,
+    theme_picker_open: bool,
     pub(crate) comment_target: Option<CommentTarget>,
     pub(crate) comment_editor: Option<Entity<CommentEditor>>,
     comment_editor_subscription: Option<Subscription>,
@@ -188,6 +191,7 @@ impl DiffViewer {
             sidebar_scroll_handle: ScrollHandle::new(),
             pane: ViewerPane::Diff,
             shortcuts_open: false,
+            theme_picker_open: false,
             comment_target: None,
             comment_editor: None,
             comment_editor_subscription: None,
@@ -261,6 +265,14 @@ impl DiffViewer {
             KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
             KeyBinding::new("escape", HideShortcuts, Some(SHORTCUTS)),
             KeyBinding::new("shift-/", HideShortcuts, Some(SHORTCUTS)),
+            KeyBinding::new("t", ShowThemePicker, Some(BROWSE)),
+            KeyBinding::new("cmd-shift-t", ShowThemePicker, Some(BROWSE)),
+            KeyBinding::new("ctrl-shift-t", ShowThemePicker, Some(BROWSE)),
+            KeyBinding::new(
+                "escape",
+                HideThemePicker,
+                Some("DiffViewer && mode == themes"),
+            ),
             KeyBinding::new("escape", Cancel, Some(BROWSE)),
             KeyBinding::new("ctrl-g", Cancel, Some(BROWSE)),
             KeyBinding::new("cmd-]", NextFile, Some(BROWSE)),
@@ -1119,6 +1131,110 @@ impl DiffViewer {
         cx.notify();
     }
 
+    pub(crate) fn show_theme_picker(
+        &mut self,
+        _: &ShowThemePicker,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.theme_picker_open = true;
+        cx.notify();
+    }
+
+    fn hide_theme_picker(&mut self, _: &HideThemePicker, _: &mut Window, cx: &mut Context<Self>) {
+        self.theme_picker_open = false;
+        cx.notify();
+    }
+
+    fn select_theme(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Ok(theme) = DiffTheme::builtin(id) {
+            self.theme_picker_open = false;
+            self.set_theme(theme, cx);
+            cx.emit(ThemeChanged { id: id.to_owned() });
+        }
+    }
+
+    fn render_theme_picker(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let palette = self.theme.palette();
+        let current = self.theme.id().to_string();
+        let viewport = window.viewport_size();
+        let panel_width = (f32::from(viewport.width) - 32.0).max(1.0).min(440.0);
+        let panel_height = (f32::from(viewport.height) - 48.0).max(1.0).min(620.0);
+        let mut scrim = color(palette.background);
+        scrim.a = 0.72;
+        let rows = DiffTheme::catalog().into_iter().map(|descriptor| {
+            let id = descriptor.id.clone();
+            let selected = descriptor.id == current;
+            div()
+                .id(format!("theme-{}", descriptor.id))
+                .px_3()
+                .py_2()
+                .rounded_sm()
+                .cursor_pointer()
+                .flex()
+                .justify_between()
+                .bg(if selected {
+                    color(palette.selection)
+                } else {
+                    color(palette.background)
+                })
+                .text_color(if selected {
+                    color(palette.accent)
+                } else {
+                    color(palette.foreground)
+                })
+                .hover(|row| row.bg(color(palette.selection)))
+                .child(descriptor.name)
+                .child(if descriptor.is_dark { "Dark" } else { "Light" })
+                .on_click(cx.listener(move |viewer, _, _, cx| viewer.select_theme(&id, cx)))
+        });
+        div()
+            .id("theme-picker-backdrop")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(scrim)
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .id("theme-picker")
+                    .w(px(panel_width))
+                    .h(px(panel_height))
+                    .p_4()
+                    .rounded_md()
+                    .flex()
+                    .flex_col()
+                    .border_1()
+                    .border_color(color(palette.border))
+                    .bg(color(palette.background))
+                    .shadow_lg()
+                    .child(
+                        div()
+                            .mb_3()
+                            .flex_shrink_0()
+                            .flex()
+                            .justify_between()
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .child("Select theme")
+                            .child(div().text_color(color(palette.muted)).child("Esc to close")),
+                    )
+                    .child(
+                        div()
+                            .id("theme-picker-list")
+                            .min_h_0()
+                            .flex_1()
+                            .overflow_y_scroll()
+                            .children(rows),
+                    ),
+            )
+    }
+
     pub(crate) fn submit_review(
         &mut self,
         _: &SubmitReview,
@@ -1203,6 +1319,7 @@ impl DiffViewer {
 }
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
+impl EventEmitter<ThemeChanged> for DiffViewer {}
 
 fn clamp_font_size(size: f32) -> f32 {
     size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)
@@ -1247,7 +1364,9 @@ impl Render for DiffViewer {
         {
             focus_handle.focus(window, cx);
         }
-        let mode = if self.shortcuts_open {
+        let mode = if self.theme_picker_open {
+            "themes"
+        } else if self.shortcuts_open {
             "shortcuts"
         } else if matches!(
             self.repository_prompt,
@@ -1319,6 +1438,8 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::submit_review))
             .on_action(cx.listener(Self::show_shortcuts))
             .on_action(cx.listener(Self::hide_shortcuts))
+            .on_action(cx.listener(Self::show_theme_picker))
+            .on_action(cx.listener(Self::hide_theme_picker))
             .on_action(cx.listener(Self::cancel))
             .size_full()
             .relative()
@@ -1342,6 +1463,9 @@ impl Render for DiffViewer {
             .child(self.render_review_bar(cx))
             .when(self.shortcuts_open, |viewer| {
                 viewer.child(self.render_shortcuts())
+            })
+            .when(self.theme_picker_open, |viewer| {
+                viewer.child(self.render_theme_picker(window, cx))
             })
             .when(self.repository_prompt.is_some(), |viewer| {
                 viewer.child(self.render_repository_prompt())
