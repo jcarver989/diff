@@ -149,7 +149,7 @@ pub struct DiffViewer {
 }
 
 impl DiffViewer {
-    /// Creates a viewer with the default Ayu Dark theme and options.
+    /// Creates a viewer with the default Sage theme and options.
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
         Self::with_options(document, DiffTheme::default(), DiffViewerOptions::default())

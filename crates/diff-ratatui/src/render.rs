@@ -136,6 +136,9 @@ fn render_document(
         (Rect::default(), area)
     };
     state.hit_layout.drawer = drawer;
+    if drawer.is_empty() {
+        state.hit_layout.drawer_stage_column = None;
+    }
     state.hit_layout.patch = patch;
     let (patch_rows, patch_track) = rows_and_track(patch, true);
     state.ensure_presentation(patch_rows.width);
@@ -156,6 +159,10 @@ fn render_drawer(
     theme: &RatatuiTheme,
 ) -> Rect {
     let (rows, track) = rows_and_track(area, true);
+    state.hit_layout.drawer_stage_column = rows
+        .width
+        .checked_sub(1)
+        .map(|offset| rows.x.saturating_add(offset));
     state.drawer_height = usize::from(rows.height).max(1);
     let entry_count = state.drawer.entries().len();
     state.drawer_scroll = state
@@ -183,7 +190,18 @@ fn render_drawer(
             .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX));
         let index = state.drawer_scroll.saturating_add(offset);
         let row = Rect::new(rows.x, y, rows.width, 1);
-        match entry {
+        let [content, stage_area] =
+            Layout::horizontal([Constraint::Min(0), Constraint::Length(2_u16.min(row.width))])
+                .areas(row);
+        let checkbox = Rect::new(
+            stage_area
+                .x
+                .saturating_add(stage_area.width.saturating_sub(1)),
+            y,
+            stage_area.width.min(1),
+            1,
+        );
+        let entry_stage = match entry {
             DrawerEntry::Directory {
                 name,
                 depth,
@@ -191,13 +209,12 @@ fn render_drawer(
                 ..
             } => {
                 let marker = if *expanded { "▾" } else { "▸" };
-                let entry_stage = DrawerTree::stage_state_for_entry(state.document(), entry);
                 Paragraph::new(Line::from(vec![
                     Span::raw(format!("{}{} ", "  ".repeat(*depth), marker)),
                     Span::styled(format!("{name}/"), Style::new().fg(theme.accent)),
-                    Span::raw(format!(" {}", stage_marker(entry_stage))),
                 ]))
-                .render(row, buffer);
+                .render(content, buffer);
+                DrawerTree::stage_state_for_entry(state.document(), entry)
             }
             DrawerEntry::File {
                 index: file_index,
@@ -217,11 +234,7 @@ fn render_drawer(
                     | diff_core::FileStatus::Copied => theme.accent,
                 };
                 Paragraph::new(Line::from(vec![
-                    Span::raw(format!(
-                        "{}{} ",
-                        "  ".repeat(*depth),
-                        stage_marker(file.staged)
-                    )),
+                    Span::raw("  ".repeat(*depth)),
                     Span::styled(
                         file.status.code().to_string(),
                         Style::new().fg(status_color),
@@ -232,9 +245,11 @@ fn render_drawer(
                         Style::new().fg(theme.muted),
                     ),
                 ]))
-                .render(row, buffer);
+                .render(content, buffer);
+                file.staged
             }
-        }
+        };
+        Paragraph::new(stage_marker(entry_stage)).render(checkbox, buffer);
 
         if state.drawer_selected == index {
             buffer.set_style(

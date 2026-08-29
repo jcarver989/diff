@@ -175,8 +175,8 @@ impl Default for DiffPalette {
 /// Stable identifiers for embedded and host-provided themes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ThemeId {
-    Sage,
     #[default]
+    Sage,
     Ayu,
     Custom(String),
 }
@@ -320,7 +320,7 @@ fn parsed_theme_revision(
 
 impl Default for DiffTheme {
     fn default() -> Self {
-        Self::ayu().expect("bundled Ayu Dark theme must parse")
+        Self::sage().expect("bundled Sage theme must parse")
     }
 }
 
@@ -337,11 +337,11 @@ mod tests {
 
     #[test]
     fn bundled_themes_parse_with_distinct_revisions() {
-        let sage = DiffTheme::sage().unwrap();
-        let ayu = DiffTheme::default();
-        assert_eq!(ThemeId::default(), ThemeId::Ayu);
-        assert_eq!(ayu.id(), &ThemeId::Ayu);
+        let sage = DiffTheme::default();
+        let ayu = DiffTheme::ayu().unwrap();
+        assert_eq!(ThemeId::default(), ThemeId::Sage);
         assert_eq!(sage.id(), &ThemeId::Sage);
+        assert_eq!(ayu.id(), &ThemeId::Ayu);
         assert_ne!(sage.revision(), ayu.revision());
     }
 
@@ -376,13 +376,13 @@ mod tests {
         assert_eq!(palette.addition_background, Rgba::new(40, 52, 39, 255));
         assert_eq!(palette.deletion_background, Rgba::new(46, 40, 42, 255));
 
-        let ayu = DiffTheme::default();
+        let ayu = DiffTheme::ayu().unwrap();
         assert_eq!(ayu.palette().addition, Rgba::new(194, 217, 76, 255));
         assert_eq!(ayu.palette().deletion, Rgba::new(255, 51, 51, 255));
         assert_eq!(ayu.palette().addition_background.a, 255);
         assert_eq!(ayu.palette().deletion_background.a, 255);
 
-        let sage = DiffTheme::sage().unwrap();
+        let sage = DiffTheme::default();
         assert_eq!(sage.palette().addition, Rgba::new(167, 192, 128, 255));
         assert_eq!(sage.palette().deletion, Rgba::new(230, 126, 128, 255));
     }

@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 const HEADER_HEIGHT: f32 = 52.0;
 const INDENT_WIDTH: f32 = 16.0;
 const DISCLOSURE_WIDTH: f32 = 14.0;
+const STAGE_CHECKBOX_WIDTH: f32 = 18.0;
 const RESIZE_HANDLE_WIDTH: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy)]
@@ -325,6 +326,14 @@ fn sidebar_row(depth: u16, height: f32) -> Div {
         .cursor_pointer()
 }
 
+fn stage_checkbox(stage: &'static str) -> Div {
+    div()
+        .w(px(STAGE_CHECKBOX_WIDTH))
+        .flex_shrink_0()
+        .text_center()
+        .child(stage)
+}
+
 impl DiffViewer {
     pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
         let palette = self.theme().palette();
@@ -440,23 +449,19 @@ impl DiffViewer {
             )
             .child(
                 div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(directory.name.clone()),
+            )
+            .child(
+                stage_checkbox(stage)
                     .id(format!("diff-directory-checkbox:{checkbox_path}"))
-                    .w(px(18.0))
-                    .flex_shrink_0()
-                    .text_center()
-                    .child(stage)
                     .on_click(cx.listener(move |viewer, _, _, cx| {
                         viewer
                             .toggle_stage_entry(SidebarEntry::Directory(checkbox_path.clone()), cx);
                         cx.stop_propagation();
                     })),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .child(directory.name.clone()),
             )
     }
 
@@ -496,18 +501,6 @@ impl DiffViewer {
                 .child(div().w(px(DISCLOSURE_WIDTH)).flex_shrink_0())
                 .child(
                     div()
-                        .id(("diff-file-checkbox", index))
-                        .w(px(18.0))
-                        .flex_shrink_0()
-                        .text_center()
-                        .child(stage)
-                        .on_click(cx.listener(move |viewer, _, _, cx| {
-                            viewer.toggle_stage_entry(SidebarEntry::File(index), cx);
-                            cx.stop_propagation();
-                        })),
-                )
-                .child(
-                    div()
                         .w(px(14.0))
                         .flex_shrink_0()
                         .text_color(color(status_color))
@@ -526,6 +519,14 @@ impl DiffViewer {
                         .text_size(px(self.metadata_font_size()))
                         .text_color(color(palette.muted))
                         .child(format!("+{} −{}", diff.additions(), diff.deletions())),
+                )
+                .child(
+                    stage_checkbox(stage)
+                        .id(("diff-file-checkbox", index))
+                        .on_click(cx.listener(move |viewer, _, _, cx| {
+                            viewer.toggle_stage_entry(SidebarEntry::File(index), cx);
+                            cx.stop_propagation();
+                        })),
                 ),
         )
     }

@@ -2,7 +2,6 @@
 
 use crate::{
     DiffReviewEvent, DiffReviewState, FocusPane,
-    drawer::DrawerEntry,
     state::{RepositoryOperationStatus, RepositoryPrompt},
 };
 use crossterm::event::{
@@ -283,22 +282,7 @@ impl DiffReviewState {
                     let relative = usize::from(mouse.row.saturating_sub(self.hit_layout.drawer.y));
                     self.select_drawer_entry(self.drawer_scroll.saturating_add(relative));
                     self.mark_dirty();
-                    let checkbox_column = self.drawer.entry(self.drawer_selected).map(|entry| {
-                        self.hit_layout.drawer.x
-                            + match entry {
-                                DrawerEntry::Directory { depth, name, .. } => u16::try_from(
-                                    depth
-                                        .saturating_mul(2)
-                                        .saturating_add(name.len())
-                                        .saturating_add(3),
-                                )
-                                .unwrap_or(u16::MAX),
-                                DrawerEntry::File { depth, .. } => {
-                                    u16::try_from(depth.saturating_mul(2)).unwrap_or(u16::MAX)
-                                }
-                            }
-                    });
-                    if checkbox_column == Some(mouse.column)
+                    if self.hit_layout.drawer_stage_column == Some(mouse.column)
                         && !matches!(self.repository_status, RepositoryOperationStatus::Pending)
                         && let Some(action) = self.toggle_stage_action()
                     {

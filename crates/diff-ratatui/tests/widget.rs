@@ -54,13 +54,101 @@ fn narrow_and_wide_views_share_core_presentation() {
     assert!(narrow.contains("fn old() {}"), "{narrow}");
     assert!(narrow.contains("fn new() {}"), "{narrow}");
     assert_eq!(state.layout(), Layout::Unified);
-    assert!(!narrow.contains("☐ M"), "narrow view must hide the drawer");
+    assert!(!narrow.contains('☐'), "narrow view must hide the drawer");
 
     let wide = draw(&mut state, 140, 12);
-    assert!(wide.contains("☐ M main.rs"), "{wide}");
+    assert!(wide.contains("M main.rs +1 -1"), "{wide}");
     assert!(wide.contains("▾ src/"), "{wide}");
     assert!(wide.contains('│'), "{wide}");
     assert_eq!(state.layout(), Layout::Split);
+}
+
+#[test]
+fn drawer_stage_markers_share_a_trailing_column() {
+    let mut document = (*DocumentBuilder::new()
+        .changed("src/nested/main.rs", "old\n", "new\n")
+        .changed("src/lib.rs", "old\n", "new\n")
+        .changed("README.md", "old\n", "new\n")
+        .build())
+    .clone();
+    document.files[0].staged = StageState::Staged;
+    document.files[1].staged = StageState::Unstaged;
+    let mut state = DiffReviewState::new(Arc::new(document));
+
+    let rendered = draw(&mut state, 100, 12);
+    let marker_columns = rendered
+        .lines()
+        .filter_map(|line| {
+            line.chars()
+                .position(|character| matches!(character, '☐' | '☑' | '◩'))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(marker_columns.len() >= 5, "{rendered}");
+    assert!(
+        marker_columns
+            .iter()
+            .all(|column| *column == marker_columns[0]),
+        "stage markers must share one column: {marker_columns:?}\n{rendered}"
+    );
+}
+
+#[test]
+fn trailing_drawer_stage_column_is_clickable_for_directories_and_files() {
+    let document = DocumentBuilder::new()
+        .changed("src/main.rs", "old\n", "new\n")
+        .changed("src/lib.rs", "old\n", "new\n")
+        .build();
+    let expected_directory_paths = document
+        .files
+        .iter()
+        .map(|file| file.path.clone())
+        .collect::<Vec<_>>();
+    let mut state = DiffReviewState::new(document.clone());
+    let rendered = draw(&mut state, 100, 8);
+    let lines = rendered.lines().collect::<Vec<_>>();
+    let directory_row = lines
+        .iter()
+        .position(|line| line.contains("▾ src/"))
+        .expect("directory row");
+    let stage_column = lines[directory_row]
+        .chars()
+        .position(|character| character == '☐')
+        .expect("directory stage marker");
+
+    assert_eq!(
+        state.handle_input(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            u16::try_from(stage_column).unwrap(),
+            u16::try_from(directory_row).unwrap(),
+        )),
+        Some(DiffReviewEvent::RepositoryAction(
+            RepositoryAction::StagePaths(expected_directory_paths)
+        ))
+    );
+
+    let mut state = DiffReviewState::new(document.clone());
+    let rendered = draw(&mut state, 100, 8);
+    let lines = rendered.lines().collect::<Vec<_>>();
+    let file_row = lines
+        .iter()
+        .position(|line| line.contains("M main.rs"))
+        .expect("file row");
+    let stage_column = lines[file_row]
+        .chars()
+        .position(|character| character == '☐')
+        .expect("file stage marker");
+
+    assert_eq!(
+        state.handle_input(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            u16::try_from(stage_column).unwrap(),
+            u16::try_from(file_row).unwrap(),
+        )),
+        Some(DiffReviewEvent::RepositoryAction(
+            RepositoryAction::StagePaths(vec![document.files[0].path.clone()])
+        ))
+    );
 }
 
 #[test]
@@ -391,7 +479,7 @@ fn directory_entries_navigate_collapse_and_expand_without_losing_the_patch_file(
     state.handle_input(key(KeyCode::Left));
     let collapsed = draw(&mut state, 100, 12);
     assert!(collapsed.contains("▸ bin/"), "{collapsed}");
-    assert!(!collapsed.contains("☐ M main.rs"), "{collapsed}");
+    assert!(!collapsed.contains("M main.rs +1 -1"), "{collapsed}");
     assert!(
         collapsed.contains("src/bin/main.rs"),
         "active patch remains visible"
@@ -400,7 +488,7 @@ fn directory_entries_navigate_collapse_and_expand_without_losing_the_patch_file(
     state.handle_input(key(KeyCode::Enter));
     let expanded = draw(&mut state, 100, 12);
     assert!(expanded.contains("▾ bin/"), "{expanded}");
-    assert!(expanded.contains("☐ M main.rs"), "{expanded}");
+    assert!(expanded.contains("M main.rs +1 -1"), "{expanded}");
     assert_eq!(state.focus(), FocusPane::Files);
 }
 
@@ -415,7 +503,7 @@ fn initial_file_selection_is_scrolled_into_a_sorted_drawer() {
     let rendered = draw(&mut state, 100, 8);
 
     assert_eq!(state.selected_file(), Some(0));
-    assert!(rendered.contains("☐ M z.rs"), "{rendered}");
+    assert!(rendered.contains("M z.rs +1 -1"), "{rendered}");
 }
 
 #[test]
@@ -436,7 +524,7 @@ fn document_replacement_expands_the_selected_files_ancestors() {
     );
     let replaced = draw(&mut state, 100, 8);
     assert!(replaced.contains("▾ src/"), "{replaced}");
-    assert!(replaced.contains("☐ M lib.rs"), "{replaced}");
+    assert!(replaced.contains("M lib.rs +1 -1"), "{replaced}");
 }
 
 #[test]
@@ -560,21 +648,21 @@ fn the_wheel_over_the_diff_moves_one_selected_row_per_notch() {
 #[test]
 fn the_wheel_over_the_drawer_scrolls_one_file_at_a_time() {
     let mut state = DiffReviewState::new(DocumentBuilder::new().generated_files(40, 4).build());
-    // The stage marker prefix distinguishes a drawer row from the patch header,
+    // The status plus basename distinguishes a drawer row from the patch header,
     // which keeps naming the selected file.
     let first = draw(&mut state, 100, 24);
-    assert!(first.contains("\u{2610} A file_00.rs"), "{first}");
+    assert!(first.contains("A file_00.rs"), "{first}");
     assert!(first.contains("▾ src/"), "{first}");
 
     state.handle_input(mouse(MouseEventKind::ScrollDown, DRAWER_COLUMN, 5));
     let one_entry = draw(&mut state, 100, 24);
     assert!(!one_entry.contains("▾ src/"), "{one_entry}");
-    assert!(one_entry.contains("\u{2610} A file_00.rs"), "{one_entry}");
+    assert!(one_entry.contains("A file_00.rs"), "{one_entry}");
 
     state.handle_input(mouse(MouseEventKind::ScrollDown, DRAWER_COLUMN, 5));
     let scrolled = draw(&mut state, 100, 24);
-    assert!(!scrolled.contains("\u{2610} A file_00.rs"), "{scrolled}");
-    assert!(scrolled.contains("\u{2610} A file_01.rs"), "{scrolled}");
+    assert!(!scrolled.contains("A file_00.rs"), "{scrolled}");
+    assert!(scrolled.contains("A file_01.rs"), "{scrolled}");
     assert_eq!(
         state.selected_file(),
         Some(0),

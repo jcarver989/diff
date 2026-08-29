@@ -39,6 +39,7 @@ pub enum DiffReviewStatus {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct HitLayout {
     pub drawer: Rect,
+    pub drawer_stage_column: Option<u16>,
     pub patch: Rect,
 }
 
@@ -623,9 +624,9 @@ mod tests {
     use diff_core::{FileDiff, ThemeId};
 
     #[test]
-    fn new_uses_the_default_ayu_dark_theme() {
+    fn new_uses_the_default_sage_theme() {
         let state = DiffReviewState::new(Arc::new(DiffDocument::empty()));
-        assert_eq!(state.theme.id(), &ThemeId::Ayu);
+        assert_eq!(state.theme.id(), &ThemeId::Sage);
     }
 
     #[test]
