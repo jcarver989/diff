@@ -1,4 +1,6 @@
-use crate::{DiffDocument, FileDiff, FileStatus, Hunk, PatchLine, RepoPath, StageState};
+use crate::{
+    DiffDocument, FileDiff, FileStatus, Hunk, MarkdownDocument, PatchLine, RepoPath, StageState,
+};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -102,6 +104,54 @@ impl DocumentBuilder {
             repo_root: self.repo_root,
             files: self.files,
         })
+    }
+}
+
+/// Builder for parser fixtures used by Markdown tests and downstream crates.
+#[derive(Debug, Clone)]
+pub struct MarkdownDocumentBuilder {
+    source_path: Option<String>,
+    title: Option<String>,
+    source: String,
+}
+
+impl Default for MarkdownDocumentBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MarkdownDocumentBuilder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            source_path: None,
+            title: None,
+            source: String::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn source_path(mut self, source_path: impl Into<String>) -> Self {
+        self.source_path = Some(source_path.into());
+        self
+    }
+
+    #[must_use]
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    #[must_use]
+    pub fn source(mut self, source: impl Into<String>) -> Self {
+        self.source = source.into();
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> MarkdownDocument {
+        MarkdownDocument::parse_with_metadata(self.source_path, self.title, self.source)
     }
 }
 

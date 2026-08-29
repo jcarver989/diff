@@ -2,8 +2,9 @@
 
 use crate::{
     DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme,
-    annotation::{AnnotationBox, AnnotationKind, AnnotationLine, PatchVisualRow},
+    annotation::render_annotation_line,
     drawer::DrawerEntry,
+    patch_layout::PatchVisualRow,
     style::syntax_style,
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
@@ -17,7 +18,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, StatefulWidget, Widget},
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const DRAWER_BREAKPOINT: u16 = 72;
 const DRAWER_MIN_WIDTH: u16 = 20;
@@ -387,95 +387,6 @@ struct CellContext<'a> {
     row: &'a PresentedRow,
 }
 
-fn render_annotation_line(
-    area: Rect,
-    buffer: &mut Buffer,
-    theme: &RatatuiTheme,
-    annotation: &AnnotationBox,
-    line: usize,
-) {
-    let Some(line) = annotation.lines().get(line) else {
-        return;
-    };
-    let border_color = match annotation.kind() {
-        AnnotationKind::Outdated => theme.muted,
-        AnnotationKind::Comment | AnnotationKind::Draft => theme.accent,
-    };
-    let body_color = if annotation.kind() == AnnotationKind::Outdated {
-        theme.muted
-    } else {
-        theme.foreground
-    };
-    let border = Style::new().fg(border_color).bg(theme.background);
-    let body = Style::new().fg(body_color).bg(theme.background);
-    let box_area = Rect::new(
-        area.x.saturating_add(annotation.indent()),
-        area.y,
-        annotation
-            .width()
-            .min(area.width.saturating_sub(annotation.indent())),
-        1,
-    );
-    let width = usize::from(box_area.width);
-    if width == 0 {
-        return;
-    }
-    let rendered = match line {
-        AnnotationLine::Top => {
-            let available = width.saturating_sub(2);
-            let label = format!("─ {} ", annotation.title());
-            let label = fit_text(&label, available);
-            let fill = "─".repeat(available.saturating_sub(label.width()));
-            Line::from(vec![
-                Span::styled("╭", border),
-                Span::styled(
-                    label,
-                    border.add_modifier(if annotation.kind() == AnnotationKind::Draft {
-                        Modifier::BOLD
-                    } else {
-                        Modifier::empty()
-                    }),
-                ),
-                Span::styled(fill, border),
-                Span::styled("╮", border),
-            ])
-        }
-        AnnotationLine::Body(text) => {
-            let body_width = width.saturating_sub(4);
-            let fill = " ".repeat(body_width.saturating_sub(text.width()));
-            Line::from(vec![
-                Span::styled("│ ", border),
-                Span::styled(text.clone(), body),
-                Span::styled(fill, body),
-                Span::styled(" │", border),
-            ])
-        }
-        AnnotationLine::Bottom => {
-            Line::styled(format!("╰{}╯", "─".repeat(width.saturating_sub(2))), border)
-        }
-        AnnotationLine::Compact(text) => Line::from(vec![
-            Span::styled("│ ", border),
-            Span::styled(text.strip_prefix("│ ").unwrap_or(text).to_owned(), body),
-        ]),
-    };
-    Paragraph::new(rendered).render(box_area, buffer);
-}
-
-fn fit_text(text: &str, width: usize) -> String {
-    let mut used = 0_usize;
-    text.chars()
-        .take_while(|character| {
-            let next = used.saturating_add(character.width().unwrap_or(0));
-            if next > width {
-                false
-            } else {
-                used = next;
-                true
-            }
-        })
-        .collect()
-}
-
 fn render_row(
     area: Rect,
     buffer: &mut Buffer,
@@ -563,10 +474,13 @@ fn render_cell(
     let number = cell
         .line_number
         .map_or_else(String::new, |number| number.to_string());
+    let indicator = match tone {
+        DiffTone::Added | DiffTone::Removed => '▌',
+        DiffTone::Context | DiffTone::Meta => ' ',
+    };
     let gutter = format!(
-        "{number:>width$} {marker}",
+        "{indicator}{number:>width$} ",
         width = usize::from(GUTTER_WIDTH) - 2,
-        marker = tone.marker()
     );
     let highlights = context.presentation.highlight_cell(
         context.highlighter,
@@ -574,9 +488,14 @@ fn render_cell(
         context.row,
         cell,
     );
+    let gutter_foreground = match tone {
+        DiffTone::Added => context.theme.addition,
+        DiffTone::Removed => context.theme.deletion,
+        DiffTone::Context | DiffTone::Meta => context.theme.gutter,
+    };
     let mut spans = vec![Span::styled(
         gutter,
-        Style::new().fg(context.theme.gutter).bg(background),
+        Style::new().fg(gutter_foreground).bg(background),
     )];
     spans.extend(highlighted_spans(&cell.text, &highlights, background));
     Paragraph::new(Line::from(spans)).render(area, buffer);

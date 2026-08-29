@@ -7,9 +7,6 @@ use crossterm::event::{
 use diff_core::DiffSide;
 use ratatui::layout::Position;
 
-/// Presentation rows one wheel notch scrolls the patch viewport.
-const WHEEL_ROWS: isize = 3;
-
 /// Files one wheel notch scrolls the drawer. A notch is a line, not a file, so
 /// the drawer moves one entry at a time.
 const DRAWER_WHEEL_ROWS: isize = 1;
@@ -228,9 +225,9 @@ impl DiffReviewState {
         }
     }
 
-    /// Scrolls the pane under the pointer, falling back to the focused pane
-    /// when the pointer is over neither. Scrolling moves the viewport only: it
-    /// never moves the selection, and never changes which pane has focus.
+    /// Navigates the pane under the pointer, falling back to the focused pane
+    /// when the pointer is over neither. The wheel moves one diff selection or
+    /// one drawer entry per notch without changing which pane has focus.
     fn scroll_at(&mut self, position: Position, direction: isize) {
         let pane = if self.hit_layout.patch.contains(position) {
             FocusPane::Diff
@@ -240,7 +237,7 @@ impl DiffReviewState {
             self.focus
         };
         match pane {
-            FocusPane::Diff => self.scroll_patch(direction * WHEEL_ROWS),
+            FocusPane::Diff => self.move_row(direction),
             FocusPane::Files => self.scroll_drawer(direction * DRAWER_WHEEL_ROWS),
         }
     }

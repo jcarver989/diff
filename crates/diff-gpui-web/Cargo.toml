@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 diff-core = { path = "../diff-core" }
 diff-gpui = { path = "../diff-gpui" }
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 

@@ -16,6 +16,8 @@ pub struct Cli {
 pub enum Command {
     /// Review changes and return the submitted feedback on stdout.
     Review(ReviewArgs),
+    /// Review a rendered Markdown document.
+    Markdown(MarkdownArgs),
     /// Attach the TUI to an active review session.
     #[command(hide = true)]
     Attach(AttachArgs),
@@ -39,6 +41,24 @@ pub enum OutputFormat {
     #[default]
     Text,
     Json,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ClapArgs)]
+pub struct MarkdownArgs {
+    /// Markdown file to review, or `-` to read UTF-8 Markdown from stdin.
+    pub path: String,
+
+    /// Optional display title. Defaults to the first H1, then the file name.
+    #[arg(long)]
+    pub title: Option<String>,
+
+    /// User interface used for the review.
+    #[arg(long, value_enum, default_value_t = Ui::Tui)]
+    pub ui: Ui,
+
+    /// Feedback format written to stdout.
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ClapArgs)]
@@ -85,7 +105,7 @@ mod tests {
         let cli = Cli::try_parse_from(arguments).expect("arguments should parse");
         match cli.command {
             Command::Review(args) => args,
-            Command::Attach(_) => panic!("expected the review command"),
+            Command::Attach(_) | Command::Markdown(_) => panic!("expected the review command"),
         }
     }
 
@@ -121,6 +141,34 @@ mod tests {
         assert!(args.no_open);
         assert_eq!(args.repository, PathBuf::from("/tmp/repo"));
         assert_eq!(args.web_assets, Some(PathBuf::from("/tmp/web")));
+    }
+
+    #[test]
+    fn parses_markdown_path_and_stdin() {
+        let cli = Cli::try_parse_from([
+            "clankerdiff",
+            "markdown",
+            "plan.md",
+            "--title",
+            "Plan",
+            "--ui=desktop",
+            "--format=json",
+        ])
+        .unwrap();
+        let Command::Markdown(args) = cli.command else {
+            panic!("markdown command")
+        };
+        assert_eq!(args.path, "plan.md");
+        assert_eq!(args.title.as_deref(), Some("Plan"));
+        assert_eq!(args.ui, Ui::Desktop);
+        assert_eq!(args.format, OutputFormat::Json);
+
+        let cli = Cli::try_parse_from(["clankerdiff", "markdown", "-"]).unwrap();
+        let Command::Markdown(args) = cli.command else {
+            panic!("markdown command")
+        };
+        assert_eq!(args.path, "-");
+        assert_eq!(args.ui, Ui::Tui);
     }
 
     #[test]

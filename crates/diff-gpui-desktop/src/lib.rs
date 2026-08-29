@@ -2,15 +2,17 @@
 
 mod app;
 pub mod args;
+mod markdown_app;
 mod window_chrome;
 
 use app::DesktopApp;
 use args::CliArgs;
-use diff_core::{DiffScope, ReviewSubmission};
-use diff_gpui::{DiffViewer, load_default_fonts};
+use diff_core::{DiffScope, MarkdownDocument, MarkdownReviewSubmission, ReviewSubmission};
+use diff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
 use gpui::{
     App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
+use markdown_app::MarkdownDesktopApp;
 use std::{path::PathBuf, sync::mpsc};
 
 fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
@@ -42,6 +44,28 @@ pub fn run(args: CliArgs) {
 pub fn run_review(repository: PathBuf, scope: DiffScope) -> Option<ReviewSubmission> {
     let (sender, receiver) = mpsc::channel();
     run_application(CliArgs { repository, scope }, Some(sender));
+    receiver.try_recv().ok().flatten()
+}
+
+/// Runs a one-shot rendered Markdown review.
+///
+/// Closing or cancelling the window returns `None`.
+///
+/// # Panics
+/// Panics when bundled fonts cannot be loaded or the native window cannot open.
+#[must_use]
+pub fn run_markdown_review(document: MarkdownDocument) -> Option<MarkdownReviewSubmission> {
+    let (sender, receiver) = mpsc::channel();
+    gpui_platform::application().run(move |cx: &mut App| {
+        load_default_fonts(cx).expect("failed to load the bundled fonts");
+        MarkdownReviewer::bind_keys(cx);
+        let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
+        cx.open_window(window_options(bounds), |_window, cx| {
+            cx.new(|cx| MarkdownDesktopApp::new(std::sync::Arc::new(document), sender, cx))
+        })
+        .expect("failed to open the Markdown review window");
+        cx.activate(true);
+    });
     receiver.try_recv().ok().flatten()
 }
 

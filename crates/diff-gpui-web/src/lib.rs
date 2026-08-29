@@ -5,7 +5,8 @@
 //! Review submission is dispatched on `document` as a `diff-review-submit`
 //! `CustomEvent`; its `detail` is a serialized `ReviewSubmission` JSON string.
 
-use diff_core::{DiffDocument, DiffTheme};
+use diff_core::{DiffDocument, DiffTheme, MarkdownDocument};
+use serde::{Deserialize, Serialize};
 
 /// Errors returned while validating commands from JavaScript.
 #[derive(Debug, thiserror::Error)]
@@ -13,6 +14,9 @@ pub enum WebError {
     /// The supplied document was not valid `DiffDocument` JSON.
     #[error("invalid diff document JSON: {0}")]
     InvalidDocument(#[from] serde_json::Error),
+    /// The supplied Markdown source payload was malformed.
+    #[error("invalid Markdown document payload: {0}")]
+    InvalidMarkdownPayload(serde_json::Error),
     /// The selected embedded theme is not available.
     #[error("unknown theme `{0}`; expected `sage` or `ayu-dark`")]
     UnknownTheme(String),
@@ -24,16 +28,57 @@ pub enum WebError {
     CommandChannelClosed,
 }
 
+/// Decodes a serialized diff document command.
+///
+/// # Errors
+/// Returns an error when `json` is not a valid diff document.
 pub fn decode_document(json: &str) -> Result<DiffDocument, WebError> {
     serde_json::from_str(json).map_err(WebError::from)
 }
 
+/// Source-oriented payload used by browser hosts so parsing remains in Rust.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkdownSourcePayload {
+    pub source: String,
+    pub source_path: Option<String>,
+    pub title: Option<String>,
+}
+
+/// Decodes and parses a Markdown browser command payload.
+///
+/// # Errors
+/// Returns an error when `json` is not a valid Markdown source payload.
+pub fn decode_markdown_document(json: &str) -> Result<MarkdownDocument, WebError> {
+    let payload: MarkdownSourcePayload =
+        serde_json::from_str(json).map_err(WebError::InvalidMarkdownPayload)?;
+    Ok(MarkdownDocument::parse_with_metadata(
+        payload.source_path,
+        payload.title,
+        payload.source,
+    ))
+}
+
+/// Markdown-specific browser event names; existing diff event names remain unchanged.
+pub const MARKDOWN_SET_DOCUMENT_EVENT: &str = "markdown-review-set-document";
+pub const MARKDOWN_CLEAR_EVENT: &str = "markdown-review-clear";
+pub const MARKDOWN_SUBMIT_EVENT: &str = "markdown-review-submit";
+pub const MARKDOWN_COPY_EVENT: &str = "markdown-review-copy";
+pub const MARKDOWN_CANCEL_EVENT: &str = "markdown-review-cancel";
+
+/// Returns the checked-in browser demonstration document.
+///
+/// # Panics
+/// Panics if the checked-in JSON fixture is invalid.
 #[must_use]
 pub fn demo_document() -> DiffDocument {
     decode_document(include_str!("../demo-document.json"))
         .expect("the checked-in web demo document must be valid")
 }
 
+/// Resolves an embedded browser theme name.
+///
+/// # Errors
+/// Returns an error when the name is unknown or its theme cannot be parsed.
 pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
     match name.trim().to_ascii_lowercase().as_str() {
         "sage" => DiffTheme::sage().map_err(|_| WebError::UnknownTheme(name.into())),
@@ -44,10 +89,17 @@ pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
-    use super::{WebError, decode_document, decode_theme, demo_document};
+    use super::{
+        MARKDOWN_CANCEL_EVENT, MARKDOWN_CLEAR_EVENT, MARKDOWN_COPY_EVENT,
+        MARKDOWN_SET_DOCUMENT_EVENT, MARKDOWN_SUBMIT_EVENT, WebError, decode_document,
+        decode_markdown_document, decode_theme, demo_document,
+    };
     use async_channel::{Receiver, Sender};
-    use diff_core::{DiffDocument, DiffReviewEvent, DiffTheme, ReviewSubmission};
-    use diff_gpui::{DiffViewer, load_default_fonts};
+    use diff_core::{
+        DiffDocument, DiffReviewEvent, DiffTheme, MarkdownDocument, MarkdownReviewEvent,
+        MarkdownReviewSubmission, ReviewSubmission,
+    };
+    use diff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
         Window, WindowBounds, WindowOptions, prelude::*, px, size,
@@ -64,12 +116,15 @@ mod wasm {
     enum WebCommand {
         SetDocument(Arc<DiffDocument>),
         SetTheme(DiffTheme),
+        SetMarkdownDocument(Arc<MarkdownDocument>),
         ClearReview,
     }
 
     struct WebRoot {
         viewer: Entity<DiffViewer>,
         _viewer_subscription: Subscription,
+        markdown: Option<Entity<MarkdownReviewer>>,
+        markdown_subscription: Option<Subscription>,
         _command_task: Task<()>,
     }
 
@@ -80,11 +135,10 @@ mod wasm {
                 .subscribe(&viewer, |_this, _viewer, event: &DiffReviewEvent, _cx| {
                     dispatch_viewer_event(event)
                 });
-            let weak_viewer = viewer.downgrade();
-            let command_task = cx.spawn(async move |_this, cx| {
+            let command_task = cx.spawn(async move |this, cx| {
                 while let Ok(command) = receiver.recv().await {
-                    if weak_viewer
-                        .update(cx, |viewer, cx| apply_command(viewer, command, cx))
+                    if this
+                        .update(cx, |root, cx| root.apply_command(command, cx))
                         .is_err()
                     {
                         break;
@@ -95,22 +149,60 @@ mod wasm {
             Self {
                 viewer,
                 _viewer_subscription: viewer_subscription,
+                markdown: None,
+                markdown_subscription: None,
                 _command_task: command_task,
             }
+        }
+
+        fn apply_command(&mut self, command: WebCommand, cx: &mut Context<Self>) {
+            match command {
+                WebCommand::SetDocument(document) => {
+                    self.markdown = None;
+                    self.markdown_subscription = None;
+                    self.viewer
+                        .update(cx, |viewer, cx| viewer.set_document(document, cx));
+                }
+                WebCommand::SetMarkdownDocument(document) => {
+                    if let Some(markdown) = &self.markdown {
+                        markdown.update(cx, |reviewer, cx| reviewer.set_document(document, cx));
+                    } else {
+                        let markdown = cx.new(|_| MarkdownReviewer::new(document));
+                        self.markdown_subscription = Some(cx.subscribe(
+                            &markdown,
+                            |_this, _reviewer, event: &MarkdownReviewEvent, _cx| {
+                                dispatch_markdown_event(event);
+                            },
+                        ));
+                        self.markdown = Some(markdown);
+                    }
+                }
+                WebCommand::SetTheme(theme) => {
+                    if let Some(markdown) = &self.markdown {
+                        markdown.update(cx, |reviewer, cx| reviewer.set_theme(theme, cx));
+                    } else {
+                        self.viewer
+                            .update(cx, |viewer, cx| viewer.set_theme(theme, cx));
+                    }
+                }
+                WebCommand::ClearReview => {
+                    if let Some(markdown) = &self.markdown {
+                        markdown.update(cx, MarkdownReviewer::clear_review);
+                    } else {
+                        self.viewer.update(cx, DiffViewer::clear_review);
+                    }
+                }
+            }
+            cx.notify();
         }
     }
 
     impl Render for WebRoot {
         fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            self.viewer.clone()
-        }
-    }
-
-    fn apply_command(viewer: &mut DiffViewer, command: WebCommand, cx: &mut Context<DiffViewer>) {
-        match command {
-            WebCommand::SetDocument(document) => viewer.set_document(document, cx),
-            WebCommand::SetTheme(theme) => viewer.set_theme(theme, cx),
-            WebCommand::ClearReview => viewer.clear_review(cx),
+            self.markdown.as_ref().map_or_else(
+                || self.viewer.clone().into_any_element(),
+                |reviewer| reviewer.clone().into_any_element(),
+            )
         }
     }
 
@@ -125,6 +217,26 @@ mod wasm {
         if let Err(error) = result {
             web_sys::console::error_1(&error);
         }
+    }
+
+    fn dispatch_markdown_event(event: &MarkdownReviewEvent) {
+        let result = match event {
+            MarkdownReviewEvent::Submit(submission) => dispatch_markdown_submission(submission),
+            MarkdownReviewEvent::CopyFormatted(text) => {
+                dispatch_custom_event(MARKDOWN_COPY_EVENT, Some(text))
+            }
+            MarkdownReviewEvent::Cancel => dispatch_custom_event(MARKDOWN_CANCEL_EVENT, None),
+        };
+        if let Err(error) = result {
+            web_sys::console::error_1(&error);
+        }
+    }
+
+    fn dispatch_markdown_submission(submission: &MarkdownReviewSubmission) -> Result<(), JsValue> {
+        let json = serde_json::to_string(submission).map_err(|error| {
+            JsValue::from_str(&format!("failed to serialize Markdown review: {error}"))
+        })?;
+        dispatch_custom_event(MARKDOWN_SUBMIT_EVENT, Some(&json))
     }
 
     fn dispatch_submission(submission: &ReviewSubmission) -> Result<(), JsValue> {
@@ -172,6 +284,11 @@ mod wasm {
             .ok_or_else(|| JsValue::from_str("browser document is unavailable"))?;
 
         install_string_command(&document, "diff-review-set-document", set_document_json)?;
+        install_string_command(
+            &document,
+            MARKDOWN_SET_DOCUMENT_EVENT,
+            set_markdown_document_json,
+        )?;
         install_string_command(&document, "diff-review-set-theme", set_theme)?;
 
         let clear = Closure::<dyn FnMut(CustomEvent)>::new(|_event: CustomEvent| {
@@ -184,6 +301,17 @@ mod wasm {
             clear.as_ref().unchecked_ref(),
         )?;
         clear.forget();
+
+        let clear_markdown = Closure::<dyn FnMut(CustomEvent)>::new(|_event: CustomEvent| {
+            if let Err(error) = clear_review() {
+                web_sys::console::error_1(&error);
+            }
+        });
+        document.add_event_listener_with_callback(
+            MARKDOWN_CLEAR_EVENT,
+            clear_markdown.as_ref().unchecked_ref(),
+        )?;
+        clear_markdown.forget();
         Ok(())
     }
 
@@ -226,6 +354,7 @@ mod wasm {
         let application = single_threaded_web().run_embedded(move |cx: &mut App| {
             load_default_fonts(cx).expect("failed to load the bundled fonts");
             DiffViewer::bind_keys(cx);
+            MarkdownReviewer::bind_keys(cx);
             let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
             cx.open_window(
                 WindowOptions {
@@ -249,6 +378,13 @@ mod wasm {
         send(WebCommand::SetDocument(Arc::new(document))).map_err(js_error)
     }
 
+    /// Switches the root to rendered Markdown and parses the source payload in Rust.
+    #[wasm_bindgen]
+    pub fn set_markdown_document_json(json: &str) -> Result<(), JsValue> {
+        let document = decode_markdown_document(json).map_err(js_error)?;
+        send(WebCommand::SetMarkdownDocument(Arc::new(document))).map_err(js_error)
+    }
+
     /// Selects an embedded theme (`sage`, `ayu`, or `ayu-dark`).
     #[wasm_bindgen]
     pub fn set_theme(name: &str) -> Result<(), JsValue> {
@@ -264,7 +400,7 @@ mod wasm {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{clear_review, set_document_json, set_theme, start};
+pub use wasm::{clear_review, set_document_json, set_markdown_document_json, set_theme, start};
 
 #[cfg(test)]
 mod tests {
@@ -291,6 +427,29 @@ mod tests {
             decode_document("not json"),
             Err(WebError::InvalidDocument(_))
         ));
+    }
+
+    #[test]
+    fn decodes_markdown_source_payload_in_rust() {
+        let document = decode_markdown_document(
+            r##"{"source":"# Plan","source_path":"plan.md","title":"Review"}"##,
+        )
+        .unwrap();
+        assert_eq!(document.source(), "# Plan");
+        assert_eq!(document.source_path(), Some("plan.md"));
+        assert_eq!(document.title(), Some("Review"));
+        assert_eq!(document.outline()[0].title, "Plan");
+        assert!(matches!(
+            decode_markdown_document("not json"),
+            Err(WebError::InvalidMarkdownPayload(_))
+        ));
+    }
+
+    #[test]
+    fn markdown_event_names_do_not_overlap_diff_events() {
+        assert_eq!(MARKDOWN_SUBMIT_EVENT, "markdown-review-submit");
+        assert_ne!(MARKDOWN_SUBMIT_EVENT, "diff-review-submit");
+        assert_eq!(MARKDOWN_SET_DOCUMENT_EVENT, "markdown-review-set-document");
     }
 
     #[test]

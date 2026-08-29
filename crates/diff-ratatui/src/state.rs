@@ -1,6 +1,6 @@
 use crate::{
-    annotation::PatchVisualLayout,
     drawer::{DrawerEntry, DrawerTree},
+    patch_layout::PatchVisualLayout,
 };
 use diff_core::{
     DiffDocument, DiffPresentation, DiffSide, DiffTheme, HighlightStats, Layout, Review,
@@ -383,8 +383,12 @@ impl DiffReviewState {
     }
 
     pub(crate) fn move_row(&mut self, delta: isize) {
+        let selected = self.session.selected_row();
+        let side = self.session.selected_side();
         self.session.move_row(delta);
-        self.request_follow();
+        if self.session.selected_row() != selected || self.session.selected_side() != side {
+            self.request_follow();
+        }
     }
 
     pub(crate) fn select_boundary(&mut self, end: bool) {
@@ -392,9 +396,8 @@ impl DiffReviewState {
         self.request_follow();
     }
 
-    /// Scrolls the patch viewport without moving the selection, the way a
-    /// mouse wheel does. The selection may leave the viewport; the next
-    /// keyboard move brings it back.
+    /// Scrolls the patch viewport without moving the selection. The selection
+    /// may leave the viewport; the next selection move brings it back.
     pub(crate) fn scroll_patch(&mut self, delta: isize) {
         let Some(layout) = self.patch_visual_layout() else {
             return;

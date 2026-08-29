@@ -3,8 +3,11 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{DiffDocument, ReviewSubmission};
-use diff_ratatui::{DiffReviewEvent, DiffReviewState, DiffReviewWidget, handle_crossterm_event};
+use diff_core::{DiffDocument, MarkdownDocument, MarkdownReviewSubmission, ReviewSubmission};
+use diff_ratatui::{
+    DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
+    MarkdownReviewWidget, handle_crossterm_event, handle_markdown_crossterm_event,
+};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     env,
@@ -97,6 +100,53 @@ fn run(document: Arc<DiffDocument>) -> Result<Option<ReviewSubmission>, TuiError
             }
         }
     }
+}
+
+pub fn run_markdown(
+    document: Arc<MarkdownDocument>,
+) -> Result<Option<MarkdownReviewSubmission>, TuiError> {
+    if !stdin().is_terminal() || !stderr().is_terminal() {
+        return Err(TuiError::NoTerminal);
+    }
+
+    let _session = TerminalSession::enter()?;
+    let backend = CrosstermBackend::new(stderr());
+    let mut terminal = Terminal::new(backend)?;
+    let mut state = MarkdownReviewState::new(document);
+    loop {
+        if state.is_dirty() {
+            terminal.draw(|frame| {
+                frame.render_stateful_widget(MarkdownReviewWidget::new(), frame.area(), &mut state);
+                if let Some(position) = state.cursor_position() {
+                    frame.set_cursor_position(position);
+                }
+            })?;
+        }
+        match apply_markdown_event(&mut state, event::read()?)? {
+            MarkdownEventOutcome::Continue => {}
+            MarkdownEventOutcome::Cancelled => return Ok(None),
+            MarkdownEventOutcome::Submitted(submission) => return Ok(Some(submission)),
+        }
+    }
+}
+
+fn apply_markdown_event(
+    state: &mut MarkdownReviewState,
+    event: Event,
+) -> Result<MarkdownEventOutcome, TuiError> {
+    Ok(match handle_markdown_crossterm_event(state, event)? {
+        Some(MarkdownReviewEvent::Submit(submission)) => {
+            MarkdownEventOutcome::Submitted(submission)
+        }
+        Some(MarkdownReviewEvent::Cancel) => MarkdownEventOutcome::Cancelled,
+        Some(MarkdownReviewEvent::CopyFormatted(_)) | None => MarkdownEventOutcome::Continue,
+    })
+}
+
+enum MarkdownEventOutcome {
+    Continue,
+    Cancelled,
+    Submitted(MarkdownReviewSubmission),
 }
 
 struct Session {
@@ -246,6 +296,8 @@ pub enum TuiError {
     ProtocolUtf8(#[from] std::str::Utf8Error),
     #[error("the review service returned invalid JSON: {0}")]
     ProtocolJson(#[source] serde_json::Error),
+    #[error("Markdown review action failed: {0}")]
+    MarkdownReview(#[from] diff_core::MarkdownReviewError),
     #[error("terminal or review service I/O failed: {0}")]
     Io(#[from] io::Error),
 }

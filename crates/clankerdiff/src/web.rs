@@ -1,4 +1,4 @@
-use diff_core::{DiffDocument, ReviewSubmission};
+use diff_core::{DiffDocument, MarkdownDocument, MarkdownReviewSubmission, ReviewSubmission};
 use rand::RngCore;
 use std::{
     env,
@@ -63,6 +63,31 @@ pub fn run(
     })
 }
 
+pub fn run_markdown(
+    document: &MarkdownDocument,
+    options: &Options,
+) -> Result<Option<MarkdownReviewSubmission>, WebError> {
+    let assets = resolve_assets(options.assets.as_deref())?;
+    let index = match &assets {
+        Some(assets) => {
+            fs::read_to_string(assets.join("index.html")).map_err(|source| WebError::Asset {
+                path: assets.join("index.html"),
+                source,
+            })?
+        }
+        None => BUILTIN_INDEX.to_owned(),
+    };
+    let host = WebHost { assets, index };
+    serve_markdown(document, options.port, &host, |url| {
+        eprintln!("Markdown review ready at {url}");
+        if options.no_open {
+            Ok(())
+        } else {
+            open::that(url).map_err(|error| error.to_string())
+        }
+    })
+}
+
 pub fn run_tui_session(
     document: &DiffDocument,
     port: u16,
@@ -86,9 +111,10 @@ fn serve(
     let document_json = serde_json::to_vec(document)?;
     for connection in listener.incoming() {
         let mut stream = connection?;
-        match handle_connection(&mut stream, host, &token, &document_json) {
+        match handle_connection(&mut stream, host, &token, &document_json, ReviewKind::Diff) {
             Ok(ConnectionOutcome::Continue) => {}
-            Ok(ConnectionOutcome::Submitted(submission)) => return Ok(Some(submission)),
+            Ok(ConnectionOutcome::DiffSubmitted(submission)) => return Ok(Some(submission)),
+            Ok(ConnectionOutcome::MarkdownSubmitted(_)) => unreachable!("diff session kind"),
             Ok(ConnectionOutcome::Cancelled) => return Ok(None),
             Err(error) => {
                 eprintln!("review session request failed: {error}");
@@ -104,6 +130,56 @@ fn serve(
     Err(WebError::ServerStopped)
 }
 
+fn serve_markdown(
+    document: &MarkdownDocument,
+    port: u16,
+    host: &WebHost,
+    launch: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<Option<MarkdownReviewSubmission>, WebError> {
+    let token = session_token();
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))?;
+    let address = listener.local_addr()?;
+    let url = format!("http://127.0.0.1:{}/session/{token}/", address.port());
+    launch(&url).map_err(WebError::Launch)?;
+    let payload = serde_json::json!({
+        "source": document.source(),
+        "source_path": document.source_path(),
+        "title": document.title(),
+    });
+    let document_json = serde_json::to_vec(&payload)?;
+    for connection in listener.incoming() {
+        let mut stream = connection?;
+        match handle_connection(
+            &mut stream,
+            Some(host),
+            &token,
+            &document_json,
+            ReviewKind::Markdown,
+        ) {
+            Ok(ConnectionOutcome::Continue) => {}
+            Ok(ConnectionOutcome::MarkdownSubmitted(submission)) => return Ok(Some(submission)),
+            Ok(ConnectionOutcome::DiffSubmitted(_)) => unreachable!("Markdown session kind"),
+            Ok(ConnectionOutcome::Cancelled) => return Ok(None),
+            Err(error) => {
+                eprintln!("Markdown review session request failed: {error}");
+                let _ = respond(
+                    &mut stream,
+                    400,
+                    "text/plain; charset=utf-8",
+                    b"bad request",
+                );
+            }
+        }
+    }
+    Err(WebError::ServerStopped)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ReviewKind {
+    Diff,
+    Markdown,
+}
+
 struct WebHost {
     assets: Option<PathBuf>,
     index: String,
@@ -114,6 +190,7 @@ fn handle_connection(
     host: Option<&WebHost>,
     token: &str,
     document: &[u8],
+    kind: ReviewKind,
 ) -> Result<ConnectionOutcome, WebError> {
     let request = Request::read(stream)?;
     let session_root = format!("/session/{token}/");
@@ -125,7 +202,7 @@ fn handle_connection(
         && request.path == session_root
         && let Some(host) = host
     {
-        let html = inject_bridge(&host.index, token);
+        let html = inject_bridge(&host.index, token, kind);
         respond(stream, 200, "text/html; charset=utf-8", html.as_bytes())?;
         return Ok(ConnectionOutcome::Continue);
     }
@@ -134,9 +211,16 @@ fn handle_connection(
         return Ok(ConnectionOutcome::Continue);
     }
     if request.method == "POST" && request.path == submit_path {
-        let submission = serde_json::from_slice(&request.body)?;
+        let outcome = match kind {
+            ReviewKind::Diff => {
+                ConnectionOutcome::DiffSubmitted(serde_json::from_slice(&request.body)?)
+            }
+            ReviewKind::Markdown => {
+                ConnectionOutcome::MarkdownSubmitted(serde_json::from_slice(&request.body)?)
+            }
+        };
         respond(stream, 204, "text/plain", b"")?;
-        return Ok(ConnectionOutcome::Submitted(submission));
+        return Ok(outcome);
     }
     if request.method == "POST" && request.path == cancel_path {
         respond(stream, 204, "text/plain", b"")?;
@@ -171,20 +255,34 @@ fn handle_connection(
     Ok(ConnectionOutcome::Continue)
 }
 
-fn inject_bridge(index: &str, token: &str) -> String {
+fn inject_bridge(index: &str, token: &str, kind: ReviewKind) -> String {
+    let (set_event, submit_event, cancel_event, noun) = match kind {
+        ReviewKind::Diff => (
+            "diff-review-set-document",
+            "diff-review-submit",
+            "diff-review-cancel",
+            "diff",
+        ),
+        ReviewKind::Markdown => (
+            "markdown-review-set-document",
+            "markdown-review-submit",
+            "markdown-review-cancel",
+            "Markdown document",
+        ),
+    };
     let bridge = format!(
         r#"<script>
 const reviewApi = "/api/{token}";
 const loadReviewDocument = () => fetch(reviewApi + "/document")
-  .then(response => {{ if (!response.ok) throw new Error("failed to load diff"); return response.text(); }})
-  .then(documentJson => document.dispatchEvent(new CustomEvent("diff-review-set-document", {{ detail: documentJson }})))
+  .then(response => {{ if (!response.ok) throw new Error("failed to load {noun}"); return response.text(); }})
+  .then(documentJson => document.dispatchEvent(new CustomEvent("{set_event}", {{ detail: documentJson }})))
   .catch(error => console.error(error));
 if (window.wasmBindings) {{
   loadReviewDocument();
 }} else {{
   window.addEventListener("TrunkApplicationStarted", loadReviewDocument, {{ once: true }});
 }}
-document.addEventListener("diff-review-submit", async event => {{
+document.addEventListener("{submit_event}", async event => {{
   const response = await fetch(reviewApi + "/submit", {{
     method: "POST",
     headers: {{ "Content-Type": "application/json" }},
@@ -193,7 +291,7 @@ document.addEventListener("diff-review-submit", async event => {{
   if (!response.ok) {{ console.error("failed to submit review"); return; }}
   document.body.innerHTML = '<main style="display:grid;place-items:center;height:100%;color:#d6d9dc;font:18px sans-serif">Feedback sent. You can close this tab.</main>';
 }});
-document.addEventListener("diff-review-cancel", async () => {{
+document.addEventListener("{cancel_event}", async () => {{
   await fetch(reviewApi + "/cancel", {{ method: "POST" }});
   document.body.innerHTML = '<main style="display:grid;place-items:center;height:100%;color:#d6d9dc;font:18px sans-serif">Review cancelled. You can close this tab.</main>';
 }});
@@ -340,7 +438,8 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 enum ConnectionOutcome {
     Continue,
-    Submitted(ReviewSubmission),
+    DiffSubmitted(ReviewSubmission),
+    MarkdownSubmitted(MarkdownReviewSubmission),
     Cancelled,
 }
 
@@ -372,11 +471,16 @@ mod tests {
 
     #[test]
     fn bridge_contains_token_and_review_events() {
-        let html = inject_bridge("<body></body>", "secret");
+        let html = inject_bridge("<body></body>", "secret", ReviewKind::Diff);
         assert!(html.contains("/api/secret"));
         assert!(html.contains("diff-review-submit"));
         assert!(html.contains("diff-review-set-document"));
         assert!(html.contains("diff-review-cancel"));
+
+        let markdown = inject_bridge("<body></body>", "secret", ReviewKind::Markdown);
+        assert!(markdown.contains("markdown-review-set-document"));
+        assert!(markdown.contains("markdown-review-submit"));
+        assert!(markdown.contains("markdown-review-cancel"));
     }
 
     #[test]

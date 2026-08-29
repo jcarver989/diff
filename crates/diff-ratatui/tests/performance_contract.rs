@@ -2,10 +2,10 @@
 
 mod support;
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, MouseEventKind};
 use diff_core::{DiffDocument, testing::DocumentBuilder};
 use std::sync::Arc;
-use support::{ReviewHarness, key};
+use support::{ReviewHarness, key, mouse};
 
 fn large_document(rows: usize) -> Arc<DiffDocument> {
     DocumentBuilder::new()
@@ -50,6 +50,24 @@ fn moving_one_row_changes_only_a_bounded_screen_region() {
     assert!(
         moved.backend.cells_drawn <= u64::from(WIDTH) * 3,
         "one-row navigation changed {} cells",
+        moved.backend.cells_drawn
+    );
+    assert_eq!(moved.highlight_misses, 0);
+}
+
+#[test]
+fn one_wheel_notch_changes_only_a_bounded_screen_region() {
+    const WIDTH: u16 = 100;
+    const PATCH_COLUMN: u16 = 60;
+    let mut harness = ReviewHarness::new(large_document(10_000), WIDTH, 24);
+    harness.draw();
+    harness.input(key(KeyCode::Enter));
+    harness.draw();
+
+    let moved = harness.input_and_draw(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 5));
+    assert!(
+        moved.backend.cells_drawn <= u64::from(WIDTH) * 3,
+        "one wheel notch changed {} cells",
         moved.backend.cells_drawn
     );
     assert_eq!(moved.highlight_misses, 0);

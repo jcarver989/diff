@@ -37,8 +37,6 @@ pub struct UntrackedFile {
 }
 
 /// Parses and normalizes a multi-file Git diff.
-/// Paths are decoded by `diffy`, stripped of Git's synthetic `a/` and `b/`
-/// prefixes, and then validated as UTF-8 repository-relative paths.
 pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(Vec::new());
@@ -188,8 +186,6 @@ fn mode_string(mode: FileMode) -> String {
     .to_owned()
 }
 
-/// Parses `git status --porcelain=v1 -z` output without treating paths as
-/// whitespace-delimited text.
 pub fn parse_porcelain_v1_z(bytes: &[u8]) -> Result<Vec<GitStatusEntry>, DiffError> {
     let mut fields = bytes.split(|byte| *byte == 0);
     let mut entries = Vec::new();
@@ -255,7 +251,6 @@ const fn file_status(value: char) -> FileStatus {
 }
 
 impl DiffDocument {
-    /// Builds a canonical snapshot from Git diff and porcelain status output.
     pub fn from_git_outputs(
         repo_root: impl Into<String>,
         diff: &[u8],
@@ -265,7 +260,6 @@ impl DiffDocument {
         Self::from_git_outputs_with_untracked(repo_root, diff, porcelain, scope, &[])
     }
 
-    /// Builds a snapshot and appends host-provided untracked file contents.
     pub fn from_git_outputs_with_untracked(
         repo_root: impl Into<String>,
         diff: &[u8],

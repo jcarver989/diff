@@ -3,7 +3,10 @@
 use crate::{DiffTone, Fingerprint};
 use serde::{Deserialize, Serialize};
 use std::{fmt, io::Cursor};
-use syntect::highlighting::{Color, Theme as SyntectTheme, ThemeSet};
+use syntect::{
+    highlighting::{Color, Theme as SyntectTheme, ThemeSet},
+    parsing::Scope,
+};
 
 /// An sRGB color with an explicit alpha channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -18,6 +21,27 @@ impl Rgba {
     #[must_use]
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
+    }
+
+    /// Composites this color over an opaque background.
+    #[must_use]
+    pub const fn over(self, background: Self) -> Self {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the weighted average of two u8 channels is at most u8::MAX"
+        )]
+        const fn channel(foreground: u8, background: u8, alpha: u8) -> u8 {
+            let foreground = foreground as u32 * alpha as u32;
+            let background = background as u32 * (u8::MAX - alpha) as u32;
+            ((foreground + background + 127) / 255) as u8
+        }
+
+        Self::new(
+            channel(self.r, background.r, self.a),
+            channel(self.g, background.g, self.a),
+            channel(self.b, background.b, self.a),
+            u8::MAX,
+        )
     }
 
     #[must_use]
@@ -129,14 +153,17 @@ impl DiffPalette {
 
 impl Default for DiffPalette {
     fn default() -> Self {
+        let background = Rgba::new(21, 29, 31, 255);
+        let addition = Rgba::new(179, 215, 98, 255);
+        let deletion = Rgba::new(223, 120, 122, 255);
         Self {
-            background: Rgba::new(21, 29, 31, 255),
+            background,
             foreground: Rgba::new(212, 221, 214, 255),
             gutter: Rgba::new(80, 96, 91, 255),
-            addition: Rgba::new(143, 188, 176, 255),
-            deletion: Rgba::new(191, 97, 106, 255),
-            addition_background: Rgba::new(41, 70, 61, 180),
-            deletion_background: Rgba::new(77, 42, 48, 180),
+            addition,
+            deletion,
+            addition_background: diff_background(addition, background),
+            deletion_background: diff_background(deletion, background),
             selection: Rgba::new(143, 188, 176, 45),
             accent: Rgba::new(143, 188, 176, 255),
             muted: Rgba::new(125, 143, 136, 255),
@@ -174,6 +201,10 @@ pub struct DiffTheme {
 }
 
 impl DiffTheme {
+    /// Parses a `TextMate` theme and derives its semantic palette.
+    ///
+    /// # Errors
+    /// Returns an error when the theme bytes are invalid.
     pub fn from_bytes(id: ThemeId, bytes: &[u8]) -> Result<Self, ThemeError> {
         let syntax = ThemeSet::load_from_reader(&mut Cursor::new(bytes)).map_err(|source| {
             ThemeError::Parse {
@@ -191,12 +222,19 @@ impl DiffTheme {
         let settings = &syntax.settings;
         let derive =
             |color: Option<Color>, default: Rgba| color.map_or(default, Rgba::from_syntect);
+        let background = derive(settings.background, fallback.background);
+        let addition = scope_foreground(&syntax, "markup.inserted", fallback.addition);
+        let deletion = scope_foreground(&syntax, "markup.deleted", fallback.deletion);
         let palette = DiffPalette {
             foreground: derive(settings.foreground, fallback.foreground),
-            background: derive(settings.background, fallback.background),
+            background,
             accent: derive(settings.accent, fallback.accent),
             gutter: derive(settings.gutter_foreground, fallback.gutter),
             selection: derive(settings.selection, fallback.selection),
+            addition,
+            deletion,
+            addition_background: diff_background(addition, background),
+            deletion_background: diff_background(deletion, background),
             ..fallback
         };
         let revision = parsed_theme_revision(&id, &palette, &syntax);
@@ -235,6 +273,35 @@ impl DiffTheme {
     pub fn ayu() -> Result<Self, ThemeError> {
         Self::from_bytes(ThemeId::Ayu, include_bytes!("../assets/ayu-dark.tmTheme"))
     }
+}
+
+const DIFF_BACKGROUND_ALPHA: u8 = 31;
+
+fn scope_foreground(theme: &SyntectTheme, scope: &str, fallback: Rgba) -> Rgba {
+    let Ok(scope) = Scope::new(scope) else {
+        return fallback;
+    };
+    theme
+        .scopes
+        .iter()
+        .find(|item| {
+            item.scope
+                .selectors
+                .iter()
+                .any(|selector| selector.extract_single_scope() == Some(scope))
+        })
+        .and_then(|item| item.style.foreground)
+        .map_or(fallback, Rgba::from_syntect)
+}
+
+const fn diff_background(foreground: Rgba, background: Rgba) -> Rgba {
+    Rgba::new(
+        foreground.r,
+        foreground.g,
+        foreground.b,
+        DIFF_BACKGROUND_ALPHA,
+    )
+    .over(background)
 }
 
 fn parsed_theme_revision(
@@ -301,6 +368,23 @@ mod tests {
             palette.tone(DiffTone::Meta).background,
             palette.tone(DiffTone::Context).background
         );
+    }
+
+    #[test]
+    fn diff_backgrounds_are_subtle_opaque_theme_tints() {
+        let palette = DiffPalette::default();
+        assert_eq!(palette.addition_background, Rgba::new(40, 52, 39, 255));
+        assert_eq!(palette.deletion_background, Rgba::new(46, 40, 42, 255));
+
+        let ayu = DiffTheme::default();
+        assert_eq!(ayu.palette().addition, Rgba::new(194, 217, 76, 255));
+        assert_eq!(ayu.palette().deletion, Rgba::new(255, 51, 51, 255));
+        assert_eq!(ayu.palette().addition_background.a, 255);
+        assert_eq!(ayu.palette().deletion_background.a, 255);
+
+        let sage = DiffTheme::sage().unwrap();
+        assert_eq!(sage.palette().addition, Rgba::new(167, 192, 128, 255));
+        assert_eq!(sage.palette().deletion, Rgba::new(230, 126, 128, 255));
     }
 
     #[test]

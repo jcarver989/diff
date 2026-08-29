@@ -1,5 +1,18 @@
-use diff_core::{CommentDraft, ReviewComment, ReviewSession};
+//! Renderer-neutral Ratatui annotation layout primitives.
+//!
+//! This module deliberately knows nothing about diff reviews. Diff-specific
+//! comments are converted to [`AnnotationBox`] values by `patch_layout`.
+
+use crate::RatatuiTheme;
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::{Paragraph, Widget},
+};
 use std::collections::BTreeMap;
+use std::ops::Range;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const LEFT_INDENT: u16 = 2;
@@ -22,6 +35,7 @@ pub(crate) enum AnnotationLine {
     Compact(String),
 }
 
+/// The terminal representation of one saved comment or active draft.
 #[derive(Debug, Clone)]
 pub(crate) struct AnnotationBox {
     kind: AnnotationKind,
@@ -33,31 +47,8 @@ pub(crate) struct AnnotationBox {
 }
 
 impl AnnotationBox {
-    pub(crate) fn comment(comment: &ReviewComment, available_width: u16) -> Self {
-        let kind = if comment.outdated {
-            AnnotationKind::Outdated
-        } else {
-            AnnotationKind::Comment
-        };
-        let title = if comment.outdated {
-            "Outdated comment"
-        } else {
-            "Comment"
-        };
-        Self::new(kind, title, &comment.body, None, available_width)
-    }
-
-    pub(crate) fn draft(draft: &CommentDraft, available_width: u16) -> Self {
-        Self::new(
-            AnnotationKind::Draft,
-            "Draft",
-            draft.body(),
-            Some(draft.cursor()),
-            available_width,
-        )
-    }
-
-    fn new(
+    /// Lays out an annotation without depending on a particular review model.
+    pub(crate) fn new(
         kind: AnnotationKind,
         title: &str,
         body: &str,
@@ -73,7 +64,7 @@ impl AnnotationBox {
             let prefix = format!("│ {title}: ");
             let text = fit_to_width(
                 &format!("{prefix}{}", body.replace('\n', " ⏎ ")),
-                compact_width,
+                usize::from(compact_width),
             );
             let cursor = cursor.map(|cursor| {
                 let before = format!("{prefix}{}", body[..cursor].replace('\n', " ⏎ "));
@@ -148,22 +139,15 @@ impl AnnotationBox {
     }
 }
 
+/// A source row or an annotation row inserted immediately after a source row.
 #[derive(Debug, Clone)]
-pub(crate) enum PatchVisualRow<'a> {
+pub(crate) enum AnnotationRow<'a> {
     Source(usize),
     Annotation {
         source: usize,
         annotation: &'a AnnotationBox,
         line: usize,
     },
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct PatchVisualLayout {
-    range_start: usize,
-    source_rows: usize,
-    annotations: Vec<AnchoredAnnotations>,
-    total_rows: usize,
 }
 
 #[derive(Debug)]
@@ -173,32 +157,22 @@ struct AnchoredAnnotations {
     extra_rows: usize,
 }
 
-impl PatchVisualLayout {
-    pub(crate) fn new(session: &ReviewSession, range: std::ops::Range<usize>, width: u16) -> Self {
-        let mut anchored: BTreeMap<usize, Vec<AnnotationBox>> = BTreeMap::new();
-        for comment in session.review().comments() {
-            if let Some(row) = session
-                .presentation()
-                .row_showing_anchor(&comment.anchor)
-                .filter(|row| range.contains(row))
-            {
-                anchored
-                    .entry(row)
-                    .or_default()
-                    .push(AnnotationBox::comment(comment, width));
-            }
-        }
-        if let Some(draft) = session.draft()
-            && let Some(row) = session
-                .presentation()
-                .row_showing_anchor(draft.anchor())
-                .filter(|row| range.contains(row))
-        {
-            anchored
-                .entry(row)
-                .or_default()
-                .push(AnnotationBox::draft(draft, width));
-        }
+/// Inserts laid-out annotation boxes into a source-row sequence.
+///
+/// This is intentionally independent of review comments and anchors. A
+/// renderer can provide any source-row index and any number of boxes at that
+/// index, while preserving the invariant that boxes are rendered after their
+/// source row.
+#[derive(Debug, Default)]
+pub(crate) struct AnnotationLayout {
+    range_start: usize,
+    source_rows: usize,
+    annotations: Vec<AnchoredAnnotations>,
+    total_rows: usize,
+}
+
+impl AnnotationLayout {
+    pub(crate) fn new(range: Range<usize>, anchored: BTreeMap<usize, Vec<AnnotationBox>>) -> Self {
         let annotations: Vec<_> = anchored
             .into_iter()
             .map(|(source, boxes)| AnchoredAnnotations {
@@ -264,7 +238,7 @@ impl PatchVisualLayout {
         Some(source_offset)
     }
 
-    pub(crate) fn row(&self, visual: usize) -> Option<PatchVisualRow<'_>> {
+    pub(crate) fn row(&self, visual: usize) -> Option<AnnotationRow<'_>> {
         if visual >= self.total_rows {
             return None;
         }
@@ -275,18 +249,18 @@ impl PatchVisualLayout {
                 .saturating_sub(self.range_start)
                 .saturating_add(extras);
             if visual < source_offset {
-                return Some(PatchVisualRow::Source(
+                return Some(AnnotationRow::Source(
                     self.range_start + visual.saturating_sub(extras),
                 ));
             }
             if visual == source_offset {
-                return Some(PatchVisualRow::Source(annotation.source));
+                return Some(AnnotationRow::Source(annotation.source));
             }
             if visual <= source_offset.saturating_add(annotation.extra_rows) {
                 let mut line = visual - source_offset - 1;
                 for entry in &annotation.boxes {
                     if line < entry.lines.len() {
-                        return Some(PatchVisualRow::Annotation {
+                        return Some(AnnotationRow::Annotation {
                             source: annotation.source,
                             annotation: entry,
                             line,
@@ -297,7 +271,7 @@ impl PatchVisualLayout {
             }
             extras = extras.saturating_add(annotation.extra_rows);
         }
-        Some(PatchVisualRow::Source(
+        Some(AnnotationRow::Source(
             self.range_start + visual.saturating_sub(extras),
         ))
     }
@@ -343,8 +317,7 @@ fn wrap_with_cursor(
     (lines, cursor_position)
 }
 
-fn fit_to_width(text: &str, width: u16) -> String {
-    let width = usize::from(width);
+fn fit_to_width(text: &str, width: usize) -> String {
     let mut used = 0_usize;
     text.chars()
         .take_while(|character| {
@@ -361,6 +334,81 @@ fn fit_to_width(text: &str, width: u16) -> String {
 
 fn display_width(text: &str) -> u16 {
     u16::try_from(text.width()).unwrap_or(u16::MAX)
+}
+
+/// Renders one laid-out annotation row using the shared Ratatui theme.
+pub(crate) fn render_annotation_line(
+    area: Rect,
+    buffer: &mut Buffer,
+    theme: &RatatuiTheme,
+    annotation: &AnnotationBox,
+    line: usize,
+) {
+    let Some(line) = annotation.lines().get(line) else {
+        return;
+    };
+    let border_color = match annotation.kind() {
+        AnnotationKind::Outdated => theme.muted,
+        AnnotationKind::Comment | AnnotationKind::Draft => theme.accent,
+    };
+    let body_color = if annotation.kind() == AnnotationKind::Outdated {
+        theme.muted
+    } else {
+        theme.foreground
+    };
+    let border = Style::new().fg(border_color).bg(theme.background);
+    let body = Style::new().fg(body_color).bg(theme.background);
+    let box_area = Rect::new(
+        area.x.saturating_add(annotation.indent()),
+        area.y,
+        annotation
+            .width()
+            .min(area.width.saturating_sub(annotation.indent())),
+        1,
+    );
+    let width = usize::from(box_area.width);
+    if width == 0 {
+        return;
+    }
+    let rendered = match line {
+        AnnotationLine::Top => {
+            let available = width.saturating_sub(2);
+            let label = format!("─ {} ", annotation.title());
+            let label = fit_to_width(&label, available);
+            let fill = "─".repeat(available.saturating_sub(label.width()));
+            Line::from(vec![
+                Span::styled("╭", border),
+                Span::styled(
+                    label,
+                    border.add_modifier(if annotation.kind() == AnnotationKind::Draft {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+                ),
+                Span::styled(fill, border),
+                Span::styled("╮", border),
+            ])
+        }
+        AnnotationLine::Body(text) => {
+            let body_width = width.saturating_sub(4);
+            let fill = " ".repeat(body_width.saturating_sub(text.width()));
+            Line::from(vec![
+                Span::styled("│ ", border),
+                Span::styled(text.clone(), body),
+                Span::styled(fill, body),
+                Span::styled(" │", border),
+            ])
+        }
+        AnnotationLine::Bottom => {
+            Line::styled(format!("╰{}╯", "─".repeat(width.saturating_sub(2))), border)
+        }
+        AnnotationLine::Compact(text) => Line::from(vec![
+            Span::styled("│ ", border),
+            Span::styled(text.strip_prefix("│ ").unwrap_or(text).to_owned(), body),
+        ]),
+    };
+    Paragraph::new(rendered).render(box_area, buffer);
 }
 
 #[cfg(test)]
@@ -410,5 +458,32 @@ mod tests {
         assert!(matches!(box_layout.lines[1], AnnotationLine::Body(ref body) if body == "body"));
         assert!(matches!(box_layout.lines[2], AnnotationLine::Bottom));
         assert_eq!(box_layout.indent, LEFT_INDENT);
+    }
+
+    #[test]
+    fn inserts_annotations_after_their_source_rows() {
+        let mut anchored = BTreeMap::new();
+        anchored.insert(
+            1,
+            vec![AnnotationBox::new(
+                AnnotationKind::Comment,
+                "Comment",
+                "body",
+                None,
+                30,
+            )],
+        );
+        let layout = AnnotationLayout::new(0..3, anchored);
+        assert!(matches!(layout.row(0), Some(AnnotationRow::Source(0))));
+        assert!(matches!(layout.row(1), Some(AnnotationRow::Source(1))));
+        assert!(matches!(
+            layout.row(2),
+            Some(AnnotationRow::Annotation {
+                source: 1,
+                line: 0,
+                ..
+            })
+        ));
+        assert!(matches!(layout.row(5), Some(AnnotationRow::Source(2))));
     }
 }

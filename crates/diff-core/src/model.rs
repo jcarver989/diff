@@ -10,7 +10,6 @@ use std::{fmt, path::Path, str::FromStr, sync::Arc};
 pub struct RepoPath(Arc<str>);
 
 impl RepoPath {
-    /// Validates and constructs a UTF-8 Git path without normalizing its bytes.
     pub fn new(path: impl AsRef<str>) -> Result<Self, RepoPathError> {
         let raw = path.as_ref();
         if raw.is_empty() {
@@ -353,7 +352,6 @@ impl Hunk {
 }
 
 impl FileDiff {
-    /// Builds a normalized diff from two UTF-8 file contents.
     pub fn from_texts<T>(path: T, old: &str, new: &str) -> Result<Self, DiffError>
     where
         T: TryInto<RepoPath>,

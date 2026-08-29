@@ -64,6 +64,43 @@ fn narrow_and_wide_views_share_core_presentation() {
 }
 
 #[test]
+fn changed_rows_use_semantic_gutter_bars_and_line_numbers() {
+    let width = 60;
+    let mut state = DiffReviewState::new(changed_document());
+    let mut terminal = Terminal::new(TestBackend::new(width, 12)).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), &mut state);
+        })
+        .expect("draw widget");
+
+    let buffer = terminal.backend().buffer();
+    let theme = RatatuiTheme::from(&DiffTheme::default());
+    for (source, foreground) in [
+        ("fn old() {}", theme.deletion),
+        ("fn new() {}", theme.addition),
+    ] {
+        let row = buffer
+            .content()
+            .chunks(usize::from(width))
+            .find(|row| {
+                row.iter()
+                    .map(ratatui::buffer::Cell::symbol)
+                    .collect::<String>()
+                    .contains(source)
+            })
+            .expect("changed source row");
+        let indicator = row
+            .iter()
+            .position(|cell| cell.symbol() == "▌")
+            .expect("changed-row indicator");
+        assert_eq!(row[indicator].fg, foreground);
+        assert_eq!(row[indicator + 4].symbol(), "1");
+        assert_eq!(row[indicator + 4].fg, foreground);
+    }
+}
+
+#[test]
 fn comment_crud_and_host_events_are_structured() {
     let mut state = DiffReviewState::new(changed_document());
     state.handle_input(key(KeyCode::Enter));
@@ -284,7 +321,7 @@ fn comments_render_as_padded_themed_boxes() {
 }
 
 #[test]
-fn tall_comment_boxes_can_be_scrolled_line_by_line() {
+fn tall_comment_boxes_can_be_paged_line_by_line() {
     let mut state = DiffReviewState::new(changed_document());
     let anchor = state.session().selected_anchor().expect("selected anchor");
     let body = (0..14)
@@ -297,7 +334,7 @@ fn tall_comment_boxes_can_be_scrolled_line_by_line() {
     assert!(!top.contains("comment line 13"), "{top}");
 
     for _ in 0..5 {
-        state.handle_input(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 3));
+        state.handle_input(key(KeyCode::PageDown));
     }
     let bottom = draw(&mut state, 80, 8);
 
@@ -416,6 +453,7 @@ fn diff_and_drawer_render_scrollbars_without_covering_content() {
     );
     assert!(top.contains("let file_00_rs_value_1"), "{top}");
 
+    state.handle_input(key(KeyCode::Enter));
     let selected = state.selected_row();
     for _ in 0..10 {
         state.handle_input(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 5));
@@ -425,7 +463,7 @@ fn diff_and_drawer_render_scrollbars_without_covering_content() {
         top, scrolled,
         "scrolling should move patch content and its thumb"
     );
-    assert_eq!(state.selected_row(), selected);
+    assert_ne!(state.selected_row(), selected);
     assert!(
         scrolled.contains('█') || scrolled.contains('║'),
         "{scrolled}"
@@ -490,24 +528,23 @@ const DRAWER_COLUMN: u16 = 5;
 const PATCH_COLUMN: u16 = 60;
 
 #[test]
-fn the_wheel_scrolls_the_pane_under_the_pointer_and_leaves_the_selection_alone() {
-    let mut state = DiffReviewState::new(DocumentBuilder::new().generated_files(40, 60).build());
-    draw(&mut state, 100, 24);
-    let selected_row = state.selected_row();
-    assert_eq!(state.focus(), FocusPane::Files);
+fn the_wheel_over_the_diff_moves_one_selected_row_per_notch() {
+    let document = DocumentBuilder::new().generated_files(40, 60).build();
+    let mut keyboard = DiffReviewState::new(document.clone());
+    draw(&mut keyboard, 100, 24);
+    keyboard.handle_input(key(KeyCode::Enter));
+    let first_row = keyboard.selected_row();
+    keyboard.handle_input(key(KeyCode::Down));
+    let next_row = keyboard.selected_row();
 
-    // Pointing at the patch scrolls the patch, even though the drawer has focus.
+    let mut state = DiffReviewState::new(document);
+    draw(&mut state, 100, 24);
+    assert_eq!(state.focus(), FocusPane::Files);
+    assert_eq!(state.selected_row(), first_row);
+
     state.handle_input(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 5));
     draw(&mut state, 100, 24);
-    assert!(
-        state.scroll_offset() > 0,
-        "the wheel should scroll the patch"
-    );
-    assert_eq!(
-        state.selected_row(),
-        selected_row,
-        "scrolling must not move the selection"
-    );
+    assert_eq!(state.selected_row(), next_row);
     assert_eq!(state.selected_file(), Some(0), "no file switch");
     assert_eq!(
         state.focus(),
@@ -515,11 +552,9 @@ fn the_wheel_scrolls_the_pane_under_the_pointer_and_leaves_the_selection_alone()
         "scrolling must not steal focus"
     );
 
-    // Scrolling back up returns the viewport without disturbing the selection.
     state.handle_input(mouse(MouseEventKind::ScrollUp, PATCH_COLUMN, 5));
     draw(&mut state, 100, 24);
-    assert_eq!(state.scroll_offset(), 0);
-    assert_eq!(state.selected_row(), selected_row);
+    assert_eq!(state.selected_row(), first_row);
 }
 
 #[test]
@@ -583,7 +618,7 @@ fn keyboard_navigation_brings_a_scrolled_away_selection_back() {
     let selected = state.selected_row().expect("selected row");
 
     for _ in 0..20 {
-        state.handle_input(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 5));
+        state.handle_input(key(KeyCode::PageDown));
     }
     draw(&mut state, 100, 24);
     assert!(

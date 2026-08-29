@@ -1,13 +1,21 @@
-use crate::{DiffViewer, ViewerPane, comment_editor::CommentEditor, style};
-use diff_core::{DiffSide, PresentedCell, PresentedRow, ReviewComment, RowKind};
+use crate::{
+    DiffViewer, ViewerPane,
+    annotation::{
+        add_comment_button, comment_action_button, comment_card, comment_count_marker,
+        comment_editor_card,
+    },
+    comment_editor::CommentEditor,
+    style,
+};
+use diff_core::{DiffSide, DiffTone, PresentedCell, PresentedRow, ReviewComment, RowKind};
 use gpui::{
     AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState, MouseButton,
     MouseDownEvent, Pixels, SharedString, StyledText, Window, div, list, point, prelude::*, px,
 };
 use std::cell::Cell;
 
+const CHANGE_INDICATOR_WIDTH: f32 = 5.0;
 const GUTTER_WIDTH: f32 = 54.0;
-const MARKER_WIDTH: f32 = 20.0;
 const HEADER_HEIGHT: f32 = 52.0;
 const SCROLLBAR_WIDTH: f32 = 20.0;
 const MIN_THUMB_HEIGHT: f32 = 30.0;
@@ -398,15 +406,23 @@ impl DiffViewer {
         if commentable {
             element = element.hover(|hover| hover.bg(style::color(palette.selection)));
         }
+        let indicator_color = match tone {
+            DiffTone::Added => Some(palette.addition),
+            DiffTone::Removed => Some(palette.deletion),
+            DiffTone::Context | DiffTone::Meta => None,
+        };
         element
-            .child(self.render_comment_gutter(index, side, cell, commentable, hover_group, cx))
             .child(
                 div()
-                    .w(px(MARKER_WIDTH))
+                    .w(px(CHANGE_INDICATOR_WIDTH))
+                    .min_h(px(self.diff_row_height()))
+                    .self_stretch()
                     .flex_shrink_0()
-                    .text_color(style::color(colors.foreground))
-                    .child(tone.marker().to_string()),
+                    .when_some(indicator_color, |indicator, color| {
+                        indicator.bg(style::color(color))
+                    }),
             )
+            .child(self.render_comment_gutter(index, side, cell, commentable, hover_group, cx))
             .child(
                 div()
                     .min_w_0()
@@ -416,14 +432,11 @@ impl DiffViewer {
                     .child(styled),
             )
             .when(comments != 0, |value| {
-                value.child(
-                    div()
-                        .flex_shrink_0()
-                        .px_2()
-                        .text_size(px(self.metadata_font_size()))
-                        .text_color(style::color(palette.accent))
-                        .child(format!("{comments} 💬")),
-                )
+                value.child(comment_count_marker(
+                    comments,
+                    self.metadata_font_size(),
+                    palette.accent,
+                ))
             })
             .into_any_element()
     }
@@ -438,12 +451,17 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> Div {
         let palette = self.theme().palette();
+        let foreground = match cell.tone {
+            DiffTone::Added => palette.addition,
+            DiffTone::Removed => palette.deletion,
+            DiffTone::Context | DiffTone::Meta => palette.gutter,
+        };
         div()
             .w(px(GUTTER_WIDTH))
             .min_h(px(20.0))
             .flex_shrink_0()
             .relative()
-            .text_color(style::color(palette.muted))
+            .text_color(style::color(foreground))
             .text_right()
             .pr_2()
             .child(
@@ -452,28 +470,15 @@ impl DiffViewer {
             )
             .when(commentable, |gutter| {
                 gutter.child(
-                    div()
-                        .id(format!("add-comment-{index}-{side:?}"))
-                        .absolute()
-                        .left(px(5.0))
-                        .top(px(1.0))
-                        .size(px(18.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .invisible()
-                        .group_hover(hover_group, gpui::Styled::visible)
-                        .cursor_pointer()
-                        .bg(style::color(palette.accent))
-                        .text_color(style::color(palette.background))
-                        .font_weight(gpui::FontWeight::BOLD)
-                        .hover(|button| button.opacity(0.85))
-                        .child("+")
-                        .on_click(cx.listener(move |viewer, _, window, cx| {
-                            cx.stop_propagation();
-                            viewer.begin_comment(index, side, window, cx);
-                        })),
+                    add_comment_button(
+                        format!("add-comment-{index}-{side:?}"),
+                        hover_group,
+                        palette,
+                    )
+                    .on_click(cx.listener(move |viewer, _, window, cx| {
+                        cx.stop_propagation();
+                        viewer.begin_comment(index, side, window, cx);
+                    })),
                 )
             })
     }
@@ -573,34 +578,14 @@ impl DiffViewer {
                             .anchor
                             .line_number()
                             .map_or_else(|| "line".to_owned(), |line| format!("line {line}"));
-                        div()
-                            .id(("review-comment", comment.id))
-                            .w_full()
-                            .flex()
-                            .flex_col()
-                            .when(offset != last_comment, |comment| {
-                                comment
-                                    .border_b_1()
-                                    .border_color(style::color(palette.border))
-                            })
-                            .child(
-                                div()
-                                    .px_3()
-                                    .py_2()
-                                    .bg(style::color(palette.selection))
-                                    .text_size(px(self.metadata_font_size()))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(style::color(palette.muted))
-                                    .child(format!("Your comment on {side} {line}")),
-                            )
-                            .child(
-                                div()
-                                    .p_3()
-                                    .bg(style::color(palette.background))
-                                    .text_color(style::color(palette.foreground))
-                                    .whitespace_normal()
-                                    .child(comment.body),
-                            )
+                        comment_card(
+                            comment.id,
+                            format!("Your comment on {side} {line}"),
+                            comment.body,
+                            self.metadata_font_size(),
+                            &palette,
+                            offset == last_comment,
+                        )
                     })),
             )
             .into_any_element()
@@ -621,6 +606,17 @@ impl DiffViewer {
             .map_or_else(|| "line".to_owned(), |number| format!("line {number}"));
         let side_label = if side == DiffSide::Old { "old" } else { "new" };
         let can_submit = !editor.read(cx).is_blank();
+        let cancel_button =
+            comment_action_button(("cancel-comment", index), "Cancel", palette.muted)
+                .on_click(cx.listener(|viewer, _, _, cx| viewer.discard_comment(cx)));
+        let mut submit_button =
+            comment_action_button(("submit-comment", index), "Add comment", palette.background)
+                .bg(style::color(palette.accent));
+        if can_submit {
+            submit_button = submit_button.on_click(cx.listener(|viewer, _, _, cx| {
+                viewer.finish_comment(cx);
+            }));
+        }
 
         div()
             .id(("comment-dialog", index))
@@ -628,66 +624,14 @@ impl DiffViewer {
             .px_3()
             .pb_3()
             .bg(style::color(palette.background))
-            .child(
-                div()
-                    .w_full()
-                    .p_3()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(style::color(palette.border))
-                    .bg(style::color(palette.selection))
-                    .child(
-                        div()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(style::color(palette.foreground))
-                            .child(format!("Add a comment on {side_label} {line}")),
-                    )
-                    .child(editor)
-                    .child(
-                        div()
-                            .w_full()
-                            .flex()
-                            .justify_end()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .id(("cancel-comment", index))
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_sm()
-                                    .cursor_pointer()
-                                    .text_color(style::color(palette.muted))
-                                    .hover(|button| button.opacity(0.8))
-                                    .child("Cancel")
-                                    .on_click(cx.listener(|viewer, _, _, cx| {
-                                        viewer.discard_comment(cx);
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id(("submit-comment", index))
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_sm()
-                                    .bg(style::color(palette.accent))
-                                    .text_color(style::color(palette.background))
-                                    .when(can_submit, |button| {
-                                        button
-                                            .cursor_pointer()
-                                            .hover(|button| button.opacity(0.85))
-                                            .on_click(cx.listener(|viewer, _, _, cx| {
-                                                viewer.finish_comment(cx);
-                                            }))
-                                    })
-                                    .when(!can_submit, |button| button.opacity(0.45))
-                                    .child("Add comment"),
-                            ),
-                    ),
-            )
+            .child(comment_editor_card(
+                editor,
+                format!("Add a comment on {side_label} {line}"),
+                can_submit,
+                &palette,
+                cancel_button,
+                submit_button,
+            ))
             .into_any_element()
     }
 
