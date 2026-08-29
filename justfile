@@ -44,6 +44,10 @@ lint: clankerdiff-web-assets
 wasm-check:
     cargo check -p diff-core -p diff-gpui -p diff-gpui-web --target wasm32-unknown-unknown
 
+# Build the release WASM and execute its smoke test in Chromium.
+web-test:
+    cd crates/diff-gpui-web && npm ci && npx playwright install chromium && npm test
+
 fmt:
     cargo fmt --all
 

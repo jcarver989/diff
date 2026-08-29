@@ -65,6 +65,7 @@ impl DiffViewer {
         let start = file_range.start;
         let row_count = file_range.len();
         let split = self.layout().is_split();
+        self.reserve_highlights_for_viewport(f32::from(window.viewport_size().height));
         let list_state = self.sync_diff_list(file_index, row_count, split);
         list_state.set_scroll_handler({
             let viewer = cx.entity().downgrade();

@@ -1,39 +1,20 @@
-//! Pure-Rust syntax highlighting with UTF-8 byte spans and a bounded cache.
+//! Tree-sitter syntax highlighting with UTF-8 byte spans and a bounded cache.
 
-use crate::{DiffTheme, Fingerprint, FontStyle, HighlightSpan, Rgba};
+use crate::{DiffTheme, Fingerprint, HighlightSpan, language::resolve_language};
+use arborium::{Config, Highlighter};
+use arborium_highlight::spans_to_flat_tokens;
+use arborium_theme::tag_to_name;
 use std::{
-    borrow::Cow,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fmt,
     sync::{Arc, OnceLock},
 };
-use syntect::{
-    easy::HighlightLines,
-    highlighting::{
-        FontStyle as SyntectFontStyle, HighlightIterator, HighlightState, Highlighter, Style,
-    },
-    parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxReference, SyntaxSet},
-};
-
-/// Span sets a highlighter caches by default. One visible cell asks for one
-/// entry, so this holds several viewports and switching files stays warm.
 const DEFAULT_CAPACITY: usize = 512;
-
-/// Cached span sets reserved per viewport row by
-/// [`SyntaxHighlighter::reserve_for_viewport`].
 const CAPACITY_PER_ROW: usize = 8;
-
-/// Incremental parsers kept alive at once. A viewport spans few hunks, and each
-/// parser retains its own snapshots.
 const MAX_SEQUENCES: usize = 32;
-
-/// Lines between the parser snapshots that let a backward jump rewind instead
-/// of re-parsing a sequence from its first line.
-const CHECKPOINT_INTERVAL: usize = 64;
-
-/// Snapshots kept per sequence. Passing it halves the snapshots and doubles the
-/// interval, so a long sequence stays bounded at the cost of coarser rewinds.
-const MAX_CHECKPOINTS: usize = 64;
+/// Maximum preceding lines parsed to reconstruct multiline state after a jump.
+pub const PARSE_CONTEXT_LINES: usize = 1_024;
+const MAX_PREFETCH_LINES: usize = 4_096;
 
 /// A shared empty span set, for text with nothing to highlight.
 #[must_use]
@@ -49,121 +30,27 @@ pub struct HighlightStats {
     pub hits: u64,
     pub misses: u64,
     pub evictions: u64,
+    /// Bytes actually supplied to Tree-sitter parsers.
     pub bytes: usize,
-}
-
-fn syntax_set() -> &'static SyntaxSet {
-    static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SYNTAX_SET.get_or_init(|| {
-        let rust = SyntaxDefinition::load_from_str(
-            include_str!("../assets/syntaxes/Rust.sublime-syntax"),
-            true,
-            Some("Rust"),
-        )
-        .expect("vendored Rust syntax must parse");
-        let mut builder = two_face::syntax::extra_newlines().into_builder();
-        // Syntax lookup searches newest definitions first, so this current Rust
-        // grammar supersedes the older one embedded in two-face.
-        builder.add(rust);
-        builder.build()
-    })
 }
 
 /// A reusable syntax highlighter. Entries are evicted oldest-first when full.
 pub struct SyntaxHighlighter {
-    syntax: &'static SyntaxSet,
+    highlighter: Highlighter,
     capacity: usize,
+    prefetch_lines: usize,
     cache: HashMap<Fingerprint, Arc<[HighlightSpan]>>,
     order: VecDeque<Fingerprint>,
-    sequences: HashMap<Fingerprint, SequenceState>,
+    sequences: HashSet<Fingerprint>,
     sequence_order: VecDeque<Fingerprint>,
     stats: HighlightStats,
-}
-
-/// A parser position a sequence can rewind to, captured before its line is
-/// parsed.
-struct Checkpoint {
-    line: usize,
-    parse: ParseState,
-    highlight: HighlightState,
-}
-
-struct SequenceState {
-    parse: ParseState,
-    highlight: HighlightState,
-    next_line: usize,
-    checkpoints: Vec<Checkpoint>,
-    checkpoint_stride: usize,
-}
-
-impl SequenceState {
-    fn new(syntax: &SyntaxReference, highlighter: &Highlighter<'_>) -> Self {
-        Self {
-            parse: ParseState::new(syntax),
-            highlight: HighlightState::new(highlighter, ScopeStack::new()),
-            next_line: 0,
-            checkpoints: Vec::new(),
-            checkpoint_stride: CHECKPOINT_INTERVAL,
-        }
-    }
-
-    /// Moves the parser to a line at or before `target`. A parser already past
-    /// it rewinds to the nearest snapshot, and restarts only when no snapshot
-    /// covers the target.
-    fn seek(&mut self, target: usize, syntax: &SyntaxReference, highlighter: &Highlighter<'_>) {
-        if self.next_line <= target {
-            return;
-        }
-        let Some(index) = self
-            .checkpoints
-            .iter()
-            .rposition(|point| point.line <= target)
-        else {
-            self.parse = ParseState::new(syntax);
-            self.highlight = HighlightState::new(highlighter, ScopeStack::new());
-            self.next_line = 0;
-            return;
-        };
-        let point = &self.checkpoints[index];
-        self.parse = point.parse.clone();
-        self.highlight = point.highlight.clone();
-        self.next_line = point.line;
-    }
-
-    /// Snapshots the parser before `line` is parsed, when `line` sits on the
-    /// current stride and no snapshot covers it yet.
-    fn checkpoint(&mut self, line: usize) {
-        if !line.is_multiple_of(self.checkpoint_stride)
-            || self
-                .checkpoints
-                .last()
-                .is_some_and(|point| point.line >= line)
-        {
-            return;
-        }
-        self.checkpoints.push(Checkpoint {
-            line,
-            parse: self.parse.clone(),
-            highlight: self.highlight.clone(),
-        });
-        if self.checkpoints.len() <= MAX_CHECKPOINTS {
-            return;
-        }
-        let mut thinned = Vec::with_capacity(self.checkpoints.len().div_ceil(2));
-        for (index, point) in self.checkpoints.drain(..).enumerate() {
-            if index % 2 == 0 {
-                thinned.push(point);
-            }
-        }
-        self.checkpoints = thinned;
-        self.checkpoint_stride = self.checkpoint_stride.saturating_mul(2);
-    }
 }
 
 impl fmt::Debug for SyntaxHighlighter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SyntaxHighlighter")
             .field("capacity", &self.capacity)
+            .field("prefetch_lines", &self.prefetch_lines)
             .field("entries", &self.cache.len())
             .field("sequences", &self.sequences.len())
             .field("stats", &self.stats)
@@ -181,12 +68,17 @@ impl SyntaxHighlighter {
     /// Creates a highlighter with at most `capacity` cached sources.
     #[must_use]
     pub fn new(capacity: usize) -> Self {
+        let config = Config {
+            max_injection_depth: 3,
+            ..Config::default()
+        };
         Self {
-            syntax: syntax_set(),
+            highlighter: Highlighter::with_config(config),
             capacity,
+            prefetch_lines: 0,
             cache: HashMap::new(),
             order: VecDeque::new(),
-            sequences: HashMap::new(),
+            sequences: HashSet::new(),
             sequence_order: VecDeque::new(),
             stats: HighlightStats::default(),
         }
@@ -202,16 +94,15 @@ impl SyntaxHighlighter {
         self.capacity
     }
 
-    /// Grows the cache to hold what a `rows`-tall viewport asks for, so a
-    /// viewport taller than [`DEFAULT_CAPACITY`] assumes does not evict the
-    /// rows it is still drawing. The capacity never shrinks, and a highlighter
-    /// built with capacity zero stays uncached, so hosts may call this every
-    /// frame.
+    /// Reserves cache space and records bounded sequence prefetch for a
+    /// viewport. Prefetch spans two viewports because after a jump the miss
+    /// lands on the top visible row: one viewport reaches the bottom of the
+    /// screen and the second is lookahead for the scroll that follows.
     pub fn reserve_for_viewport(&mut self, rows: usize) {
-        if self.capacity == 0 {
-            return;
+        self.prefetch_lines = rows.saturating_mul(2).min(MAX_PREFETCH_LINES);
+        if self.capacity != 0 {
+            self.capacity = self.capacity.max(rows.saturating_mul(CAPACITY_PER_ROW));
         }
-        self.capacity = self.capacity.max(rows.saturating_mul(CAPACITY_PER_ROW));
     }
 
     pub fn clear_cache(&mut self) {
@@ -221,19 +112,19 @@ impl SyntaxHighlighter {
         self.sequence_order.clear();
     }
 
-    /// Highlights `source`, resolving common names, extensions, and aliases.
+    /// Highlights a complete source. Hints may be IDs, aliases, or repository paths.
     pub fn highlight(
         &mut self,
         theme: &DiffTheme,
-        language: &str,
+        hint: &str,
         source: &str,
     ) -> Arc<[HighlightSpan]> {
         self.stats.calls += 1;
-        let language = canonical_language(language);
-        let revision = theme.revision();
+        let language = resolve_language(hint, source);
+        let id = language.unwrap_or("plain");
         let key = Fingerprint::of([
-            revision.as_bytes().as_slice(),
-            language.as_bytes(),
+            theme.revision().as_bytes().as_slice(),
+            id.as_bytes(),
             source.as_bytes(),
         ]);
         if let Some(spans) = self.cache.get(&key) {
@@ -241,19 +132,24 @@ impl SyntaxHighlighter {
             return Arc::clone(spans);
         }
         self.stats.misses += 1;
-        self.stats.bytes += source.len();
-        let spans: Arc<[HighlightSpan]> =
-            Arc::from(self.highlight_uncached(theme, &language, source));
+        let Some(language) = language else {
+            let spans = empty_spans();
+            self.store(key, Arc::clone(&spans));
+            return spans;
+        };
+        self.stats.bytes = self.stats.bytes.saturating_add(source.len());
+        let spans = highlight_source(&mut self.highlighter, theme, language, source)
+            .map_or_else(empty_spans, Arc::from);
         self.store(key, Arc::clone(&spans));
         spans
     }
 
-    /// Highlights line `target` of `lines` with a parser that keeps its place
-    /// between calls, so walking a hunk costs one line of work per line.
+    /// Highlights one sequence line using bounded preceding context and viewport prefetch.
+    /// Constructs beginning more than [`PARSE_CONTEXT_LINES`] earlier rely on parser recovery.
     pub fn highlight_in_sequence<'a, T>(
         &mut self,
         theme: &DiffTheme,
-        language: &str,
+        hint: &str,
         sequence: Fingerprint,
         target: usize,
         lines: T,
@@ -262,51 +158,57 @@ impl SyntaxHighlighter {
         T: IntoIterator<Item = &'a str>,
     {
         self.stats.calls += 1;
-        let language = canonical_language(language);
-        let revision = theme.revision();
+        let language = resolve_language(hint, "");
+        let id = language.unwrap_or("plain");
         let sequence_key = Fingerprint::of([
-            revision.as_bytes().as_slice(),
-            language.as_bytes(),
+            theme.revision().as_bytes().as_slice(),
+            id.as_bytes(),
             sequence.as_bytes().as_slice(),
         ]);
-        if let Some(spans) = self.cache.get(&sequence_line_key(sequence_key, target)) {
+        let target_key = sequence_line_key(sequence_key, target);
+        if let Some(spans) = self.cache.get(&target_key) {
             self.stats.hits += 1;
             return Arc::clone(spans);
         }
         self.stats.misses += 1;
+        let Some(language) = language else {
+            return empty_spans();
+        };
 
-        let syntax = resolve_syntax(self.syntax, &language);
-        let highlighter = Highlighter::new(theme.syntax());
         self.reserve_sequence(sequence_key);
-        let state = self
-            .sequences
-            .entry(sequence_key)
-            .or_insert_with(|| SequenceState::new(syntax, &highlighter));
-        state.seek(target, syntax, &highlighter);
+        let first = target.saturating_sub(PARSE_CONTEXT_LINES);
+        let last = target.saturating_add(self.prefetch_lines);
+        let selected: Vec<(usize, &str)> = lines
+            .into_iter()
+            .enumerate()
+            .skip(first)
+            .take(last.saturating_sub(first).saturating_add(1))
+            .collect();
+        if selected.iter().all(|(index, _)| *index != target) {
+            return empty_spans();
+        }
 
+        let window = SourceWindow::new(selected);
+        // The cache must hold two full parse windows at once: split view
+        // interleaves an old- and a new-side sequence per row, and a cache
+        // smaller than that lets each side's miss evict the spans the other
+        // side just parsed, degrading every cell to a full context re-parse.
+        if self.capacity != 0 {
+            self.capacity = self.capacity.max(window.lines.len().saturating_mul(2));
+        }
+        self.stats.bytes = self.stats.bytes.saturating_add(window.source.len());
+        let global = highlight_source(&mut self.highlighter, theme, language, &window.source);
+        let per_line = global.as_deref().map_or_else(
+            || vec![Vec::new(); window.lines.len()],
+            |spans| window.split(spans),
+        );
         let mut target_spans = None;
-        let mut parsed = Vec::new();
-        for (index, line) in lines.into_iter().enumerate().skip(state.next_line) {
-            if index > target {
-                break;
-            }
-            self.stats.bytes += line.len();
-            state.checkpoint(index);
-            let spans: Arc<[HighlightSpan]> = Arc::from(spans_for_state(
-                &mut state.parse,
-                &mut state.highlight,
-                &highlighter,
-                self.syntax,
-                line,
-            ));
-            state.next_line = index.saturating_add(1);
-            if index == target {
+        for ((line, _, _, _), spans) in window.lines.iter().zip(per_line) {
+            let spans: Arc<[HighlightSpan]> = Arc::from(spans);
+            if *line == target {
                 target_spans = Some(Arc::clone(&spans));
             }
-            parsed.push((sequence_line_key(sequence_key, index), spans));
-        }
-        for (key, spans) in parsed {
-            self.store(key, spans);
+            self.store(sequence_line_key(sequence_key, *line), spans);
         }
         if self.capacity == 0 {
             self.sequences.remove(&sequence_key);
@@ -314,28 +216,32 @@ impl SyntaxHighlighter {
         target_spans.unwrap_or_else(empty_spans)
     }
 
-    /// Highlights lines in order with one parser, preserving multiline state.
+    /// Highlights all supplied lines in one parse, preserving multiline state.
     #[must_use]
     pub fn highlight_sequential<'a, T>(
-        &self,
+        &mut self,
         theme: &DiffTheme,
-        language: &str,
+        hint: &str,
         lines: T,
     ) -> Vec<Vec<HighlightSpan>>
     where
         T: IntoIterator<Item = &'a str>,
     {
-        let syntax = resolve_syntax(self.syntax, language);
-        let mut highlighter = HighlightLines::new(syntax, theme.syntax());
-        lines
-            .into_iter()
-            .map(|line| spans_for_line(&mut highlighter, self.syntax, line))
-            .collect()
+        let selected: Vec<(usize, &str)> = lines.into_iter().enumerate().collect();
+        let window = SourceWindow::new(selected);
+        let Some(language) = resolve_language(hint, &window.source) else {
+            return vec![Vec::new(); window.lines.len()];
+        };
+        highlight_source(&mut self.highlighter, theme, language, &window.source)
+            .as_deref()
+            .map_or_else(
+                || vec![Vec::new(); window.lines.len()],
+                |spans| window.split(spans),
+            )
     }
 
-    /// Makes room for one more incremental parser, evicting the oldest.
     fn reserve_sequence(&mut self, key: Fingerprint) {
-        if self.capacity == 0 || self.sequences.contains_key(&key) {
+        if self.capacity == 0 || self.sequences.contains(&key) {
             return;
         }
         while self.sequences.len() >= MAX_SEQUENCES {
@@ -344,6 +250,7 @@ impl SyntaxHighlighter {
             };
             self.sequences.remove(&evicted);
         }
+        self.sequences.insert(key);
         self.sequence_order.push_back(key);
     }
 
@@ -351,9 +258,6 @@ impl SyntaxHighlighter {
         if self.capacity == 0 {
             return;
         }
-        // Refreshing an entry must not queue a second copy of its key, or the
-        // eviction order drifts out of step with the cache and starts dropping
-        // live entries early.
         if self.cache.insert(key, spans).is_some() {
             return;
         }
@@ -367,26 +271,136 @@ impl SyntaxHighlighter {
             }
         }
     }
+}
 
-    fn highlight_uncached(
-        &self,
-        theme: &DiffTheme,
-        language: &str,
-        source: &str,
-    ) -> Vec<HighlightSpan> {
-        let syntax = resolve_syntax(self.syntax, language);
-        let mut highlighter = HighlightLines::new(syntax, theme.syntax());
-        let mut output = Vec::new();
-        let mut offset = 0;
-        for line in source.split_inclusive('\n') {
-            for mut span in spans_for_line(&mut highlighter, self.syntax, line) {
-                span.range.start += offset;
-                span.range.end += offset;
-                output.push(span);
-            }
-            offset += line.len();
+fn highlight_source(
+    highlighter: &mut Highlighter,
+    theme: &DiffTheme,
+    language: &str,
+    source: &str,
+) -> Option<Vec<HighlightSpan>> {
+    let raw_spans = highlighter.highlight_spans(language, source).ok()?;
+    let tokens = spans_to_flat_tokens(source, raw_spans);
+    let mut spans = Vec::with_capacity(tokens.len());
+    for token in tokens {
+        let Ok(start) = usize::try_from(token.start) else {
+            continue;
+        };
+        let Ok(end) = usize::try_from(token.end) else {
+            continue;
+        };
+        if start >= end
+            || end > source.len()
+            || !source.is_char_boundary(start)
+            || !source.is_char_boundary(end)
+        {
+            continue;
         }
-        output
+        let Some(capture) = diff_capture_name(token.tag) else {
+            continue;
+        };
+        let Some(style) = theme.style(capture) else {
+            continue;
+        };
+        push_merged(
+            &mut spans,
+            HighlightSpan {
+                range: start..end,
+                foreground: style.foreground,
+                font_style: style.font_style,
+            },
+        );
+    }
+    Some(spans)
+}
+
+fn diff_capture_name(tag: &str) -> Option<&'static str> {
+    Some(match tag_to_name(tag)? {
+        "title" => "markup.heading",
+        "strong" => "markup.bold",
+        "emphasis" => "markup.italic",
+        "link" => "markup.link",
+        "literal" => "markup.raw",
+        "strikethrough" => "markup.strikethrough",
+        name => name,
+    })
+}
+
+fn push_merged(spans: &mut Vec<HighlightSpan>, span: HighlightSpan) {
+    if let Some(last) = spans.last_mut()
+        && last.range.end == span.range.start
+        && last.foreground == span.foreground
+        && last.font_style == span.font_style
+    {
+        last.range.end = span.range.end;
+    } else {
+        spans.push(span);
+    }
+}
+
+struct SourceWindow<'a> {
+    source: String,
+    /// Sequence index, original line, global display start, global display end.
+    lines: Vec<(usize, &'a str, usize, usize)>,
+}
+
+impl<'a> SourceWindow<'a> {
+    fn new(selected: Vec<(usize, &'a str)>) -> Self {
+        let mut source = String::new();
+        let mut lines = Vec::with_capacity(selected.len());
+        for (index, line) in selected {
+            let start = source.len();
+            source.push_str(line);
+            let end = source.len();
+            if !line.ends_with('\n') {
+                source.push('\n');
+            }
+            lines.push((index, line, start, end));
+        }
+        Self { source, lines }
+    }
+
+    /// Splits window-global spans into per-line local spans. Spans must be
+    /// disjoint and ordered, as [`highlight_source`] produces them, so one
+    /// forward sweep serves every line; a span crossing lines is revisited
+    /// only by the lines it overlaps.
+    fn split(&self, spans: &[HighlightSpan]) -> Vec<Vec<HighlightSpan>> {
+        let mut next = 0;
+        self.lines
+            .iter()
+            .map(|(_, line, start, end)| {
+                while spans.get(next).is_some_and(|span| span.range.end <= *start) {
+                    next += 1;
+                }
+                let mut result = Vec::new();
+                for span in &spans[next..] {
+                    if span.range.start >= *end {
+                        break;
+                    }
+                    let overlap_start = span.range.start.max(*start);
+                    let overlap_end = span.range.end.min(*end);
+                    if overlap_start >= overlap_end {
+                        continue;
+                    }
+                    let local_start = overlap_start - start;
+                    let local_end = overlap_end - start;
+                    if local_end <= line.len()
+                        && line.is_char_boundary(local_start)
+                        && line.is_char_boundary(local_end)
+                    {
+                        push_merged(
+                            &mut result,
+                            HighlightSpan {
+                                range: local_start..local_end,
+                                foreground: span.foreground,
+                                font_style: span.font_style,
+                            },
+                        );
+                    }
+                }
+                result
+            })
+            .collect()
     }
 }
 
@@ -397,110 +411,27 @@ fn sequence_line_key(sequence: Fingerprint, line: usize) -> Fingerprint {
     ])
 }
 
-fn canonical_language(language: &str) -> Cow<'_, str> {
-    let trimmed = language.trim();
-    let lowercase = if trimmed.bytes().any(|byte| byte.is_ascii_uppercase()) {
-        Cow::Owned(trimmed.to_ascii_lowercase())
-    } else {
-        Cow::Borrowed(trimmed)
-    };
-    match lowercase.as_ref() {
-        "rs" => Cow::Borrowed("rust"),
-        "js" => Cow::Borrowed("javascript"),
-        "ts" => Cow::Borrowed("typescript"),
-        "py" => Cow::Borrowed("python"),
-        "md" => Cow::Borrowed("markdown"),
-        "sh" | "shell" => Cow::Borrowed("bash"),
-        _ => lowercase,
-    }
-}
-
-fn resolve_syntax<'a>(set: &'a SyntaxSet, language: &str) -> &'a SyntaxReference {
-    let canonical = canonical_language(language);
-    set.find_syntax_by_token(&canonical)
-        .or_else(|| set.find_syntax_by_extension(&canonical))
-        .or_else(|| set.find_syntax_by_name(&canonical))
-        .unwrap_or_else(|| set.find_syntax_plain_text())
-}
-
-fn spans_for_state(
-    parse: &mut ParseState,
-    state: &mut HighlightState,
-    highlighter: &Highlighter<'_>,
-    set: &SyntaxSet,
-    line: &str,
-) -> Vec<HighlightSpan> {
-    let logical_line = logical_line(line);
-    let Ok(ops) = parse.parse_line(&logical_line, set) else {
-        return fallback_span(line);
-    };
-    let parts: Vec<(Style, &str)> =
-        HighlightIterator::new(state, &ops, &logical_line, highlighter).collect();
-    spans_for_parts(parts, line.len())
-}
-
-fn spans_for_line(
-    highlighter: &mut HighlightLines<'_>,
-    set: &SyntaxSet,
-    line: &str,
-) -> Vec<HighlightSpan> {
-    let logical_line = logical_line(line);
-    let Ok(parts) = highlighter.highlight_line(&logical_line, set) else {
-        return fallback_span(line);
-    };
-    spans_for_parts(parts, line.len())
-}
-
-fn logical_line(line: &str) -> Cow<'_, str> {
-    if line.ends_with('\n') {
-        Cow::Borrowed(line)
-    } else {
-        Cow::Owned(format!("{line}\n"))
-    }
-}
-
-fn fallback_span(line: &str) -> Vec<HighlightSpan> {
-    vec![HighlightSpan {
-        range: 0..line.len(),
-        foreground: Rgba::default(),
-        font_style: FontStyle::none(),
-    }]
-}
-
-fn spans_for_parts(parts: Vec<(Style, &str)>, display_len: usize) -> Vec<HighlightSpan> {
-    let mut offset = 0;
-    let mut spans = Vec::with_capacity(parts.len());
-    for (style, text) in parts {
-        let part_end = offset + text.len();
-        let end = part_end.min(display_len);
-        if end > offset {
-            spans.push(HighlightSpan {
-                range: offset..end,
-                foreground: Rgba::new(
-                    style.foreground.r,
-                    style.foreground.g,
-                    style.foreground.b,
-                    style.foreground.a,
-                ),
-                font_style: font_style(style),
-            });
-        }
-        offset = part_end;
-    }
-    spans
-}
-
-const fn font_style(style: Style) -> FontStyle {
-    FontStyle {
-        bold: style.font_style.contains(SyntectFontStyle::BOLD),
-        italic: style.font_style.contains(SyntectFontStyle::ITALIC),
-        underline: style.font_style.contains(SyntectFontStyle::UNDERLINE),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_valid_spans(source: &str, spans: &[HighlightSpan]) {
+        let mut previous_end = 0;
+        for span in spans {
+            assert!(span.range.start < span.range.end, "empty span: {span:?}");
+            assert!(
+                span.range.end <= source.len(),
+                "out-of-bounds span: {span:?}"
+            );
+            assert!(source.is_char_boundary(span.range.start));
+            assert!(source.is_char_boundary(span.range.end));
+            assert!(
+                span.range.start >= previous_end,
+                "overlapping or unordered span: {span:?}"
+            );
+            previous_end = span.range.end;
+        }
+    }
 
     #[test]
     fn aliases_and_utf8_ranges() {
@@ -508,115 +439,239 @@ mod tests {
         let mut highlighter = SyntaxHighlighter::new(2);
         let source = "let café = 1;\n";
         let spans = highlighter.highlight(&theme, "rs", source);
-        assert!(spans.iter().all(|span| {
-            source.is_char_boundary(span.range.start) && source.is_char_boundary(span.range.end)
-        }));
-        assert_eq!(highlighter.stats().misses, 1);
+        assert!(!spans.is_empty());
+        assert!(
+            spans
+                .iter()
+                .all(|span| source.is_char_boundary(span.range.start)
+                    && source.is_char_boundary(span.range.end))
+        );
         let _ = highlighter.highlight(&theme, "RUST", source);
         assert_eq!(highlighter.stats().hits, 1);
     }
 
     #[test]
-    fn fifo_eviction() {
+    fn supported_language_bundle_highlights_representative_sources() {
+        let cases = [
+            ("rust", "fn main() {}"),
+            ("js", "const x = true;"),
+            ("jsx", "const view = <Panel title=\"Hi\" />;"),
+            ("typescript", "const x: number = 1;"),
+            ("tsx", "const view = <Panel title=\"Hi\" />;"),
+            ("py", "def f(): return 1"),
+            ("sh", "echo hi"),
+            ("c", "int main(void) {}"),
+            ("cpp", "class C {};"),
+            ("go", "package main"),
+            ("json", "{\"x\": true}"),
+            ("jsonc", "{\"x\": true /* comment */}"),
+            ("toml", "x = 1"),
+            ("yml", "x: true"),
+            ("html", "<b>x</b>"),
+            ("css", "b { color: red; }"),
+            ("md", "# Heading"),
+        ];
         let theme = DiffTheme::default();
-        let mut highlighter = SyntaxHighlighter::new(1);
-        highlighter.highlight(&theme, "text", "a");
-        highlighter.highlight(&theme, "text", "b");
-        assert_eq!(highlighter.stats().evictions, 1);
+        let mut highlighter = SyntaxHighlighter::new(cases.len());
+        for (language, source) in cases {
+            let spans = highlighter.highlight(&theme, language, source);
+            assert!(!spans.is_empty(), "{language}");
+            assert_valid_spans(source, &spans);
+        }
     }
 
     #[test]
-    fn a_zero_capacity_highlighter_never_caches() {
+    fn unknown_language_is_plain_text_and_cached() {
+        let mut highlighter = SyntaxHighlighter::new(2);
         let theme = DiffTheme::default();
-        let mut highlighter = SyntaxHighlighter::new(0);
-        highlighter.highlight(&theme, "text", "a");
-        highlighter.highlight(&theme, "text", "a");
-        assert_eq!(highlighter.stats().misses, 2);
-        assert_eq!(highlighter.stats().hits, 0);
-    }
-
-    #[test]
-    fn a_different_theme_invalidates_cached_spans() {
-        let sage = DiffTheme::default();
-        let ayu = DiffTheme::ayu().unwrap();
-        let mut highlighter = SyntaxHighlighter::new(8);
-        highlighter.highlight(&sage, "rust", "fn main() {}");
-        highlighter.highlight(&ayu, "rust", "fn main() {}");
-        assert_eq!(highlighter.stats().misses, 2);
-    }
-
-    #[test]
-    fn syntax_definitions_are_shared_between_highlighters() {
-        assert!(std::ptr::eq(
-            SyntaxHighlighter::new(1).syntax,
-            SyntaxHighlighter::new(2).syntax
-        ));
-    }
-
-    #[test]
-    fn a_backward_jump_rewinds_to_a_checkpoint_instead_of_the_first_line() {
-        let theme = DiffTheme::default();
-        let lines: Vec<String> = (0..600)
-            .map(|line| format!("let value_{line} = {line};\n"))
-            .collect();
-        let borrowed: Vec<&str> = lines.iter().map(String::as_str).collect();
-        let sequence = Fingerprint::of([b"sequence".as_slice()]);
-        // A cache too small to keep the earlier line forces the re-parse this
-        // test is about.
-        let mut highlighter = SyntaxHighlighter::new(4);
-
-        highlighter.highlight_in_sequence(&theme, "rust", sequence, 599, borrowed.iter().copied());
-        let warm = highlighter.stats().bytes;
-        highlighter.highlight_in_sequence(&theme, "rust", sequence, 500, borrowed.iter().copied());
-        let reparsed = highlighter.stats().bytes - warm;
-
-        let prefix: usize = borrowed[..=500].iter().map(|line| line.len()).sum();
-        assert!(reparsed > 0, "line 500 should have been evicted");
         assert!(
-            reparsed < prefix / 4,
-            "rewound {reparsed} bytes of a {prefix}-byte prefix"
+            highlighter
+                .highlight(&theme, "binary.zzz", "abc")
+                .is_empty()
+        );
+        assert!(
+            highlighter
+                .highlight(&theme, "binary.zzz", "abc")
+                .is_empty()
+        );
+        assert_eq!(highlighter.stats().hits, 1);
+        assert_eq!(highlighter.stats().bytes, 0);
+    }
+
+    #[test]
+    fn fifo_zero_capacity_and_theme_revision_behave_as_before() {
+        let theme = DiffTheme::default();
+        let mut fifo = SyntaxHighlighter::new(1);
+        fifo.highlight(&theme, "rust", "fn a() {}");
+        fifo.highlight(&theme, "rust", "fn b() {}");
+        assert_eq!(fifo.stats().evictions, 1);
+        let mut zero = SyntaxHighlighter::new(0);
+        zero.highlight(&theme, "rust", "fn a() {}");
+        zero.highlight(&theme, "rust", "fn a() {}");
+        assert_eq!(zero.stats().misses, 2);
+        let mut themes = SyntaxHighlighter::new(8);
+        themes.highlight(&theme, "rust", "fn main() {}");
+        themes.highlight(&DiffTheme::ayu().unwrap(), "rust", "fn main() {}");
+        assert_eq!(themes.stats().misses, 2);
+    }
+
+    #[test]
+    fn sequence_work_is_context_bounded_and_prefetches() {
+        let owned: Vec<String> = (0..3_000)
+            .map(|i| format!("let value_{i} = {i};"))
+            .collect();
+        let lines: Vec<&str> = owned.iter().map(String::as_str).collect();
+        let sequence = Fingerprint::of([b"sequence".as_slice()]);
+        let theme = DiffTheme::default();
+        let mut highlighter = SyntaxHighlighter::new(8);
+        highlighter.reserve_for_viewport(20);
+        highlighter.highlight_in_sequence(
+            &theme,
+            "src/lib.rs",
+            sequence,
+            2_500,
+            lines.iter().copied(),
+        );
+        let bytes = highlighter.stats().bytes;
+        let full: usize = lines.iter().map(|line| line.len() + 1).sum();
+        assert!(bytes < full / 2, "parsed {bytes} of {full} bytes");
+        highlighter.highlight_in_sequence(
+            &theme,
+            "src/lib.rs",
+            sequence,
+            2_510,
+            lines.iter().copied(),
+        );
+        assert_eq!(
+            highlighter.stats().hits,
+            1,
+            "prefetched viewport line should hit"
         );
     }
 
     #[test]
-    fn the_cache_grows_for_a_tall_viewport_but_never_shrinks() {
+    fn split_view_sequences_share_the_cache_without_evicting_each_other() {
+        let owned: Vec<String> = (0..1_100).map(|i| format!("let v{i} = {i};")).collect();
+        let lines: Vec<&str> = owned.iter().map(String::as_str).collect();
+        let theme = DiffTheme::default();
         let mut highlighter = SyntaxHighlighter::default();
-        let default = highlighter.capacity();
-        highlighter.reserve_for_viewport(10);
-        assert_eq!(highlighter.capacity(), default);
-
-        highlighter.reserve_for_viewport(400);
-        let grown = highlighter.capacity();
-        assert!(grown > default);
-        highlighter.reserve_for_viewport(1);
-        assert_eq!(highlighter.capacity(), grown);
-
-        let mut uncached = SyntaxHighlighter::new(0);
-        uncached.reserve_for_viewport(400);
-        assert_eq!(uncached.capacity(), 0, "capacity zero stays uncached");
-    }
-
-    #[test]
-    fn multiline_is_sequential() {
-        let theme = DiffTheme::default();
-        let highlighter = SyntaxHighlighter::new(0);
-        let spans = highlighter.highlight_sequential(&theme, "rust", ["/*", " comment */"]);
-        assert_eq!(spans.len(), 2);
-    }
-
-    #[test]
-    fn synthetic_newlines_do_not_escape_display_ranges() {
-        let theme = DiffTheme::default();
-        let engine = SyntaxHighlighter::new(0);
-        let lines = ["// comment", "let café = 1;"];
-        let rendered = engine.highlight_sequential(&theme, "rust", lines);
-
-        for (line, spans) in lines.into_iter().zip(rendered) {
-            assert!(spans.iter().all(|span| {
-                span.range.end <= line.len()
-                    && line.is_char_boundary(span.range.start)
-                    && line.is_char_boundary(span.range.end)
-            }));
+        highlighter.reserve_for_viewport(5);
+        let sides = [Fingerprint::of(["old"]), Fingerprint::of(["new"])];
+        for _frame in 0..3 {
+            for row in 1_030..1_035 {
+                for sequence in sides {
+                    let spans = highlighter.highlight_in_sequence(
+                        &theme,
+                        "src/lib.rs",
+                        sequence,
+                        row,
+                        lines.iter().copied(),
+                    );
+                    assert!(!spans.is_empty(), "row {row}");
+                }
+            }
         }
+        assert_eq!(
+            highlighter.stats().misses,
+            2,
+            "one context parse per side, then every cell hits"
+        );
+    }
+
+    #[test]
+    fn rerendered_frames_stay_cached_without_a_viewport_reservation() {
+        // Hosts may render before ever calling `reserve_for_viewport`; with no
+        // prefetch each row still misses once, but repeated frames over the
+        // same viewport must not parse again.
+        let owned: Vec<String> = (0..1_100).map(|i| format!("let v{i} = {i};")).collect();
+        let lines: Vec<&str> = owned.iter().map(String::as_str).collect();
+        let theme = DiffTheme::default();
+        let mut highlighter = SyntaxHighlighter::default();
+        let sides = [Fingerprint::of(["old"]), Fingerprint::of(["new"])];
+        for _frame in 0..3 {
+            for row in 1_030..1_035 {
+                for sequence in sides {
+                    let _ = highlighter.highlight_in_sequence(
+                        &theme,
+                        "src/lib.rs",
+                        sequence,
+                        row,
+                        lines.iter().copied(),
+                    );
+                }
+            }
+        }
+        assert_eq!(highlighter.stats().misses, 10, "each cell parses only once");
+    }
+
+    #[test]
+    fn multiline_spans_cover_every_line_they_cross() {
+        let theme = DiffTheme::default();
+        let mut highlighter = SyntaxHighlighter::default();
+        let lines = ["/* alpha", "", "beta", "gamma */"];
+        let sequence = Fingerprint::of(["multiline-comment"]);
+        highlighter.reserve_for_viewport(lines.len());
+        for (index, line) in lines.iter().enumerate() {
+            let spans = highlighter.highlight_in_sequence(
+                &theme,
+                "rs",
+                sequence,
+                index,
+                lines.iter().copied(),
+            );
+            if line.is_empty() {
+                assert!(spans.is_empty(), "line {index}");
+            } else {
+                assert_eq!(spans.first().map(|span| span.range.start), Some(0));
+                assert_eq!(spans.last().map(|span| span.range.end), Some(line.len()));
+            }
+        }
+        assert_eq!(highlighter.stats().misses, 1, "one parse covers the window");
+    }
+
+    #[test]
+    fn multiline_and_synthetic_newlines_are_clipped() {
+        let theme = DiffTheme::default();
+        let mut highlighter = SyntaxHighlighter::new(0);
+        let lines = ["/*", " café */"];
+        let rendered = highlighter.highlight_sequential(&theme, "rust", lines);
+        assert_eq!(rendered.len(), 2);
+        assert!(rendered.iter().all(|spans| !spans.is_empty()));
+        for (line, spans) in lines.into_iter().zip(rendered) {
+            assert!(spans.iter().all(|span| span.range.end <= line.len()
+                && line.is_char_boundary(span.range.start)
+                && line.is_char_boundary(span.range.end)));
+        }
+    }
+
+    #[test]
+    fn html_and_markdown_injections_highlight_embedded_languages() {
+        let theme = DiffTheme::default();
+        let mut highlighter = SyntaxHighlighter::new(4);
+        let html = "<p>café</p><script>const π = 3.14;</script><style>b{color:red}</style>";
+        let html_spans = highlighter.highlight(&theme, "html", html);
+        assert_valid_spans(html, &html_spans);
+        for needle in ["const π", "color:red"] {
+            let start = html.find(needle).unwrap();
+            let end = start + needle.len();
+            assert!(
+                html_spans
+                    .iter()
+                    .any(|span| span.range.start < end && span.range.end > start),
+                "no injected highlight for {needle}"
+            );
+        }
+
+        let markdown = "# Title\n\n```rust\nfn main() {}\n```\n";
+        let markdown_spans = highlighter.highlight(&theme, "markdown", markdown);
+        assert_valid_spans(markdown, &markdown_spans);
+        let start = markdown.find("fn main").unwrap();
+        let end = start + "fn main".len();
+        assert!(
+            markdown_spans
+                .iter()
+                .any(|span| span.range.start < end && span.range.end > start),
+            "no injected Rust highlight in Markdown"
+        );
     }
 }

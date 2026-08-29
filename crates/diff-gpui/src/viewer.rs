@@ -709,6 +709,20 @@ impl DiffViewer {
             .highlight_cell(&mut self.highlighter, &self.theme, row, cell)
     }
 
+    /// Sizes highlight prefetch and cache for a viewport `height` pixels tall.
+    /// Rendering must call this every frame before highlighting cells: prefetch
+    /// is what lets a scroll cost one context parse per screenful instead of
+    /// one per newly exposed row.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the viewport row count is a small, non-negative UI measurement"
+    )]
+    pub(crate) fn reserve_highlights_for_viewport(&mut self, height: f32) {
+        let rows = (height / self.diff_row_height()).ceil().max(1.0) as usize;
+        self.highlighter.reserve_for_viewport(rows);
+    }
+
     fn move_file(&mut self, delta: isize, cx: &mut Context<Self>) {
         let Some(current) = self.selected_file() else {
             return;
@@ -1385,5 +1399,39 @@ mod tests {
         assert_close(effective_diff_row_height(20.0, 13.0), 20.0);
         assert_close(effective_diff_row_height(20.0, 16.0), 23.0);
         assert_close(effective_diff_row_height(20.0, 20.0), 27.0);
+    }
+
+    #[test]
+    fn deep_split_frames_reuse_highlights_after_viewport_reservation() {
+        fn source_lines(suffix: &str) -> String {
+            use std::fmt::Write;
+            (1..=1_500).fold(String::new(), |mut source, i| {
+                let _ = writeln!(source, "let value_{i} = {i}{suffix};");
+                source
+            })
+        }
+        let mut viewer = DiffViewer::new(
+            diff_core::testing::DocumentBuilder::new()
+                .changed("src/large.rs", &source_lines(""), &source_lines(" + 1"))
+                .build(),
+        );
+        viewer.session_mut().set_view_mode(ViewMode::Split);
+        viewer.reserve_highlights_for_viewport(viewer.diff_row_height() * 24.0);
+        let rows: Vec<PresentedRow> = viewer.presentation().rows(1_200..1_224).to_vec();
+        for _frame in 0..3 {
+            for row in &rows {
+                if row.kind != diff_core::RowKind::Code {
+                    continue;
+                }
+                for cell in row.cells() {
+                    let _ = viewer.highlight_cell(row, cell);
+                }
+            }
+        }
+        assert_eq!(
+            viewer.highlight_stats().misses,
+            2,
+            "one context parse per split side serves repeated frames"
+        );
     }
 }

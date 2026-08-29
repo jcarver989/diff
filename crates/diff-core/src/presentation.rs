@@ -359,7 +359,7 @@ impl DiffPresentation {
         ]);
         highlighter.highlight_in_sequence(
             theme,
-            file.language(),
+            file.path.as_str(),
             sequence,
             target,
             hunk.lines

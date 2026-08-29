@@ -64,6 +64,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check the browser target
         run: just wasm-check
+      - name: Install browser test dependencies
+        run: cd crates/diff-gpui-web && npm ci && npx playwright install --with-deps chromium
+      - name: Run browser highlighting smoke test
+        run: cd crates/diff-gpui-web && npm test
 
   docs:
     name: Docs

@@ -2,6 +2,7 @@ pub mod anchor;
 pub mod error;
 pub mod fingerprint;
 pub mod highlight;
+mod language;
 pub mod markdown;
 pub mod markdown_anchor;
 pub mod markdown_review;
@@ -49,5 +50,6 @@ pub use review::{
 };
 pub use session::{CommentDraft, ReviewSession, SessionOptions};
 pub use theme::{
-    DiffPalette, DiffTheme, FontStyle, HighlightSpan, Rgba, ThemeError, ThemeId, ToneColors,
+    DiffPalette, DiffTheme, FontStyle, HighlightSpan, Rgba, SyntaxStyle, ThemeError, ThemeId,
+    ToneColors,
 };

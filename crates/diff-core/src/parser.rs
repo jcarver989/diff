@@ -10,6 +10,9 @@ use diffy::{
 };
 use std::collections::HashMap;
 
+const MAX_TRACKED_PATCH_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_TRACKED_PATCH_LINES: usize = 20_000;
+
 /// One entry from `git status --porcelain=v1 -z`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitStatusEntry {
@@ -48,9 +51,16 @@ pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
 
 fn normalize_patch(patch: &FilePatch<'_, [u8]>) -> Result<FileDiff, DiffError> {
     let (previous, current, status) = normalize_operation(patch.operation())?;
-    let hunks = match patch.patch() {
-        PatchKind::Text(text) => normalize_hunks(text)?,
-        PatchKind::Binary(_) => Vec::new(),
+    let (hunks, omitted_bytes) = match patch.patch() {
+        PatchKind::Text(text) => {
+            let (lines, bytes) = text_patch_size(text);
+            if lines > MAX_TRACKED_PATCH_LINES || bytes > MAX_TRACKED_PATCH_BYTES {
+                (Vec::new(), Some(bytes))
+            } else {
+                (normalize_hunks(text)?, None)
+            }
+        }
+        PatchKind::Binary(_) => (Vec::new(), None),
     };
     let no_newline_at_end = hunks
         .iter()
@@ -65,8 +75,23 @@ fn normalize_patch(patch: &FilePatch<'_, [u8]>) -> Result<FileDiff, DiffError> {
         binary: patch.patch().is_binary(),
         mode: normalize_mode(patch),
         no_newline_at_end,
-        omitted_bytes: None,
+        omitted_bytes,
     })
+}
+
+fn text_patch_size(text: &Patch<'_, [u8]>) -> (usize, u64) {
+    text.hunks().iter().flat_map(|hunk| hunk.lines()).fold(
+        (0_usize, 0_u64),
+        |(lines, bytes), line| {
+            let bytes_in_line = match line {
+                Line::Context(bytes) | Line::Delete(bytes) | Line::Insert(bytes) => bytes.len(),
+            };
+            (
+                lines.saturating_add(1),
+                bytes.saturating_add(u64::try_from(bytes_in_line).unwrap_or(u64::MAX)),
+            )
+        },
+    )
 }
 
 fn normalize_operation(
@@ -356,6 +381,22 @@ mod tests {
             Some("function")
         );
         assert_eq!(files[0].hunks[0].header, "@@ -1 +1 @@ function");
+    }
+
+    #[test]
+    fn oversized_tracked_patches_are_omitted() {
+        let mut patch = String::from(
+            "diff --git a/generated.c b/generated.c\n--- a/generated.c\n+++ b/generated.c\n@@ -1,20001 +0,0 @@\n",
+        );
+        for _ in 0..=MAX_TRACKED_PATCH_LINES {
+            patch.push_str("-generated line\n");
+        }
+
+        let files = parse_git_diff(patch.as_bytes()).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].hunks.is_empty());
+        assert!(files[0].omitted_bytes.is_some());
+        assert!(!files[0].binary);
     }
 
     #[test]

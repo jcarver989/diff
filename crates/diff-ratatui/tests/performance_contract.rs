@@ -13,6 +13,26 @@ fn large_document(rows: usize) -> Arc<DiffDocument> {
         .build()
 }
 
+/// A single large hunk where every row pairs a removed and an added line, so a
+/// split layout exercises one highlight sequence per side.
+fn modified_document(rows: usize) -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .changed(
+            "src/large.rs",
+            &source_lines(rows, ""),
+            &source_lines(rows, " + 1"),
+        )
+        .build()
+}
+
+fn source_lines(rows: usize, suffix: &str) -> String {
+    use std::fmt::Write;
+    (1..=rows).fold(String::new(), |mut source, i| {
+        let _ = writeln!(source, "let value_{i} = {i}{suffix};");
+        source
+    })
+}
+
 #[test]
 fn settled_frame_emits_no_terminal_cells_and_reuses_highlights() {
     let mut harness = ReviewHarness::new(large_document(1_000), 100, 24);
@@ -36,6 +56,48 @@ fn highlighting_work_is_bounded_by_the_viewport_not_document_size() {
     assert_eq!(small_frame.highlight_calls, large_frame.highlight_calls);
     assert_eq!(small_frame.highlight_misses, large_frame.highlight_misses);
     assert!(large_frame.highlight_calls <= 18);
+    assert_eq!(small_frame.highlighted_bytes, large_frame.highlighted_bytes);
+    assert!(
+        large_frame.highlighted_bytes < 100_000,
+        "highlighted {} bytes from a 100,000-line document",
+        large_frame.highlighted_bytes
+    );
+}
+
+#[test]
+fn deep_split_scroll_parses_bounded_context_and_then_settles() {
+    let mut harness = ReviewHarness::new(modified_document(5_000), 100, 24);
+    harness.draw();
+    harness.input(key(KeyCode::Enter));
+    for _ in 0..3 {
+        if harness.state().layout().is_split() {
+            break;
+        }
+        harness.input(key(KeyCode::Char('v')));
+    }
+    assert!(harness.state().layout().is_split());
+    harness.draw();
+
+    for _ in 0..60 {
+        harness.input(key(KeyCode::PageDown));
+    }
+    let jumped = harness.draw();
+    assert!(
+        jumped.highlighted_bytes < 150_000,
+        "a deep jump parses bounded context per side, parsed {} bytes",
+        jumped.highlighted_bytes
+    );
+
+    let settled = harness.draw();
+    assert_eq!(
+        settled.highlight_misses, 0,
+        "both sides' windows stay cached together"
+    );
+    let paged = harness.input_and_draw(key(KeyCode::PageDown));
+    assert_eq!(
+        paged.highlight_misses, 0,
+        "prefetch covers one further page of scrolling"
+    );
 }
 
 #[test]

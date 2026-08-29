@@ -5,9 +5,9 @@ const documentFixture = {
   files: [],
 };
 
-test("starts the GPUI canvas in a real browser", async () => {
+test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () => {
   const frame = document.createElement("iframe");
-  frame.src = "/dist/index.html";
+  frame.src = "/index.html";
   frame.style.width = "1280px";
   frame.style.height = "800px";
   document.body.append(frame);
@@ -19,8 +19,23 @@ test("starts the GPUI canvas in a real browser", async () => {
     });
   });
 
-  await expect.poll(() => frame.contentDocument?.querySelectorAll("canvas").length).toBe(1);
+  await expect
+    .poll(() => frame.contentDocument?.querySelectorAll("canvas").length, { timeout: 30_000 })
+    .toBe(1);
   expect(JSON.stringify(documentFixture)).toContain("repo_root");
+
+  const runtimeErrors: unknown[] = [];
+  frame.contentWindow?.addEventListener("error", (event) => runtimeErrors.push(event.error));
+  frame.contentWindow?.addEventListener("unhandledrejection", (event) =>
+    runtimeErrors.push(event.reason),
+  );
+  for (const theme of ["ayu-dark", "sage"]) {
+    frame.contentDocument?.dispatchEvent(
+      new CustomEvent("diff-review-set-theme", { detail: theme }),
+    );
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(runtimeErrors).toEqual([]);
 
   frame.remove();
 });

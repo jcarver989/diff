@@ -1,7 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "test": "trunk build && vitest run --browser.enabled"
+    "test": "trunk build --release && vitest run --browser.enabled"
   },
   "devDependencies": {
     "@vitest/browser-playwright": "^4.1.11",

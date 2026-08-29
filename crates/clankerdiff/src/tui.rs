@@ -77,9 +77,16 @@ fn run(
     let _session = TerminalSession::enter()?;
     let backend = CrosstermBackend::new(stderr());
     let mut terminal = Terminal::new(backend)?;
+    let mut terminal_size = terminal.size()?;
     let mut state = DiffReviewState::new(document);
 
     loop {
+        terminal.autoresize()?;
+        let current_size = terminal.size()?;
+        if current_size != terminal_size {
+            terminal_size = current_size;
+            state.mark_dirty();
+        }
         if state.is_dirty() {
             terminal.draw(|frame| {
                 frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), &mut state);
@@ -89,6 +96,9 @@ fn run(
             })?;
         }
 
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
+        }
         match apply_event(&mut state, event::read()?, session) {
             EventOutcome::Continue => {}
             EventOutcome::Cancelled => return Ok(None),
@@ -117,8 +127,15 @@ pub fn run_markdown(
     let _session = TerminalSession::enter()?;
     let backend = CrosstermBackend::new(stderr());
     let mut terminal = Terminal::new(backend)?;
+    let mut terminal_size = terminal.size()?;
     let mut state = MarkdownReviewState::new(document);
     loop {
+        terminal.autoresize()?;
+        let current_size = terminal.size()?;
+        if current_size != terminal_size {
+            terminal_size = current_size;
+            state.mark_dirty();
+        }
         if state.is_dirty() {
             terminal.draw(|frame| {
                 frame.render_stateful_widget(MarkdownReviewWidget::new(), frame.area(), &mut state);
@@ -126,6 +143,9 @@ pub fn run_markdown(
                     frame.set_cursor_position(position);
                 }
             })?;
+        }
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
         }
         match apply_markdown_event(&mut state, event::read()?)? {
             MarkdownEventOutcome::Continue => {}
