@@ -1,8 +1,5 @@
 //! Renderer-neutral colors, semantic diff palettes, and syntax themes.
 
-#[cfg(feature = "tm-theme")]
-mod import;
-
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
 pub use diff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
@@ -803,20 +800,6 @@ impl ReviewTheme {
             .map(|color| color.to_bytes().to_vec()),
         );
         Fingerprint::of(fields)
-    }
-
-    /// Imports a Sublime Text `.tmTheme`, mapping common `TextMate` scopes onto
-    /// stable Tree-sitter capture names and semantic Markdown/diff roles.
-    ///
-    /// Unsupported scopes fall back to the imported foreground, accent, and
-    /// muted colors. This compatibility path is available only with the
-    /// `tm-theme` feature.
-    ///
-    /// # Errors
-    /// Returns an error when the property-list theme is malformed or cannot be converted.
-    #[cfg(feature = "tm-theme")]
-    pub fn from_tm_theme_bytes(id: &str, bytes: &[u8]) -> Result<Self, ThemeError> {
-        import::from_tm_theme_bytes(id, bytes)
     }
 }
 

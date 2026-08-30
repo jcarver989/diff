@@ -7,10 +7,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-default = []
-tm-theme = ["dep:syntect"]
-
 [lints]
 workspace = true
 
@@ -20,4 +16,3 @@ diff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-syntect = { version = "5.2", optional = true, default-features = false, features = ["plist-load"] }
