@@ -1,6 +1,6 @@
 use crate::{preferences, window_chrome};
-use diff_core::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
 use diff_gpui::{DEFAULT_FONT_FAMILY, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged};
+use diff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
 use gpui::{AppContext, ClipboardItem, Context, Entity, Subscription, Window, div, prelude::*};
 use std::sync::{Arc, mpsc::Sender};
 

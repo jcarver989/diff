@@ -12,6 +12,9 @@ workspace = true
 
 [dependencies]
 diff-core = { path = "../diff-core" }
+diff-markdown = { path = "../diff-markdown", features = ["review"] }
+diff-syntax = { path = "../diff-syntax" }
+diff-theme = { path = "../diff-theme" }
 gpui.workspace = true
 
 [dev-dependencies]

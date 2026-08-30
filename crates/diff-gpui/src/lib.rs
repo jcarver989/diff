@@ -15,7 +15,7 @@ pub mod style;
 mod viewer;
 
 pub use diff_core::DiffReviewEvent as DiffViewerEvent;
-pub use diff_core::MarkdownReviewEvent as MarkdownReviewerEvent;
+pub use diff_markdown::MarkdownReviewEvent as MarkdownReviewerEvent;
 pub use fonts::{DEFAULT_FONT_FAMILY, load_default_fonts};
 
 /// Emitted when an in-app theme selection is committed.

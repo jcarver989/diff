@@ -7,10 +7,12 @@ use crate::{
     style::color,
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, DiffTheme, FileStatus, HighlightSpan, HighlightStats,
-    Layout, LineAnchor, PresentedCell, PresentedRow, RepoPath, RepositoryAction, Review,
-    ReviewSession, SessionOptions, StageState, SyntaxHighlighter, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, LineAnchor, PresentedCell,
+    PresentedRow, RepoPath, RepositoryAction, Review, ReviewSession, SessionOptions, StageState,
+    ViewMode,
 };
+use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
+use diff_theme::DiffTheme;
 use gpui::{
     App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
     ListAlignment, ListState, ScrollHandle, Subscription, Window, actions, div, prelude::*, px,
@@ -124,6 +126,10 @@ pub enum ViewerPane {
 
 /// Shared GPUI diff review view.
 ///
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent UI visibility, layout, and pending flags are not one state machine"
+)]
 pub struct DiffViewer {
     session: ReviewSession,
     theme: DiffTheme,
@@ -716,9 +722,21 @@ impl DiffViewer {
         row: &PresentedRow,
         cell: &PresentedCell,
     ) -> Arc<[HighlightSpan]> {
-        self.session
-            .presentation()
-            .highlight_cell(&mut self.highlighter, &self.theme, row, cell)
+        let presentation = self.session.presentation();
+        match presentation.cell_sequence(row, cell) {
+            Some(sequence) => self.highlighter.highlight_in_sequence(
+                &self.theme,
+                LanguageHint::Path(sequence.language_hint),
+                sequence.sequence_id,
+                sequence.target,
+                sequence.lines,
+            ),
+            None => self.highlighter.highlight(
+                &self.theme,
+                LanguageHint::Path(presentation.row_path(row)),
+                &cell.text,
+            ),
+        }
     }
 
     /// Sizes highlight prefetch and cache for a viewport `height` pixels tall.
@@ -1162,8 +1180,8 @@ impl DiffViewer {
         let palette = self.theme.palette();
         let current = self.theme.id().to_string();
         let viewport = window.viewport_size();
-        let panel_width = (f32::from(viewport.width) - 32.0).max(1.0).min(440.0);
-        let panel_height = (f32::from(viewport.height) - 48.0).max(1.0).min(620.0);
+        let panel_width = (f32::from(viewport.width) - 32.0).clamp(1.0, 440.0);
+        let panel_height = (f32::from(viewport.height) - 48.0).clamp(1.0, 620.0);
         let mut scrim = color(palette.background);
         scrim.a = 0.72;
         let rows = DiffTheme::catalog().into_iter().map(|descriptor| {

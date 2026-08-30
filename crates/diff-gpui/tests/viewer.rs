@@ -1,9 +1,8 @@
 //! State-level contracts for the reusable GPUI viewer.
 
-use diff_core::{
-    DiffSide, DiffTheme, Layout, LineAnchor, ThemeId, ViewMode, testing::DocumentBuilder,
-};
+use diff_core::{DiffSide, Layout, LineAnchor, ViewMode, testing::DocumentBuilder};
 use diff_gpui::{DiffViewer, DiffViewerOptions};
+use diff_theme::{DiffTheme, ThemeId};
 
 #[test]
 fn defaults_to_auto_and_indexes_document() {

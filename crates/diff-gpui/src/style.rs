@@ -1,6 +1,6 @@
 //! Conversion from renderer-neutral diff styles to GPUI styles.
 
-use diff_core::{FontStyle, Rgba};
+use diff_theme::{FontStyle, Rgba};
 use gpui::{FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, Hsla, UnderlineStyle, px};
 
 /// Converts a renderer-neutral sRGB color to GPUI's HSLA color.

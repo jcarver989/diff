@@ -6,15 +6,17 @@ use crate::{
     comment_editor::{CommentEditor, CommentEditorEvent},
     style,
 };
-use diff_core::{
-    DiffTheme, MarkdownDocument, MarkdownReview, MarkdownReviewEvent, MarkdownReviewSession,
-    MarkdownTargetId, MarkdownTargetKind,
+use diff_markdown::{
+    MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownReview, MarkdownReviewEvent,
+    MarkdownReviewSession, MarkdownTargetId, MarkdownTargetKind,
 };
+use diff_syntax::{LanguageHint, SyntaxHighlighter};
+use diff_theme::DiffTheme;
 use gpui::{
-    App, Context, Entity, EventEmitter, Focusable, KeyBinding, KeyContext, Subscription, Window,
-    actions, div, prelude::*, px,
+    App, Context, Entity, EventEmitter, Focusable, HighlightStyle, KeyBinding, KeyContext,
+    SharedString, StyledText, Subscription, Window, actions, div, prelude::*, px,
 };
-use std::sync::Arc;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 actions!(
     markdown_reviewer,
@@ -61,6 +63,8 @@ impl Default for MarkdownReviewerOptions {
 pub struct MarkdownReviewer {
     session: MarkdownReviewSession,
     theme: DiffTheme,
+    highlighter: RefCell<SyntaxHighlighter>,
+    code_infos: HashMap<MarkdownTargetId, String>,
     options: MarkdownReviewerOptions,
     editor: Option<Entity<CommentEditor>>,
     editor_subscription: Option<Subscription>,
@@ -85,8 +89,10 @@ impl MarkdownReviewer {
         options: MarkdownReviewerOptions,
     ) -> Self {
         Self {
+            code_infos: code_infos(document.blocks()),
             session: MarkdownReviewSession::new(document),
             theme,
+            highlighter: RefCell::new(SyntaxHighlighter::default()),
             options,
             editor: None,
             editor_subscription: None,
@@ -150,6 +156,7 @@ impl MarkdownReviewer {
     }
 
     pub fn set_document(&mut self, document: Arc<MarkdownDocument>, cx: &mut Context<Self>) {
+        self.code_infos = code_infos(document.blocks());
         self.session.replace_document(document);
         self.close_editor();
         cx.notify();
@@ -298,6 +305,22 @@ impl MarkdownReviewer {
             .filter(|draft| draft.target() == target_id)
             .and(self.editor.clone());
 
+        let rendered: SharedString = text.clone().into();
+        let rendered = if let Some(info) = self.code_infos.get(&target_id) {
+            let highlights = self.highlighter.borrow_mut().highlight(
+                &self.theme,
+                LanguageHint::InfoString(info),
+                &text,
+            );
+            StyledText::new(rendered).with_highlights(highlights.iter().map(|span| {
+                let style: HighlightStyle =
+                    style::highlight_style(span.foreground, span.font_style);
+                (span.range.clone(), style)
+            }))
+        } else {
+            StyledText::new(rendered)
+        };
+
         let content = div()
             .w_full()
             .flex()
@@ -323,7 +346,7 @@ impl MarkdownReviewer {
                             .bg(style::color(palette.selection))
                     })
                     .whitespace_normal()
-                    .child(text),
+                    .child(rendered),
             )
             .when(comment_count > 0, |row| {
                 row.child(comment_count_marker(
@@ -553,8 +576,8 @@ impl MarkdownReviewer {
         let palette = self.theme.palette();
         let current = self.theme.id().to_string();
         let viewport = window.viewport_size();
-        let panel_width = (f32::from(viewport.width) - 32.0).max(1.0).min(440.0);
-        let panel_height = (f32::from(viewport.height) - 48.0).max(1.0).min(620.0);
+        let panel_width = (f32::from(viewport.width) - 32.0).clamp(1.0, 440.0);
+        let panel_height = (f32::from(viewport.height) - 48.0).clamp(1.0, 620.0);
         let mut scrim = style::color(palette.background);
         scrim.a = 0.72;
         let rows = DiffTheme::catalog().into_iter().map(|descriptor| {
@@ -637,6 +660,40 @@ impl MarkdownReviewer {
     fn cancel(&mut self, _: &MarkdownCancel, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(MarkdownReviewEvent::Cancel);
     }
+}
+
+/// Collects the highlight info string for every code block, keyed by target.
+fn code_infos(blocks: &[MarkdownBlock]) -> HashMap<MarkdownTargetId, String> {
+    fn collect(blocks: &[MarkdownBlock], infos: &mut HashMap<MarkdownTargetId, String>) {
+        for block in blocks {
+            match &block.kind {
+                MarkdownBlockKind::CodeBlock(code) => {
+                    if let Some(target) = code.target_id {
+                        let info = code
+                            .info
+                            .as_deref()
+                            .or(code.language.as_deref())
+                            .unwrap_or("");
+                        infos.insert(target, info.to_owned());
+                    }
+                }
+                MarkdownBlockKind::List { items, .. } => {
+                    for item in items {
+                        collect(&item.blocks, infos);
+                    }
+                }
+                MarkdownBlockKind::BlockQuote { blocks } => collect(blocks, infos),
+                MarkdownBlockKind::Heading { .. }
+                | MarkdownBlockKind::Paragraph { .. }
+                | MarkdownBlockKind::Table(_)
+                | MarkdownBlockKind::HtmlFallback { .. }
+                | MarkdownBlockKind::Rule => {}
+            }
+        }
+    }
+    let mut infos = HashMap::new();
+    collect(blocks, &mut infos);
+    infos
 }
 
 impl EventEmitter<MarkdownReviewEvent> for MarkdownReviewer {}

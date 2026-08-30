@@ -15,6 +15,8 @@ workspace = true
 
 [dependencies]
 diff-core = { path = "../diff-core" }
+diff-markdown = { path = "../diff-markdown", features = ["review"] }
+diff-theme = { path = "../diff-theme" }
 diff-gpui = { path = "../diff-gpui" }
 serde.workspace = true
 serde_json.workspace = true

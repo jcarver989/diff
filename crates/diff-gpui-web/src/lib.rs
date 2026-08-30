@@ -5,7 +5,9 @@
 //! Review submission is dispatched on `document` as a `diff-review-submit`
 //! `CustomEvent`; its `detail` is a serialized `ReviewSubmission` JSON string.
 
-use diff_core::{DiffDocument, DiffTheme, MarkdownDocument};
+use diff_core::DiffDocument;
+use diff_markdown::MarkdownDocument;
+use diff_theme::DiffTheme;
 use serde::{Deserialize, Serialize};
 
 /// Errors returned while validating commands from JavaScript.
@@ -91,14 +93,13 @@ mod wasm {
         decode_markdown_document, decode_theme, demo_document,
     };
     use async_channel::{Receiver, Sender};
-    use diff_core::{
-        DiffDocument, DiffReviewEvent, DiffTheme, MarkdownDocument, MarkdownReviewEvent,
-        MarkdownReviewSubmission, ReviewSubmission,
-    };
+    use diff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission};
     use diff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
         load_default_fonts,
     };
+    use diff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
+    use diff_theme::DiffTheme;
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
         Window, WindowBounds, WindowOptions, prelude::*, px, size,
@@ -482,7 +483,7 @@ pub use wasm::{clear_review, set_document_json, set_markdown_document_json, set_
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::ThemeId;
+    use diff_theme::ThemeId;
 
     #[test]
     fn bundled_demo_is_the_captured_workspace_diff() {

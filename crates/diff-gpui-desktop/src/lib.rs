@@ -8,8 +8,9 @@ mod window_chrome;
 
 use app::DesktopApp;
 use args::CliArgs;
-use diff_core::{DiffScope, MarkdownDocument, MarkdownReviewSubmission, ReviewSubmission};
+use diff_core::{DiffScope, ReviewSubmission};
 use diff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
+use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use gpui::{
     App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };

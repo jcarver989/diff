@@ -68,7 +68,7 @@ impl DiffViewer {
 fn button(
     id: &'static str,
     label: &'static str,
-    foreground: diff_core::Rgba,
+    foreground: diff_theme::Rgba,
 ) -> gpui::Stateful<Div> {
     div()
         .id(id)

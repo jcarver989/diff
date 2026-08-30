@@ -378,7 +378,7 @@ impl DiffViewer {
             (span.range.clone(), style)
         }));
         let tone = cell.tone;
-        let colors = palette.tone(tone);
+        let tone_background = palette.tone(tone).background;
         let commentable = cell.source.is_some();
         let comments = self.comments_on(index, cell);
         let hover_group: SharedString = format!("comment-cell-{index}-{side:?}").into();
@@ -397,7 +397,7 @@ impl DiffViewer {
             .bg(style::color(if selected {
                 palette.selection
             } else {
-                colors.background
+                tone_background
             }))
             .when(left, |value| value.border_r_1().border_color(border_color))
             .on_mouse_down(

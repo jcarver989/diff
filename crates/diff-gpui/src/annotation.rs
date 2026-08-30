@@ -1,5 +1,5 @@
 use crate::{comment_editor::CommentEditor, style};
-use diff_core::{DiffPalette, Rgba};
+use diff_theme::{DiffPalette, Rgba};
 use gpui::{Div, Entity, SharedString, div, prelude::*, px};
 
 /// Builds the marker shown at the end of a target with saved comments.

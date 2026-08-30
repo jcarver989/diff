@@ -1,11 +1,10 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
 use crate::{args::CliArgs, preferences, window_chrome};
-use diff_core::{
-    DiffDocument, DiffReviewEvent, DiffScope, DiffTheme, RepositoryAction, ReviewSubmission,
-};
+use diff_core::{DiffDocument, DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
 use diff_git::{GitError, GitRepository};
 use diff_gpui::{DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged};
+use diff_theme::DiffTheme;
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
