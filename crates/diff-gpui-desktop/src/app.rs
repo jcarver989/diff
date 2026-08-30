@@ -3,7 +3,10 @@
 use crate::{args::CliArgs, preferences, window_chrome};
 use diff_core::{DiffDocument, DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
 use diff_git::{GitError, GitRepository};
-use diff_gpui::{DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged};
+use diff_gpui::{
+    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged,
+    ui::prelude::{EmptyState, NoticeTone, UiTheme},
+};
 use diff_theme::DiffTheme;
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
@@ -297,24 +300,13 @@ impl DesktopApp {
         self.mutate_all(false, cx);
     }
 
-    fn status_panel(&self, title: &str, detail: &str) -> impl IntoElement {
-        let palette = self.theme.palette();
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap_2()
-            .bg(diff_gpui::style::color(palette.background))
-            .text_color(diff_gpui::style::color(palette.foreground))
-            .child(div().text_xl().child(title.to_owned()))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(diff_gpui::style::color(palette.muted))
-                    .child(detail.to_owned()),
-            )
+    fn status_panel(&self, title: &str, detail: &str, tone: NoticeTone) -> impl IntoElement {
+        EmptyState::new(
+            title.to_owned(),
+            detail.to_owned(),
+            tone,
+            UiTheme::new(&self.theme),
+        )
     }
 }
 
@@ -330,24 +322,34 @@ impl Render for DesktopApp {
             .font_family(DEFAULT_FONT_FAMILY)
             .child(match &self.state {
                 LoadState::Loading => self
-                    .status_panel("Loading diff…", "Git is reading the repository")
+                    .status_panel(
+                        "Loading diff…",
+                        "Git is reading the repository",
+                        NoticeTone::Info,
+                    )
                     .into_any_element(),
                 LoadState::Error(error) => self
                     .status_panel(
                         "Could not load diff",
                         &format!("{error} · press ⌘/Ctrl+R to retry"),
+                        NoticeTone::Error,
                     )
                     .into_any_element(),
                 LoadState::Empty => self
                     .status_panel(
                         "No changes",
                         &format!("Scope: {} · press ⇧⌘/Ctrl+V to change scope", self.scope),
+                        NoticeTone::Info,
                     )
                     .into_any_element(),
                 LoadState::Ready => self.viewer.as_ref().map_or_else(
                     || {
-                        self.status_panel("No viewer", "Press ⌘/Ctrl+R to retry")
-                            .into_any_element()
+                        self.status_panel(
+                            "No viewer",
+                            "Press ⌘/Ctrl+R to retry",
+                            NoticeTone::Warning,
+                        )
+                        .into_any_element()
                     },
                     |viewer| viewer.clone().into_any_element(),
                 ),
