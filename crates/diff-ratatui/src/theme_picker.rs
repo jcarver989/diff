@@ -1,12 +1,12 @@
-use crate::RatatuiTheme;
+use crate::{RatatuiTheme, ui::Modal};
 use crossterm::event::{KeyCode, KeyEvent};
-use diff_theme::{DiffTheme, ThemeDescriptor};
+use diff_theme::{DiffTheme, SelectionState, ThemeDescriptor};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Clear, List, ListItem, ListState, StatefulWidget, Widget},
+    widgets::{List, ListItem, ListState, StatefulWidget},
 };
 
 #[derive(Debug)]
@@ -69,34 +69,26 @@ pub(crate) fn render_theme_picker(
     picker: &ThemePicker,
     theme: &RatatuiTheme,
 ) {
-    let width = area.width.saturating_sub(4).min(48);
-    let height = area.height.saturating_sub(4).min(22);
-    if width == 0 || height == 0 {
+    let popup = Modal::new("Theme", theme)
+        .hint("j/k preview · Enter save · Esc cancel")
+        .render(area, buffer);
+    if popup.is_empty() {
         return;
     }
-    let popup = Rect::new(
-        area.x + area.width.saturating_sub(width) / 2,
-        area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
-    );
-    Clear.render(popup, buffer);
     let items = picker.themes.iter().map(|descriptor| {
         let appearance = if descriptor.is_dark { "dark" } else { "light" };
         ListItem::new(Line::from(vec![
             Span::raw(descriptor.name.clone()),
-            Span::styled(format!("  {appearance}"), Style::new().fg(theme.muted)),
+            Span::styled(
+                format!("  {appearance}"),
+                Style::new().fg(theme.ui.text_muted),
+            ),
         ]))
     });
     let mut state = ListState::default().with_selected(Some(picker.selected));
     let list = List::new(items)
-        .block(
-            Block::bordered()
-                .title(" Theme ")
-                .title_bottom(Line::from(" j/k preview · Enter save · Esc cancel ")),
-        )
-        .style(Style::new().fg(theme.foreground).bg(theme.background))
-        .highlight_style(Style::new().fg(theme.accent).bg(theme.selection))
+        .style(theme.ui.selection_style(SelectionState::None))
+        .highlight_style(theme.ui.selection_style(SelectionState::Selected))
         .highlight_symbol("› ");
     StatefulWidget::render(list, popup, buffer, &mut state);
 }

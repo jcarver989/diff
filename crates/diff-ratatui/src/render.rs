@@ -8,6 +8,7 @@ use crate::{
     state::RepositoryPrompt,
     style::syntax_style,
     theme_picker::render_theme_picker,
+    ui::{ActionBar, AppFrame, EmptyState, Modal, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
 use diff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
@@ -18,13 +19,12 @@ use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, StatefulWidget, Widget},
+    widgets::{Paragraph, StatefulWidget, Widget},
 };
 
 const DRAWER_BREAKPOINT: u16 = 72;
 const DRAWER_MIN_WIDTH: u16 = 20;
 const DRAWER_MAX_WIDTH: u16 = 36;
-const FOOTER_HEIGHT: u16 = 1;
 const GUTTER_WIDTH: u16 = 6;
 
 /// Embeddable stateful diff review widget.
@@ -71,23 +71,9 @@ impl StatefulWidget for DiffReviewWidget {
     fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
         state.cursor_position = None;
         let theme = RatatuiTheme::from(&state.theme);
-        buffer.set_style(area, Style::new().fg(theme.foreground).bg(theme.background));
-        let inner = if self.borders {
-            let block = Block::new()
-                .borders(Borders::ALL)
-                .title(format!(" {} ", self.title))
-                .border_style(Style::new().fg(theme.accent));
-            let inner = block.inner(area);
-            block.render(area, buffer);
-            inner
-        } else {
-            area
-        };
-        let [body, footer] = Layout::vertical([
-            Constraint::Min(0),
-            Constraint::Length(FOOTER_HEIGHT.min(inner.height)),
-        ])
-        .areas(inner);
+        let regions = AppFrame::new(&self.title, self.borders, &theme).render(area, buffer);
+        let body = regions.body;
+        let footer = regions.footer;
         render_body(body, buffer, state, &theme);
         render_footer(footer, buffer, state, &theme);
         if state.help {
@@ -102,19 +88,17 @@ impl StatefulWidget for DiffReviewWidget {
 
 fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
     let notice = match &state.status {
-        DiffReviewStatus::Loading => Some(("Loading diff…".to_owned(), theme.muted)),
+        DiffReviewStatus::Loading => Some(("Loading diff…".to_owned(), NoticeTone::Info)),
         DiffReviewStatus::Error(message) => {
-            Some((format!("Diff unavailable: {message}"), theme.deletion))
+            Some((format!("Diff unavailable: {message}"), NoticeTone::Error))
         }
         DiffReviewStatus::Ready if state.document().files.is_empty() => {
-            Some(("No changes".to_owned(), theme.muted))
+            Some(("No changes".to_owned(), NoticeTone::Info))
         }
         DiffReviewStatus::Ready => None,
     };
     match notice {
-        Some((text, foreground)) => Paragraph::new(text)
-            .style(Style::new().fg(foreground))
-            .render(area, buffer),
+        Some((text, tone)) => EmptyState::new(&text, tone, theme).render(area, buffer),
         None => render_document(area, buffer, state, theme),
     }
 }
@@ -151,7 +135,7 @@ fn render_document(
 
 fn render_separator(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     Paragraph::new("│")
-        .style(Style::new().fg(theme.border).bg(theme.background))
+        .style(Style::new().fg(theme.ui.border).bg(theme.ui.canvas))
         .render(area, buffer);
 }
 
@@ -215,7 +199,7 @@ fn render_drawer(
                 let marker = if *expanded { "▾" } else { "▸" };
                 Paragraph::new(Line::from(vec![
                     Span::raw(format!("{}{} ", "  ".repeat(*depth), marker)),
-                    Span::styled(format!("{name}/"), Style::new().fg(theme.accent)),
+                    Span::styled(format!("{name}/"), Style::new().fg(theme.ui.accent)),
                 ]))
                 .render(content, buffer);
                 DrawerTree::stage_state_for_entry(state.document(), entry)
@@ -235,7 +219,7 @@ fn render_drawer(
                     diff_core::FileStatus::Deleted => theme.deletion,
                     diff_core::FileStatus::Modified
                     | diff_core::FileStatus::Renamed
-                    | diff_core::FileStatus::Copied => theme.accent,
+                    | diff_core::FileStatus::Copied => theme.ui.accent,
                 };
                 Paragraph::new(Line::from(vec![
                     Span::raw("  ".repeat(*depth)),
@@ -246,7 +230,7 @@ fn render_drawer(
                     Span::raw(format!(" {name}")),
                     Span::styled(
                         format!(" +{} -{}", file.additions(), file.deletions()),
-                        Style::new().fg(theme.muted),
+                        Style::new().fg(theme.ui.text_muted),
                     ),
                 ]))
                 .render(content, buffer);
@@ -259,8 +243,8 @@ fn render_drawer(
             buffer.set_style(
                 row,
                 Style::new()
-                    .fg(theme.background)
-                    .bg(theme.accent)
+                    .fg(theme.ui.canvas)
+                    .bg(theme.ui.accent)
                     .add_modifier(if state.focus == FocusPane::Files {
                         Modifier::BOLD
                     } else {
@@ -299,7 +283,7 @@ fn render_patch(
         return;
     }
     state.last_height = usize::from(area.height).max(1);
-    state.highlighter.reserve_for_viewport(state.last_height);
+    state.highlighter.prepare_viewport(state.last_height);
     if state.take_follow_request() {
         state.follow_selection();
     }
@@ -425,12 +409,12 @@ fn render_row(
                 Span::styled(
                     format!(" {text} "),
                     Style::new()
-                        .fg(context.theme.accent)
+                        .fg(context.theme.ui.accent)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("+{additions} -{deletions}"),
-                    Style::new().fg(context.theme.muted),
+                    Style::new().fg(context.theme.ui.text_muted),
                 ),
             ]))
             .render(area, buffer);
@@ -439,8 +423,8 @@ fn render_row(
             Paragraph::new(row.primary_cell().map_or("", |cell| cell.text.as_ref()))
                 .style(
                     Style::new()
-                        .fg(context.theme.muted)
-                        .bg(context.theme.background),
+                        .fg(context.theme.ui.text_muted)
+                        .bg(context.theme.ui.canvas),
                 )
                 .render(area, buffer);
         }
@@ -486,7 +470,7 @@ fn render_cell(
     let tone = cell.map_or(DiffTone::Context, |cell| cell.tone);
     let (foreground, tone_background) = context.theme.tone(tone);
     let background = if selected {
-        context.theme.selection
+        context.theme.ui.surface_selected
     } else {
         tone_background
     };
@@ -570,7 +554,7 @@ fn render_footer(
             RepositoryPrompt::Commit { message } => {
                 let prefix = "commit › ";
                 Paragraph::new(format!("{prefix}{message}"))
-                    .style(Style::new().fg(theme.foreground))
+                    .style(Style::new().fg(theme.ui.text))
                     .render(area, buffer);
                 let x = area
                     .x
@@ -589,9 +573,7 @@ fn render_footer(
         return;
     }
     if let RepositoryOperationStatus::Error(message) = &state.repository_status {
-        Paragraph::new(message.clone())
-            .style(Style::new().fg(theme.deletion))
-            .render(area, buffer);
+        EmptyState::new(message, NoticeTone::Error, theme).render(area, buffer);
         return;
     }
     let hint = if matches!(state.repository_status, RepositoryOperationStatus::Pending) {
@@ -617,27 +599,24 @@ fn render_footer(
             format!(" ({outdated} outdated)")
         }
     );
-    Paragraph::new(Line::from(vec![
-        Span::styled(hint, Style::new().fg(theme.muted)),
-        Span::styled(status, Style::new().fg(theme.accent)),
-    ]))
+    ActionBar::new(
+        Line::from(vec![
+            Span::styled(hint, Style::new().fg(theme.ui.text_muted)),
+            Span::styled(status, Style::new().fg(theme.ui.accent)),
+        ]),
+        theme,
+    )
     .render(area, buffer);
 }
 
 fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
-    let width = area.width.saturating_sub(4).min(58);
-    let height = area.height.saturating_sub(4).min(18);
-    let popup = Rect::new(
-        area.x + area.width.saturating_sub(width) / 2,
-        area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
-    );
-    Clear.render(popup, buffer);
-    Paragraph::new(
+    let content = Modal::new("Review shortcuts", theme)
+        .hint("? / Esc to close")
+        .render(area, buffer);
+    render_modal_text(
+        content,
+        buffer,
         "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  r                refresh\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
-    )
-    .block(Block::bordered().title(" Review shortcuts "))
-    .style(Style::new().fg(theme.foreground).bg(theme.background))
-    .render(popup, buffer);
+        theme,
+    );
 }

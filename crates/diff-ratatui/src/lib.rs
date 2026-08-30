@@ -27,6 +27,8 @@ mod syntax;
 #[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 mod theme_picker;
 #[cfg(any(feature = "diff-review", feature = "markdown-review"))]
+pub mod ui;
+#[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 mod widgets;
 
 #[cfg(feature = "diff-preview")]
@@ -45,7 +47,7 @@ pub use render::DiffReviewWidget;
 #[cfg(feature = "diff-review")]
 pub use state::{DiffReviewState, DiffReviewStatus, FocusPane, RepositoryOperationStatus};
 #[cfg(any(feature = "diff-review", feature = "markdown-review"))]
-pub use style::RatatuiTheme;
+pub use style::{RatatuiTheme, RatatuiUiTheme};
 #[cfg(feature = "syntax")]
 pub use syntax::highlighted_line;
 

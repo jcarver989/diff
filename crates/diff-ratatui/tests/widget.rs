@@ -405,7 +405,7 @@ fn comments_render_as_padded_themed_boxes() {
         .iter()
         .find(|cell| cell.symbol() == "╭")
         .expect("top-left comment border");
-    let expected = RatatuiTheme::from(&DiffTheme::default()).accent;
+    let expected = RatatuiTheme::from(&DiffTheme::default()).ui.accent;
     assert_eq!(border.fg, expected);
 }
 

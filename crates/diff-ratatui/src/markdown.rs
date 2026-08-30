@@ -250,11 +250,9 @@ fn render_block(
                 .as_deref()
                 .or(code.language.as_deref())
                 .unwrap_or_default();
-            let line_spans = highlighter.highlight_sequential(
-                &theme.syntax,
-                LanguageHint::InfoString(hint),
-                source.iter().copied(),
-            );
+            let line_spans = highlighter
+                .with_theme(&theme.syntax)
+                .highlight_lines(LanguageHint::InfoString(hint), source.iter().copied());
             let base = Style::new()
                 .fg(color(theme.markdown.code))
                 .bg(color(theme.diff.background));

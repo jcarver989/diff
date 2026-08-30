@@ -5,7 +5,7 @@ use diff_core::{
     DiffDocument, DiffPresentation, FileDiff, Layout, PresentationOptions, PresentedCell,
     PresentedRow, RowKind, ViewMode,
 };
-use diff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme};
+use diff_syntax::{HighlightSpan, LanguageHint, SequenceLine, SyntaxHighlighter, SyntaxTheme};
 use diff_theme::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Color, Style},
@@ -45,19 +45,15 @@ pub(crate) fn cell_highlights(
     row: &PresentedRow,
     cell: &PresentedCell,
 ) -> Arc<[HighlightSpan]> {
+    let mut syntax = highlighter.with_theme(theme);
     match presentation.cell_sequence(row, cell) {
-        Some(sequence) => highlighter.highlight_in_sequence(
-            theme,
-            LanguageHint::Path(sequence.language_hint),
-            sequence.sequence_id,
-            sequence.target,
+        Some(sequence) => syntax.highlight_line(SequenceLine::new(
+            sequence.id,
+            LanguageHint::Path(sequence.language),
+            sequence.target_line,
             sequence.lines,
-        ),
-        None => highlighter.highlight(
-            theme,
-            LanguageHint::Path(presentation.row_path(row)),
-            &cell.text,
-        ),
+        )),
+        None => syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text),
     }
 }
 

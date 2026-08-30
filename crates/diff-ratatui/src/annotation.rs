@@ -348,16 +348,16 @@ pub(crate) fn render_annotation_line(
         return;
     };
     let border_color = match annotation.kind() {
-        AnnotationKind::Outdated => theme.muted,
-        AnnotationKind::Comment | AnnotationKind::Draft => theme.accent,
+        AnnotationKind::Outdated => theme.ui.text_muted,
+        AnnotationKind::Comment | AnnotationKind::Draft => theme.ui.accent,
     };
     let body_color = if annotation.kind() == AnnotationKind::Outdated {
-        theme.muted
+        theme.ui.text_muted
     } else {
-        theme.foreground
+        theme.ui.text
     };
-    let border = Style::new().fg(border_color).bg(theme.background);
-    let body = Style::new().fg(body_color).bg(theme.background);
+    let border = Style::new().fg(border_color).bg(theme.ui.canvas);
+    let body = Style::new().fg(body_color).bg(theme.ui.canvas);
     let box_area = Rect::new(
         area.x.saturating_add(annotation.indent()),
         area.y,
