@@ -1,9 +1,10 @@
 //! Tree-sitter syntax highlighting with UTF-8 byte spans and a bounded cache.
 
-use crate::{DiffTheme, Fingerprint, HighlightSpan, language::resolve_language};
+use crate::language::{LanguageHint, resolve_language};
 use arborium::{Config, Highlighter};
 use arborium_highlight::spans_to_flat_tokens;
 use arborium_theme::tag_to_name;
+use diff_theme::{DiffTheme, Fingerprint, HighlightSpan, SyntaxTheme};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fmt,
@@ -32,6 +33,27 @@ pub struct HighlightStats {
     pub evictions: u64,
     /// Bytes actually supplied to Tree-sitter parsers.
     pub bytes: usize,
+}
+
+/// Opaque bounded continuation state for append-only line streams.
+///
+/// A sequence retains only bounded source lines and reparses that window on
+/// each append, so callers never depend on Arborium state.
+#[derive(Debug, Clone, Default)]
+pub struct SyntaxSequence {
+    hint: String,
+    lines: Vec<String>,
+}
+
+impl SyntaxSequence {
+    /// Starts an empty sequence for one logical stream of lines.
+    #[must_use]
+    pub fn new<'a>(hint: impl Into<LanguageHint<'a>>) -> Self {
+        Self {
+            hint: hint.into().as_str().to_owned(),
+            lines: Vec::new(),
+        }
+    }
 }
 
 /// A reusable syntax highlighter. Entries are evicted oldest-first when full.
@@ -113,10 +135,10 @@ impl SyntaxHighlighter {
     }
 
     /// Highlights a complete source. Hints may be IDs, aliases, or repository paths.
-    pub fn highlight(
+    pub fn highlight<'a>(
         &mut self,
-        theme: &DiffTheme,
-        hint: &str,
+        theme: &SyntaxTheme,
+        hint: impl Into<LanguageHint<'a>>,
         source: &str,
     ) -> Arc<[HighlightSpan]> {
         self.stats.calls += 1;
@@ -146,10 +168,10 @@ impl SyntaxHighlighter {
 
     /// Highlights one sequence line using bounded preceding context and viewport prefetch.
     /// Constructs beginning more than [`PARSE_CONTEXT_LINES`] earlier rely on parser recovery.
-    pub fn highlight_in_sequence<'a, T>(
+    pub fn highlight_in_sequence<'a, 'hint, T>(
         &mut self,
-        theme: &DiffTheme,
-        hint: &str,
+        theme: &SyntaxTheme,
+        hint: impl Into<LanguageHint<'hint>>,
         sequence: Fingerprint,
         target: usize,
         lines: T,
@@ -218,10 +240,10 @@ impl SyntaxHighlighter {
 
     /// Highlights all supplied lines in one parse, preserving multiline state.
     #[must_use]
-    pub fn highlight_sequential<'a, T>(
+    pub fn highlight_sequential<'a, 'hint, T>(
         &mut self,
-        theme: &DiffTheme,
-        hint: &str,
+        theme: &SyntaxTheme,
+        hint: impl Into<LanguageHint<'hint>>,
         lines: T,
     ) -> Vec<Vec<HighlightSpan>>
     where
@@ -238,6 +260,35 @@ impl SyntaxHighlighter {
                 || vec![Vec::new(); window.lines.len()],
                 |spans| window.split(spans),
             )
+    }
+
+    /// Appends lines and returns spans in the same order as the appended lines.
+    /// Only bounded preceding context is retained between calls.
+    pub fn append_lines<'a>(
+        &mut self,
+        theme: &SyntaxTheme,
+        sequence: &mut SyntaxSequence,
+        lines: impl IntoIterator<Item = &'a str>,
+    ) -> Vec<Vec<HighlightSpan>> {
+        let appended = lines.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        if appended.is_empty() {
+            return Vec::new();
+        }
+        let previous_len = sequence.lines.len();
+        sequence.lines.extend(appended);
+        let first = previous_len.saturating_sub(PARSE_CONTEXT_LINES);
+        let target_offset = previous_len - first;
+        let mut highlighted = self.highlight_sequential(
+            theme,
+            sequence.hint.as_str(),
+            sequence.lines[first..].iter().map(String::as_str),
+        );
+        let result = highlighted.split_off(target_offset);
+        if sequence.lines.len() > PARSE_CONTEXT_LINES {
+            let discard = sequence.lines.len() - PARSE_CONTEXT_LINES;
+            sequence.lines.drain(..discard);
+        }
+        result
     }
 
     fn reserve_sequence(&mut self, key: Fingerprint) {

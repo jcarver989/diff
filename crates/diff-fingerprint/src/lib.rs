@@ -1,8 +1,18 @@
-use crate::FingerprintError;
+//! Length-prefixed BLAKE3 fingerprints with a stable hexadecimal form.
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// Errors produced while decoding a hexadecimal fingerprint.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FingerprintError {
+    #[error("fingerprint must be 64 hexadecimal characters, found {0}")]
+    Length(usize),
+    #[error("fingerprint contains non-hexadecimal character `{0}`")]
+    Digit(char),
+}
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Fingerprint([u8; 32]);
@@ -50,6 +60,11 @@ impl Fingerprint {
         hex
     }
 
+    /// Parses a 64-character hexadecimal fingerprint.
+    ///
+    /// # Errors
+    /// Returns an error when the input has the wrong length or contains a
+    /// non-hexadecimal character.
     pub fn from_hex(text: &str) -> Result<Self, FingerprintError> {
         let bytes = text.as_bytes();
         if bytes.len() != 64 {

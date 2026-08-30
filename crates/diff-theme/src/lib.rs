@@ -1,7 +1,10 @@
 //! Renderer-neutral colors, semantic diff palettes, and syntax themes.
 
-use crate::{DiffTone, Fingerprint};
+#[cfg(feature = "tm-theme")]
+mod import;
+
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
+pub use diff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
 
@@ -95,6 +98,27 @@ pub struct SyntaxStyle {
     pub font_style: FontStyle,
 }
 
+/// Semantic tint for a diff cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DiffTone {
+    Context,
+    Added,
+    Removed,
+    Meta,
+}
+
+impl DiffTone {
+    #[must_use]
+    pub const fn marker(self) -> char {
+        match self {
+            Self::Added => '+',
+            Self::Removed => '-',
+            Self::Context | Self::Meta => ' ',
+        }
+    }
+}
+
+/// Foreground and background colors resolved for one [`DiffTone`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToneColors {
     pub foreground: Rgba,
@@ -222,6 +246,15 @@ pub struct DiffTheme {
 }
 
 impl DiffTheme {
+    /// Starts a builder for a host-provided syntax theme.
+    pub fn builder(id: impl Into<String>) -> SyntaxThemeBuilder {
+        SyntaxThemeBuilder {
+            id: ThemeId::Custom(id.into()),
+            palette: DiffPalette::default(),
+            syntax: BTreeMap::new(),
+        }
+    }
+
     /// Parses a versioned Diff theme JSON document.
     ///
     /// Capture lookup first tries an exact name and then progressively removes
@@ -478,6 +511,133 @@ const fn diff_background(foreground: Rgba, background: Rgba) -> Rgba {
 impl Default for DiffTheme {
     fn default() -> Self {
         Self::sage().expect("bundled Sage theme JSON must parse")
+    }
+}
+
+/// Builder for syntax themes without exposing the capture map representation.
+pub struct SyntaxThemeBuilder {
+    id: ThemeId,
+    palette: DiffPalette,
+    syntax: BTreeMap<String, SyntaxStyle>,
+}
+impl SyntaxThemeBuilder {
+    /// Assigns a style to an exact capture or parent capture prefix.
+    #[must_use]
+    pub fn capture(mut self, name: impl Into<String>, style: SyntaxStyle) -> Self {
+        self.syntax.insert(name.into(), style);
+        self
+    }
+    /// Sets the semantic diff palette retained by compatibility aggregate themes.
+    #[must_use]
+    pub fn palette(mut self, palette: DiffPalette) -> Self {
+        self.palette = palette;
+        self
+    }
+    /// Builds the immutable theme and derives its stable revision.
+    ///
+    /// # Errors
+    /// Returns an error if the internal versioned representation cannot be serialized.
+    pub fn build(self) -> Result<SyntaxTheme, ThemeError> {
+        let document = ThemeDocument {
+            version: 1,
+            palette: self.palette,
+            syntax: self.syntax,
+        };
+        let bytes = serde_json::to_vec(&document).map_err(|error| ThemeError::Parse {
+            message: error.to_string(),
+        })?;
+        DiffTheme::from_bytes(self.id, &bytes)
+    }
+}
+
+/// A syntax-only theme view. This alias keeps the capture API compact while
+/// allowing callers to depend on the syntax boundary rather than the diff UI.
+pub type SyntaxTheme = DiffTheme;
+
+/// Semantic Markdown roles used by renderer adapters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkdownPalette {
+    pub heading: Rgba,
+    pub link: Rgba,
+    pub quote: Rgba,
+    pub code: Rgba,
+}
+
+impl Default for MarkdownPalette {
+    fn default() -> Self {
+        let palette = DiffPalette::default();
+        Self {
+            heading: palette.accent,
+            link: palette.accent,
+            quote: palette.muted,
+            code: palette.foreground,
+        }
+    }
+}
+
+/// Aggregate theme shared by terminal and desktop adapters.
+#[derive(Debug, Clone)]
+pub struct ReviewTheme {
+    pub syntax: SyntaxTheme,
+    pub markdown: MarkdownPalette,
+    pub diff: DiffPalette,
+}
+
+impl ReviewTheme {
+    /// Returns a stable revision derived from every renderer-visible theme value.
+    ///
+    /// Renderer caches should use this aggregate revision rather than the syntax
+    /// revision alone so Markdown and diff palette changes also invalidate rows.
+    #[must_use]
+    pub fn revision(&self) -> Fingerprint {
+        let mut fields = Vec::with_capacity(1 + self.diff.colors().len() + 4);
+        fields.push(self.syntax.revision().as_bytes().to_vec());
+        fields.extend(self.diff.colors().map(|color| color.to_bytes().to_vec()));
+        fields.extend(
+            [
+                self.markdown.heading,
+                self.markdown.link,
+                self.markdown.quote,
+                self.markdown.code,
+            ]
+            .map(|color| color.to_bytes().to_vec()),
+        );
+        Fingerprint::of(fields)
+    }
+
+    /// Imports a Sublime Text `.tmTheme`, mapping common `TextMate` scopes onto
+    /// stable Tree-sitter capture names and semantic Markdown/diff roles.
+    ///
+    /// Unsupported scopes fall back to the imported foreground, accent, and
+    /// muted colors. This compatibility path is available only with the
+    /// `tm-theme` feature.
+    ///
+    /// # Errors
+    /// Returns an error when the property-list theme is malformed or cannot be converted.
+    #[cfg(feature = "tm-theme")]
+    pub fn from_tm_theme_bytes(id: &str, bytes: &[u8]) -> Result<Self, ThemeError> {
+        import::from_tm_theme_bytes(id, bytes)
+    }
+}
+
+impl Default for ReviewTheme {
+    fn default() -> Self {
+        let syntax = SyntaxTheme::default();
+        Self {
+            markdown: MarkdownPalette::default(),
+            diff: syntax.palette().clone(),
+            syntax,
+        }
+    }
+}
+
+impl From<DiffTheme> for ReviewTheme {
+    fn from(syntax: DiffTheme) -> Self {
+        Self {
+            markdown: MarkdownPalette::default(),
+            diff: syntax.palette().clone(),
+            syntax,
+        }
     }
 }
 
