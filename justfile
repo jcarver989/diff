@@ -31,11 +31,23 @@ check:
 test:
     cargo test --workspace
 
+feature-check:
+    cargo check -p diff-syntax --no-default-features
+    cargo check -p diff-syntax --features common-languages
+    cargo check -p diff-ratatui --no-default-features
+    cargo check -p diff-ratatui --no-default-features --features syntax
+    cargo check -p diff-ratatui --no-default-features --features diff-preview
+    cargo check -p diff-ratatui --no-default-features --features markdown
+    cargo check -p diff-ratatui --no-default-features --features diff-review
+    cargo check -p diff-ratatui --no-default-features --features markdown-review
+    cargo check -p diff-ratatui --all-features
+    cargo check -p diff-theme --features tm-theme
+
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 wasm-check:
-    cargo check -p diff-core -p diff-gpui -p diff-gpui-web --target wasm32-unknown-unknown
+    cargo check -p diff-core -p diff-theme -p diff-syntax -p diff-markdown -p diff-gpui -p diff-gpui-web --target wasm32-unknown-unknown
 
 # Build the release WASM and execute its smoke test in Chromium.
 web-test:
@@ -51,7 +63,7 @@ doc-check:
     cargo doc --workspace --all-features --no-deps --document-private-items
 
 # Run every local verification check. CI intentionally runs these as separate jobs.
-verify: fmt-check check lint test wasm-check doc-check
+verify: fmt-check check feature-check lint test wasm-check doc-check
 
 release-pr-preview:
     release-plz release-pr --dry-run

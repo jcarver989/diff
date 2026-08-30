@@ -1,7 +1,12 @@
 [workspace]
 members = [
     "crates/clankerdiff",
+    "crates/clankerdiff-protocol",
     "crates/diff-core",
+    "crates/diff-fingerprint",
+    "crates/diff-theme",
+    "crates/diff-syntax",
+    "crates/diff-markdown",
     "crates/diff-git",
     "crates/diff-gpui",
     "crates/diff-gpui-desktop",
@@ -24,23 +29,7 @@ lto = "thin"
 
 [workspace.dependencies]
 async-channel = "2.5.0"
-arborium = { version = "=2.18.2", default-features = false, features = [
-    "lang-bash",
-    "lang-c",
-    "lang-cpp",
-    "lang-css",
-    "lang-go",
-    "lang-html",
-    "lang-javascript",
-    "lang-json",
-    "lang-markdown",
-    "lang-python",
-    "lang-rust",
-    "lang-toml",
-    "lang-tsx",
-    "lang-typescript",
-    "lang-yaml",
-] }
+arborium = { version = "=2.18.2", default-features = false }
 arborium-highlight = "=2.18.2"
 arborium-theme = "=2.18.2"
 blake3 = "1.8.7"

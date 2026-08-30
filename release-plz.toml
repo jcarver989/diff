@@ -8,9 +8,34 @@ pr_name = "chore: release"
 dependencies_update = true
 
 [[package]]
+name = "diff-fingerprint"
+release = true
+publish = true
+
+[[package]]
+name = "diff-theme"
+release = true
+publish = true
+
+[[package]]
+name = "diff-syntax"
+release = true
+publish = true
+
+[[package]]
+name = "diff-markdown"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-protocol"
+release = true
+publish = true
+
+[[package]]
 name = "diff-core"
 release = true
-publish = false
+publish = true
 
 [[package]]
 name = "diff-git"
@@ -35,4 +60,4 @@ publish = false
 [[package]]
 name = "diff-ratatui"
 release = true
-publish = false
+publish = true
