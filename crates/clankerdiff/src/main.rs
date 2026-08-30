@@ -1,7 +1,7 @@
 mod args;
 mod preferences;
+mod session;
 mod tui;
-mod web;
 
 use args::{Cli, Command, MarkdownArgs, OutputFormat, ReviewArgs, Ui};
 use clap::Parser;
@@ -55,26 +55,9 @@ async fn run(args: ReviewArgs) -> Result<ReviewOutcome, AppError> {
         Ui::Desktop => diff_gpui_desktop::run_review(root.clone(), args.scope),
         Ui::Tui => {
             let document = repository.snapshot(args.scope).await?;
-            web::run_tui_session(
-                &repository,
-                &document,
-                args.scope,
-                args.port,
-                |session_url| tui::launch(session_url).map_err(|error| error.to_string()),
-            )?
-        }
-        Ui::Web => {
-            let document = repository.snapshot(args.scope).await?;
-            web::run(
-                &repository,
-                &document,
-                args.scope,
-                &web::Options {
-                    port: args.port,
-                    no_open: args.no_open,
-                    assets: args.web_assets.clone(),
-                },
-            )?
+            session::run(&repository, &document, args.scope, |session_url| {
+                tui::launch(session_url).map_err(|error| error.to_string())
+            })?
         }
     };
 
@@ -119,14 +102,6 @@ fn run_markdown(args: &MarkdownArgs) -> Result<ReviewOutcome, AppError> {
     let submission = match args.ui {
         Ui::Tui => tui::run_markdown(Arc::new(document))?,
         Ui::Desktop => diff_gpui_desktop::run_markdown_review(document),
-        Ui::Web => web::run_markdown(
-            &document,
-            &web::Options {
-                port: 0,
-                no_open: false,
-                assets: None,
-            },
-        )?,
     };
     let Some(submission) = submission else {
         return Ok(ReviewOutcome::Cancelled);
@@ -222,14 +197,14 @@ enum AppError {
     MarkdownDirectory(String),
     #[error("Markdown input is not valid UTF-8: {0}")]
     InvalidMarkdownUtf8(std::str::Utf8Error),
-    #[error("Markdown from stdin cannot use the TUI; choose --ui desktop or --ui web")]
+    #[error("Markdown from stdin cannot use the TUI; choose --ui desktop")]
     MarkdownStdinTui,
     #[error("could not read Markdown input: {0}")]
     Io(#[from] io::Error),
     #[error(transparent)]
     Tui(#[from] tui::TuiError),
     #[error(transparent)]
-    Web(#[from] web::WebError),
+    Session(#[from] session::SessionError),
     #[error("could not serialize review output: {0}")]
     Serialize(#[from] serde_json::Error),
 }

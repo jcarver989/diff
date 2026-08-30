@@ -1,6 +1,6 @@
 # Diff
 
-This is a repository for Diff, a performant diff tool with comment support. It runs in a TUI (ratatui), Desktop and Web (both gpui).
+This is a repository for Diff, a performant diff tool with comment support. The CLI runs in a TUI (ratatui) or Desktop (gpui), while the standalone Web frontend (gpui) supports hosted use cases.
 
 ## Coding conventions
 

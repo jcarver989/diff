@@ -20,7 +20,6 @@ diff-core = { path = "../diff-core" }
 diff-git = { path = "../diff-git" }
 diff-gpui-desktop = { path = "../diff-gpui-desktop" }
 diff-ratatui = { path = "../diff-ratatui" }
-open.workspace = true
 rand.workspace = true
 ratatui.workspace = true
 serde.workspace = true

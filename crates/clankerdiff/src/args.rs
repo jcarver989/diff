@@ -30,10 +30,9 @@ pub struct AttachArgs {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum Ui {
+    #[default]
     Tui,
     Desktop,
-    #[default]
-    Web,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
@@ -82,18 +81,6 @@ pub struct ReviewArgs {
     /// Feedback format written to stdout.
     #[arg(long, value_enum, default_value_t)]
     pub format: OutputFormat,
-
-    /// Web server port; zero chooses an ephemeral port.
-    #[arg(long, default_value_t = 0)]
-    pub port: u16,
-
-    /// Print the web review URL to stderr without opening a browser.
-    #[arg(long)]
-    pub no_open: bool,
-
-    /// Use an external Trunk build instead of the embedded web application.
-    #[arg(long, value_name = "PATH")]
-    pub web_assets: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -114,7 +101,7 @@ mod tests {
         let args = review_args(["clankerdiff", "review"]);
         assert_eq!(args.repository, PathBuf::from("."));
         assert_eq!(args.scope, DiffScope::Both);
-        assert_eq!(args.ui, Ui::Web);
+        assert_eq!(args.ui, Ui::Tui);
         assert_eq!(args.format, OutputFormat::Text);
     }
 
@@ -127,20 +114,12 @@ mod tests {
             "--scope",
             "staged",
             "--format=json",
-            "--port",
-            "8123",
-            "--no-open",
-            "--web-assets",
-            "/tmp/web",
             "/tmp/repo",
         ]);
         assert_eq!(args.ui, Ui::Tui);
         assert_eq!(args.scope, DiffScope::Staged);
         assert_eq!(args.format, OutputFormat::Json);
-        assert_eq!(args.port, 8123);
-        assert!(args.no_open);
         assert_eq!(args.repository, PathBuf::from("/tmp/repo"));
-        assert_eq!(args.web_assets, Some(PathBuf::from("/tmp/web")));
     }
 
     #[test]
@@ -176,10 +155,12 @@ mod tests {
         let command = Cli::try_parse_from(["clankerdiff", "show"]).unwrap_err();
         assert_eq!(command.kind(), ErrorKind::InvalidSubcommand);
 
-        let ui = Cli::try_parse_from(["clankerdiff", "review", "--ui", "other"]).unwrap_err();
+        let ui = Cli::try_parse_from(["clankerdiff", "review", "--ui", "web"]).unwrap_err();
         assert_eq!(ui.kind(), ErrorKind::InvalidValue);
 
-        let port = Cli::try_parse_from(["clankerdiff", "review", "--port", "nope"]).unwrap_err();
-        assert_eq!(port.kind(), ErrorKind::ValueValidation);
+        for option in ["--port", "--no-open", "--web-assets"] {
+            let option = Cli::try_parse_from(["clankerdiff", "review", option]).unwrap_err();
+            assert_eq!(option.kind(), ErrorKind::UnknownArgument);
+        }
     }
 }
