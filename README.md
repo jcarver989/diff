@@ -34,7 +34,11 @@ New embedding code should use the portable crates directly. `diff-core` now expo
 | `diff-review` | interactive diff review and Crossterm input |
 | `markdown-review` | interactive Markdown review and Crossterm input |
 
-A transcript host typically selects `default-features = false` with `features = ["syntax", "diff-preview", "markdown"]`. Auto diff layout uses split view at 96 columns, and previews default to 20 content rows plus an overflow summary. `MarkdownStream::push`, `replace`, and `finish` distinguish append updates, source resets, and final-tail stabilization. Syntax sequence recovery retains at most the documented `PARSE_CONTEXT_LINES` preceding lines.
+A transcript host typically selects `default-features = false` with `features = ["syntax", "diff-preview", "markdown"]`. Auto diff layout uses split view at 96 columns, and previews default to 20 content rows plus an overflow summary. `MarkdownStream::push`, `replace`, and `finish` distinguish append updates, source resets, and final-tail stabilization. Stable prose is committed once; open-fence tails are rendered from bounded stable syntax context without committing speculative state. Width, theme, replacement, or backwards-offset changes invalidate the cache.
+
+`diff-syntax` keeps the small `common-languages` bundle as its default. Embedders rendering coding-agent output can select `default-features = false, features = ["agent-languages"]` for a broad curated grammar set. It intentionally forwards granular permissively licensed Arborium features rather than `all-languages`, excluding GPL `lang-nginx`. Syntax sequence recovery retains at most `CacheConfig::context_lines`; constructs opened before that window use Tree-sitter recovery rather than exact lexer-state continuation. `SourceSequenceId` is an ordered-line, snapshot-local cache identity and must not be persisted.
+
+Versioned Diff JSON is the only theme format; there is no runtime TextMate theme import, and the dependency graph contains no Syntect. See [the Wisp integration boundary](docs/wisp-integration.md) and the `streaming_markdown` example for dependency selection, ownership, instrumentation, and migration order.
 
 ## Clankerdiff subprocess protocol
 
