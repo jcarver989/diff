@@ -173,6 +173,14 @@ impl MarkdownCodeBlock {
     pub const fn target_id(&self) -> Option<MarkdownTargetId> {
         self.target_id
     }
+
+    #[must_use]
+    pub fn highlight_hint(&self) -> &str {
+        self.info
+            .as_deref()
+            .or(self.language.as_deref())
+            .unwrap_or_default()
+    }
 }
 
 /// One content line inside a code block.

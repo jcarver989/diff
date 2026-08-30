@@ -13,7 +13,7 @@ use crate::{
     },
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use diff_syntax::{HighlightSpan, LanguageHint};
+use diff_syntax::HighlightSpan;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
@@ -262,12 +262,7 @@ fn render_rows(
                 .iter()
                 .map(|span| span.text.as_str())
                 .collect::<String>();
-            let language = code.language.as_deref().unwrap_or("text");
-            let highlights = state
-                .highlighter
-                .with_theme(&state.theme)
-                .highlight_source(LanguageHint::Id(language), &source);
-            spans.extend(highlighted_spans(&source, &highlights, background));
+            spans.extend(highlighted_spans(&source, &code.highlights, background));
         } else {
             spans.extend(
                 row.spans

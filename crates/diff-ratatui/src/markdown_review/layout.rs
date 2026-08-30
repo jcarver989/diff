@@ -3,6 +3,8 @@ use diff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownInline, MarkdownReviewSession,
     MarkdownTable, MarkdownTableAlignment, MarkdownTableRow, MarkdownTargetId,
 };
+use diff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter};
+use diff_theme::DiffTheme;
 use std::collections::HashMap;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -28,7 +30,7 @@ pub(crate) struct MarkdownSpan {
 
 #[derive(Debug, Clone)]
 pub(crate) struct MarkdownCodeInfo {
-    pub language: Option<String>,
+    pub highlights: Vec<HighlightSpan>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,13 +90,20 @@ pub(crate) struct MarkdownVisualLayout {
 }
 
 impl MarkdownVisualLayout {
-    pub(crate) fn build(session: &MarkdownReviewSession, width: u16) -> Self {
+    pub(crate) fn build(
+        session: &MarkdownReviewSession,
+        width: u16,
+        highlighter: &mut SyntaxHighlighter,
+        theme: &DiffTheme,
+    ) -> Self {
         let document = session.document();
         let mut builder = LayoutBuilder {
             width: usize::from(width.max(1)),
             session,
             rows: Vec::new(),
             first_row: HashMap::new(),
+            highlighter,
+            theme,
         };
         let mut next_source_line = 1;
         for block in document.blocks() {
@@ -122,6 +131,8 @@ struct LayoutBuilder<'a> {
     session: &'a MarkdownReviewSession,
     rows: Vec<MarkdownVisualRow>,
     first_row: HashMap<MarkdownTargetId, usize>,
+    highlighter: &'a mut SyntaxHighlighter,
+    theme: &'a DiffTheme,
 }
 
 impl LayoutBuilder<'_> {
@@ -318,7 +329,16 @@ impl LayoutBuilder<'_> {
             .with_source_line(Some(code.source.lines.start)),
         );
         self.mark_target(target, start);
-        for line in &code.lines {
+        let sources = code
+            .lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>();
+        let highlighted = self.highlighter.with_theme(self.theme).highlight_lines(
+            LanguageHint::InfoString(code.highlight_hint()),
+            sources.iter().copied(),
+        );
+        for (line, line_highlights) in code.lines.iter().zip(highlighted) {
             let line_target = if suppress_targets {
                 target
             } else {
@@ -340,12 +360,17 @@ impl LayoutBuilder<'_> {
                     spans: Vec::new(),
                     prefix: prefix.clone(),
                     code: Some(MarkdownCodeInfo {
-                        language: code.language.clone(),
+                        highlights: line_highlights.clone(),
                     }),
                     annotation: None,
                 });
             } else {
+                let mut byte_offset = 0;
                 for (index, spans) in wrapped.into_iter().enumerate() {
+                    let byte_len = spans.iter().map(|span| span.text.len()).sum::<usize>();
+                    let highlights =
+                        clip_highlights(&line_highlights, byte_offset, byte_offset + byte_len);
+                    byte_offset += byte_len;
                     self.rows.push(MarkdownVisualRow {
                         target: line_target,
                         source_line: (index == 0).then_some(line.source_line).flatten(),
@@ -356,9 +381,7 @@ impl LayoutBuilder<'_> {
                         } else {
                             " ".repeat(prefix.width())
                         },
-                        code: Some(MarkdownCodeInfo {
-                            language: code.language.clone(),
-                        }),
+                        code: Some(MarkdownCodeInfo { highlights }),
                         annotation: None,
                     });
                 }
@@ -479,6 +502,21 @@ impl LayoutBuilder<'_> {
             }
         }
     }
+}
+
+fn clip_highlights(highlights: &[HighlightSpan], start: usize, end: usize) -> Vec<HighlightSpan> {
+    highlights
+        .iter()
+        .filter_map(|highlight| {
+            let clipped_start = highlight.range.start.max(start);
+            let clipped_end = highlight.range.end.min(end);
+            (clipped_start < clipped_end).then(|| HighlightSpan {
+                range: clipped_start - start..clipped_end - start,
+                foreground: highlight.foreground,
+                font_style: highlight.font_style,
+            })
+        })
+        .collect()
 }
 
 fn inline_spans(inlines: &[MarkdownInline]) -> Vec<MarkdownSpan> {

@@ -177,7 +177,12 @@ impl MarkdownReviewState {
             self.layout = Some(CachedLayout {
                 key,
                 width,
-                layout: Arc::new(MarkdownVisualLayout::build(&self.session, width)),
+                layout: Arc::new(MarkdownVisualLayout::build(
+                    &self.session,
+                    width,
+                    &mut self.highlighter,
+                    &self.theme,
+                )),
             });
         }
         Arc::clone(&self.layout.as_ref().expect("layout inserted above").layout)
@@ -187,6 +192,7 @@ impl MarkdownReviewState {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.document().source().hash(&mut hasher);
         width.hash(&mut hasher);
+        self.theme.revision().hash(&mut hasher);
         self.review().comments().iter().for_each(|comment| {
             comment.id.hash(&mut hasher);
             comment.body.hash(&mut hasher);

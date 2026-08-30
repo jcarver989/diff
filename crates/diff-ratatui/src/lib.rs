@@ -36,7 +36,9 @@ pub use diff_preview::{DiffPreviewOptions, render_diff_preview};
 #[cfg(feature = "diff-review")]
 pub use input::{DiffReviewInput, handle_crossterm_event};
 #[cfg(feature = "markdown")]
-pub use markdown::{MarkdownRenderOptions, MarkdownRenderer, StreamingMarkdownState};
+pub use markdown::{
+    MarkdownRenderOptions, MarkdownRenderStats, MarkdownRenderer, StreamingMarkdownState,
+};
 #[cfg(feature = "markdown-review")]
 pub use markdown_review::{
     MarkdownFocusPane, MarkdownReviewEvent, MarkdownReviewInput, MarkdownReviewState,

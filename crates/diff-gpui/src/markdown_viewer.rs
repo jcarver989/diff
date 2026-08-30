@@ -64,12 +64,19 @@ impl Default for MarkdownReviewerOptions {
     }
 }
 
+#[derive(Debug, Clone)]
+struct CodeInfo {
+    info: Arc<str>,
+    lines: Arc<[String]>,
+    line_index: Option<usize>,
+}
+
 /// Shared GPUI rendered-Markdown review entity used by desktop and web hosts.
 pub struct MarkdownReviewer {
     session: MarkdownReviewSession,
     theme: DiffTheme,
     highlighter: RefCell<SyntaxHighlighter>,
-    code_infos: HashMap<MarkdownTargetId, String>,
+    code_infos: HashMap<MarkdownTargetId, CodeInfo>,
     options: MarkdownReviewerOptions,
     editor: Option<Entity<CommentEditor>>,
     editor_subscription: Option<Subscription>,
@@ -317,11 +324,19 @@ impl MarkdownReviewer {
 
         let rendered: SharedString = text.clone().into();
         let rendered = if let Some(info) = self.code_infos.get(&target_id) {
-            let highlights = self
+            let highlighted = self
                 .highlighter
                 .borrow_mut()
                 .with_theme(&self.theme)
-                .highlight_source(LanguageHint::InfoString(info), &text);
+                .highlight_lines(
+                    LanguageHint::InfoString(&info.info),
+                    info.lines.iter().map(String::as_str),
+                );
+            let highlights = if let Some(index) = info.line_index {
+                highlighted.get(index).cloned().unwrap_or_default()
+            } else {
+                flatten_line_spans(&info.lines, highlighted)
+            };
             StyledText::new(rendered).with_highlights(highlights.iter().map(|span| {
                 let style: HighlightStyle =
                     style::highlight_style(span.foreground, span.font_style);
@@ -616,19 +631,57 @@ impl MarkdownReviewer {
     }
 }
 
+fn flatten_line_spans(
+    lines: &[String],
+    highlighted: Vec<Vec<diff_theme::HighlightSpan>>,
+) -> Vec<diff_theme::HighlightSpan> {
+    let mut offset = 0;
+    let mut flattened = Vec::new();
+    for (line, spans) in lines.iter().zip(highlighted) {
+        flattened.extend(spans.into_iter().map(|mut span| {
+            span.range.start += offset;
+            span.range.end += offset;
+            span
+        }));
+        offset += line.len() + 1;
+    }
+    flattened
+}
+
 /// Collects the highlight info string for every code block, keyed by target.
-fn code_infos(blocks: &[MarkdownBlock]) -> HashMap<MarkdownTargetId, String> {
-    fn collect(blocks: &[MarkdownBlock], infos: &mut HashMap<MarkdownTargetId, String>) {
+fn code_infos(blocks: &[MarkdownBlock]) -> HashMap<MarkdownTargetId, CodeInfo> {
+    fn collect(blocks: &[MarkdownBlock], infos: &mut HashMap<MarkdownTargetId, CodeInfo>) {
         for block in blocks {
             match &block.kind {
                 MarkdownBlockKind::CodeBlock(code) => {
+                    let info: Arc<str> = Arc::from(code.highlight_hint());
+                    let lines: Arc<[String]> = Arc::from(
+                        code.lines
+                            .iter()
+                            .map(|line| line.text.clone())
+                            .collect::<Vec<_>>(),
+                    );
                     if let Some(target) = code.target_id {
-                        let info = code
-                            .info
-                            .as_deref()
-                            .or(code.language.as_deref())
-                            .unwrap_or("");
-                        infos.insert(target, info.to_owned());
+                        infos.insert(
+                            target,
+                            CodeInfo {
+                                info: Arc::clone(&info),
+                                lines: Arc::clone(&lines),
+                                line_index: None,
+                            },
+                        );
+                    }
+                    for line in &code.lines {
+                        if let Some(target) = line.target_id {
+                            infos.insert(
+                                target,
+                                CodeInfo {
+                                    info: Arc::clone(&info),
+                                    lines: Arc::clone(&lines),
+                                    line_index: Some(line.index),
+                                },
+                            );
+                        }
                     }
                 }
                 MarkdownBlockKind::List { items, .. } => {

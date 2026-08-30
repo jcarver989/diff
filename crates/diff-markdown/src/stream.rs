@@ -6,6 +6,8 @@ pub struct FenceContinuation {
     character: u8,
     length: usize,
     opening: usize,
+    content_start: usize,
+    info: String,
 }
 
 impl FenceContinuation {
@@ -13,6 +15,29 @@ impl FenceContinuation {
     #[must_use]
     pub const fn opening_line(&self) -> usize {
         self.opening
+    }
+
+    #[must_use]
+    pub const fn content_start(&self) -> usize {
+        self.content_start
+    }
+
+    #[must_use]
+    pub fn info_string(&self) -> &str {
+        &self.info
+    }
+
+    #[must_use]
+    pub fn find_close(&self, segment: &str) -> Option<Range<usize>> {
+        let mut offset = 0;
+        for line in segment.split_inclusive('\n') {
+            let body = line.trim_end_matches(['\n', '\r']);
+            if is_closing_fence(body, self.character, self.length) {
+                return Some(offset..offset + line.len());
+            }
+            offset += line.len();
+        }
+        None
     }
 }
 
@@ -33,6 +58,7 @@ pub struct MarkdownStreamUpdate {
 pub struct MarkdownStream {
     source: String,
     revision: u64,
+    generation: u64,
     stable: usize,
     continuation: Option<FenceContinuation>,
     finished: bool,
@@ -63,6 +89,7 @@ impl MarkdownStream {
     pub fn replace(&mut self, source: impl Into<String>) -> MarkdownStreamUpdate {
         self.source = source.into();
         self.revision = self.revision.wrapping_add(1);
+        self.generation = self.generation.wrapping_add(1);
         self.finished = false;
         self.recompute(true)
     }
@@ -94,6 +121,10 @@ impl MarkdownStream {
         self.stable
     }
     #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+    #[must_use]
     pub const fn continuation(&self) -> Option<&FenceContinuation> {
         self.continuation.as_ref()
     }
@@ -123,16 +154,18 @@ impl MarkdownStream {
                 } else if *top_level {
                     stable = end;
                 }
-            } else if let Some((character, length, top_level)) = opening_fence(body) {
+            } else if let Some(open) = opening_fence(body) {
                 let continuation = FenceContinuation {
-                    character,
-                    length,
+                    character: open.character,
+                    length: open.length,
                     opening: offset,
+                    content_start: end,
+                    info: open.info,
                 };
-                if top_level {
+                if open.top_level {
                     stable = end;
                 }
-                fence = Some((continuation, top_level));
+                fence = Some((continuation, open.top_level));
             } else if body.trim().is_empty() {
                 stable = end;
             }
@@ -159,7 +192,14 @@ impl MarkdownStream {
     }
 }
 
-fn opening_fence(line: &str) -> Option<(u8, usize, bool)> {
+struct OpeningFence {
+    character: u8,
+    length: usize,
+    top_level: bool,
+    info: String,
+}
+
+fn opening_fence(line: &str) -> Option<OpeningFence> {
     let indent = line.bytes().take_while(|byte| *byte == b' ').count();
     let trimmed = &line[indent..];
     let contained = trimmed.starts_with('>')
@@ -207,7 +247,12 @@ fn opening_fence(line: &str) -> Option<(u8, usize, bool)> {
     if character == b'`' && info.contains('`') {
         return None;
     }
-    Some((character, length, !contained && indent <= 3))
+    Some(OpeningFence {
+        character,
+        length,
+        top_level: !contained && indent <= 3,
+        info: info.trim().to_owned(),
+    })
 }
 
 fn is_closing_fence(line: &str, character: u8, opening_length: usize) -> bool {
@@ -249,6 +294,35 @@ mod tests {
         assert_eq!(stream.stable_offset(), "```rust\nlet x = 1;\n".len());
         assert!(stream.continuation().is_none());
         stream.push("\n");
+        assert_eq!(stream.stable_offset(), stream.source().len());
+    }
+
+    #[test]
+    fn continuation_preserves_offsets_info_and_locates_its_close() {
+        let mut stream = MarkdownStream::new();
+        stream.push("~~~~rust {#example .numberLines}\r\nlet x = 1;\r\n");
+        let continuation = stream.continuation().unwrap();
+        assert_eq!(continuation.opening_line(), 0);
+        assert_eq!(
+            continuation.content_start(),
+            "~~~~rust {#example .numberLines}\r\n".len()
+        );
+        assert_eq!(continuation.info_string(), "rust {#example .numberLines}");
+        assert_eq!(
+            continuation.find_close("code\n~~~\n~~~~\nafter\n"),
+            Some(9..14)
+        );
+        assert_eq!(continuation.find_close("code\n~~~\n"), None);
+    }
+
+    #[test]
+    fn replacement_resets_continuation_and_scanner() {
+        let mut stream = MarkdownStream::new();
+        stream.push("```rust\nopen\n");
+        assert!(stream.continuation().is_some());
+        let update = stream.replace("plain\n\n");
+        assert!(update.reset);
+        assert!(stream.continuation().is_none());
         assert_eq!(stream.stable_offset(), stream.source().len());
     }
 
