@@ -1,9 +1,8 @@
 use super::layout::MarkdownVisualLayout;
 use crate::theme_picker::ThemePicker;
-use diff_core::{
-    DiffTheme, HighlightStats, MarkdownDocument, MarkdownReview, MarkdownReviewSession,
-    MarkdownTargetId,
-};
+use diff_markdown::{MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId};
+use diff_syntax::{HighlightStats, SyntaxHighlighter};
+use diff_theme::DiffTheme;
 use ratatui::layout::{Position, Rect};
 use std::{
     hash::{Hash, Hasher},
@@ -39,7 +38,7 @@ struct CachedLayout {
 pub struct MarkdownReviewState {
     pub(crate) session: MarkdownReviewSession,
     pub(crate) theme: DiffTheme,
-    pub(crate) highlighter: diff_core::SyntaxHighlighter,
+    pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) focus: MarkdownFocusPane,
     pub(crate) scroll: usize,
     pub(crate) outline_scroll: usize,
@@ -67,7 +66,7 @@ impl MarkdownReviewState {
         Self {
             session: MarkdownReviewSession::new(document),
             theme,
-            highlighter: diff_core::SyntaxHighlighter::default(),
+            highlighter: SyntaxHighlighter::default(),
             focus: MarkdownFocusPane::Document,
             scroll: 0,
             outline_scroll: 0,

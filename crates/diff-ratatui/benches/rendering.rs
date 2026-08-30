@@ -30,7 +30,7 @@ const FILE_SWITCHES: u64 = 50;
 fn presentation_creation(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("presentation_creation");
     group.sample_size(20);
-    let theme = diff_core::DiffTheme::default();
+    let theme = diff_theme::DiffTheme::default();
     for rows in [1_000, 10_000, 100_000] {
         let document = large_document(rows);
         group.bench_with_input(BenchmarkId::from_parameter(rows), &rows, |bencher, _| {

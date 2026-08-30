@@ -3,7 +3,7 @@ use crate::theme_picker::{ThemePicker, ThemePickerAction};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
-use diff_core::MarkdownReviewError;
+use diff_markdown::MarkdownReviewError;
 use ratatui::layout::Position;
 
 /// Framework-neutral input accepted by [`MarkdownReviewState::handle_input`].

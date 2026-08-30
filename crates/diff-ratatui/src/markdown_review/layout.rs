@@ -1,5 +1,5 @@
 use crate::annotation::{AnnotationBox, AnnotationKind};
-use diff_core::{
+use diff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownInline, MarkdownReviewSession,
     MarkdownTable, MarkdownTableAlignment, MarkdownTableRow, MarkdownTargetId,
 };

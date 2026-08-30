@@ -10,9 +10,9 @@ use crate::{
     theme_picker::render_theme_picker,
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use diff_core::{
-    DiffTheme, DiffTone, HighlightSpan, PresentedCell, PresentedRow, RowKind, SyntaxHighlighter,
-};
+use diff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
+use diff_syntax::{HighlightSpan, SyntaxHighlighter};
+use diff_theme::DiffTheme;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Position, Rect},
@@ -505,9 +505,10 @@ fn render_cell(
         "{indicator}{number:>width$} ",
         width = usize::from(GUTTER_WIDTH) - 2,
     );
-    let highlights = context.presentation.highlight_cell(
+    let highlights = crate::diff_preview::cell_highlights(
         context.highlighter,
         context.diff_theme,
+        context.presentation,
         context.row,
         cell,
     );

@@ -1,8 +1,9 @@
 #![allow(dead_code, missing_docs)]
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use diff_core::{DiffDocument, HighlightStats};
+use diff_core::DiffDocument;
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget};
+use diff_syntax::HighlightStats;
 use ratatui::{
     Terminal,
     backend::{Backend, ClearType, TestBackend, WindowSize},

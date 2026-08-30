@@ -1,6 +1,6 @@
 use crate::RatatuiTheme;
 use crossterm::event::{KeyCode, KeyEvent};
-use diff_core::{DiffTheme, ThemeDescriptor};
+use diff_theme::{DiffTheme, ThemeDescriptor};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -105,7 +105,7 @@ pub(crate) fn render_theme_picker(
 mod tests {
     use super::*;
     use crossterm::event::KeyModifiers;
-    use diff_core::ThemeId;
+    use diff_theme::ThemeId;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)

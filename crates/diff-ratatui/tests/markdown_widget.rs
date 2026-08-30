@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use diff_core::{
+use diff_markdown::{
     MarkdownDocument, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownTargetKind,
 };
 use diff_ratatui::{MarkdownReviewInput, MarkdownReviewState, MarkdownReviewWidget};

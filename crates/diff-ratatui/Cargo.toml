@@ -7,12 +7,23 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["diff-review", "markdown-review"]
+syntax = ["dep:diff-syntax", "dep:diff-theme"]
+diff-preview = ["syntax", "dep:diff-core"]
+diff-review = ["diff-preview", "dep:crossterm"]
+markdown = ["syntax", "dep:diff-markdown"]
+markdown-review = ["markdown", "diff-markdown/review", "dep:diff-core", "dep:crossterm"]
+
 [lints]
 workspace = true
 
 [dependencies]
-crossterm.workspace = true
-diff-core = { path = "../diff-core" }
+crossterm = { workspace = true, optional = true }
+diff-core = { version = "0.1.0", path = "../diff-core", optional = true }
+diff-markdown = { version = "0.1.0", path = "../diff-markdown", optional = true }
+diff-syntax = { version = "0.1.0", path = "../diff-syntax", optional = true }
+diff-theme = { version = "0.1.0", path = "../diff-theme", optional = true }
 ratatui.workspace = true
 unicode-width.workspace = true
 

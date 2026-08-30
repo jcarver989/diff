@@ -4,7 +4,7 @@ use crossterm::{
     event, execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{MarkdownDocument, MarkdownReviewEvent};
+use diff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
 use diff_ratatui::{MarkdownReviewState, MarkdownReviewWidget, handle_markdown_crossterm_event};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{env, error::Error, fs, io::stdout, path::Path, sync::Arc};
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn run(
     document: Arc<MarkdownDocument>,
-) -> Result<Option<diff_core::MarkdownReviewSubmission>, Box<dyn Error>> {
+) -> Result<Option<MarkdownReviewSubmission>, Box<dyn Error>> {
     let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut state = MarkdownReviewState::new(document);

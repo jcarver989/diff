@@ -4,9 +4,11 @@ use crate::{
     theme_picker::ThemePicker,
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, DiffTheme, FileStatus, HighlightStats, Layout,
-    RepositoryAction, Review, ReviewSession, StageState, SyntaxHighlighter, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, RepositoryAction, Review,
+    ReviewSession, StageState, ViewMode,
 };
+use diff_syntax::{HighlightStats, SyntaxHighlighter};
+use diff_theme::DiffTheme;
 use ratatui::layout::{Position, Rect};
 use std::{
     collections::hash_map::DefaultHasher,
@@ -630,7 +632,8 @@ fn offset(current: usize, delta: isize, last: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::{FileDiff, ThemeId};
+    use diff_core::FileDiff;
+    use diff_theme::ThemeId;
 
     #[test]
     fn new_uses_the_default_sage_theme() {

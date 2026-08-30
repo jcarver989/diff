@@ -1,6 +1,7 @@
 //! Ratatui conversions for renderer-neutral diff themes.
 
-use diff_core::{DiffTheme, DiffTone, FontStyle, Rgba};
+use diff_core::DiffTone;
+use diff_theme::{DiffTheme, FontStyle, Rgba};
 use ratatui::style::{Color, Modifier, Style};
 
 /// Ratatui colors derived from a shared [`DiffTheme`].
