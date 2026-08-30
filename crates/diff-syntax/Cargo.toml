@@ -1,0 +1,21 @@
+[package]
+name = "diff-syntax"
+description = "Portable Arborium syntax highlighting"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["common-languages"]
+common-languages = ["arborium/lang-bash", "arborium/lang-c", "arborium/lang-c-sharp", "arborium/lang-cpp", "arborium/lang-css", "arborium/lang-dockerfile", "arborium/lang-go", "arborium/lang-html", "arborium/lang-java", "arborium/lang-javascript", "arborium/lang-json", "arborium/lang-kotlin", "arborium/lang-lua", "arborium/lang-markdown", "arborium/lang-php", "arborium/lang-python", "arborium/lang-ruby", "arborium/lang-rust", "arborium/lang-sql", "arborium/lang-swift", "arborium/lang-toml", "arborium/lang-tsx", "arborium/lang-typescript", "arborium/lang-yaml"]
+
+[lints]
+workspace = true
+
+[dependencies]
+arborium = { workspace = true }
+arborium-highlight.workspace = true
+arborium-theme.workspace = true
+diff-theme = { version = "0.1.0", path = "../diff-theme" }
