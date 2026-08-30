@@ -1,11 +1,12 @@
 use crate::{
-    Cancel, CopyReview, DiffViewer, ShowThemePicker, SubmitReview, ViewerPane, style::color,
+    Cancel, CopyReview, DiffViewer, ShowThemePicker, SubmitReview, ViewerPane,
+    ui::prelude::{ActionBar, Button, ButtonVariant, ControlSize, MutedText},
 };
-use gpui::{Context, Div, div, prelude::*, px};
+use gpui::{Context, div, prelude::*};
 
 impl DiffViewer {
-    pub(crate) fn render_review_bar(&self, cx: &mut Context<Self>) -> Div {
-        let palette = self.theme().palette();
+    pub(crate) fn render_review_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.ui_theme();
         let hint = if self.comment_editor.is_some() {
             "Enter save · Shift-Enter newline · Esc cancel"
         } else if self.pane == ViewerPane::Files {
@@ -15,68 +16,49 @@ impl DiffViewer {
         } else {
             "j/k line · c comment · e/x edit/delete · s submit · y copy · ? help"
         };
-        div()
-            .h(px(44.0))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .border_t_1()
-            .border_color(color(palette.border))
+        ActionBar::new(theme)
             .child(
                 div()
                     .min_w_0()
                     .flex_1()
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .text_color(color(palette.muted))
-                    .child(format!(
-                        "{hint}    ·    {} review comments",
-                        self.review().len()
+                    .child(MutedText::new(
+                        format!("{hint}    ·    {} review comments", self.review().len()),
+                        theme,
                     )),
             )
             .child(
-                button("select-theme", "Theme", palette.muted).on_click(cx.listener(
-                    |viewer, _, window, cx| {
+                Button::new("select-theme", "Theme", theme)
+                    .size(ControlSize::Small)
+                    .on_click(cx.listener(|viewer, _, window, cx| {
                         viewer.show_theme_picker(&ShowThemePicker, window, cx);
-                    },
-                )),
+                    })),
             )
             .when(!self.review().is_empty(), |bar| {
                 bar.child(
-                    button("copy-review", "Copy", palette.accent).on_click(cx.listener(
-                        |viewer, _, window, cx| {
+                    Button::new("copy-review", "Copy", theme)
+                        .variant(ButtonVariant::Secondary)
+                        .size(ControlSize::Small)
+                        .on_click(cx.listener(|viewer, _, window, cx| {
                             viewer.copy_review(&CopyReview, window, cx);
-                        },
-                    )),
+                        })),
                 )
                 .child(
-                    button("submit-review", "Submit", palette.accent).on_click(cx.listener(
-                        |viewer, _, window, cx| viewer.submit_review(&SubmitReview, window, cx),
-                    )),
+                    Button::new("submit-review", "Submit", theme)
+                        .variant(ButtonVariant::Primary)
+                        .size(ControlSize::Small)
+                        .on_click(cx.listener(|viewer, _, window, cx| {
+                            viewer.submit_review(&SubmitReview, window, cx);
+                        })),
                 )
             })
             .child(
-                button("cancel-review", "Cancel", palette.muted).on_click(
-                    cx.listener(|viewer, _, window, cx| viewer.cancel(&Cancel, window, cx)),
-                ),
+                Button::new("cancel-review", "Cancel", theme)
+                    .size(ControlSize::Small)
+                    .on_click(
+                        cx.listener(|viewer, _, window, cx| viewer.cancel(&Cancel, window, cx)),
+                    ),
             )
     }
-}
-
-fn button(
-    id: &'static str,
-    label: &'static str,
-    foreground: diff_theme::Rgba,
-) -> gpui::Stateful<Div> {
-    div()
-        .id(id)
-        .px_2()
-        .py_1()
-        .rounded_sm()
-        .cursor_pointer()
-        .text_color(color(foreground))
-        .hover(|value| value.opacity(0.8))
-        .child(label)
 }

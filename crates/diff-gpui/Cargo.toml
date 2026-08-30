@@ -20,3 +20,4 @@ gpui.workspace = true
 [dev-dependencies]
 diff-core = { path = "../diff-core", features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
+gpui_platform.workspace = true

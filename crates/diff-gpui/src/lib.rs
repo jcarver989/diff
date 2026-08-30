@@ -12,6 +12,7 @@ mod review_bar;
 mod shortcuts;
 mod sidebar;
 pub mod style;
+pub mod ui;
 mod viewer;
 
 pub use diff_core::DiffReviewEvent as DiffViewerEvent;

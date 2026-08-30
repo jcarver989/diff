@@ -5,13 +5,14 @@ use crate::{
     comment_editor::{CommentEditor, CommentEditorEvent},
     sidebar::{SidebarResizeDrag, SidebarTree},
     style::color,
+    ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
 };
 use diff_core::{
     DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, LineAnchor, PresentedCell,
     PresentedRow, RepoPath, RepositoryAction, Review, ReviewSession, SessionOptions, StageState,
     ViewMode,
 };
-use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
+use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SequenceLine, SyntaxHighlighter};
 use diff_theme::DiffTheme;
 use gpui::{
     App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
@@ -318,6 +319,11 @@ impl DiffViewer {
     #[must_use]
     pub const fn theme(&self) -> &DiffTheme {
         &self.theme
+    }
+
+    /// Returns semantic component tokens for the current theme.
+    pub(crate) fn ui_theme(&self) -> UiTheme {
+        UiTheme::new(&self.theme)
     }
 
     /// Returns the structured review.
@@ -723,19 +729,17 @@ impl DiffViewer {
         cell: &PresentedCell,
     ) -> Arc<[HighlightSpan]> {
         let presentation = self.session.presentation();
+        let mut syntax = self.highlighter.with_theme(&self.theme);
         match presentation.cell_sequence(row, cell) {
-            Some(sequence) => self.highlighter.highlight_in_sequence(
-                &self.theme,
-                LanguageHint::Path(sequence.language_hint),
-                sequence.sequence_id,
-                sequence.target,
+            Some(sequence) => syntax.highlight_line(SequenceLine::new(
+                sequence.id,
+                LanguageHint::Path(sequence.language),
+                sequence.target_line,
                 sequence.lines,
-            ),
-            None => self.highlighter.highlight(
-                &self.theme,
-                LanguageHint::Path(presentation.row_path(row)),
-                &cell.text,
-            ),
+            )),
+            None => {
+                syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
+            }
         }
     }
 
@@ -750,7 +754,7 @@ impl DiffViewer {
     )]
     pub(crate) fn reserve_highlights_for_viewport(&mut self, height: f32) {
         let rows = (height / self.diff_row_height()).ceil().max(1.0) as usize;
-        self.highlighter.reserve_for_viewport(rows);
+        self.highlighter.prepare_viewport(rows);
     }
 
     fn move_file(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -1172,85 +1176,26 @@ impl DiffViewer {
         }
     }
 
-    fn render_theme_picker(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
-        let palette = self.theme.palette();
+    fn render_theme_picker(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let current = self.theme.id().to_string();
-        let viewport = window.viewport_size();
-        let panel_width = (f32::from(viewport.width) - 32.0).clamp(1.0, 440.0);
-        let panel_height = (f32::from(viewport.height) - 48.0).clamp(1.0, 620.0);
-        let mut scrim = color(palette.background);
-        scrim.a = 0.72;
-        let rows = DiffTheme::catalog().into_iter().map(|descriptor| {
+        let items = DiffTheme::catalog().into_iter().map(|descriptor| {
             let id = descriptor.id.clone();
-            let selected = descriptor.id == current;
-            div()
-                .id(format!("theme-{}", descriptor.id))
-                .px_3()
-                .py_2()
-                .rounded_sm()
-                .cursor_pointer()
-                .flex()
-                .justify_between()
-                .bg(if selected {
-                    color(palette.selection)
-                } else {
-                    color(palette.background)
-                })
-                .text_color(if selected {
-                    color(palette.accent)
-                } else {
-                    color(palette.foreground)
-                })
-                .hover(|row| row.bg(color(palette.selection)))
-                .child(descriptor.name)
-                .child(if descriptor.is_dark { "Dark" } else { "Light" })
-                .on_click(cx.listener(move |viewer, _, _, cx| viewer.select_theme(&id, cx)))
-        });
-        div()
-            .id("theme-picker-backdrop")
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(scrim)
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .id("theme-picker")
-                    .w(px(panel_width))
-                    .h(px(panel_height))
-                    .p_4()
-                    .rounded_md()
-                    .flex()
-                    .flex_col()
-                    .border_1()
-                    .border_color(color(palette.border))
-                    .bg(color(palette.background))
-                    .shadow_lg()
-                    .child(
-                        div()
-                            .mb_3()
-                            .flex_shrink_0()
-                            .flex()
-                            .justify_between()
-                            .font_weight(gpui::FontWeight::BOLD)
-                            .child("Select theme")
-                            .child(div().text_color(color(palette.muted)).child("Esc to close")),
-                    )
-                    .child(
-                        div()
-                            .id("theme-picker-list")
-                            .min_h_0()
-                            .flex_1()
-                            .overflow_y_scroll()
-                            .children(rows),
-                    ),
+            ThemePickerItem::new(
+                descriptor.id.clone(),
+                descriptor.name,
+                descriptor.is_dark,
+                descriptor.id == current,
+                cx.listener(move |viewer, _, _, cx| viewer.select_theme(&id, cx)),
             )
+        });
+        let viewport = window.viewport_size();
+        ThemePicker::new(
+            "theme-picker",
+            self.ui_theme(),
+            f32::from(viewport.width),
+            f32::from(viewport.height),
+        )
+        .items(items)
     }
 
     pub(crate) fn submit_review(
@@ -1270,68 +1215,40 @@ impl DiffViewer {
         cx.emit(DiffViewerEvent::Cancel);
     }
 
-    fn render_repository_prompt(&self) -> gpui::Stateful<gpui::Div> {
+    fn render_repository_prompt(&self) -> impl IntoElement {
         let palette = self.theme.palette();
         let prompt = self.repository_prompt.clone();
-        div()
-            .id("repository-prompt-backdrop")
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(color(palette.background))
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .id("repository-prompt")
-                    .w(px(560.0))
-                    .max_w_full()
-                    .p_5()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(color(palette.border))
-                    .bg(color(palette.background))
-                    .shadow_lg()
-                    .child(
-                        div()
-                            .mb_3()
-                            .font_weight(gpui::FontWeight::BOLD)
-                            .child(match &prompt {
-                                Some(RepositoryPrompt::Commit) => {
-                                    "Commit staged changes".to_owned()
-                                }
-                                Some(RepositoryPrompt::Discard { path, .. }) => {
-                                    format!("Discard changes to {path}?")
-                                }
-                                None => String::new(),
-                            }),
-                    )
-                    .when_some(self.repository_editor.clone(), |panel, editor| {
-                        panel.child(editor).child(
+        let title = match &prompt {
+            Some(RepositoryPrompt::Commit) => "Commit staged changes".to_owned(),
+            Some(RepositoryPrompt::Discard { path, .. }) => format!("Discard changes to {path}?"),
+            None => String::new(),
+        };
+        Modal::new("repository-prompt", title, self.ui_theme())
+            .children(self.repository_editor.clone())
+            .when(self.repository_editor.is_some(), |panel| {
+                panel.child(
+                    div()
+                        .mt_2()
+                        .text_color(color(palette.muted))
+                        .child("Enter to commit · Esc to cancel"),
+                )
+            })
+            .when(
+                matches!(prompt, Some(RepositoryPrompt::Discard { .. })),
+                |panel| {
+                    panel
+                        .child(
+                            div()
+                                .text_color(color(palette.deletion))
+                                .child("This removes both staged and unstaged changes."),
+                        )
+                        .child(
                             div()
                                 .mt_2()
                                 .text_color(color(palette.muted))
-                                .child("Enter to commit · Esc to cancel"),
+                                .child("y to confirm · n or Esc to cancel"),
                         )
-                    })
-                    .when(
-                        matches!(prompt, Some(RepositoryPrompt::Discard { .. })),
-                        |panel| {
-                            panel
-                                .child(
-                                    div()
-                                        .text_color(color(palette.deletion))
-                                        .child("This removes both staged and unstaged changes."),
-                                )
-                                .child(
-                                    div()
-                                        .mt_2()
-                                        .text_color(color(palette.muted))
-                                        .child("y to confirm · n or Esc to cancel"),
-                                )
-                        },
-                    ),
+                },
             )
     }
 }
@@ -1495,13 +1412,7 @@ impl Render for DiffViewer {
                         .bottom_4()
                         .left_4()
                         .right_4()
-                        .p_3()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(color(palette.deletion))
-                        .bg(color(palette.background))
-                        .text_color(color(palette.deletion))
-                        .child(error),
+                        .child(Notification::error(error, self.ui_theme())),
                 )
             })
     }

@@ -2,9 +2,14 @@
 
 use crate::{
     DEFAULT_FONT_FAMILY, ThemeChanged,
-    annotation::{comment_card, comment_count_marker},
     comment_editor::{CommentEditor, CommentEditorEvent},
     style,
+    ui::{
+        comments::{CommentCard, CommentComposer, CommentCount},
+        prelude::{
+            ActionBar, Button, ButtonVariant, ControlSize, ThemePicker, ThemePickerItem, UiTheme,
+        },
+    },
 };
 use diff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownReview, MarkdownReviewEvent,
@@ -162,6 +167,11 @@ impl MarkdownReviewer {
         cx.notify();
     }
 
+    /// Returns semantic component tokens for the current theme.
+    fn ui_theme(&self) -> UiTheme {
+        UiTheme::new(&self.theme)
+    }
+
     pub fn set_theme(&mut self, theme: DiffTheme, cx: &mut Context<Self>) {
         self.theme = theme.clone();
         if let Some(editor) = &self.editor {
@@ -307,11 +317,11 @@ impl MarkdownReviewer {
 
         let rendered: SharedString = text.clone().into();
         let rendered = if let Some(info) = self.code_infos.get(&target_id) {
-            let highlights = self.highlighter.borrow_mut().highlight(
-                &self.theme,
-                LanguageHint::InfoString(info),
-                &text,
-            );
+            let highlights = self
+                .highlighter
+                .borrow_mut()
+                .with_theme(&self.theme)
+                .highlight_source(LanguageHint::InfoString(info), &text);
             StyledText::new(rendered).with_highlights(highlights.iter().map(|span| {
                 let style: HighlightStyle =
                     style::highlight_style(span.foreground, span.font_style);
@@ -349,10 +359,10 @@ impl MarkdownReviewer {
                     .child(rendered),
             )
             .when(comment_count > 0, |row| {
-                row.child(comment_count_marker(
+                row.child(CommentCount::new(
                     comment_count,
                     self.options.font_size - 2.0,
-                    palette.accent,
+                    self.ui_theme(),
                 ))
             });
 
@@ -377,7 +387,7 @@ impl MarkdownReviewer {
             )
             .child(content)
             .children(comments.into_iter().enumerate().map(|(index, comment)| {
-                comment_card(
+                CommentCard::new(
                     comment.id,
                     if comment.outdated {
                         "Outdated comment"
@@ -386,57 +396,64 @@ impl MarkdownReviewer {
                     },
                     comment.body.clone(),
                     self.options.font_size - 3.0,
-                    palette,
+                    self.ui_theme(),
                     index + 1 == comment_count,
                 )
             }))
             .children(editor.map(|editor| {
-                div()
-                    .mt_2()
-                    .p_2()
-                    .border_1()
-                    .border_color(style::color(palette.accent))
-                    .child(editor)
+                let can_submit = !editor.read(cx).is_blank();
+                let theme = self.ui_theme();
+                let cancel = Button::new(
+                    ("markdown-cancel-comment", target_id.index()),
+                    "Cancel",
+                    theme,
+                )
+                .size(ControlSize::Small)
+                .on_click(cx.listener(|reviewer, _, _, cx| reviewer.discard_comment(cx)));
+                let submit = Button::new(
+                    ("markdown-submit-comment", target_id.index()),
+                    "Save comment",
+                    theme,
+                )
+                .variant(ButtonVariant::Primary)
+                .size(ControlSize::Small)
+                .disabled(!can_submit)
+                .on_click(cx.listener(|reviewer, _, _, cx| reviewer.finish_comment(cx)));
+                div().mt_2().child(CommentComposer::new(
+                    editor,
+                    "Review comment",
+                    theme,
+                    cancel,
+                    submit,
+                ))
             }))
     }
 
-    fn render_bar(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let palette = self.theme.palette();
+    fn render_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.review().len();
-        let button = |id, label| {
-            div()
-                .id(id)
-                .px_3()
-                .py_1()
-                .rounded_sm()
-                .cursor_pointer()
-                .bg(style::color(palette.selection))
-                .hover(|button| button.opacity(0.8))
-                .child(label)
-        };
-        div()
-            .w_full()
-            .p_3()
-            .flex()
-            .items_center()
-            .gap_2()
-            .border_t_1()
-            .border_color(style::color(palette.border))
+        let theme = self.ui_theme();
+        ActionBar::new(theme)
             .child(format!(
                 "{count} comment(s) · c add · e edit · x delete · u undo"
             ))
             .child(div().flex_1())
-            .child(button("markdown-theme", "Theme").on_click(cx.listener(
-                |reviewer, _, window, cx| {
-                    reviewer.show_theme_picker(&MarkdownShowThemePicker, window, cx);
-                },
-            )))
             .child(
-                button("markdown-request-changes", "Request changes")
+                Button::new("markdown-theme", "Theme", theme)
+                    .size(ControlSize::Small)
+                    .on_click(cx.listener(|reviewer, _, window, cx| {
+                        reviewer.show_theme_picker(&MarkdownShowThemePicker, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("markdown-request-changes", "Request changes", theme)
+                    .variant(ButtonVariant::Secondary)
+                    .size(ControlSize::Small)
                     .on_click(cx.listener(|reviewer, _, _, cx| reviewer.emit_request_changes(cx))),
             )
             .child(
-                button("markdown-approve", "Approve")
+                Button::new("markdown-approve", "Approve", theme)
+                    .variant(ButtonVariant::Primary)
+                    .size(ControlSize::Small)
                     .on_click(cx.listener(|reviewer, _, _, cx| reviewer.emit_approve(cx))),
             )
     }
@@ -568,89 +585,26 @@ impl MarkdownReviewer {
         }
     }
 
-    fn render_theme_picker(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
-        let palette = self.theme.palette();
+    fn render_theme_picker(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let current = self.theme.id().to_string();
-        let viewport = window.viewport_size();
-        let panel_width = (f32::from(viewport.width) - 32.0).clamp(1.0, 440.0);
-        let panel_height = (f32::from(viewport.height) - 48.0).clamp(1.0, 620.0);
-        let mut scrim = style::color(palette.background);
-        scrim.a = 0.72;
-        let rows = DiffTheme::catalog().into_iter().map(|descriptor| {
+        let items = DiffTheme::catalog().into_iter().map(|descriptor| {
             let id = descriptor.id.clone();
-            let selected = descriptor.id == current;
-            div()
-                .id(format!("markdown-theme-{}", descriptor.id))
-                .px_3()
-                .py_2()
-                .rounded_sm()
-                .cursor_pointer()
-                .flex()
-                .justify_between()
-                .bg(if selected {
-                    style::color(palette.selection)
-                } else {
-                    style::color(palette.background)
-                })
-                .text_color(if selected {
-                    style::color(palette.accent)
-                } else {
-                    style::color(palette.foreground)
-                })
-                .hover(|row| row.bg(style::color(palette.selection)))
-                .child(descriptor.name)
-                .child(if descriptor.is_dark { "Dark" } else { "Light" })
-                .on_click(cx.listener(move |reviewer, _, _, cx| reviewer.select_theme(&id, cx)))
-        });
-        div()
-            .id("markdown-theme-picker-backdrop")
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(scrim)
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .id("markdown-theme-picker")
-                    .w(px(panel_width))
-                    .h(px(panel_height))
-                    .p_4()
-                    .rounded_md()
-                    .flex()
-                    .flex_col()
-                    .border_1()
-                    .border_color(style::color(palette.border))
-                    .bg(style::color(palette.background))
-                    .shadow_lg()
-                    .child(
-                        div()
-                            .mb_3()
-                            .flex_shrink_0()
-                            .flex()
-                            .justify_between()
-                            .font_weight(gpui::FontWeight::BOLD)
-                            .child("Select theme")
-                            .child(
-                                div()
-                                    .text_color(style::color(palette.muted))
-                                    .child("Esc to close"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("markdown-theme-picker-list")
-                            .min_h_0()
-                            .flex_1()
-                            .overflow_y_scroll()
-                            .children(rows),
-                    ),
+            ThemePickerItem::new(
+                descriptor.id.clone(),
+                descriptor.name,
+                descriptor.is_dark,
+                descriptor.id == current,
+                cx.listener(move |reviewer, _, _, cx| reviewer.select_theme(&id, cx)),
             )
+        });
+        let viewport = window.viewport_size();
+        ThemePicker::new(
+            "markdown-theme-picker",
+            self.ui_theme(),
+            f32::from(viewport.width),
+            f32::from(viewport.height),
+        )
+        .items(items)
     }
 
     #[expect(

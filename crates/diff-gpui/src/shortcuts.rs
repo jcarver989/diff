@@ -1,5 +1,9 @@
-use crate::{DiffViewer, style::color};
-use gpui::{Div, Stateful, div, prelude::*, px};
+use crate::{
+    DiffViewer,
+    style::color,
+    ui::prelude::{Modal, ModalSize},
+};
+use gpui::{div, prelude::*, px};
 
 const NAVIGATION: &[(&str, &str)] = &[
     ("j / k, ↑ / ↓", "move selection"),
@@ -28,7 +32,7 @@ const DRAFT: &[(&str, &str)] = &[
 ];
 
 impl DiffViewer {
-    pub(crate) fn render_shortcuts(&self) -> Stateful<Div> {
+    pub(crate) fn render_shortcuts(&self) -> impl IntoElement {
         let palette = self.theme().palette();
         let section = |title: &'static str, rows: &'static [(&'static str, &'static str)]| {
             let mut content = div().flex_1().flex().flex_col().gap_1().child(
@@ -56,54 +60,23 @@ impl DiffViewer {
             content
         };
 
-        div()
-            .id("shortcut-help-backdrop")
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(color(palette.background))
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        Modal::new("shortcut-help", "Review shortcuts", self.ui_theme())
+            .hint("? / Esc to close")
+            .size(ModalSize::Wide)
             .child(
                 div()
-                    .id("shortcut-help")
-                    .w(px(680.0))
-                    .max_w_full()
-                    .p_5()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(color(palette.border))
-                    .bg(color(palette.background))
-                    .shadow_lg()
-                    .child(
-                        div()
-                            .mb_4()
-                            .flex()
-                            .justify_between()
-                            .font_weight(gpui::FontWeight::BOLD)
-                            .child("Review shortcuts")
-                            .child(
-                                div()
-                                    .text_color(color(palette.muted))
-                                    .child("? / Esc to close"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_5()
-                            .child(section("Navigation", NAVIGATION))
-                            .child(section("Review", REVIEW)),
-                    )
-                    .child(
-                        div()
-                            .mt_4()
-                            .flex()
-                            .gap_5()
-                            .child(section("Git", GIT))
-                            .child(section("Comment editor", DRAFT)),
-                    ),
+                    .flex()
+                    .gap_5()
+                    .child(section("Navigation", NAVIGATION))
+                    .child(section("Review", REVIEW)),
+            )
+            .child(
+                div()
+                    .mt_4()
+                    .flex()
+                    .gap_5()
+                    .child(section("Git", GIT))
+                    .child(section("Comment editor", DRAFT)),
             )
     }
 }

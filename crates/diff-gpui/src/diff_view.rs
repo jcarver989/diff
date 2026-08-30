@@ -1,11 +1,12 @@
 use crate::{
     DiffViewer, ViewerPane,
-    annotation::{
-        add_comment_button, comment_action_button, comment_card, comment_count_marker,
-        comment_editor_card,
-    },
+    annotation::add_comment_button,
     comment_editor::CommentEditor,
     style,
+    ui::{
+        comments::{CommentCard, CommentComposer, CommentCount},
+        prelude::{Button, ButtonVariant, ControlSize, icon_button},
+    },
 };
 use diff_core::{DiffSide, DiffTone, PresentedCell, PresentedRow, ReviewComment, RowKind};
 use gpui::{
@@ -135,20 +136,8 @@ impl DiffViewer {
             )
     }
 
-    fn render_font_controls(&self, cx: &mut Context<Self>) -> Div {
-        let palette = self.theme().palette();
-        let button = |id, label, aria_label| {
-            div()
-                .id(id)
-                .aria_label(aria_label)
-                .px_1()
-                .rounded_sm()
-                .cursor_pointer()
-                .text_color(style::color(palette.muted))
-                .hover(|button| button.bg(style::color(palette.selection)))
-                .child(label)
-        };
-
+    fn render_font_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.ui_theme();
         div()
             .mr_4()
             .flex()
@@ -156,16 +145,18 @@ impl DiffViewer {
             .gap_1()
             .text_size(px(self.metadata_font_size()))
             .child(
-                button("decrease-font-size", "A−", "Decrease font size")
+                icon_button("decrease-font-size", "A−", "Decrease font size", theme)
                     .on_click(cx.listener(|viewer, _, _, cx| viewer.adjust_font_size(-1.0, cx))),
             )
             .child(
-                button("reset-font-size", "", "Reset font size")
-                    .on_click(cx.listener(|viewer, _, _, cx| viewer.reset_font_size(cx)))
-                    .child(format!("{:.0}", self.font_size())),
+                Button::new("reset-font-size", format!("{:.0}", self.font_size()), theme)
+                    .variant(ButtonVariant::Secondary)
+                    .size(ControlSize::Small)
+                    .aria_label("Reset font size")
+                    .on_click(cx.listener(|viewer, _, _, cx| viewer.reset_font_size(cx))),
             )
             .child(
-                button("increase-font-size", "A+", "Increase font size")
+                icon_button("increase-font-size", "A+", "Increase font size", theme)
                     .on_click(cx.listener(|viewer, _, _, cx| viewer.adjust_font_size(1.0, cx))),
             )
     }
@@ -433,10 +424,10 @@ impl DiffViewer {
                     .child(styled),
             )
             .when(comments != 0, |value| {
-                value.child(comment_count_marker(
+                value.child(CommentCount::new(
                     comments,
                     self.metadata_font_size(),
-                    palette.accent,
+                    self.ui_theme(),
                 ))
             })
             .into_any_element()
@@ -578,12 +569,12 @@ impl DiffViewer {
                             .anchor
                             .line_number()
                             .map_or_else(|| "line".to_owned(), |line| format!("line {line}"));
-                        comment_card(
+                        CommentCard::new(
                             comment.id,
                             format!("Your comment on {side} {line}"),
                             comment.body,
                             self.metadata_font_size(),
-                            &palette,
+                            self.ui_theme(),
                             offset == last_comment,
                         )
                     })),
@@ -606,17 +597,15 @@ impl DiffViewer {
             .map_or_else(|| "line".to_owned(), |number| format!("line {number}"));
         let side_label = if side == DiffSide::Old { "old" } else { "new" };
         let can_submit = !editor.read(cx).is_blank();
-        let cancel_button =
-            comment_action_button(("cancel-comment", index), "Cancel", palette.muted)
-                .on_click(cx.listener(|viewer, _, _, cx| viewer.discard_comment(cx)));
-        let mut submit_button =
-            comment_action_button(("submit-comment", index), "Add comment", palette.background)
-                .bg(style::color(palette.accent));
-        if can_submit {
-            submit_button = submit_button.on_click(cx.listener(|viewer, _, _, cx| {
-                viewer.finish_comment(cx);
-            }));
-        }
+        let theme = self.ui_theme();
+        let cancel_button = Button::new(("cancel-comment", index), "Cancel", theme)
+            .size(ControlSize::Small)
+            .on_click(cx.listener(|viewer, _, _, cx| viewer.discard_comment(cx)));
+        let submit_button = Button::new(("submit-comment", index), "Add comment", theme)
+            .variant(ButtonVariant::Primary)
+            .size(ControlSize::Small)
+            .disabled(!can_submit)
+            .on_click(cx.listener(|viewer, _, _, cx| viewer.finish_comment(cx)));
 
         div()
             .id(("comment-dialog", index))
@@ -624,11 +613,10 @@ impl DiffViewer {
             .px_3()
             .pb_3()
             .bg(style::color(palette.background))
-            .child(comment_editor_card(
+            .child(CommentComposer::new(
                 editor,
                 format!("Add a comment on {side_label} {line}"),
-                can_submit,
-                &palette,
+                theme,
                 cancel_button,
                 submit_button,
             ))
