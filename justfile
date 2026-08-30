@@ -34,6 +34,7 @@ test:
 feature-check:
     cargo check -p diff-syntax --no-default-features
     cargo check -p diff-syntax --features common-languages
+    cargo check -p diff-syntax --no-default-features --features agent-languages
     cargo check -p diff-ratatui --no-default-features
     cargo check -p diff-ratatui --no-default-features --features syntax
     cargo check -p diff-ratatui --no-default-features --features diff-preview
@@ -41,7 +42,8 @@ feature-check:
     cargo check -p diff-ratatui --no-default-features --features diff-review
     cargo check -p diff-ratatui --no-default-features --features markdown-review
     cargo check -p diff-ratatui --all-features
-    cargo check -p diff-theme --features tm-theme
+    cargo check -p diff-ratatui --no-default-features --features syntax,diff-preview,markdown --example streaming_markdown
+    if cargo tree -i syntect --all-features >/dev/null 2>&1; then echo "syntect unexpectedly remains in the dependency graph" >&2; exit 1; fi
 
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
