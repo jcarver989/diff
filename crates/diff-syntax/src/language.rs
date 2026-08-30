@@ -42,6 +42,7 @@ pub fn resolve_language<'a>(
     let simple = normalized.rsplit('/').next().unwrap_or(&normalized);
     canonical_id(&normalized)
         .or_else(|| canonical_id(simple))
+        .or_else(|| extension_id(simple))
         .or_else(|| special_file(simple))
         .or_else(|| arborium::detect_language(&normalized).and_then(canonical_id))
         .or_else(|| shebang_id(source))
@@ -73,15 +74,73 @@ fn canonical_id(hint: &str) -> Option<&'static str> {
         "html" | "htm" => "html",
         "css" => "css",
         "markdown" | "md" => "markdown",
+        "zig" => "zig",
+        "nix" => "nix",
+        "haskell" | "hs" => "haskell",
+        "elixir" | "ex" | "exs" => "elixir",
+        "erlang" | "erl" | "hrl" => "erlang",
+        "scala" | "sc" => "scala",
+        "clojure" | "clj" | "cljs" | "cljc" | "edn" => "clojure",
+        "commonlisp" | "common-lisp" | "lisp" | "cl" => "commonlisp",
+        "scheme" | "scm" | "ss" => "scheme",
+        "ocaml" | "ml" | "mli" => "ocaml",
+        "fsharp" | "f#" | "fs" | "fsi" | "fsx" => "fsharp",
+        "dart" => "dart",
+        "powershell" | "pwsh" | "ps1" | "psm1" => "powershell",
+        "fish" => "fish",
+        "make" | "makefile" => "make",
+        "cmake" => "cmake",
+        "ninja" => "ninja",
+        "meson" => "meson",
+        "just" | "justfile" => "just",
+        "hcl" | "terraform" | "tf" | "tfvars" => "hcl",
+        "graphql" | "gql" => "graphql",
+        "protobuf" | "proto" => "proto",
+        "xml" | "xhtml" | "svg" => "xml",
+        "vue" => "vue",
+        "svelte" => "svelte",
+        "scss" => "scss",
+        "asm" | "assembly" => "asm",
+        "x86asm" | "x86-asm" | "nasm" => "x86asm",
+        "objective-c" | "objectivec" | "objc" => "objc",
+        "perl" | "pl" | "pm" => "perl",
+        "r" => "r",
+        "solidity" | "sol" => "solidity",
+        "starlark" | "bzl" | "bazel" => "starlark",
+        "rego" => "rego",
+        "ini" | "cfg" => "ini",
+        "diff" | "patch" => "diff",
         _ => return None,
+    })
+}
+
+fn extension_id(file: &str) -> Option<&'static str> {
+    let extension = file.rsplit_once('.')?.1;
+    canonical_id(extension).or(match extension {
+        // Meaningful as file extensions but too ambiguous to honor as bare
+        // language IDs or fence info strings.
+        "s" => Some("asm"),
+        "m" | "mm" => Some("objc"),
+        _ => None,
     })
 }
 
 fn special_file(file: &str) -> Option<&'static str> {
     match file {
         "dockerfile" | "containerfile" => Some("dockerfile"),
-        ".bashrc" | ".zshrc" => Some("bash"),
         "go.mod" | "go.sum" => Some("go"),
+        "makefile" | "gnumakefile" => Some("make"),
+        "cmakelists.txt" => Some("cmake"),
+        "build.ninja" => Some("ninja"),
+        "meson.build" | "meson_options.txt" => Some("meson"),
+        "justfile" => Some("just"),
+        "flake.nix" => Some("nix"),
+        ".terraformrc" => Some("hcl"),
+        "workspace" => Some("starlark"),
+        "build.sbt" => Some("scala"),
+        "deps.edn" => Some("clojure"),
+        ".zshrc" if cfg!(feature = "agent-languages") => Some("zsh"),
+        ".bashrc" | ".zshrc" => Some("bash"),
         _ => None,
     }
 }
@@ -98,6 +157,10 @@ fn shebang_id(source: &str) -> Option<&'static str> {
         Some("javascript")
     } else if lower.contains("bash") || lower.contains("/sh") || lower.contains("zsh") {
         Some("bash")
+    } else if lower.contains("fish") {
+        Some("fish")
+    } else if lower.contains("pwsh") || lower.contains("powershell") {
+        Some("powershell")
     } else {
         None
     }
@@ -129,7 +192,15 @@ mod tests {
             ("script.rb", "", Some("ruby")),
             ("query.sql", "", Some("sql")),
             (".bashrc", "", Some("bash")),
-            (".zshrc", "", Some("bash")),
+            (
+                ".zshrc",
+                "",
+                Some(if cfg!(feature = "agent-languages") {
+                    "zsh"
+                } else {
+                    "bash"
+                }),
+            ),
             ("go.mod", "", Some("go")),
             ("", "#!/usr/bin/env python3\n", Some("python")),
             ("", "#!/usr/bin/env node\n", Some("javascript")),

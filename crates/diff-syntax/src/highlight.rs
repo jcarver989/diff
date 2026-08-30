@@ -4,6 +4,7 @@ use crate::language::{LanguageHint, resolve_language};
 use arborium::{Config, Highlighter};
 use arborium_highlight::spans_to_flat_tokens;
 use arborium_theme::tag_to_name;
+use diff_fingerprint::SourceSequenceId;
 use diff_theme::{DiffTheme, Fingerprint, HighlightSpan, SyntaxTheme};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -64,9 +65,10 @@ impl CacheKey {
     fn sequence_line(
         theme: Fingerprint,
         language: &str,
-        sequence: Fingerprint,
+        sequence: SourceSequenceId,
         line: usize,
     ) -> Self {
+        let sequence = Fingerprint::from(sequence);
         let line = u64::try_from(line).unwrap_or(u64::MAX).to_le_bytes();
         Self::new(
             [
@@ -118,7 +120,7 @@ impl From<usize> for CacheConfig {
 /// One random-access line within a content-identified source sequence.
 pub struct SequenceLine<'a, T> {
     language: LanguageHint<'a>,
-    sequence: Fingerprint,
+    sequence: SourceSequenceId,
     target_line: usize,
     lines: T,
 }
@@ -126,14 +128,14 @@ pub struct SequenceLine<'a, T> {
 impl<'a, T> SequenceLine<'a, T> {
     #[must_use]
     pub fn new(
-        sequence: impl Into<Fingerprint>,
+        sequence: SourceSequenceId,
         language: impl Into<LanguageHint<'a>>,
         target_line: usize,
         lines: T,
     ) -> Self {
         Self {
             language: language.into(),
-            sequence: sequence.into(),
+            sequence,
             target_line,
             lines,
         }
@@ -216,6 +218,11 @@ impl SyntaxHighlighter {
         self.stats = HighlightStats::default();
     }
 
+    /// Atomically returns all counters accumulated so far and resets them.
+    pub fn take_stats(&mut self) -> HighlightStats {
+        std::mem::take(&mut self.stats)
+    }
+
     #[must_use]
     pub const fn config(&self) -> CacheConfig {
         self.config
@@ -293,7 +300,7 @@ impl SyntaxHighlighter {
             return spans;
         };
 
-        self.reserve_sequence(request.sequence);
+        self.reserve_sequence(request.sequence.fingerprint());
         let first = request
             .target_line
             .saturating_sub(self.config.context_lines);
@@ -344,7 +351,7 @@ impl SyntaxHighlighter {
             self.store(target_key, Arc::clone(&target_spans));
         }
         if self.config.max_entries == 0 {
-            self.sequences.remove(&request.sequence);
+            self.sequences.remove(&request.sequence.fingerprint());
         }
         target_spans
     }
@@ -749,7 +756,7 @@ mod tests {
             .map(|i| format!("let value_{i} = {i};"))
             .collect();
         let lines: Vec<&str> = owned.iter().map(String::as_str).collect();
-        let sequence = Fingerprint::of([b"sequence".as_slice()]);
+        let sequence = SourceSequenceId::from_lines(lines.iter().copied());
         let theme = DiffTheme::default();
         let mut highlighter = SyntaxHighlighter::new(64);
         highlighter.prepare_viewport(20);
@@ -783,7 +790,7 @@ mod tests {
     #[test]
     fn requested_line_survives_prefetch_larger_than_the_cache_budget() {
         let lines = ["let a = 1;", "let b = 2;", "let c = 3;", "let d = 4;"];
-        let sequence = Fingerprint::of(["small-cache"]);
+        let sequence = SourceSequenceId::from_lines(lines);
         let theme = DiffTheme::default();
         let mut highlighter = SyntaxHighlighter::new(2);
         highlighter.prepare_viewport(20);
@@ -810,7 +817,10 @@ mod tests {
         let theme = DiffTheme::default();
         let mut highlighter = SyntaxHighlighter::default();
         highlighter.prepare_viewport(5);
-        let sides = [Fingerprint::of(["old"]), Fingerprint::of(["new"])];
+        let sides = [
+            SourceSequenceId::from_lines(std::iter::once("old")),
+            SourceSequenceId::from_lines(std::iter::once("new")),
+        ];
         for _frame in 0..3 {
             for row in 1_030..1_035 {
                 for sequence in sides {
@@ -842,7 +852,10 @@ mod tests {
         let lines: Vec<&str> = owned.iter().map(String::as_str).collect();
         let theme = DiffTheme::default();
         let mut highlighter = SyntaxHighlighter::default();
-        let sides = [Fingerprint::of(["old"]), Fingerprint::of(["new"])];
+        let sides = [
+            SourceSequenceId::from_lines(std::iter::once("old")),
+            SourceSequenceId::from_lines(std::iter::once("new")),
+        ];
         for _frame in 0..3 {
             for row in 1_030..1_035 {
                 for sequence in sides {
@@ -865,7 +878,7 @@ mod tests {
         let theme = DiffTheme::default();
         let mut highlighter = SyntaxHighlighter::default();
         let lines = ["/* alpha", "", "beta", "gamma */"];
-        let sequence = Fingerprint::of(["multiline-comment"]);
+        let sequence = SourceSequenceId::from_lines(lines);
         highlighter.prepare_viewport(lines.len());
         for (index, line) in lines.iter().enumerate() {
             let spans = highlighter

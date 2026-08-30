@@ -10,7 +10,7 @@ pub mod session;
 pub mod testing;
 
 pub use anchor::LineAnchor;
-pub use diff_fingerprint::{Fingerprint, FingerprintError};
+pub use diff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId};
 pub use error::{DiffError, ParseDiffScopeError, RepoPathError};
 pub use model::{
     DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange, PatchLine,
@@ -19,7 +19,7 @@ pub use model::{
 pub use parser::{GitStatusEntry, UntrackedFile, parse_git_diff, parse_porcelain_v1_z};
 pub use presentation::{
     CellSequence, DiffPresentation, DiffTone, Layout, PresentationOptions, PresentedCell,
-    PresentedRow, RowId, RowKind, SequenceId, ViewMode,
+    PresentedRow, RowId, RowKind, ViewMode,
 };
 pub use review::{
     AgentFeedbackOptions, CommentContext, DiffReviewEvent, RepositoryAction, Review, ReviewComment,

@@ -2,6 +2,7 @@
 
 use crate::{
     DiffDocument, DiffSide, FileDiff, Fingerprint, LineAnchor, PatchLine, PatchLineKind, RepoPath,
+    SourceSequenceId,
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
@@ -170,26 +171,13 @@ impl PresentedRow {
     }
 }
 
-/// Content-derived identity of one ordered source sequence.
-///
-/// Equal sequences intentionally share an identity. The fingerprint scheme is an
-/// implementation detail and sequence IDs should not be persisted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SequenceId(Fingerprint);
-
-impl From<SequenceId> for Fingerprint {
-    fn from(id: SequenceId) -> Self {
-        id.0
-    }
-}
-
 /// Renderer-neutral description of the source sequence containing a diff cell.
 ///
 /// Renderers pass these lines to their syntax engine so multiline constructs are
 /// interpreted with bounded preceding context without coupling `diff-core` to a
 /// particular highlighter.
 pub struct CellSequence<'a> {
-    pub id: SequenceId,
+    pub id: SourceSequenceId,
     pub language: &'a str,
     pub target_line: usize,
     pub lines: Box<dyn Iterator<Item = &'a str> + 'a>,
@@ -207,7 +195,7 @@ pub struct DiffPresentation {
     hunk_ranges: Vec<Vec<Range<usize>>>,
     /// Lazily fingerprinted per hunk so presentations that never request
     /// highlights skip hashing the document.
-    sequence_ids: Vec<Vec<OnceLock<[SequenceId; 2]>>>,
+    sequence_ids: Vec<Vec<OnceLock<[SourceSequenceId; 2]>>>,
 }
 
 impl DiffPresentation {
@@ -367,7 +355,12 @@ impl DiffPresentation {
         })
     }
 
-    fn sequence_id(&self, file_index: usize, hunk_index: usize, side: DiffSide) -> Option<SequenceId> {
+    fn sequence_id(
+        &self,
+        file_index: usize,
+        hunk_index: usize,
+        side: DiffSide,
+    ) -> Option<SourceSequenceId> {
         let hunk = self.document.files.get(file_index)?.hunks.get(hunk_index)?;
         let ids = self
             .sequence_ids
@@ -685,14 +678,13 @@ fn meta_row(
     }
 }
 
-fn source_sequence_id(lines: &[PatchLine], side: DiffSide) -> SequenceId {
-    let fields = std::iter::once(b"diff-source-sequence-v1".as_slice()).chain(
+fn source_sequence_id(lines: &[PatchLine], side: DiffSide) -> SourceSequenceId {
+    SourceSequenceId::from_lines(
         lines
             .iter()
             .filter(|line| line.line_number(side).is_some())
-            .map(|line| line.text.as_bytes()),
-    );
-    SequenceId(Fingerprint::of(fields))
+            .map(|line| line.text.as_ref()),
+    )
 }
 
 fn index_field(value: Option<usize>) -> [u8; 9] {

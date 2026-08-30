@@ -4,6 +4,31 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+const SOURCE_SEQUENCE_DOMAIN: &[u8] = b"diff-source-sequence-v1";
+
+/// Snapshot-local identity for one ordered sequence of source lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SourceSequenceId(Fingerprint);
+
+impl SourceSequenceId {
+    #[must_use]
+    pub fn from_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Self {
+        let fields =
+            std::iter::once(SOURCE_SEQUENCE_DOMAIN).chain(lines.into_iter().map(str::as_bytes));
+        Self(Fingerprint::of(fields))
+    }
+
+    #[must_use]
+    pub const fn fingerprint(self) -> Fingerprint {
+        self.0
+    }
+}
+
+impl From<SourceSequenceId> for Fingerprint {
+    fn from(id: SourceSequenceId) -> Self {
+        id.fingerprint()
+    }
+}
 
 /// Errors produced while decoding a hexadecimal fingerprint.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -131,6 +156,25 @@ mod tests {
         assert_eq!(Fingerprint::from_hex(&hex).unwrap(), fingerprint);
         assert!(Fingerprint::from_hex("beef").is_err());
         assert!(Fingerprint::from_hex(&"z".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn source_sequence_identity_preserves_order_and_line_boundaries() {
+        let empty = SourceSequenceId::from_lines(std::iter::empty());
+        assert_eq!(empty, SourceSequenceId::from_lines(std::iter::empty()));
+        assert_eq!(
+            SourceSequenceId::from_lines(["a", "b"]),
+            SourceSequenceId::from_lines(["a", "b"])
+        );
+        assert_ne!(
+            SourceSequenceId::from_lines(["a", "b"]),
+            SourceSequenceId::from_lines(["b", "a"])
+        );
+        assert_ne!(
+            SourceSequenceId::from_lines(["ab", "c"]),
+            SourceSequenceId::from_lines(["a", "bc"])
+        );
+        assert_eq!(empty.fingerprint(), empty.0);
     }
 
     #[test]

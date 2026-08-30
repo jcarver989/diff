@@ -10,6 +10,24 @@ repository.workspace = true
 [features]
 default = ["common-languages"]
 common-languages = ["arborium/lang-bash", "arborium/lang-c", "arborium/lang-c-sharp", "arborium/lang-cpp", "arborium/lang-css", "arborium/lang-dockerfile", "arborium/lang-go", "arborium/lang-html", "arborium/lang-java", "arborium/lang-javascript", "arborium/lang-json", "arborium/lang-kotlin", "arborium/lang-lua", "arborium/lang-markdown", "arborium/lang-php", "arborium/lang-python", "arborium/lang-ruby", "arborium/lang-rust", "arborium/lang-sql", "arborium/lang-swift", "arborium/lang-toml", "arborium/lang-tsx", "arborium/lang-typescript", "arborium/lang-yaml"]
+# Broad coding-agent bundle. This intentionally lists permissive granular
+# grammars rather than Arborium's `all-languages`, which includes GPL nginx.
+agent-languages = [
+    "common-languages",
+    "arborium/lang-asm", "arborium/lang-batch", "arborium/lang-clojure",
+    "arborium/lang-cmake", "arborium/lang-commonlisp", "arborium/lang-dart",
+    "arborium/lang-diff", "arborium/lang-elixir", "arborium/lang-erlang",
+    "arborium/lang-fish", "arborium/lang-fsharp", "arborium/lang-graphql",
+    "arborium/lang-haskell", "arborium/lang-hcl", "arborium/lang-ini",
+    "arborium/lang-just", "arborium/lang-make", "arborium/lang-meson",
+    "arborium/lang-ninja", "arborium/lang-nix", "arborium/lang-objc",
+    "arborium/lang-ocaml", "arborium/lang-perl", "arborium/lang-powershell",
+    "arborium/lang-proto", "arborium/lang-r", "arborium/lang-rego",
+    "arborium/lang-scala", "arborium/lang-scheme", "arborium/lang-scss",
+    "arborium/lang-solidity", "arborium/lang-starlark", "arborium/lang-svelte",
+    "arborium/lang-vue", "arborium/lang-x86asm", "arborium/lang-xml",
+    "arborium/lang-zig", "arborium/lang-zsh",
+]
 
 [lints]
 workspace = true
@@ -18,4 +36,5 @@ workspace = true
 arborium = { workspace = true }
 arborium-highlight.workspace = true
 arborium-theme.workspace = true
+diff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
 diff-theme = { version = "0.1.0", path = "../diff-theme" }
