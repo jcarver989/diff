@@ -1,0 +1,7 @@
+{
+  "document_kind": "diff",
+  "protocol_version": 1,
+  "outcome": "cancelled",
+  "repository_root": "/repo",
+  "scope": "staged"
+}

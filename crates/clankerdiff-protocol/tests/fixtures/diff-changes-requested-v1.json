@@ -1,0 +1,11 @@
+{
+  "document_kind": "diff",
+  "protocol_version": 1,
+  "outcome": "changes_requested",
+  "repository_root": "/repo",
+  "scope": "unstaged",
+  "submission": {
+    "comments": [],
+    "formatted": "Changes requested."
+  }
+}

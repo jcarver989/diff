@@ -1,0 +1,11 @@
+{
+  "document_kind": "markdown",
+  "protocol_version": 1,
+  "outcome": "changes_requested",
+  "source_path": "docs/plan.md",
+  "submission": {
+    "decision": "ChangesRequested",
+    "comments": [],
+    "formatted": "Changes requested, but no inline comments were provided."
+  }
+}

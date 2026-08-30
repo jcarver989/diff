@@ -1,0 +1,11 @@
+{
+  "document_kind": "diff",
+  "protocol_version": 1,
+  "outcome": "approved",
+  "repository_root": "/repo",
+  "scope": "both",
+  "submission": {
+    "comments": [],
+    "formatted": "approved"
+  }
+}
