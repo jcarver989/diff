@@ -14,15 +14,12 @@ test-support = []
 workspace = true
 
 [dependencies]
-arborium.workspace = true
-arborium-highlight.workspace = true
-arborium-theme.workspace = true
-blake3.workspace = true
-pulldown-cmark.workspace = true
+diff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
+diff-theme = { version = "0.1.0", path = "../diff-theme" }
 diffy.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 similar.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true

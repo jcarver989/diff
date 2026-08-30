@@ -1,8 +1,7 @@
 //! Framework-neutral, random-access unified and split row presentation.
 
 use crate::{
-    DiffDocument, DiffSide, DiffTheme, FileDiff, Fingerprint, HighlightSpan, LineAnchor, PatchLine,
-    PatchLineKind, RepoPath, SyntaxHighlighter, highlight::empty_spans,
+    DiffDocument, DiffSide, FileDiff, Fingerprint, LineAnchor, PatchLine, PatchLineKind, RepoPath,
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
@@ -93,35 +92,7 @@ pub enum RowKind {
     Code,
 }
 
-/// Semantic tint for a cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum DiffTone {
-    Context,
-    Added,
-    Removed,
-    Meta,
-}
-
-impl DiffTone {
-    #[must_use]
-    pub const fn for_kind(kind: PatchLineKind) -> Self {
-        match kind {
-            PatchLineKind::Added => Self::Added,
-            PatchLineKind::Removed => Self::Removed,
-            PatchLineKind::Meta | PatchLineKind::HunkHeader => Self::Meta,
-            PatchLineKind::Context => Self::Context,
-        }
-    }
-
-    #[must_use]
-    pub const fn marker(self) -> char {
-        match self {
-            Self::Added => '+',
-            Self::Removed => '-',
-            Self::Context | Self::Meta => ' ',
-        }
-    }
-}
+pub use diff_theme::DiffTone;
 
 /// Stable identity for a presented row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -193,6 +164,18 @@ impl PresentedRow {
     pub fn is_commentable(&self) -> bool {
         self.kind == RowKind::Code && self.sources().next().is_some()
     }
+}
+
+/// Renderer-neutral description of the source sequence containing a diff cell.
+///
+/// Renderers pass these lines to their syntax engine so multiline constructs are
+/// interpreted with bounded preceding context without coupling `diff-core` to a
+/// particular highlighter.
+pub struct CellSequence<'a> {
+    pub language_hint: &'a str,
+    pub sequence_id: Fingerprint,
+    pub target: usize,
+    pub lines: Box<dyn Iterator<Item = &'a str> + 'a>,
 }
 
 /// Eager row indexes and cheap descriptors. Syntax and frontend widgets are not
@@ -325,25 +308,20 @@ impl DiffPresentation {
         self.cell_anchor(row, row.preferred_cell(side)?)
     }
 
-    pub fn highlight_cell(
-        &self,
-        highlighter: &mut SyntaxHighlighter,
-        theme: &DiffTheme,
+    /// Describes the complete source-side sequence containing `cell`.
+    ///
+    /// Returns `None` for synthetic cells and stale descriptors. The sequence
+    /// identity is snapshot-local and must not be persisted.
+    #[must_use]
+    pub fn cell_sequence<'a>(
+        &'a self,
         row: &PresentedRow,
         cell: &PresentedCell,
-    ) -> Arc<[HighlightSpan]> {
-        let Some(source) = cell.source else {
-            return highlighter.highlight(theme, self.language_at_row(row), &cell.text);
-        };
-        let Some(file) = self.document.files.get(row.file_index) else {
-            return empty_spans();
-        };
-        let Some(hunk) = file.hunks.get(source.hunk_index) else {
-            return empty_spans();
-        };
-        if hunk.lines.get(source.line_index).is_none() {
-            return empty_spans();
-        }
+    ) -> Option<CellSequence<'a>> {
+        let source = cell.source?;
+        let file = self.document.files.get(row.file_index)?;
+        let hunk = file.hunks.get(source.hunk_index)?;
+        hunk.lines.get(source.line_index)?;
         let target = hunk.lines[..=source.line_index]
             .iter()
             .filter(|line| line.line_number(source.side).is_some())
@@ -351,28 +329,39 @@ impl DiffPresentation {
             .saturating_sub(1);
         let hunk_index = index_field(Some(source.hunk_index));
         let document_id = (Arc::as_ptr(&self.document) as usize).to_le_bytes();
-        let sequence = Fingerprint::of([
+        let sequence_id = Fingerprint::of([
             document_id.as_slice(),
             file.path.as_str().as_bytes(),
             source.side.as_str().as_bytes(),
             hunk_index.as_slice(),
         ]);
-        highlighter.highlight_in_sequence(
-            theme,
-            file.path.as_str(),
-            sequence,
+        Some(CellSequence {
+            language_hint: file.path.as_str(),
+            sequence_id,
             target,
-            hunk.lines
-                .iter()
-                .filter(|line| line.line_number(source.side).is_some())
-                .map(|line| line.text.as_ref()),
-        )
+            lines: Box::new(
+                hunk.lines
+                    .iter()
+                    .filter(move |line| line.line_number(source.side).is_some())
+                    .map(|line| line.text.as_ref()),
+            ),
+        })
     }
 
     #[must_use]
     pub fn language_at(&self, row_index: usize) -> &str {
         self.row(row_index)
             .map_or("", |row| self.language_at_row(row))
+    }
+
+    /// Repository path of the file a row belongs to, usable as a language hint
+    /// when a cell has no [`CellSequence`].
+    #[must_use]
+    pub fn row_path(&self, row: &PresentedRow) -> &str {
+        self.document
+            .files
+            .get(row.file_index)
+            .map_or("", |file| file.path.as_str())
     }
 
     fn language_at_row(&self, row: &PresentedRow) -> &str {
@@ -637,7 +626,7 @@ fn code_cell(
         source,
         line.line_number(side),
         Arc::clone(&line.text),
-        DiffTone::for_kind(line.kind),
+        line.kind.tone(),
     )
 }
 
@@ -980,7 +969,7 @@ mod tests {
     }
 
     #[test]
-    fn cell_highlighting_preserves_multiline_state() {
+    fn cell_sequence_preserves_multiline_source_context() {
         let document = Arc::new(DiffDocument {
             repo_root: "/repo".into(),
             files: vec![FileDiff::from_texts("a.rs", "", "/*\n comment */\n").unwrap()],
@@ -994,12 +983,12 @@ mod tests {
                     .is_some_and(|cell| cell.text.as_ref() == " comment */")
             })
             .unwrap();
-        let cell = row.primary_cell().unwrap();
-        let theme = DiffTheme::default();
-        let expected =
-            SyntaxHighlighter::new(0).highlight_sequential(&theme, "rust", ["/*", " comment */"]);
-        let actual = presentation.highlight_cell(&mut SyntaxHighlighter::new(8), &theme, row, cell);
-        assert_eq!(actual.as_ref(), expected[1].as_slice());
+        let sequence = presentation
+            .cell_sequence(row, row.primary_cell().unwrap())
+            .unwrap();
+        assert_eq!(sequence.language_hint, "a.rs");
+        assert_eq!(sequence.target, 1);
+        assert_eq!(sequence.lines.collect::<Vec<_>>(), ["/*", " comment */"]);
     }
 
     #[test]

@@ -10,6 +10,10 @@ use std::{fmt, path::Path, str::FromStr, sync::Arc};
 pub struct RepoPath(Arc<str>);
 
 impl RepoPath {
+    /// Validates and stores a repository-relative UTF-8 path.
+    ///
+    /// # Errors
+    /// Returns an error for empty, absolute, traversing, or NUL-containing paths.
     pub fn new(path: impl AsRef<str>) -> Result<Self, RepoPathError> {
         let raw = path.as_ref();
         if raw.is_empty() {
@@ -211,6 +215,17 @@ impl PatchLineKind {
             _ => &[DiffSide::Old, DiffSide::New],
         }
     }
+
+    /// Semantic tint used when presenting a line of this kind.
+    #[must_use]
+    pub const fn tone(self) -> diff_theme::DiffTone {
+        match self {
+            Self::Added => diff_theme::DiffTone::Added,
+            Self::Removed => diff_theme::DiffTone::Removed,
+            Self::Meta | Self::HunkHeader => diff_theme::DiffTone::Meta,
+            Self::Context => diff_theme::DiffTone::Context,
+        }
+    }
 }
 
 /// A file mode change, represented as Git's six-digit mode string.
@@ -352,6 +367,10 @@ impl Hunk {
 }
 
 impl FileDiff {
+    /// Builds a one-file diff from complete old and new text snapshots.
+    ///
+    /// # Errors
+    /// Returns an error when `path` is not a valid repository-relative path.
     pub fn from_texts<T>(path: T, old: &str, new: &str) -> Result<Self, DiffError>
     where
         T: TryInto<RepoPath>,

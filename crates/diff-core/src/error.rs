@@ -23,14 +23,6 @@ impl From<std::convert::Infallible> for RepoPathError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum FingerprintError {
-    #[error("fingerprint must be 64 hexadecimal characters, found {0}")]
-    Length(usize),
-    #[error("fingerprint contains non-hexadecimal character `{0}`")]
-    Digit(char),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("unknown diff scope `{0}`; expected unstaged, staged, or both")]
 pub struct ParseDiffScopeError(pub String);
 

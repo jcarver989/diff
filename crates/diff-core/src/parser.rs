@@ -40,6 +40,10 @@ pub struct UntrackedFile {
 }
 
 /// Parses and normalizes a multi-file Git diff.
+///
+/// # Errors
+/// Returns an error when the patch is malformed, contains unsupported path
+/// encoding, or contains an invalid repository-relative path.
 pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(Vec::new());
@@ -80,7 +84,7 @@ fn normalize_patch(patch: &FilePatch<'_, [u8]>) -> Result<FileDiff, DiffError> {
 }
 
 fn text_patch_size(text: &Patch<'_, [u8]>) -> (usize, u64) {
-    text.hunks().iter().flat_map(|hunk| hunk.lines()).fold(
+    text.hunks().iter().flat_map(diffy::Hunk::lines).fold(
         (0_usize, 0_u64),
         |(lines, bytes), line| {
             let bytes_in_line = match line {
@@ -211,6 +215,11 @@ fn mode_string(mode: FileMode) -> String {
     .to_owned()
 }
 
+/// Parses `git status --porcelain=v1 -z` output.
+///
+/// # Errors
+/// Returns an error for malformed records, unsupported path encoding, or
+/// invalid repository-relative paths.
 pub fn parse_porcelain_v1_z(bytes: &[u8]) -> Result<Vec<GitStatusEntry>, DiffError> {
     let mut fields = bytes.split(|byte| *byte == 0);
     let mut entries = Vec::new();
@@ -276,6 +285,10 @@ const fn file_status(value: char) -> FileStatus {
 }
 
 impl DiffDocument {
+    /// Builds a document from Git patch and porcelain status output.
+    ///
+    /// # Errors
+    /// Returns an error when either Git output cannot be parsed or normalized.
     pub fn from_git_outputs(
         repo_root: impl Into<String>,
         diff: &[u8],
@@ -285,6 +298,11 @@ impl DiffDocument {
         Self::from_git_outputs_with_untracked(repo_root, diff, porcelain, scope, &[])
     }
 
+    /// Builds a document from Git outputs plus separately loaded untracked files.
+    ///
+    /// # Errors
+    /// Returns an error when Git output or untracked file data cannot be parsed
+    /// or normalized.
     pub fn from_git_outputs_with_untracked(
         repo_root: impl Into<String>,
         diff: &[u8],
