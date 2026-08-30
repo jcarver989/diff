@@ -5,7 +5,11 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::Range,
+    sync::{Arc, OnceLock},
+};
 
 const NO_NEWLINE_TEXT: &str = "\\ No newline at end of file";
 
@@ -166,15 +170,28 @@ impl PresentedRow {
     }
 }
 
+/// Content-derived identity of one ordered source sequence.
+///
+/// Equal sequences intentionally share an identity. The fingerprint scheme is an
+/// implementation detail and sequence IDs should not be persisted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SequenceId(Fingerprint);
+
+impl From<SequenceId> for Fingerprint {
+    fn from(id: SequenceId) -> Self {
+        id.0
+    }
+}
+
 /// Renderer-neutral description of the source sequence containing a diff cell.
 ///
 /// Renderers pass these lines to their syntax engine so multiline constructs are
 /// interpreted with bounded preceding context without coupling `diff-core` to a
 /// particular highlighter.
 pub struct CellSequence<'a> {
-    pub language_hint: &'a str,
-    pub sequence_id: Fingerprint,
-    pub target: usize,
+    pub id: SequenceId,
+    pub language: &'a str,
+    pub target_line: usize,
     pub lines: Box<dyn Iterator<Item = &'a str> + 'a>,
 }
 
@@ -188,6 +205,9 @@ pub struct DiffPresentation {
     anchor_rows: HashMap<(usize, DiffSide, usize), usize>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
+    /// Lazily fingerprinted per hunk so presentations that never request
+    /// highlights skip hashing the document.
+    sequence_ids: Vec<Vec<OnceLock<[SequenceId; 2]>>>,
 }
 
 impl DiffPresentation {
@@ -230,6 +250,11 @@ impl DiffPresentation {
             file_ranges.push(file_start..rows.len());
             hunk_ranges.push(file_hunks);
         }
+        let sequence_ids = document
+            .files
+            .iter()
+            .map(|file| file.hunks.iter().map(|_| OnceLock::new()).collect())
+            .collect();
         let anchor_rows = rows
             .iter()
             .enumerate()
@@ -249,6 +274,7 @@ impl DiffPresentation {
             anchor_rows,
             file_ranges,
             hunk_ranges,
+            sequence_ids,
         }
     }
 
@@ -311,7 +337,7 @@ impl DiffPresentation {
     /// Describes the complete source-side sequence containing `cell`.
     ///
     /// Returns `None` for synthetic cells and stale descriptors. The sequence
-    /// identity is snapshot-local and must not be persisted.
+    /// identity is content-derived and must not be persisted.
     #[must_use]
     pub fn cell_sequence<'a>(
         &'a self,
@@ -327,24 +353,35 @@ impl DiffPresentation {
             .filter(|line| line.line_number(source.side).is_some())
             .count()
             .saturating_sub(1);
-        let hunk_index = index_field(Some(source.hunk_index));
-        let document_id = (Arc::as_ptr(&self.document) as usize).to_le_bytes();
-        let sequence_id = Fingerprint::of([
-            document_id.as_slice(),
-            file.path.as_str().as_bytes(),
-            source.side.as_str().as_bytes(),
-            hunk_index.as_slice(),
-        ]);
+        let id = self.sequence_id(row.file_index, source.hunk_index, source.side)?;
         Some(CellSequence {
-            language_hint: file.path.as_str(),
-            sequence_id,
-            target,
+            id,
+            language: file.path.as_str(),
+            target_line: target,
             lines: Box::new(
                 hunk.lines
                     .iter()
                     .filter(move |line| line.line_number(source.side).is_some())
                     .map(|line| line.text.as_ref()),
             ),
+        })
+    }
+
+    fn sequence_id(&self, file_index: usize, hunk_index: usize, side: DiffSide) -> Option<SequenceId> {
+        let hunk = self.document.files.get(file_index)?.hunks.get(hunk_index)?;
+        let ids = self
+            .sequence_ids
+            .get(file_index)?
+            .get(hunk_index)?
+            .get_or_init(|| {
+                [
+                    source_sequence_id(&hunk.lines, DiffSide::Old),
+                    source_sequence_id(&hunk.lines, DiffSide::New),
+                ]
+            });
+        Some(match side {
+            DiffSide::Old => ids[0],
+            DiffSide::New => ids[1],
         })
     }
 
@@ -646,6 +683,16 @@ fn meta_row(
         left: None,
         right: Some(cell(None, None, text, DiffTone::Meta)),
     }
+}
+
+fn source_sequence_id(lines: &[PatchLine], side: DiffSide) -> SequenceId {
+    let fields = std::iter::once(b"diff-source-sequence-v1".as_slice()).chain(
+        lines
+            .iter()
+            .filter(|line| line.line_number(side).is_some())
+            .map(|line| line.text.as_bytes()),
+    );
+    SequenceId(Fingerprint::of(fields))
 }
 
 fn index_field(value: Option<usize>) -> [u8; 9] {
@@ -986,9 +1033,32 @@ mod tests {
         let sequence = presentation
             .cell_sequence(row, row.primary_cell().unwrap())
             .unwrap();
-        assert_eq!(sequence.language_hint, "a.rs");
-        assert_eq!(sequence.target, 1);
+        assert_eq!(sequence.language, "a.rs");
+        assert_eq!(sequence.target_line, 1);
         assert_eq!(sequence.lines.collect::<Vec<_>>(), ["/*", " comment */"]);
+    }
+
+    #[test]
+    fn sequence_identity_is_derived_from_visible_source_content() {
+        let sequence_id = |text: &str| {
+            let document = Arc::new(DiffDocument {
+                repo_root: "/repo".into(),
+                files: vec![FileDiff::from_texts("a.rs", "", text).unwrap()],
+            });
+            let presentation = DiffPresentation::new(document, PresentationOptions::default());
+            let row = presentation
+                .rows(0..presentation.row_count())
+                .iter()
+                .find(|row| row.primary_cell().is_some_and(|cell| cell.source.is_some()))
+                .unwrap();
+            presentation
+                .cell_sequence(row, row.primary_cell().unwrap())
+                .unwrap()
+                .id
+        };
+
+        assert_eq!(sequence_id("let x = 1;\n"), sequence_id("let x = 1;\n"));
+        assert_ne!(sequence_id("let x = 1;\n"), sequence_id("let x = 2;\n"));
     }
 
     #[test]

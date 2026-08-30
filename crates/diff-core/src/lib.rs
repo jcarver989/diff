@@ -19,7 +19,7 @@ pub use model::{
 pub use parser::{GitStatusEntry, UntrackedFile, parse_git_diff, parse_porcelain_v1_z};
 pub use presentation::{
     CellSequence, DiffPresentation, DiffTone, Layout, PresentationOptions, PresentedCell,
-    PresentedRow, RowId, RowKind, ViewMode,
+    PresentedRow, RowId, RowKind, SequenceId, ViewMode,
 };
 pub use review::{
     AgentFeedbackOptions, CommentContext, DiffReviewEvent, RepositoryAction, Review, ReviewComment,
