@@ -4,9 +4,9 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{
-    DiffDocument, MarkdownDocument, MarkdownReviewSubmission, RepositoryAction, ReviewSubmission,
-};
+use diff_core::{DiffDocument, DiffScope, RepositoryAction, ReviewSubmission};
+use diff_git::GitRepository;
+use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use diff_ratatui::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
     MarkdownReviewWidget, handle_crossterm_event, handle_markdown_crossterm_event,
@@ -82,24 +82,37 @@ fn replace_command_placeholder(arguments: &mut [String], command: &str) -> bool 
 }
 
 pub fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
-    let session = Session::new(socket_path);
-    let document = session.document()?;
-    let outcome = run(Arc::new(document), &session)?;
-    session.complete(outcome.as_ref())?;
+    let mut backend = SessionBackend::new(socket_path);
+    let document = backend.document()?;
+    let outcome = run_diff_review(Arc::new(document), &mut backend)?;
+    backend.complete(outcome.as_ref())?;
     Ok(())
 }
 
-fn run(
+pub fn run_local(
+    repository: &GitRepository,
+    document: DiffDocument,
+    scope: DiffScope,
+) -> Result<Option<ReviewSubmission>, TuiError> {
+    let mut backend = LocalBackend { repository, scope };
+    run_diff_review(Arc::new(document), &mut backend)
+}
+
+trait DiffReviewBackend {
+    fn apply(&mut self, action: RepositoryAction) -> Result<DiffDocument, String>;
+}
+
+fn run_diff_review(
     document: Arc<DiffDocument>,
-    session: &Session,
+    backend: &mut dyn DiffReviewBackend,
 ) -> Result<Option<ReviewSubmission>, TuiError> {
     if !stdin().is_terminal() || !stderr().is_terminal() {
         return Err(TuiError::NoTerminal);
     }
 
     let _session = TerminalSession::enter()?;
-    let backend = CrosstermBackend::new(stderr());
-    let mut terminal = Terminal::new(backend)?;
+    let terminal_backend = CrosstermBackend::new(stderr());
+    let mut terminal = Terminal::new(terminal_backend)?;
     let mut terminal_size = terminal.size()?;
     let mut state = DiffReviewState::with_theme(document, crate::preferences::load_theme());
 
@@ -122,7 +135,7 @@ fn run(
         if !event::poll(Duration::from_millis(100))? {
             continue;
         }
-        match apply_event(&mut state, event::read()?, session) {
+        match apply_event(&mut state, event::read()?, backend) {
             EventOutcome::Continue => {}
             EventOutcome::Cancelled => return Ok(None),
             EventOutcome::Submitted(submission) => return Ok(Some(submission)),
@@ -131,7 +144,7 @@ fn run(
             if !event::poll(Duration::ZERO)? {
                 break;
             }
-            match apply_event(&mut state, event::read()?, session) {
+            match apply_event(&mut state, event::read()?, backend) {
                 EventOutcome::Continue => {}
                 EventOutcome::Cancelled => return Ok(None),
                 EventOutcome::Submitted(submission) => return Ok(Some(submission)),
@@ -203,11 +216,11 @@ enum MarkdownEventOutcome {
     Submitted(MarkdownReviewSubmission),
 }
 
-struct Session {
+struct SessionBackend {
     socket_path: PathBuf,
 }
 
-impl Session {
+impl SessionBackend {
     fn new(socket_path: PathBuf) -> Self {
         Self { socket_path }
     }
@@ -215,14 +228,6 @@ impl Session {
     fn document(&self) -> Result<DiffDocument, TuiError> {
         match self.request(&SessionRequestRef::Document)? {
             SessionResponse::Document(document) => Ok(document),
-            response => Err(TuiError::UnexpectedResponse(response)),
-        }
-    }
-
-    fn repository_action(&self, action: &RepositoryAction) -> Result<DiffDocument, TuiError> {
-        match self.request(&SessionRequestRef::RepositoryAction(action))? {
-            SessionResponse::Document(document) => Ok(document),
-            SessionResponse::RepositoryError(message) => Err(TuiError::Repository(message)),
             response => Err(TuiError::UnexpectedResponse(response)),
         }
     }
@@ -249,14 +254,65 @@ impl Session {
     }
 }
 
-fn apply_event(state: &mut DiffReviewState, event: Event, session: &Session) -> EventOutcome {
+impl DiffReviewBackend for SessionBackend {
+    fn apply(&mut self, action: RepositoryAction) -> Result<DiffDocument, String> {
+        match self.request(&SessionRequestRef::RepositoryAction(&action)) {
+            Ok(SessionResponse::Document(document)) => Ok(document),
+            Ok(SessionResponse::RepositoryError(message)) => Err(message),
+            Ok(response) => Err(format!("unexpected review service response: {response:?}")),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+}
+
+struct LocalBackend<'a> {
+    repository: &'a GitRepository,
+    scope: DiffScope,
+}
+
+impl DiffReviewBackend for LocalBackend<'_> {
+    fn apply(&mut self, action: RepositoryAction) -> Result<DiffDocument, String> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                execute_repository_action(self.repository, action)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                self.repository
+                    .snapshot(self.scope)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        })
+    }
+}
+
+async fn execute_repository_action(
+    repository: &GitRepository,
+    action: RepositoryAction,
+) -> Result<(), diff_git::GitError> {
+    match action {
+        RepositoryAction::StagePaths(paths) => repository.stage(&paths).await,
+        RepositoryAction::UnstagePaths(paths) => repository.unstage(&paths).await,
+        RepositoryAction::StageAll => repository.stage_all().await,
+        RepositoryAction::UnstageAll => repository.unstage_all().await,
+        RepositoryAction::Commit { message } => repository.commit(&message).await,
+        RepositoryAction::Discard { path, status } => repository.discard(&path, status).await,
+        RepositoryAction::Refresh => Ok(()),
+    }
+}
+
+fn apply_event(
+    state: &mut DiffReviewState,
+    event: Event,
+    backend: &mut dyn DiffReviewBackend,
+) -> EventOutcome {
     let previous_theme = state.theme().id().to_string();
     let outcome = match handle_crossterm_event(state, event) {
         Some(DiffReviewEvent::RepositoryAction(action)) => {
             state.set_repository_pending();
-            match session.repository_action(&action) {
+            match backend.apply(action) {
                 Ok(document) => state.set_document(Arc::new(document)),
-                Err(error) => state.set_repository_error(error.to_string()),
+                Err(error) => state.set_repository_error(error.clone()),
             }
             EventOutcome::Continue
         }
@@ -325,12 +381,10 @@ pub enum TuiError {
     Protocol(String),
     #[error("the review service returned an unexpected response: {0:?}")]
     UnexpectedResponse(SessionResponse),
-    #[error("repository action failed: {0}")]
-    Repository(String),
     #[error(transparent)]
     Transport(#[from] crate::protocol::ProtocolError),
     #[error("Markdown review action failed: {0}")]
-    MarkdownReview(#[from] diff_core::MarkdownReviewError),
+    MarkdownReview(#[from] diff_markdown::MarkdownReviewError),
     #[error("terminal or review service I/O failed: {0}")]
     Io(#[from] io::Error),
 }

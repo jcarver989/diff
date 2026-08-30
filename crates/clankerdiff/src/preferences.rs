@@ -1,4 +1,4 @@
-use diff_core::DiffTheme;
+use diff_theme::DiffTheme;
 use std::{env, fs, io, path::PathBuf};
 
 fn path() -> Option<PathBuf> {

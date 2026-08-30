@@ -14,12 +14,15 @@ dist = true
 workspace = true
 
 [dependencies]
+clankerdiff-protocol = { version = "0.1.0", path = "../clankerdiff-protocol" }
 clap.workspace = true
 crossterm.workspace = true
-diff-core = { path = "../diff-core" }
-diff-git = { path = "../diff-git" }
-diff-gpui-desktop = { path = "../diff-gpui-desktop" }
-diff-ratatui = { path = "../diff-ratatui" }
+diff-core = { version = "0.1.0", path = "../diff-core" }
+diff-git = { version = "0.1.0", path = "../diff-git" }
+diff-markdown = { version = "0.1.0", path = "../diff-markdown", features = ["review"] }
+diff-theme = { version = "0.1.0", path = "../diff-theme" }
+diff-gpui-desktop = { version = "0.1.0", path = "../diff-gpui-desktop" }
+diff-ratatui = { version = "0.1.0", path = "../diff-ratatui" }
 ratatui.workspace = true
 serde.workspace = true
 serde_json.workspace = true

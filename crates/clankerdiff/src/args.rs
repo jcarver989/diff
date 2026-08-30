@@ -18,9 +18,18 @@ pub enum Command {
     Review(ReviewArgs),
     /// Review a rendered Markdown document.
     Markdown(MarkdownArgs),
+    /// Report supported protocol versions and review capabilities.
+    Capabilities(CapabilitiesArgs),
     /// Attach the TUI to an active review session socket.
     #[command(hide = true)]
     Attach(AttachArgs),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ClapArgs)]
+pub struct CapabilitiesArgs {
+    /// Capability response format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ClapArgs)]
@@ -42,6 +51,13 @@ pub enum OutputFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum TuiPlacement {
+    Current,
+    #[default]
+    External,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, ClapArgs)]
 pub struct MarkdownArgs {
     /// Markdown file to review, or `-` to read UTF-8 Markdown from stdin.
@@ -50,6 +66,10 @@ pub struct MarkdownArgs {
     /// Optional display title. Defaults to the first H1, then the file name.
     #[arg(long)]
     pub title: Option<String>,
+
+    /// Logical source path retained in feedback when `path` is a temporary file.
+    #[arg(long)]
+    pub source_path: Option<String>,
 
     /// User interface used for the review.
     #[arg(long, value_enum, default_value_t = Ui::Tui)]
@@ -79,6 +99,10 @@ pub struct ReviewArgs {
     #[arg(long, value_enum, default_value_t)]
     pub ui: Ui,
 
+    /// Run the TUI in this terminal or launch the configured external terminal.
+    #[arg(long, value_enum, default_value_t)]
+    pub tui_placement: TuiPlacement,
+
     /// Feedback format written to stdout.
     #[arg(long, value_enum, default_value_t)]
     pub format: OutputFormat,
@@ -93,7 +117,9 @@ mod tests {
         let cli = Cli::try_parse_from(arguments).expect("arguments should parse");
         match cli.command {
             Command::Review(args) => args,
-            Command::Attach(_) | Command::Markdown(_) => panic!("expected the review command"),
+            Command::Attach(_) | Command::Capabilities(_) | Command::Markdown(_) => {
+                panic!("expected the review command")
+            }
         }
     }
 
@@ -103,6 +129,7 @@ mod tests {
         assert_eq!(args.repository, PathBuf::from("."));
         assert_eq!(args.scope, DiffScope::Both);
         assert_eq!(args.ui, Ui::Tui);
+        assert_eq!(args.tui_placement, TuiPlacement::External);
         assert_eq!(args.format, OutputFormat::Text);
     }
 
@@ -114,11 +141,13 @@ mod tests {
             "--ui=tui",
             "--scope",
             "staged",
+            "--tui-placement=current",
             "--format=json",
             "/tmp/repo",
         ]);
         assert_eq!(args.ui, Ui::Tui);
         assert_eq!(args.scope, DiffScope::Staged);
+        assert_eq!(args.tui_placement, TuiPlacement::Current);
         assert_eq!(args.format, OutputFormat::Json);
         assert_eq!(args.repository, PathBuf::from("/tmp/repo"));
     }
@@ -140,6 +169,7 @@ mod tests {
         };
         assert_eq!(args.path, "plan.md");
         assert_eq!(args.title.as_deref(), Some("Plan"));
+        assert_eq!(args.source_path, None);
         assert_eq!(args.ui, Ui::Desktop);
         assert_eq!(args.format, OutputFormat::Json);
 
