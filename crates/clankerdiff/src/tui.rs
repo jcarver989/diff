@@ -1,3 +1,4 @@
+use crate::protocol::{SessionRequestRef, SessionResponse, read_response, write_request};
 use crossterm::{
     event::{self, Event},
     execute,
@@ -13,8 +14,9 @@ use diff_ratatui::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     env,
-    io::{self, IsTerminal, Read, Write, stderr, stdin},
-    net::{Shutdown, SocketAddr, TcpStream},
+    io::{self, IsTerminal, Write, stderr, stdin},
+    os::unix::net::UnixStream,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
     thread,
@@ -24,20 +26,24 @@ use thiserror::Error;
 
 pub const COMMAND_ENV: &str = "CLANKERDIFF_TUI_COMMAND";
 
+const COMMAND_PLACEHOLDER: &str = "{command}";
 const MAX_COALESCED_EVENTS: usize = 256;
-const MAX_RESPONSE_BYTES: usize = 128 * 1024 * 1024;
 const ENABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1000h\x1b[?1006h";
 const DISABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1006l\x1b[?1000l";
 
-pub fn launch(session_url: &str) -> Result<(), TuiError> {
-    let command = env::var(COMMAND_ENV).map_err(|_| TuiError::MissingCommand)?;
-    let (program, arguments) = parse_command(&command)?;
+pub fn launch(socket_path: &Path) -> Result<(), TuiError> {
+    let launcher = env::var(COMMAND_ENV).map_err(|_| TuiError::MissingCommand)?;
+    let (program, mut arguments) = parse_command(&launcher)?;
     let executable = env::current_exe()?;
-    let mut child = Command::new(program)
-        .args(arguments)
-        .arg(executable)
-        .arg("attach")
-        .arg(session_url)
+    let attach_command = attach_command(&executable, socket_path)?;
+    let uses_placeholder = replace_command_placeholder(&mut arguments, &attach_command);
+
+    let mut command = Command::new(program);
+    command.args(arguments);
+    if !uses_placeholder {
+        command.arg(executable).arg("attach").arg(socket_path);
+    }
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -58,8 +64,25 @@ fn parse_command(command: &str) -> Result<(String, Vec<String>), TuiError> {
     Ok((program, words))
 }
 
-pub fn attach(session_url: &str) -> Result<(), TuiError> {
-    let session = Session::parse(session_url)?;
+fn attach_command(executable: &Path, socket_path: &Path) -> Result<String, TuiError> {
+    let executable = executable.to_str().ok_or(TuiError::NonUtf8CommandPath)?;
+    let socket_path = socket_path.to_str().ok_or(TuiError::NonUtf8CommandPath)?;
+    shlex::try_join([executable, "attach", socket_path]).map_err(|_| TuiError::InvalidCommand)
+}
+
+fn replace_command_placeholder(arguments: &mut [String], command: &str) -> bool {
+    let mut replaced = false;
+    for argument in arguments {
+        if argument.contains(COMMAND_PLACEHOLDER) {
+            *argument = argument.replace(COMMAND_PLACEHOLDER, command);
+            replaced = true;
+        }
+    }
+    replaced
+}
+
+pub fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
+    let session = Session::new(socket_path);
     let document = session.document()?;
     let outcome = run(Arc::new(document), &session)?;
     session.complete(outcome.as_ref())?;
@@ -181,88 +204,48 @@ enum MarkdownEventOutcome {
 }
 
 struct Session {
-    address: SocketAddr,
-    token: String,
+    socket_path: PathBuf,
 }
 
 impl Session {
-    fn parse(url: &str) -> Result<Self, TuiError> {
-        let value = url
-            .strip_prefix("http://")
-            .ok_or(TuiError::InvalidSessionUrl)?;
-        let (authority, token) = value
-            .split_once("/session/")
-            .ok_or(TuiError::InvalidSessionUrl)?;
-        let token = token.trim_end_matches('/');
-        if token.is_empty() || token.contains('/') {
-            return Err(TuiError::InvalidSessionUrl);
-        }
-        let address = authority.parse().map_err(|_| TuiError::InvalidSessionUrl)?;
-        Ok(Self {
-            address,
-            token: token.to_owned(),
-        })
+    fn new(socket_path: PathBuf) -> Self {
+        Self { socket_path }
     }
 
     fn document(&self) -> Result<DiffDocument, TuiError> {
-        let path = format!("/api/{}/document", self.token);
-        let body = self.request("GET", &path, &[])?;
-        serde_json::from_slice(&body).map_err(TuiError::ProtocolJson)
+        match self.request(&SessionRequestRef::Document)? {
+            SessionResponse::Document(document) => Ok(document),
+            response => Err(TuiError::UnexpectedResponse(response)),
+        }
     }
 
     fn repository_action(&self, action: &RepositoryAction) -> Result<DiffDocument, TuiError> {
-        let path = format!("/api/{}/repository-action", self.token);
-        let body = serde_json::to_vec(action).map_err(TuiError::ProtocolJson)?;
-        let response = self.request("POST", &path, &body)?;
-        serde_json::from_slice(&response).map_err(TuiError::ProtocolJson)
+        match self.request(&SessionRequestRef::RepositoryAction(action))? {
+            SessionResponse::Document(document) => Ok(document),
+            SessionResponse::RepositoryError(message) => Err(TuiError::Repository(message)),
+            response => Err(TuiError::UnexpectedResponse(response)),
+        }
     }
 
     fn complete(&self, submission: Option<&ReviewSubmission>) -> Result<(), TuiError> {
-        let (path, body) = match submission {
-            Some(submission) => (
-                format!("/api/{}/submit", self.token),
-                serde_json::to_vec(submission).map_err(TuiError::ProtocolJson)?,
-            ),
-            None => (format!("/api/{}/cancel", self.token), Vec::new()),
+        let request = match submission {
+            Some(submission) => SessionRequestRef::Submit(submission),
+            None => SessionRequestRef::Cancel,
         };
-        self.request("POST", &path, &body).map(|_| ())
+        match self.request(&request)? {
+            SessionResponse::Accepted => Ok(()),
+            response => Err(TuiError::UnexpectedResponse(response)),
+        }
     }
 
-    fn request(&self, method: &str, path: &str, body: &[u8]) -> Result<Vec<u8>, TuiError> {
-        let mut stream = TcpStream::connect(self.address)?;
-        write!(
-            stream,
-            "{method} {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            self.address,
-            body.len()
-        )?;
-        stream.write_all(body)?;
-        stream.flush()?;
-        stream.shutdown(Shutdown::Write)?;
-
-        let mut response = Vec::new();
-        stream
-            .take((MAX_RESPONSE_BYTES + 1) as u64)
-            .read_to_end(&mut response)?;
-        if response.len() > MAX_RESPONSE_BYTES {
-            return Err(TuiError::ResponseTooLarge);
+    fn request(&self, request: &SessionRequestRef<'_>) -> Result<SessionResponse, TuiError> {
+        let mut stream = UnixStream::connect(&self.socket_path)?;
+        write_request(&mut stream, request)?;
+        let response = read_response(&mut stream)?;
+        match response {
+            SessionResponse::ProtocolError(message) => Err(TuiError::Protocol(message)),
+            response => Ok(response),
         }
-        let header_end = response
-            .windows(4)
-            .position(|window| window == b"\r\n\r\n")
-            .ok_or(TuiError::InvalidResponse)?
-            + 4;
-        let headers = std::str::from_utf8(&response[..header_end])?;
-        let status = headers
-            .lines()
-            .next()
-            .and_then(|line| line.split_whitespace().nth(1))
-            .and_then(|value| value.parse::<u16>().ok())
-            .ok_or(TuiError::InvalidResponse)?;
-        if !(200..300).contains(&status) {
-            return Err(TuiError::HttpStatus(status));
-        }
-        Ok(response[header_end..].to_vec())
     }
 }
 
@@ -332,22 +315,20 @@ pub enum TuiError {
     MissingCommand,
     #[error("{COMMAND_ENV} must contain a valid, non-empty command")]
     InvalidCommand,
+    #[error("the TUI executable and socket paths must be valid UTF-8")]
+    NonUtf8CommandPath,
     #[error("could not launch the TUI command: {0}")]
     Launch(#[source] io::Error),
     #[error("the TUI requires interactive stdin and stderr")]
     NoTerminal,
-    #[error("invalid review session URL")]
-    InvalidSessionUrl,
-    #[error("the review service returned malformed HTTP")]
-    InvalidResponse,
-    #[error("the review service returned HTTP {0}")]
-    HttpStatus(u16),
-    #[error("the review service response was too large")]
-    ResponseTooLarge,
-    #[error("the review service returned invalid UTF-8: {0}")]
-    ProtocolUtf8(#[from] std::str::Utf8Error),
-    #[error("the review service returned invalid JSON: {0}")]
-    ProtocolJson(#[source] serde_json::Error),
+    #[error("the review service rejected the request: {0}")]
+    Protocol(String),
+    #[error("the review service returned an unexpected response: {0:?}")]
+    UnexpectedResponse(SessionResponse),
+    #[error("repository action failed: {0}")]
+    Repository(String),
+    #[error(transparent)]
+    Transport(#[from] crate::protocol::ProtocolError),
     #[error("Markdown review action failed: {0}")]
     MarkdownReview(#[from] diff_core::MarkdownReviewError),
     #[error("terminal or review service I/O failed: {0}")]
@@ -372,11 +353,17 @@ mod tests {
     }
 
     #[test]
-    fn parses_session_url() {
-        let session = Session::parse("http://127.0.0.1:4321/session/secret/").unwrap();
-        assert_eq!(session.address, "127.0.0.1:4321".parse().unwrap());
-        assert_eq!(session.token, "secret");
-        assert!(Session::parse("https://127.0.0.1:4321/session/secret/").is_err());
-        assert!(Session::parse("http://127.0.0.1:4321/session/").is_err());
+    fn expands_a_shell_escaped_command_placeholder() {
+        let command = attach_command(
+            Path::new("/Applications/Clanker Diff"),
+            Path::new("/tmp/review session.sock"),
+        )
+        .unwrap();
+        let mut arguments = vec!["--initial-command={command}".to_owned()];
+        assert!(replace_command_placeholder(&mut arguments, &command));
+        assert_eq!(
+            arguments,
+            ["--initial-command='/Applications/Clanker Diff' attach '/tmp/review session.sock'"]
+        );
     }
 }

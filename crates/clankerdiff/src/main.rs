@@ -1,5 +1,6 @@
 mod args;
 mod preferences;
+mod protocol;
 mod session;
 mod tui;
 
@@ -38,7 +39,7 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Command::Attach(args) => match tui::attach(&args.session_url) {
+        Command::Attach(args) => match tui::attach(args.socket_path) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("error: {error}");
@@ -55,8 +56,8 @@ async fn run(args: ReviewArgs) -> Result<ReviewOutcome, AppError> {
         Ui::Desktop => diff_gpui_desktop::run_review(root.clone(), args.scope),
         Ui::Tui => {
             let document = repository.snapshot(args.scope).await?;
-            session::run(&repository, &document, args.scope, |session_url| {
-                tui::launch(session_url).map_err(|error| error.to_string())
+            session::run(&repository, &document, args.scope, |socket_path| {
+                tui::launch(socket_path).map_err(|error| error.to_string())
             })?
         }
     };
