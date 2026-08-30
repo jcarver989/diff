@@ -2067,6 +2067,7 @@ dependencies = [
  "diff-syntax",
  "diff-theme",
  "gpui",
+ "gpui_platform",
 ]
 
 [[package]]
