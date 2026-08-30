@@ -178,6 +178,206 @@ impl DiffPalette {
     }
 }
 
+/// Alpha applied to the canvas color when it backs a modal scrim.
+pub const SCRIM_ALPHA: u8 = 184;
+
+/// Renderer-neutral application colors derived from a diff palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UiPalette {
+    pub canvas: Rgba,
+    pub surface: Rgba,
+    pub surface_hover: Rgba,
+    pub surface_selected: Rgba,
+    pub text: Rgba,
+    pub text_muted: Rgba,
+    pub border: Rgba,
+    pub accent: Rgba,
+    pub accent_foreground: Rgba,
+    pub positive: Rgba,
+    pub destructive: Rgba,
+    pub scrim: Rgba,
+}
+
+/// Semantic intent shared by renderer-native action controls.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ButtonVariant {
+    Primary,
+    Secondary,
+    Destructive,
+    #[default]
+    Ghost,
+}
+
+/// Interaction state shared by renderer-native controls.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum InteractionState {
+    #[default]
+    Rest,
+    Hovered,
+    Disabled,
+}
+
+/// Complete semantic state for an action control.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ControlState {
+    pub interaction: InteractionState,
+    pub selected: bool,
+}
+
+impl ControlState {
+    #[must_use]
+    pub const fn new(interaction: InteractionState) -> Self {
+        Self {
+            interaction,
+            selected: false,
+        }
+    }
+
+    #[must_use]
+    pub const fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+}
+
+/// Semantic size shared by renderer-native controls.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ControlSize {
+    Small,
+    #[default]
+    Medium,
+}
+
+/// Semantic state for selectable content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SelectionState {
+    #[default]
+    None,
+    Selected,
+    Focused,
+    Disabled,
+}
+
+/// Semantic tone for notices and status messages.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NoticeTone {
+    #[default]
+    Info,
+    Positive,
+    Warning,
+    Error,
+}
+
+/// Cross-renderer modal size category.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ModalSize {
+    Compact,
+    #[default]
+    Medium,
+    Wide,
+}
+
+/// Renderer-neutral visual result for one semantic component state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticStyle {
+    pub foreground: Rgba,
+    pub background: Option<Rgba>,
+    pub emphasized: bool,
+}
+
+impl UiPalette {
+    /// Resolves an action control without renderer-specific state ordering.
+    #[must_use]
+    pub const fn control_style(self, variant: ButtonVariant, state: ControlState) -> SemanticStyle {
+        if matches!(state.interaction, InteractionState::Disabled) {
+            return SemanticStyle {
+                foreground: self.text_muted,
+                background: Some(self.surface_selected),
+                emphasized: false,
+            };
+        }
+        let (foreground, background) = match (variant, state.interaction, state.selected) {
+            (ButtonVariant::Primary, _, _) => (self.accent_foreground, Some(self.accent)),
+            (ButtonVariant::Destructive, _, _) => (self.accent_foreground, Some(self.destructive)),
+            (ButtonVariant::Ghost, _, true) => (self.accent, Some(self.surface_selected)),
+            (ButtonVariant::Secondary | ButtonVariant::Ghost, InteractionState::Hovered, _) => {
+                (self.text, Some(self.surface_hover))
+            }
+            (ButtonVariant::Secondary, _, _) => (self.text, Some(self.surface_selected)),
+            (ButtonVariant::Ghost, _, false) => (self.text_muted, None),
+        };
+        SemanticStyle {
+            foreground,
+            background,
+            emphasized: state.selected,
+        }
+    }
+
+    /// Resolves selectable content consistently across renderers.
+    #[must_use]
+    pub const fn selection_style(self, state: SelectionState) -> SemanticStyle {
+        match state {
+            SelectionState::None => SemanticStyle {
+                foreground: self.text,
+                background: Some(self.surface),
+                emphasized: false,
+            },
+            SelectionState::Selected => SemanticStyle {
+                foreground: self.accent,
+                background: Some(self.surface_selected),
+                emphasized: false,
+            },
+            SelectionState::Focused => SemanticStyle {
+                foreground: self.accent_foreground,
+                background: Some(self.accent),
+                emphasized: true,
+            },
+            SelectionState::Disabled => SemanticStyle {
+                foreground: self.text_muted,
+                background: Some(self.surface),
+                emphasized: false,
+            },
+        }
+    }
+
+    /// Resolves the foreground used to communicate a notice tone.
+    #[must_use]
+    pub const fn notice_style(self, tone: NoticeTone) -> SemanticStyle {
+        let foreground = match tone {
+            NoticeTone::Info => self.text_muted,
+            NoticeTone::Positive => self.positive,
+            NoticeTone::Warning => self.accent,
+            NoticeTone::Error => self.destructive,
+        };
+        SemanticStyle {
+            foreground,
+            background: None,
+            emphasized: matches!(tone, NoticeTone::Warning | NoticeTone::Error),
+        }
+    }
+}
+
+impl From<&DiffPalette> for UiPalette {
+    fn from(palette: &DiffPalette) -> Self {
+        let mut scrim = palette.background;
+        scrim.a = SCRIM_ALPHA;
+        Self {
+            canvas: palette.background,
+            surface: palette.background,
+            surface_hover: palette.selection,
+            surface_selected: palette.selection,
+            text: palette.foreground,
+            text_muted: palette.muted,
+            border: palette.border,
+            accent: palette.accent,
+            accent_foreground: palette.background,
+            positive: palette.addition,
+            destructive: palette.deletion,
+            scrim,
+        }
+    }
+}
+
 impl Default for DiffPalette {
     fn default() -> Self {
         let background = Rgba::new(21, 29, 31, 255);
