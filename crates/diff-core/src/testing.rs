@@ -1,80 +1,20 @@
 use crate::{
-    DiffDocument, DiffSide, FileDiff, FileStatus, Hunk, PatchLine, RepoPath, SourceKey,
-    SourceRequest, SourceResponse, SourceUnavailable, StageState,
+    DiffDocument, DiffSide, DiffSnapshot, FileDiff, FileStatus, Hunk, PatchLine, RepoPath,
+    SourceDocument, SourceKey, SourceUnavailable, StageState,
 };
 use std::{collections::HashMap, sync::Arc};
 
-/// A document fixture and exact host-owned source responses for its file versions.
+/// A document fixture and its eager immutable source snapshot.
 #[derive(Debug, Clone)]
 pub struct DocumentFixture {
     pub document: Arc<DiffDocument>,
-    sources: HashMap<SourceKey, Result<Arc<str>, SourceUnavailable>>,
+    sources: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
 }
 
 impl DocumentFixture {
-    /// Builds a response for a request emitted by a session using this fixture.
     #[must_use]
-    pub fn response(&self, request: &SourceRequest) -> SourceResponse {
-        SourceResponse {
-            epoch: request.epoch,
-            key: request.key.clone(),
-            result: self
-                .sources
-                .get(&request.key)
-                .cloned()
-                .unwrap_or(Err(SourceUnavailable::Absent)),
-        }
-    }
-
-    /// Answers all requests while preserving their request order.
-    #[must_use]
-    pub fn responses(&self, requests: &[SourceRequest]) -> Vec<SourceResponse> {
-        requests
-            .iter()
-            .map(|request| self.response(request))
-            .collect()
-    }
-}
-
-/// Reusable builder for successful and unavailable source responses.
-#[derive(Debug, Clone)]
-pub struct SourceResponseBuilder {
-    response: SourceResponse,
-}
-
-impl SourceResponseBuilder {
-    #[must_use]
-    pub fn from_request(request: &SourceRequest) -> Self {
-        Self {
-            response: SourceResponse {
-                epoch: request.epoch,
-                key: request.key.clone(),
-                result: Err(SourceUnavailable::Absent),
-            },
-        }
-    }
-
-    #[must_use]
-    pub fn text(mut self, text: impl Into<Arc<str>>) -> Self {
-        self.response.result = Ok(text.into());
-        self
-    }
-
-    #[must_use]
-    pub fn unavailable(mut self, reason: SourceUnavailable) -> Self {
-        self.response.result = Err(reason);
-        self
-    }
-
-    #[must_use]
-    pub fn epoch(mut self, epoch: u64) -> Self {
-        self.response.epoch = epoch;
-        self
-    }
-
-    #[must_use]
-    pub fn build(self) -> SourceResponse {
-        self.response
+    pub fn snapshot(&self) -> DiffSnapshot {
+        DiffSnapshot::from_parts(self.document.clone(), self.sources.clone())
     }
 }
 
@@ -262,12 +202,21 @@ impl DocumentBuilder {
 
     #[must_use]
     pub fn build_fixture(self) -> DocumentFixture {
+        let sources = self
+            .sources
+            .into_iter()
+            .map(|(key, source)| {
+                let source =
+                    source.and_then(|text| SourceDocument::new(text.as_ref()).map(Arc::new));
+                (key, source)
+            })
+            .collect();
         DocumentFixture {
             document: Arc::new(DiffDocument {
                 repo_root: self.repo_root,
                 files: self.files,
             }),
-            sources: self.sources,
+            sources,
         }
     }
 }

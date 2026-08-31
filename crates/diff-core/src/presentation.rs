@@ -1,9 +1,9 @@
 //! Framework-neutral, random-access unified and split row presentation.
 
 use crate::{
-    DiffDocument, DiffSide, FileDiff, FileStatus, FileVersionText, Fingerprint, LineAnchor,
-    PatchLine, PatchLineKind, RepoPath, SourceKey, SourceLineRef, SourceLocation, SourceSequenceId,
-    SourceStatus, SourceUnavailable,
+    DiffDocument, DiffSide, FileDiff, FileStatus, Fingerprint, Hunk, LineAnchor, PatchLine,
+    PatchLineKind, RepoPath, SourceDocument, SourceKey, SourceLineRef, SourceLocation,
+    SourceSequenceId, SourceUnavailable,
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
@@ -14,6 +14,11 @@ use std::{
 };
 
 const NO_NEWLINE_TEXT: &str = "\\ No newline at end of file";
+
+/// Largest hunk (in total patch lines) served as a fallback syntax sequence.
+/// Larger hunks degrade to per-line highlighting so patch-only rendering work
+/// stays bounded by the viewport rather than the document.
+pub const MAX_HUNK_SEQUENCE_LINES: usize = 512;
 
 /// Requested diff layout.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,7 +128,7 @@ pub struct GapInterval {
 
 impl GapInterval {
     #[must_use]
-    pub fn sources_match(&self, old: &FileVersionText, new: &FileVersionText) -> bool {
+    pub fn sources_match(&self, old: &SourceDocument, new: &SourceDocument) -> bool {
         self.old.len() == self.new.len()
             && self
                 .old
@@ -138,21 +143,19 @@ impl GapInterval {
 pub struct GapInfo {
     pub id: GapId,
     pub hidden_lines: usize,
-    pub status: SourceStatus,
+    pub unavailable: Option<SourceUnavailable>,
 }
 
 impl GapInfo {
     /// Returns the deterministic renderer-independent gap label.
     #[must_use]
     pub fn message(&self) -> String {
-        match &self.status {
-            SourceStatus::Loaded => format!("⋯ {} unchanged lines", self.hidden_lines),
-            SourceStatus::Missing | SourceStatus::Queued => "⋯ loading source…".to_owned(),
-            SourceStatus::Unavailable(SourceUnavailable::TooLarge { .. }) => {
+        match &self.unavailable {
+            None => format!("⋯ {} unchanged lines", self.hidden_lines),
+            Some(SourceUnavailable::TooLarge { .. }) => {
                 "⋯ source is too large to expand".to_owned()
             }
-            SourceStatus::Unavailable(reason) => format!("⋯ {reason}"),
-            SourceStatus::Stale => "⋯ snapshot content changed".to_owned(),
+            Some(reason) => format!("⋯ {reason}"),
         }
     }
 }
@@ -160,29 +163,28 @@ impl GapInfo {
 /// Complete source and reveal state used to project a document.
 #[derive(Debug, Clone, Default)]
 pub struct ContentProjection {
-    pub(crate) sources: HashMap<SourceKey, Arc<FileVersionText>>,
-    pub(crate) statuses: HashMap<SourceKey, SourceStatus>,
+    pub(crate) sources: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
     pub(crate) expansions: HashMap<GapId, GapExpansion>,
     pub(crate) full_files: HashSet<RepoPath>,
 }
 
 impl ContentProjection {
-    pub fn insert_source(&mut self, key: SourceKey, source: Arc<FileVersionText>) {
-        self.statuses.insert(key.clone(), SourceStatus::Loaded);
-        self.sources.insert(key, source);
+    #[must_use]
+    pub fn with_sources(
+        sources: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
+    ) -> Self {
+        Self {
+            sources,
+            ..Self::default()
+        }
     }
 
-    pub fn set_status(&mut self, key: SourceKey, status: SourceStatus) {
-        if status == SourceStatus::Loaded {
-            if self.sources.contains_key(&key) {
-                self.statuses.insert(key, status);
-            } else {
-                self.statuses.remove(&key);
-            }
-            return;
-        }
-        self.sources.remove(&key);
-        self.statuses.insert(key, status);
+    pub fn insert_source(&mut self, key: SourceKey, source: Arc<SourceDocument>) {
+        self.sources.insert(key, Ok(source));
+    }
+
+    pub fn insert_unavailable(&mut self, key: SourceKey, reason: SourceUnavailable) {
+        self.sources.insert(key, Err(reason));
     }
 
     pub fn set_expansion(&mut self, id: GapId, expansion: GapExpansion) {
@@ -198,16 +200,13 @@ impl ContentProjection {
     }
 
     #[must_use]
-    pub fn source(&self, key: &SourceKey) -> Option<&Arc<FileVersionText>> {
-        self.sources.get(key)
+    pub fn source(&self, key: &SourceKey) -> Option<&Arc<SourceDocument>> {
+        self.sources.get(key)?.as_ref().ok()
     }
 
     #[must_use]
-    pub fn status(&self, key: &SourceKey) -> SourceStatus {
-        self.statuses
-            .get(key)
-            .cloned()
-            .unwrap_or(SourceStatus::Missing)
+    pub fn unavailable(&self, key: &SourceKey) -> Option<&SourceUnavailable> {
+        self.sources.get(key)?.as_ref().err()
     }
 
     #[must_use]
@@ -217,6 +216,39 @@ impl ContentProjection {
 }
 
 pub use diff_theme::DiffTone;
+
+/// Renderer-neutral description of the hunk-side line sequence containing a
+/// patch cell, used to keep multiline syntax context for patch-only files.
+pub struct HunkSequence<'a> {
+    /// Content-derived, snapshot-local cache identity for this side's lines.
+    pub id: SourceSequenceId,
+    /// Side-specific repository path usable as a syntax language hint.
+    pub path: &'a str,
+    /// Zero-based index of the cell's line within [`Self::lines`].
+    pub target_line: usize,
+    hunk: &'a Hunk,
+    side: DiffSide,
+}
+
+impl HunkSequence<'_> {
+    /// This side's hunk lines in source order.
+    pub fn lines(&self) -> impl Iterator<Item = &str> {
+        self.hunk
+            .lines
+            .iter()
+            .filter(|line| line.line_number(self.side).is_some())
+            .map(|line| line.text.as_ref())
+    }
+}
+
+fn hunk_side_sequence_id(lines: &[PatchLine], side: DiffSide) -> SourceSequenceId {
+    SourceSequenceId::from_lines(
+        lines
+            .iter()
+            .filter(|line| line.line_number(side).is_some())
+            .map(|line| line.text.as_ref()),
+    )
+}
 
 /// Stable identity for a presented row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -310,58 +342,6 @@ impl PresentedRow {
     }
 }
 
-/// Renderer-neutral description of the source sequence containing a diff cell.
-///
-/// Renderers pass these lines to their syntax engine so multiline constructs are
-/// interpreted with bounded preceding context without coupling `diff-core` to a
-/// particular highlighter.
-pub struct CellSequence<'a> {
-    pub id: SourceSequenceId,
-    pub language: &'a str,
-    pub target_line: usize,
-    pub lines: CellSequenceLines<'a>,
-}
-
-pub enum CellSequenceLines<'a> {
-    WholeFile(&'a [Arc<str>]),
-    Hunk(Box<dyn Iterator<Item = &'a str> + 'a>),
-}
-
-pub enum CellSequenceIter<'a> {
-    WholeFile(std::slice::Iter<'a, Arc<str>>),
-    Hunk(Box<dyn Iterator<Item = &'a str> + 'a>),
-}
-
-impl<'a> Iterator for CellSequenceIter<'a> {
-    type Item = &'a str;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::WholeFile(lines) => lines.next().map(AsRef::as_ref),
-            Self::Hunk(lines) => lines.next(),
-        }
-    }
-
-    fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        match self {
-            Self::WholeFile(lines) => lines.nth(n).map(AsRef::as_ref),
-            Self::Hunk(lines) => lines.nth(n),
-        }
-    }
-}
-
-impl<'a> IntoIterator for CellSequenceLines<'a> {
-    type Item = &'a str;
-    type IntoIter = CellSequenceIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        match self {
-            Self::WholeFile(lines) => CellSequenceIter::WholeFile(lines.iter()),
-            Self::Hunk(lines) => CellSequenceIter::Hunk(lines),
-        }
-    }
-}
-
 /// Eager row indexes and cheap descriptors. Syntax and frontend widgets are not
 /// constructed here.
 #[derive(Debug, Clone)]
@@ -372,11 +352,11 @@ pub struct DiffPresentation {
     anchor_rows: HashMap<(usize, DiffSide, usize), usize>,
     source_rows: HashMap<(usize, DiffSide, usize), usize>,
     gap_info: HashMap<usize, GapInfo>,
-    sources: HashMap<SourceKey, Arc<FileVersionText>>,
+    sources: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
-    /// Lazily fingerprinted per hunk so presentations that never request
-    /// highlights skip hashing the document.
+    /// Lazily fingerprinted per hunk so presentations that never fall back to
+    /// hunk-sequence highlighting skip hashing the document.
     sequence_ids: Vec<Vec<OnceLock<[SourceSequenceId; 2]>>>,
 }
 
@@ -477,11 +457,6 @@ impl DiffPresentation {
             file_ranges.push(file_start..rows.len());
             hunk_ranges.push(file_hunks);
         }
-        let sequence_ids = document
-            .files
-            .iter()
-            .map(|file| file.hunks.iter().map(|_| OnceLock::new()).collect())
-            .collect();
         let anchor_rows = rows
             .iter()
             .enumerate()
@@ -504,6 +479,11 @@ impl DiffPresentation {
                     Some(((row.file_index, source.side, source.line_number), row_index))
                 })
             })
+            .collect();
+        let sequence_ids = document
+            .files
+            .iter()
+            .map(|file| file.hunks.iter().map(|_| OnceLock::new()).collect())
             .collect();
         Self {
             document,
@@ -575,70 +555,70 @@ impl DiffPresentation {
         self.cell_anchor(row, row.preferred_cell(side)?)
     }
 
-    /// Describes the complete source-side sequence containing `cell`.
-    ///
-    /// Returns `None` for synthetic cells and stale descriptors. The sequence
-    /// identity is content-derived and must not be persisted.
+    /// Returns the immutable complete source containing `cell`.
     #[must_use]
-    pub fn cell_sequence<'a>(
+    pub fn source_document(
+        &self,
+        row: &PresentedRow,
+        cell: &PresentedCell,
+    ) -> Option<&SourceDocument> {
+        let source = cell.source_line?;
+        let file = self.document.files.get(row.file_index)?;
+        let key = SourceKey::new(file.path.clone(), source.side);
+        self.sources.get(&key)?.as_ref().ok().map(AsRef::as_ref)
+    }
+
+    /// Returns the side-specific repository path used as a syntax language hint.
+    #[must_use]
+    pub fn source_path<'a>(&'a self, row: &PresentedRow, cell: &PresentedCell) -> Option<&'a str> {
+        let source = cell.source_line?;
+        Some(
+            self.document
+                .files
+                .get(row.file_index)?
+                .path_for_side(source.side)
+                .as_str(),
+        )
+    }
+
+    /// Describes the hunk-side line sequence containing a patch cell so hosts
+    /// can keep multiline syntax context when no complete source exists.
+    #[must_use]
+    pub fn hunk_sequence<'a>(
         &'a self,
         row: &PresentedRow,
         cell: &PresentedCell,
-    ) -> Option<CellSequence<'a>> {
-        let file = self.document.files.get(row.file_index)?;
-        if let Some(source_line) = cell.source_line {
-            let key = SourceKey::new(file.path.clone(), source_line.side);
-            if let Some(source) = self.sources.get(&key) {
-                return Some(CellSequence {
-                    id: source.sequence_id(),
-                    language: file.path.as_str(),
-                    target_line: source_line.line_number.checked_sub(1)?,
-                    lines: CellSequenceLines::WholeFile(source.lines()),
-                });
-            }
-        }
+    ) -> Option<HunkSequence<'a>> {
         let source = cell.patch_source?;
+        let file = self.document.files.get(row.file_index)?;
         let hunk = file.hunks.get(source.hunk_index)?;
+        if hunk.lines.len() > MAX_HUNK_SEQUENCE_LINES {
+            return None;
+        }
         hunk.lines.get(source.line_index)?;
-        let target = hunk.lines[..=source.line_index]
+        let target_line = hunk.lines[..source.line_index]
             .iter()
             .filter(|line| line.line_number(source.side).is_some())
-            .count()
-            .saturating_sub(1);
-        let id = self.sequence_id(row.file_index, source.hunk_index, source.side)?;
-        Some(CellSequence {
-            id,
-            language: file.path.as_str(),
-            target_line: target,
-            lines: CellSequenceLines::Hunk(Box::new(
-                hunk.lines
-                    .iter()
-                    .filter(move |line| line.line_number(source.side).is_some())
-                    .map(|line| line.text.as_ref()),
-            )),
-        })
-    }
-
-    fn sequence_id(
-        &self,
-        file_index: usize,
-        hunk_index: usize,
-        side: DiffSide,
-    ) -> Option<SourceSequenceId> {
-        let hunk = self.document.files.get(file_index)?.hunks.get(hunk_index)?;
+            .count();
         let ids = self
             .sequence_ids
-            .get(file_index)?
-            .get(hunk_index)?
+            .get(row.file_index)?
+            .get(source.hunk_index)?
             .get_or_init(|| {
                 [
-                    source_sequence_id(&hunk.lines, DiffSide::Old),
-                    source_sequence_id(&hunk.lines, DiffSide::New),
+                    hunk_side_sequence_id(&hunk.lines, DiffSide::Old),
+                    hunk_side_sequence_id(&hunk.lines, DiffSide::New),
                 ]
             });
-        Some(match side {
-            DiffSide::Old => ids[0],
-            DiffSide::New => ids[1],
+        Some(HunkSequence {
+            id: match source.side {
+                DiffSide::Old => ids[0],
+                DiffSide::New => ids[1],
+            },
+            path: file.path_for_side(source.side).as_str(),
+            target_line,
+            hunk,
+            side: source.side,
         })
     }
 
@@ -648,8 +628,7 @@ impl DiffPresentation {
             .map_or("", |row| self.language_at_row(row))
     }
 
-    /// Repository path of the file a row belongs to, usable as a language hint
-    /// when a cell has no [`CellSequence`].
+    /// Repository path of the file a row belongs to, usable as a language hint.
     #[must_use]
     pub fn row_path(&self, row: &PresentedRow) -> &str {
         self.document
@@ -834,17 +813,12 @@ fn append_gap_projection(
     let old = projection.source(&old_key);
     let new = projection.source(&new_key);
     let total = gap.old.len().max(gap.new.len());
-    let stale_pair = layout == Layout::Split
-        && old
-            .zip(new)
-            .is_some_and(|(old, new)| !gap.sources_match(old, new));
-    let loaded = !stale_pair
-        && gap_required_sides(layout, file.status)
-            .iter()
-            .all(|side| match side {
-                DiffSide::Old => old.is_some(),
-                DiffSide::New => new.is_some(),
-            });
+    let loaded = gap_required_sides(layout, file.status)
+        .iter()
+        .all(|side| match side {
+            DiffSide::Old => old.is_some(),
+            DiffSide::New => new.is_some(),
+        });
     let prefix = if full_file {
         total
     } else {
@@ -875,11 +849,7 @@ fn append_gap_projection(
         }
     }
     if hidden != 0 || !loaded {
-        let status = if stale_pair {
-            SourceStatus::Stale
-        } else {
-            combined_gap_status(file, layout, projection, &old_key, &new_key)
-        };
+        let unavailable = gap_unavailable(file, layout, projection, &old_key, &new_key);
         let row_index = rows.len();
         rows.push(PresentedRow {
             id: row_id(&file.path, "expand-gap", Some(gap_index), None, None),
@@ -899,7 +869,7 @@ fn append_gap_projection(
             GapInfo {
                 id,
                 hidden_lines: hidden,
-                status,
+                unavailable,
             },
         );
     }
@@ -921,29 +891,26 @@ fn gap_required_sides(layout: Layout, status: FileStatus) -> &'static [DiffSide]
     }
 }
 
-pub(crate) fn requested_source_sides(status: FileStatus) -> &'static [DiffSide] {
-    match status {
-        FileStatus::Added | FileStatus::Untracked => &[DiffSide::New],
-        FileStatus::Deleted => &[DiffSide::Old],
-        _ => &[DiffSide::New, DiffSide::Old],
-    }
-}
-
-fn combined_gap_status(
+fn gap_unavailable(
     file: &FileDiff,
     layout: Layout,
     projection: &ContentProjection,
     old_key: &SourceKey,
     new_key: &SourceKey,
-) -> SourceStatus {
+) -> Option<SourceUnavailable> {
     gap_required_sides(layout, file.status)
         .iter()
-        .map(|side| match side {
-            DiffSide::Old => projection.status(old_key),
-            DiffSide::New => projection.status(new_key),
+        .find_map(|side| {
+            let key = match side {
+                DiffSide::Old => old_key,
+                DiffSide::New => new_key,
+            };
+            match projection.sources.get(key) {
+                Some(Ok(_)) => None,
+                Some(Err(reason)) => Some(reason.clone()),
+                None => Some(SourceUnavailable::Absent),
+            }
         })
-        .find(|status| *status != SourceStatus::Loaded)
-        .unwrap_or(SourceStatus::Loaded)
 }
 
 #[derive(Clone, Copy)]
@@ -952,8 +919,8 @@ struct ExpandedRow<'a> {
     file: &'a FileDiff,
     gap: &'a GapInterval,
     layout: Layout,
-    old: Option<&'a Arc<FileVersionText>>,
-    new: Option<&'a Arc<FileVersionText>>,
+    old: Option<&'a Arc<SourceDocument>>,
+    new: Option<&'a Arc<SourceDocument>>,
 }
 
 fn append_expanded_row(rows: &mut Vec<PresentedRow>, expanded: ExpandedRow<'_>, offset: usize) {
@@ -965,16 +932,16 @@ fn append_expanded_row(rows: &mut Vec<PresentedRow>, expanded: ExpandedRow<'_>, 
         old,
         new,
     } = expanded;
-    let make = |side: DiffSide, range: &Range<usize>, source: Option<&Arc<FileVersionText>>| {
+    let make = |side: DiffSide, range: &Range<usize>, source: Option<&Arc<SourceDocument>>| {
         let line_number = range.start.saturating_add(offset);
         if line_number >= range.end {
             return None;
         }
-        let text = source?.line_arc(line_number)?;
+        let text = source?.line(line_number)?;
         Some(cell(
             None,
             Some(SourceLineRef { side, line_number }),
-            Arc::clone(text),
+            text,
             DiffTone::Context,
         ))
     };
@@ -1232,15 +1199,6 @@ fn meta_row(
     }
 }
 
-fn source_sequence_id(lines: &[PatchLine], side: DiffSide) -> SourceSequenceId {
-    SourceSequenceId::from_lines(
-        lines
-            .iter()
-            .filter(|line| line.line_number(side).is_some())
-            .map(|line| line.text.as_ref()),
-    )
-}
-
 fn index_field(value: Option<usize>) -> [u8; 9] {
     let mut field = [0_u8; 9];
     if let Some(index) = value {
@@ -1431,6 +1389,41 @@ mod tests {
     }
 
     #[test]
+    fn hunk_sequences_expose_bounded_side_lines_for_patch_only_cells() {
+        let presentation = presentation(ViewMode::Unified);
+        let (row, cell) = (0..presentation.row_count())
+            .find_map(|index| {
+                let row = presentation.row(index)?;
+                let cell = row.cell(DiffSide::New)?;
+                (cell.text.as_ref() == "ONE").then_some((row, cell))
+            })
+            .unwrap();
+        let sequence = presentation.hunk_sequence(row, cell).unwrap();
+        let lines: Vec<&str> = sequence.lines().collect();
+        assert_eq!(lines, ["same", "ONE", "keep", "TWO", "extra"]);
+        assert_eq!(sequence.target_line, 1);
+        assert_eq!(sequence.path, "src/a.rs");
+        assert_eq!(
+            sequence.id,
+            SourceSequenceId::from_lines(lines.iter().copied())
+        );
+
+        let big = DocumentBuilder::new()
+            .generated("src/big.rs", MAX_HUNK_SEQUENCE_LINES + 1)
+            .build();
+        let presentation = DiffPresentation::new(big, PresentationOptions::default());
+        let row = (0..presentation.row_count())
+            .filter_map(|index| presentation.row(index))
+            .find(|row| row.kind == RowKind::Code)
+            .unwrap();
+        let cell = row.primary_cell().unwrap();
+        assert!(
+            presentation.hunk_sequence(row, cell).is_none(),
+            "oversized hunks degrade to per-line highlighting"
+        );
+    }
+
+    #[test]
     fn view_modes_resolve_and_cycle() {
         assert_eq!(ViewMode::Auto.resolve(true), Layout::Split);
         assert_eq!(ViewMode::Auto.resolve(false), Layout::Unified);
@@ -1556,58 +1549,6 @@ mod tests {
     }
 
     #[test]
-    fn cell_sequence_preserves_multiline_source_context() {
-        let document = Arc::new(DiffDocument {
-            repo_root: "/repo".into(),
-            files: vec![FileDiff::from_texts("a.rs", "", "/*\n comment */\n").unwrap()],
-        });
-        let presentation = DiffPresentation::new(document, PresentationOptions::default());
-        let row = presentation
-            .rows(0..presentation.row_count())
-            .iter()
-            .find(|row| {
-                row.primary_cell()
-                    .is_some_and(|cell| cell.text.as_ref() == " comment */")
-            })
-            .unwrap();
-        let sequence = presentation
-            .cell_sequence(row, row.primary_cell().unwrap())
-            .unwrap();
-        assert_eq!(sequence.language, "a.rs");
-        assert_eq!(sequence.target_line, 1);
-        assert_eq!(
-            sequence.lines.into_iter().collect::<Vec<_>>(),
-            ["/*", " comment */"]
-        );
-    }
-
-    #[test]
-    fn sequence_identity_is_derived_from_visible_source_content() {
-        let sequence_id = |text: &str| {
-            let document = Arc::new(DiffDocument {
-                repo_root: "/repo".into(),
-                files: vec![FileDiff::from_texts("a.rs", "", text).unwrap()],
-            });
-            let presentation = DiffPresentation::new(document, PresentationOptions::default());
-            let row = presentation
-                .rows(0..presentation.row_count())
-                .iter()
-                .find(|row| {
-                    row.primary_cell()
-                        .is_some_and(|cell| cell.patch_source.is_some())
-                })
-                .unwrap();
-            presentation
-                .cell_sequence(row, row.primary_cell().unwrap())
-                .unwrap()
-                .id
-        };
-
-        assert_eq!(sequence_id("let x = 1;\n"), sequence_id("let x = 1;\n"));
-        assert_ne!(sequence_id("let x = 1;\n"), sequence_id("let x = 2;\n"));
-    }
-
-    #[test]
     fn gap_geometry_covers_leading_middle_and_trailing_intervals() {
         let path = RepoPath::new("a.rs").unwrap();
         let file = FileDiff {
@@ -1730,14 +1671,14 @@ mod tests {
                 review_path: path.clone(),
                 side: DiffSide::Old,
             },
-            Arc::new(FileVersionText::try_from_text(&old).unwrap()),
+            Arc::new(SourceDocument::try_from_text(&old).unwrap()),
         );
         projection.insert_source(
             SourceKey {
                 review_path: path.clone(),
                 side: DiffSide::New,
             },
-            Arc::new(FileVersionText::try_from_text(&new).unwrap()),
+            Arc::new(SourceDocument::try_from_text(&new).unwrap()),
         );
         projection.set_full_file(path, true);
         let options = PresentationOptions {
@@ -1783,7 +1724,7 @@ mod tests {
     }
 
     #[test]
-    fn mode_only_full_file_intent_projects_loading_error_and_complete_source() {
+    fn mode_only_full_file_intent_projects_unavailable_and_complete_source() {
         let path = RepoPath::new("script.sh").unwrap();
         let file = FileDiff {
             old_path: Some(path.clone()),
@@ -1809,25 +1750,22 @@ mod tests {
         };
         let mut projection = ContentProjection::default();
         projection.set_full_file(path, true);
-        let loading = DiffPresentation::with_sources(
+        let absent = DiffPresentation::with_sources(
             document.clone(),
             PresentationOptions::default(),
             &projection,
         );
-        let loading_gap = loading
-            .rows(0..loading.row_count())
+        let absent_gap = absent
+            .rows(0..absent.row_count())
             .iter()
             .position(|row| row.kind == RowKind::ExpandGap)
             .unwrap();
         assert_eq!(
-            loading.gap_info(loading_gap).unwrap().status,
-            SourceStatus::Missing
+            absent.gap_info(absent_gap).unwrap().unavailable,
+            Some(SourceUnavailable::Absent)
         );
 
-        projection.set_status(
-            key.clone(),
-            SourceStatus::Unavailable(SourceUnavailable::Binary),
-        );
+        projection.insert_unavailable(key.clone(), SourceUnavailable::Binary);
         let unavailable = DiffPresentation::with_sources(
             document.clone(),
             PresentationOptions::default(),
@@ -1839,13 +1777,13 @@ mod tests {
             .position(|row| row.kind == RowKind::ExpandGap)
             .unwrap();
         assert_eq!(
-            unavailable.gap_info(gap).unwrap().status,
-            SourceStatus::Unavailable(SourceUnavailable::Binary)
+            unavailable.gap_info(gap).unwrap().unavailable,
+            Some(SourceUnavailable::Binary)
         );
 
         projection.insert_source(
             key,
-            Arc::new(FileVersionText::try_from_text("#!/bin/sh\necho ok\n").unwrap()),
+            Arc::new(SourceDocument::try_from_text("#!/bin/sh\necho ok\n").unwrap()),
         );
         let loaded =
             DiffPresentation::with_sources(document, PresentationOptions::default(), &projection);

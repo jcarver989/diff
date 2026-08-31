@@ -1,6 +1,6 @@
-//! Immutable complete-file source versions and host-neutral source transport.
+//! Immutable complete-file source versions.
 
-use crate::{DiffSide, FileDiff, Fingerprint, RepoPath, SourceSequenceId};
+use crate::{DiffSide, Fingerprint, RepoPath, SourceSequenceId};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -32,10 +32,14 @@ pub struct SourceLocation {
     pub line_number: usize,
 }
 
-/// Immutable normalized lines for one exact file version.
+/// An immutable, contiguous source document with stable line coordinates.
+///
+/// The source text is retained as one allocation. `line_starts` makes line lookup
+/// and byte spans constant time without copying or normalizing the document.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileVersionText {
-    lines: Arc<[Arc<str>]>,
+pub struct SourceDocument {
+    text: Arc<str>,
+    line_starts: Arc<[usize]>,
     content_id: Fingerprint,
     sequence_id: SourceSequenceId,
     byte_len: u64,
@@ -49,7 +53,16 @@ impl SourceKey {
     }
 }
 
-impl FileVersionText {
+impl SourceDocument {
+    /// Captures one immutable source document.
+    ///
+    /// # Errors
+    /// Returns a typed unavailable reason when the source exceeds the
+    /// complete-file byte or line limits.
+    pub fn new(text: impl AsRef<str>) -> Result<Self, SourceUnavailable> {
+        Self::try_from_text(text.as_ref())
+    }
+
     /// Captures exact byte identity while normalizing rendered line endings like patch parsing.
     ///
     /// # Errors
@@ -60,24 +73,40 @@ impl FileVersionText {
         if byte_len > MAX_SOURCE_FILE_BYTES {
             return Err(SourceUnavailable::TooLarge { bytes: byte_len });
         }
-        let line_count = text.split_terminator('\n').count();
+        let trailing_newline = text.ends_with('\n');
+        let mut line_starts = vec![0];
+        for (index, byte) in text.bytes().enumerate() {
+            if byte == b'\n' {
+                line_starts.push(index + 1);
+            }
+        }
+
+        if trailing_newline {
+            line_starts.pop();
+        }
+        if text.is_empty() {
+            line_starts.clear();
+        }
+
+        let line_count = line_starts.len();
         if line_count > MAX_SOURCE_FILE_LINES {
             return Err(SourceUnavailable::TooManyLines { lines: line_count });
         }
-        let trailing_newline = text.ends_with('\n');
-        let lines: Arc<[Arc<str>]> = if text.is_empty() {
-            Arc::from([])
-        } else {
-            text.split_terminator('\n')
-                .map(|line| line.strip_suffix('\r').unwrap_or(line))
-                .map(Arc::<str>::from)
-                .collect::<Vec<_>>()
-                .into()
-        };
-        let sequence_id = SourceSequenceId::from_lines(lines.iter().map(AsRef::as_ref));
+        let content_id = Fingerprint::of([b"diff-source-document-v1".as_slice(), text.as_bytes()]);
+        let text: Arc<str> = Arc::from(text);
+        let sequence_id = SourceSequenceId::from_lines((0..line_count).map(|line| {
+            let start = line_starts[line];
+            let end = text[start..]
+                .find('\n')
+                .map_or(text.len(), |offset| start + offset);
+            text[start..end]
+                .strip_suffix('\r')
+                .unwrap_or(&text[start..end])
+        }));
         Ok(Self {
-            lines,
-            content_id: Fingerprint::of([b"diff-file-version-v1".as_slice(), text.as_bytes()]),
+            text,
+            line_starts: line_starts.into(),
+            content_id,
             sequence_id,
             byte_len,
             trailing_newline,
@@ -87,25 +116,51 @@ impl FileVersionText {
     /// Returns a one-based normalized source line.
     #[must_use]
     pub fn line(&self, number: usize) -> Option<&str> {
-        self.line_arc(number).map(AsRef::as_ref)
+        let span = self.line_span(number)?;
+        Some(&self.text[span])
     }
 
-    /// Returns the stored allocation for a one-based normalized source line.
+    /// Returns the zero-based byte span of a one-based source line.
     #[must_use]
-    pub fn line_arc(&self, number: usize) -> Option<&Arc<str>> {
-        number
-            .checked_sub(1)
-            .and_then(|index| self.lines.get(index))
+    pub fn line_span(&self, number: usize) -> Option<std::ops::Range<usize>> {
+        let index = number.checked_sub(1)?;
+        let start = *self.line_starts.get(index)?;
+        let end = self
+            .line_starts
+            .get(index + 1)
+            .copied()
+            .unwrap_or(self.text.len());
+        let end = if end > start && self.text.as_bytes()[end - 1] == b'\n' {
+            end - 1
+        } else {
+            end
+        };
+        let end = if end > start && self.text.as_bytes()[end - 1] == b'\r' {
+            end - 1
+        } else {
+            end
+        };
+        Some(start..end)
     }
 
     #[must_use]
-    pub fn lines(&self) -> &[Arc<str>] {
-        &self.lines
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    #[must_use]
+    pub fn line_starts(&self) -> &[usize] {
+        &self.line_starts
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> Fingerprint {
+        self.content_id
     }
 
     #[must_use]
     pub fn line_count(&self) -> usize {
-        self.lines.len()
+        self.line_starts.len()
     }
 
     #[must_use]
@@ -129,23 +184,6 @@ impl FileVersionText {
     }
 }
 
-/// A lazy request for one exact file version.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SourceRequest {
-    pub epoch: u64,
-    pub key: SourceKey,
-    /// Actual path at this version (not necessarily the current review path).
-    pub source_path: RepoPath,
-}
-
-/// A host response containing exact UTF-8 source or a deterministic failure.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SourceResponse {
-    pub epoch: u64,
-    pub key: SourceKey,
-    pub result: Result<Arc<str>, SourceUnavailable>,
-}
-
 /// Why a complete source version cannot be displayed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 pub enum SourceUnavailable {
@@ -165,66 +203,16 @@ pub enum SourceUnavailable {
     Error(String),
 }
 
-/// Current viewer state for one source key.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceStatus {
-    Missing,
-    Queued,
-    Loaded,
-    Unavailable(SourceUnavailable),
-    Stale,
-}
-
-/// First inconsistency between patch metadata and a complete source version.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{side:?} source line {line_number} does not match the diff")]
-pub struct SourceValidationError {
-    pub side: DiffSide,
-    pub line_number: usize,
-    pub expected: Arc<str>,
-    pub actual: Option<Arc<str>>,
-}
-
-/// Validates every numbered patch line and final-newline marker on one side.
-///
-/// # Errors
-/// Returns the first source line that is missing or differs from the patch.
-pub fn validate_file_version(
-    file: &FileDiff,
-    side: DiffSide,
-    source: &FileVersionText,
-) -> Result<(), SourceValidationError> {
-    for line in file.hunks.iter().flat_map(|hunk| &hunk.lines) {
-        let Some(line_number) = line.line_number(side) else {
-            continue;
-        };
-        let actual = source.line(line_number);
-        let final_numbered_line = line_number == source.line_count();
-        // A final no-newline marker and a trailing source newline must disagree.
-        let newline_mismatch = (line.no_newline && !final_numbered_line)
-            || (final_numbered_line && line.no_newline == source.trailing_newline());
-        if actual != Some(line.text.as_ref()) || newline_mismatch {
-            return Err(SourceValidationError {
-                side,
-                line_number,
-                expected: Arc::clone(&line.text),
-                actual: source.line_arc(line_number).cloned(),
-            });
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::FileDiff;
 
     #[test]
     fn exact_identity_and_normalized_lines_are_independent() {
-        let lf = FileVersionText::try_from_text("a\nb\n").unwrap();
-        let crlf = FileVersionText::try_from_text("a\r\nb\r\n").unwrap();
-        assert_eq!(lf.lines(), crlf.lines());
+        let lf = SourceDocument::try_from_text("a\nb\n").unwrap();
+        let crlf = SourceDocument::try_from_text("a\r\nb\r\n").unwrap();
+        assert_eq!(lf.line(1), crlf.line(1));
+        assert_eq!(lf.line(2), crlf.line(2));
         assert_eq!(lf.sequence_id(), crlf.sequence_id());
         assert_ne!(lf.content_id(), crlf.content_id());
         assert_eq!(lf.line(1), Some("a"));
@@ -234,56 +222,21 @@ mod tests {
     }
 
     #[test]
+    fn contiguous_documents_provide_stable_byte_coordinates() {
+        let document = SourceDocument::new("α\r\nb\n").unwrap();
+        assert_eq!(document.text(), "α\r\nb\n");
+        assert_eq!(document.line_starts(), &[0, 4]);
+        assert_eq!(document.line_span(1), Some(0..2));
+        assert_eq!(document.line_span(2), Some(4..5));
+        assert_eq!(document.line(1), Some("α"));
+        assert_eq!(document.identity(), document.content_id());
+    }
+
+    #[test]
     fn empty_and_blank_files_have_distinct_line_models() {
-        assert_eq!(FileVersionText::try_from_text("").unwrap().line_count(), 0);
-        let blank = FileVersionText::try_from_text("\n").unwrap();
+        assert_eq!(SourceDocument::try_from_text("").unwrap().line_count(), 0);
+        let blank = SourceDocument::try_from_text("\n").unwrap();
         assert_eq!(blank.line_count(), 1);
         assert_eq!(blank.line(1), Some(""));
-    }
-
-    #[test]
-    fn validates_patch_lines_on_each_side() {
-        let file = FileDiff::from_texts("a.rs", "old\n", "new\n").unwrap();
-        assert!(
-            validate_file_version(
-                &file,
-                DiffSide::Old,
-                &FileVersionText::try_from_text("old\n").unwrap(),
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_file_version(
-                &file,
-                DiffSide::New,
-                &FileVersionText::try_from_text("new\n").unwrap(),
-            )
-            .is_ok()
-        );
-        let error = validate_file_version(
-            &file,
-            DiffSide::New,
-            &FileVersionText::try_from_text("wrong\n").unwrap(),
-        )
-        .unwrap_err();
-        assert_eq!(error.line_number, 1);
-    }
-
-    #[test]
-    fn rejects_a_non_final_no_newline_marker() {
-        let mut file = FileDiff::from_texts("a.rs", "old\n", "first\nsecond").unwrap();
-        let line = file.hunks[0]
-            .lines
-            .iter_mut()
-            .find(|line| line.new_line_no == Some(1))
-            .unwrap();
-        line.no_newline = true;
-        let error = validate_file_version(
-            &file,
-            DiffSide::New,
-            &FileVersionText::try_from_text("first\nsecond").unwrap(),
-        )
-        .unwrap_err();
-        assert_eq!(error.line_number, 1);
     }
 }

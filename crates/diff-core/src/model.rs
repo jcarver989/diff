@@ -421,7 +421,7 @@ impl FileDiff {
             .iter()
             .any(|line| matches!(line.kind, PatchLineKind::Added | PatchLineKind::Removed));
         let mut hunks = if changed {
-            vec![whole_file_hunk(lines)]
+            grouped_hunks(&lines, 3)
         } else {
             Vec::new()
         };
@@ -483,6 +483,29 @@ fn strip_line_ending(value: &str) -> &str {
     })
 }
 
+fn grouped_hunks(lines: &[PatchLine], context: usize) -> Vec<Hunk> {
+    let mut ranges = Vec::<std::ops::Range<usize>>::new();
+    for index in lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| (line.kind != PatchLineKind::Context).then_some(index))
+    {
+        let start = index.saturating_sub(context);
+        let end = index.saturating_add(context + 1).min(lines.len());
+        if let Some(previous) = ranges.last_mut()
+            && start <= previous.end
+        {
+            previous.end = previous.end.max(end);
+        } else {
+            ranges.push(start..end);
+        }
+    }
+    ranges
+        .into_iter()
+        .map(|range| whole_file_hunk(lines[range].to_vec()))
+        .collect()
+}
+
 fn whole_file_hunk(lines: Vec<PatchLine>) -> Hunk {
     let old_start = lines.iter().find_map(|line| line.old_line_no).unwrap_or(0);
     let new_start = lines.iter().find_map(|line| line.new_line_no).unwrap_or(0);
@@ -533,6 +556,21 @@ mod tests {
         assert!(diff.no_newline_at_end);
         assert_eq!(diff.hunks[0].lines[0].kind, PatchLineKind::Context);
         assert_eq!(diff.hunks[0].lines[2].new_line_no, Some(2));
+    }
+
+    #[test]
+    fn groups_distant_changes_into_context_limited_hunks() {
+        let old = (1..=20).fold(String::new(), |mut text, line| {
+            use std::fmt::Write;
+            let _ = writeln!(text, "line {line}");
+            text
+        });
+        let new = old
+            .replace("line 2\n", "changed 2\n")
+            .replace("line 19\n", "changed 19\n");
+        let diff = FileDiff::from_texts("main.rs", &old, &new).unwrap();
+        assert_eq!(diff.hunks.len(), 2);
+        assert!(diff.hunks.iter().all(|hunk| hunk.lines.len() <= 8));
     }
 
     #[test]

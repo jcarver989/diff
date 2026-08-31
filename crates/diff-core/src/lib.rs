@@ -6,15 +6,15 @@ pub mod parser;
 pub mod presentation;
 pub mod review;
 pub mod session;
+pub mod snapshot;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
 
 pub use anchor::LineAnchor;
 pub use content::{
-    FileVersionText, MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceKey, SourceLineRef,
-    SourceLocation, SourceRequest, SourceResponse, SourceStatus, SourceUnavailable,
-    SourceValidationError, validate_file_version,
+    MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceDocument, SourceKey, SourceLineRef,
+    SourceLocation, SourceUnavailable,
 };
 pub use diff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId};
 pub use error::{DiffError, ParseDiffScopeError, RepoPathError};
@@ -24,12 +24,13 @@ pub use model::{
 };
 pub use parser::{GitStatusEntry, UntrackedFile, parse_git_diff, parse_porcelain_v1_z};
 pub use presentation::{
-    CellSequence, CellSequenceLines, ContentProjection, DiffPresentation, DiffTone, GapExpansion,
-    GapId, GapInfo, GapInterval, Layout, PresentationOptions, PresentedCell, PresentedRow, RowId,
-    RowKind, ViewMode, gaps_for_file,
+    ContentProjection, DiffPresentation, DiffTone, GapExpansion, GapId, GapInfo, GapInterval,
+    HunkSequence, Layout, MAX_HUNK_SEQUENCE_LINES, PresentationOptions, PresentedCell,
+    PresentedRow, RowId, RowKind, ViewMode, gaps_for_file,
 };
 pub use review::{
     AgentFeedbackOptions, CommentContext, DiffReviewEvent, RepositoryAction, Review, ReviewComment,
     ReviewSubmission, format_review,
 };
 pub use session::{CommentDraft, RevealAmount, ReviewSession, SessionOptions};
+pub use snapshot::{DiffSnapshot, SnapshotSources};
