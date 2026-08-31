@@ -2,9 +2,8 @@
 
 use crate::{GitError, command, command::CatFileBatch, path};
 use diff_core::{
-    DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, FileVersionText, Fingerprint,
-    RepoPath, SourceKey, SourceRequest, SourceResponse, SourceUnavailable, UntrackedFile,
-    parse_porcelain_v1_z, validate_file_version,
+    DiffDocument, DiffScope, DiffSide, DiffSnapshot, FileDiff, FileStatus, Fingerprint, RepoPath,
+    SourceDocument, SourceKey, SourceUnavailable, UntrackedFile, parse_porcelain_v1_z,
 };
 use std::{
     collections::HashMap,
@@ -35,39 +34,70 @@ impl RepositorySnapshot {
     pub fn into_parts(self) -> (DiffDocument, SourceArchive) {
         (self.document, self.sources)
     }
+
+    /// Common immutable snapshot boundary consumed directly by native viewers.
+    #[must_use]
+    pub fn diff_snapshot(&self) -> DiffSnapshot {
+        self.sources.snapshot(self.document.clone())
+    }
 }
 
-/// Host-owned complete source bodies, deliberately separate from `DiffDocument` serialization.
+/// Host-owned complete source documents, captured eagerly with patch metadata.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceArchive {
-    entries: HashMap<SourceKey, Result<Arc<str>, SourceUnavailable>>,
-    source_paths: HashMap<SourceKey, RepoPath>,
+    entries: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
 }
 
 impl SourceArchive {
     #[must_use]
-    pub fn response(&self, request: &SourceRequest) -> SourceResponse {
-        let result = if self.source_paths.get(&request.key) == Some(&request.source_path) {
-            self.entries
-                .get(&request.key)
-                .cloned()
-                .unwrap_or(Err(SourceUnavailable::Absent))
-        } else {
-            Err(SourceUnavailable::Error(
-                "source path does not match the captured snapshot".to_owned(),
-            ))
-        };
-        SourceResponse {
-            epoch: request.epoch,
-            key: request.key.clone(),
-            result,
-        }
+    pub fn get(&self, key: &SourceKey) -> Option<&Result<Arc<SourceDocument>, SourceUnavailable>> {
+        self.entries.get(key)
     }
 
     #[must_use]
-    pub fn get(&self, key: &SourceKey) -> Option<&Result<Arc<str>, SourceUnavailable>> {
-        self.entries.get(key)
+    pub fn snapshot(&self, document: DiffDocument) -> DiffSnapshot {
+        DiffSnapshot::new(document, self.entries.clone())
     }
+}
+
+fn document_from_captured_sources(
+    mut document: DiffDocument,
+    archive: &SourceArchive,
+) -> DiffDocument {
+    for file in &mut document.files {
+        if file.binary {
+            continue;
+        }
+        let source = |side| {
+            let key = SourceKey::new(file.path.clone(), side);
+            match archive.get(&key)? {
+                Ok(document) => Some(document.text()),
+                Err(SourceUnavailable::Absent)
+                    if matches!(
+                        (file.status, side),
+                        (FileStatus::Added | FileStatus::Untracked, DiffSide::Old)
+                            | (FileStatus::Deleted, DiffSide::New)
+                    ) =>
+                {
+                    Some("")
+                }
+                Err(_) => None,
+            }
+        };
+        let (Some(old), Some(new)) = (source(DiffSide::Old), source(DiffSide::New)) else {
+            continue;
+        };
+        let Ok(mut derived) = FileDiff::from_texts(file.path.clone(), old, new) else {
+            continue;
+        };
+        derived.old_path.clone_from(&file.old_path);
+        derived.status = file.status;
+        derived.staged = file.staged;
+        derived.mode.clone_from(&file.mode);
+        derived.omitted_bytes = file.omitted_bytes;
+        *file = derived;
+    }
+    document
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,8 +280,9 @@ impl GitRepository {
                 && initial.document == final_input.document
                 && initial_locations == final_locations;
             if metadata_stable && self.worktrees_match(&captured.worktree_ids).await {
+                let document = document_from_captured_sources(initial.document, &captured.archive);
                 return Ok(RepositorySnapshot {
-                    document: initial.document,
+                    document,
                     sources: captured.archive,
                 });
             }
@@ -348,29 +379,17 @@ impl GitRepository {
                     .get(&key)
                     .cloned()
                     .unwrap_or(ResolvedContentLocation::Absent);
-                let (mut result, exact_id) = if file.binary {
+                let (result, exact_id) = if file.binary {
                     (Err(SourceUnavailable::Binary), None)
                 } else {
                     self.capture_location(&location, &mut loaded, blobs.as_mut())
                         .await
                 };
-                if let Ok(text) = &result {
-                    match FileVersionText::try_from_text(text) {
-                        Ok(source) if validate_file_version(file, side, &source).is_err() => {
-                            return Err(GitError::UnstableSnapshot);
-                        }
-                        Ok(_) => {}
-                        Err(reason) => result = Err(reason),
-                    }
-                }
                 if let (ResolvedContentLocation::Worktree(path), Some(exact_id)) =
                     (&location, exact_id)
                 {
                     worktree_ids.insert(path.clone(), exact_id);
                 }
-                archive
-                    .source_paths
-                    .insert(key.clone(), file.path_for_side(side).clone());
                 archive.entries.insert(key, result);
             }
         }
@@ -385,7 +404,10 @@ impl GitRepository {
         location: &ResolvedContentLocation,
         loaded: &mut u64,
         blobs: Option<&mut CatFileBatch>,
-    ) -> (Result<Arc<str>, SourceUnavailable>, Option<Fingerprint>) {
+    ) -> (
+        Result<Arc<SourceDocument>, SourceUnavailable>,
+        Option<Fingerprint>,
+    ) {
         let bytes = match location {
             ResolvedContentLocation::Absent => return (Err(SourceUnavailable::Absent), None),
             ResolvedContentLocation::Unavailable(reason) => return (Err(reason.clone()), None),
@@ -427,8 +449,12 @@ impl GitRepository {
         if loaded.saturating_add(size) > MAX_SOURCE_ARCHIVE_BYTES {
             return (Err(SourceUnavailable::SnapshotBudgetExceeded), exact_id);
         }
+        let source = match SourceDocument::new(&text) {
+            Ok(source) => Arc::new(source),
+            Err(reason) => return (Err(reason), exact_id),
+        };
         *loaded = loaded.saturating_add(size);
-        (Ok(Arc::<str>::from(text)), exact_id)
+        (Ok(source), exact_id)
     }
 
     async fn worktrees_match(&self, expected: &HashMap<RepoPath, Fingerprint>) -> bool {

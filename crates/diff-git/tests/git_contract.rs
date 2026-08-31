@@ -2,10 +2,10 @@
 
 use diff_core::{
     DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath, SourceKey,
-    SourceRequest, SourceUnavailable, StageState,
+    SourceUnavailable, StageState,
 };
 use diff_git::{FileContent, GitError, GitRepository, MAX_SOURCE_FILE_BYTES};
-use std::{fs, path::PathBuf, process::Command, sync::Arc};
+use std::{fs, path::PathBuf, process::Command};
 use tempfile::TempDir;
 
 struct Repo {
@@ -172,7 +172,7 @@ async fn richer_snapshots_capture_exact_head_index_and_worktree_versions() {
             .unwrap()
             .as_ref()
             .unwrap()
-            .as_ref()
+            .text()
             .to_owned()
     };
 
@@ -200,15 +200,6 @@ async fn richer_snapshots_capture_exact_head_index_and_worktree_versions() {
     repo.write("three.txt", "changed after capture\n");
     assert_eq!(text(&both, DiffSide::Old), "head\n");
     assert_eq!(text(&both, DiffSide::New), "worktree\n");
-    let mismatched_path = SourceRequest {
-        epoch: 3,
-        key: key(DiffSide::New),
-        source_path: path("different.txt"),
-    };
-    assert!(matches!(
-        both.sources().response(&mismatched_path).result,
-        Err(SourceUnavailable::Error(_))
-    ));
 }
 
 #[tokio::test]
@@ -234,8 +225,8 @@ async fn source_archives_preserve_crlf_and_final_newline_identity() {
             .unwrap()
             .as_ref()
     };
-    assert_eq!(source(DiffSide::Old), "old\r\nsecond\r\n");
-    assert_eq!(source(DiffSide::New), "new\r\nsecond");
+    assert_eq!(source(DiffSide::Old).text(), "old\r\nsecond\r\n");
+    assert_eq!(source(DiffSide::New).text(), "new\r\nsecond");
 }
 
 #[cfg(unix)]
@@ -321,8 +312,12 @@ async fn oversized_blob_does_not_break_batch_framing() {
         assert_eq!(
             snapshot
                 .sources()
-                .get(&SourceKey::new(path("z-small.txt"), side)),
-            Some(&Ok(Arc::from("small\n")))
+                .get(&SourceKey::new(path("z-small.txt"), side))
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .text(),
+            "small\n"
         );
     }
 }
@@ -351,8 +346,14 @@ async fn discarded_binary_versions_do_not_consume_the_source_archive_budget() {
         .unwrap();
     let text_key = SourceKey::new(path("z-text.txt"), DiffSide::New);
     assert_eq!(
-        snapshot.sources().get(&text_key),
-        Some(&Ok(Arc::from("after\n")))
+        snapshot
+            .sources()
+            .get(&text_key)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .text(),
+        "after\n"
     );
 }
 
@@ -635,8 +636,14 @@ async fn untracked_symlinks_use_the_link_target_for_patch_and_source() {
     );
     let key = SourceKey::new(path("link.txt"), DiffSide::New);
     assert_eq!(
-        snapshot.sources().get(&key),
-        Some(&Ok(Arc::from("target.txt")))
+        snapshot
+            .sources()
+            .get(&key)
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .text(),
+        "target.txt"
     );
 }
 
