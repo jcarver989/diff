@@ -64,8 +64,17 @@ fmt-check:
 doc-check:
     cargo doc --workspace --all-features --no-deps --document-private-items
 
+# Validate the GitHub Aether automation.
+automation-check:
+    jq empty .aether/settings.json .aether/mcp.json
+    bash -n .github/scripts/implement-issue.sh .github/scripts/implement-plan.sh \
+        .github/scripts/address-pr-feedback.sh
+    # actionlint does not yet recognize GitHub's concurrency.queue property.
+    actionlint -ignore 'unexpected key "queue" for "concurrency" section' \
+        .github/workflows/aether-agent.yml .github/workflows/ci.yml
+
 # Run every local verification check. CI intentionally runs these as separate jobs.
-verify: fmt-check check feature-check lint test wasm-check doc-check
+verify: fmt-check check feature-check lint test wasm-check doc-check automation-check
 
 release-pr-preview:
     release-plz release-pr --dry-run
