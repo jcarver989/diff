@@ -65,7 +65,7 @@ fn highlighting_work_is_bounded_by_the_viewport_not_document_size() {
 }
 
 #[test]
-fn deep_full_file_scroll_uses_bounded_whole_source_highlighting() {
+fn deep_full_file_scroll_parses_complete_sources_once() {
     let old = source_lines(100_000, "");
     let new = old.replacen(
         "let value_50000 = 50000;",
@@ -75,11 +75,16 @@ fn deep_full_file_scroll_uses_bounded_whole_source_highlighting() {
     let fixture = DocumentBuilder::new()
         .changed_with_hunk_window("src/large.rs", &old, &new, 49_997..=50_003)
         .build_fixture();
-    let mut harness = ReviewHarness::new(fixture.document.clone(), 100, 24);
+    let mut harness = ReviewHarness::from_snapshot(fixture.snapshot(), 100, 24);
     harness.input(key(KeyCode::Tab));
     harness.input(key(KeyCode::Char('f')));
-    harness.answer_sources(&fixture);
-    harness.draw();
+    let first_parse = harness.draw();
+    assert!(
+        first_parse.highlighted_bytes >= old.len(),
+        "first visible complete side parsed {} bytes",
+        first_parse.highlighted_bytes
+    );
+    assert!(first_parse.highlighted_bytes <= old.len() + new.len());
     let jumped = harness.input_and_draw(key(KeyCode::End));
     assert!(
         jumped.highlighted_bytes < 100_000,
@@ -91,7 +96,7 @@ fn deep_full_file_scroll_uses_bounded_whole_source_highlighting() {
 }
 
 #[test]
-fn deep_split_scroll_parses_bounded_context_and_then_settles() {
+fn deep_patch_only_split_scroll_highlights_visible_lines_and_then_settles() {
     let mut harness = ReviewHarness::new(modified_document(5_000), 100, 24);
     harness.draw();
     harness.input(key(KeyCode::Enter));
@@ -117,12 +122,12 @@ fn deep_split_scroll_parses_bounded_context_and_then_settles() {
     let settled = harness.draw();
     assert_eq!(
         settled.highlight_misses, 0,
-        "both sides' windows stay cached together"
+        "the current patch-only viewport stays cached"
     );
     let paged = harness.input_and_draw(key(KeyCode::PageDown));
-    assert_eq!(
-        paged.highlight_misses, 0,
-        "prefetch covers one further page of scrolling"
+    assert!(
+        paged.highlight_misses <= 48,
+        "patch-only fallback highlights at most the newly visible split cells"
     );
 }
 

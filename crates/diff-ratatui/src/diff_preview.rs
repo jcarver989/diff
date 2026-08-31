@@ -5,7 +5,7 @@ use diff_core::{
     DiffDocument, DiffPresentation, FileDiff, Layout, PresentationOptions, PresentedCell,
     PresentedRow, RowKind, ViewMode,
 };
-use diff_syntax::{HighlightSpan, LanguageHint, SequenceLine, SyntaxHighlighter, SyntaxTheme};
+use diff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme};
 use diff_theme::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Color, Style},
@@ -36,8 +36,9 @@ impl Default for DiffPreviewOptions {
     }
 }
 
-/// Highlights one presented cell, preferring its source-side sequence and
-/// falling back to a path-hinted single-line highlight for synthetic cells.
+/// Highlights one presented cell, preferring its complete source version, then
+/// its bounded hunk-side sequence, and finally a path-hinted single-line
+/// highlight for synthetic cells and oversized hunks.
 pub(crate) fn cell_highlights(
     highlighter: &mut SyntaxHighlighter,
     theme: &SyntaxTheme,
@@ -46,15 +47,31 @@ pub(crate) fn cell_highlights(
     cell: &PresentedCell,
 ) -> Arc<[HighlightSpan]> {
     let mut syntax = highlighter.with_theme(theme);
-    match presentation.cell_sequence(row, cell) {
-        Some(sequence) => syntax.highlight_line(SequenceLine::new(
-            sequence.id,
-            LanguageHint::Path(sequence.language),
-            sequence.target_line,
-            sequence.lines,
-        )),
-        None => syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text),
+    if let (Some(source), Some(path), Some(line)) = (
+        presentation.source_document(row, cell),
+        presentation.source_path(row, cell),
+        cell.line_number().and_then(|line| line.checked_sub(1)),
+    ) {
+        return syntax
+            .highlight_document(
+                source.sequence_id(),
+                LanguageHint::Path(path),
+                source.text(),
+            )
+            .line_shared(line)
+            .unwrap_or_else(diff_syntax::empty_spans);
     }
+    if let Some(sequence) = presentation.hunk_sequence(row, cell) {
+        return syntax
+            .highlight_document_lines(
+                sequence.id,
+                LanguageHint::Path(sequence.path),
+                sequence.lines(),
+            )
+            .line_shared(sequence.target_line)
+            .unwrap_or_else(diff_syntax::empty_spans);
+    }
+    syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
 }
 
 /// Renders one file without constructing review state or executing Git.
@@ -182,4 +199,43 @@ fn truncate_width(source: &str, width: usize) -> String {
 
 const fn color(value: Rgba) -> Color {
     Color::Rgb(value.r, value.g, value.b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diff_core::testing::DocumentBuilder;
+
+    #[test]
+    fn patch_only_cells_keep_multiline_hunk_context() {
+        let document = DocumentBuilder::new()
+            .file(
+                FileDiff::from_texts("src/a.rs", "", "/* alpha\nbeta\ngamma */\nlet x = 1;\n")
+                    .unwrap(),
+            )
+            .build();
+        let presentation = DiffPresentation::new(document, PresentationOptions::default());
+        let theme = ReviewTheme::default();
+        let mut highlighter = SyntaxHighlighter::default();
+        let mut highlights = |text: &str| {
+            let (row, cell) = presentation
+                .rows(0..presentation.row_count())
+                .iter()
+                .find_map(|row| {
+                    let cell = row.primary_cell()?;
+                    (cell.text.as_ref() == text).then_some((row, cell))
+                })
+                .unwrap();
+            cell_highlights(&mut highlighter, &theme.syntax, &presentation, row, cell)
+        };
+
+        let opener = highlights("/* alpha");
+        let continuation = highlights("beta");
+        assert_eq!(continuation.len(), 1, "one comment span covers the line");
+        assert_eq!(continuation[0].range, 0.."beta".len());
+        assert_eq!(
+            continuation[0].foreground, opener[0].foreground,
+            "the comment continues across hunk lines"
+        );
+    }
 }

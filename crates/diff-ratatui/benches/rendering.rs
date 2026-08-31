@@ -3,8 +3,8 @@
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use crossterm::event::KeyCode;
 use diff_core::{
-    ContentProjection, DiffDocument, DiffPresentation, DiffSide, FileVersionText,
-    PresentationOptions, SourceKey, testing::DocumentBuilder,
+    ContentProjection, DiffDocument, DiffPresentation, DiffSide, PresentationOptions,
+    SourceDocument, SourceKey, testing::DocumentBuilder,
 };
 use diff_ratatui::DiffReviewState;
 use std::{hint::black_box, sync::Arc};
@@ -54,7 +54,7 @@ fn presentation_creation(criterion: &mut Criterion) {
     let mut projection = ContentProjection::default();
     projection.insert_source(
         SourceKey::new(path.clone(), DiffSide::New),
-        Arc::new(FileVersionText::try_from_text(&new).unwrap()),
+        Arc::new(SourceDocument::try_from_text(&new).unwrap()),
     );
     projection.set_full_file(path, true);
     group.bench_function("full-file-100000", |bencher| {

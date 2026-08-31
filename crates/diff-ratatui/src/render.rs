@@ -11,7 +11,7 @@ use crate::{
     ui::{ActionBar, AppFrame, EmptyState, Modal, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use diff_core::{DiffTone, PresentedCell, PresentedRow, RowKind, SourceStatus};
+use diff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
 use diff_syntax::{HighlightSpan, SyntaxHighlighter};
 use diff_theme::DiffTheme;
 use ratatui::{
@@ -283,7 +283,6 @@ fn render_patch(
         return;
     }
     state.last_height = usize::from(area.height).max(1);
-    state.highlighter.prepare_viewport(state.last_height);
     if state.take_follow_request() {
         state.follow_selection();
     }
@@ -434,14 +433,10 @@ fn render_row(
             let text = context.presentation.gap_info(row_index).map_or_else(
                 || " ⋯ unchanged lines".to_owned(),
                 |info| {
-                    let message = match info.status {
-                        SourceStatus::Loaded => {
-                            format!("{} — o expand · O expand all", info.message())
-                        }
-                        SourceStatus::Stale => {
-                            format!("{} — r refresh", info.message())
-                        }
-                        _ => info.message(),
+                    let message = if info.unavailable.is_none() {
+                        format!("{} — o expand · O expand all", info.message())
+                    } else {
+                        info.message()
                     };
                     format!(" {message}")
                 },

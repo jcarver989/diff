@@ -1,7 +1,7 @@
 #![allow(dead_code, missing_docs)]
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use diff_core::{DiffDocument, SourceResponse, testing::DocumentFixture};
+use diff_core::{DiffDocument, DiffSnapshot};
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget};
 use diff_syntax::HighlightStats;
 use ratatui::{
@@ -119,6 +119,14 @@ impl ReviewHarness {
         }
     }
 
+    pub fn from_snapshot(snapshot: DiffSnapshot, width: u16, height: u16) -> Self {
+        Self {
+            terminal: Terminal::new(CountingBackend::new(width, height))
+                .expect("infallible test terminal"),
+            state: DiffReviewState::from_snapshot(snapshot),
+        }
+    }
+
     pub fn draw(&mut self) -> FrameStats {
         let before = self.state.highlight_stats();
         self.terminal
@@ -152,14 +160,6 @@ impl ReviewHarness {
 
     pub fn state_mut(&mut self) -> &mut DiffReviewState {
         &mut self.state
-    }
-
-    pub fn answer_sources(&mut self, fixture: &DocumentFixture) -> Vec<SourceResponse> {
-        let responses = fixture.responses(&self.state.take_source_requests());
-        for response in responses.iter().cloned() {
-            self.state.provide_source(response);
-        }
-        responses
     }
 
     pub fn buffer(&self) -> &Buffer {

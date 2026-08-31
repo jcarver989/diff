@@ -304,7 +304,7 @@ fn restyled_fence_rows(
 }
 
 /// Appends committed code to the fence's syntax stream, retains the bounded
-/// trailing context, and flushes rows that leave the context window.
+/// trailing stream history, and flushes rows that leave the retention bound.
 fn append_fence_lines(
     ctx: &mut RenderCtx<'_>,
     fence: &mut StreamingFenceState,
@@ -314,7 +314,7 @@ fn append_fence_lines(
     for (text, rows) in fence_append_rows(ctx, fence, code) {
         fence.context.push_back(ContextLine { text, rows });
     }
-    let retained = ctx.highlighter.config().context_lines;
+    let retained = ctx.highlighter.config().max_stream_lines;
     while fence.context.len() > retained {
         let line = fence.context.pop_front().expect("length checked above");
         flush_fence_rows(output, fence, line.rows);

@@ -6,7 +6,7 @@ use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEven
 use diff_core::{
     DiffDocument, DiffReviewEvent, DiffSide, FileDiff, Layout, LineAnchor, PatchLine,
     PatchLineKind, RepositoryAction, Review, RowKind, SourceUnavailable, StageState, ViewMode,
-    testing::{DocumentBuilder, DocumentFixture, SourceResponseBuilder},
+    testing::{DocumentBuilder, DocumentFixture},
 };
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane, RatatuiTheme};
 use diff_theme::DiffTheme;
@@ -50,9 +50,11 @@ fn type_text(state: &mut DiffReviewState, text: &str) {
 
 #[allow(clippy::format_collect)]
 fn full_file_fixture() -> DocumentFixture {
-    let old = (1..=80)
-        .map(|line| format!("line {line}\n"))
-        .collect::<String>();
+    let old = (1..=80).fold(String::new(), |mut text, line| {
+        use std::fmt::Write;
+        let _ = writeln!(text, "line {line}");
+        text
+    });
     let new = old.replace("line 41\n", "changed 41\n");
     DocumentBuilder::new()
         .changed_with_hunk_window("src/main.rs", &old, &new, 38..=44)
@@ -60,16 +62,13 @@ fn full_file_fixture() -> DocumentFixture {
 }
 
 #[test]
-fn context_and_full_file_keys_request_sources_and_keep_expanded_rows_non_commentable() {
+fn context_and_full_file_keys_use_eager_sources_and_keep_expanded_rows_non_commentable() {
     let fixture = full_file_fixture();
-    let mut state = DiffReviewState::new(fixture.document.clone());
+    let mut state = DiffReviewState::from_snapshot(fixture.snapshot());
     state.session_mut().set_view_mode(ViewMode::Unified);
     state.handle_input(key(KeyCode::Tab));
     assert_eq!(state.focus(), FocusPane::Diff);
     state.handle_input(key(KeyCode::Char('f')));
-    let requests = state.take_source_requests();
-    assert_eq!(requests.len(), 2);
-    assert!(state.provide_source(fixture.response(&requests[0])));
     let expanded = state
         .presentation()
         .rows(0..state.presentation().row_count())
@@ -108,18 +107,28 @@ fn context_and_full_file_keys_request_sources_and_keep_expanded_rows_non_comment
 
 #[test]
 fn unavailable_sources_render_a_deterministic_inline_reason() {
-    let fixture = full_file_fixture();
-    let mut state = DiffReviewState::new(fixture.document.clone());
+    let old = (1..=80).fold(String::new(), |mut text, line| {
+        use std::fmt::Write;
+        let _ = writeln!(text, "line {line}");
+        text
+    });
+    let new = old.replace("line 41\n", "changed 41\n");
+    let fixture = DocumentBuilder::new()
+        .changed_with_hunk_window("src/main.rs", &old, &new, 38..=44)
+        .source(
+            "src/main.rs",
+            DiffSide::Old,
+            Err::<Arc<str>, _>(SourceUnavailable::TooLarge { bytes: 9_000_000 }),
+        )
+        .source(
+            "src/main.rs",
+            DiffSide::New,
+            Err::<Arc<str>, _>(SourceUnavailable::TooLarge { bytes: 9_000_000 }),
+        )
+        .build_fixture();
+    let mut state = DiffReviewState::from_snapshot(fixture.snapshot());
     state.handle_input(key(KeyCode::Tab));
     state.handle_input(key(KeyCode::Char('f')));
-    let request = state.take_source_requests().remove(0);
-    assert!(
-        state.provide_source(
-            SourceResponseBuilder::from_request(&request)
-                .unavailable(SourceUnavailable::TooLarge { bytes: 9_000_000 })
-                .build()
-        )
-    );
     let rendered = draw(&mut state, 100, 80);
     assert!(
         rendered.contains("source is too large to expand"),

@@ -4,8 +4,8 @@ use crate::{
     theme_picker::ThemePicker,
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, RepositoryAction, RevealAmount,
-    Review, ReviewSession, SourceRequest, SourceResponse, StageState, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, DiffSnapshot, FileStatus, Layout, RepositoryAction,
+    RevealAmount, Review, ReviewSession, StageState, ViewMode,
 };
 use diff_syntax::{HighlightStats, SyntaxHighlighter};
 use diff_theme::DiffTheme;
@@ -112,6 +112,15 @@ impl DiffReviewState {
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
         Self::with_theme(document, DiffTheme::default())
+    }
+
+    /// Creates terminal state directly from a complete immutable snapshot.
+    #[must_use]
+    pub fn from_snapshot(snapshot: DiffSnapshot) -> Self {
+        let document = snapshot.document().clone();
+        let mut state = Self::new(document);
+        state.session = ReviewSession::from_snapshot(snapshot);
+        state
     }
 
     /// Creates ready state with a shared neutral theme.
@@ -289,6 +298,25 @@ impl DiffReviewState {
         self.scroll_to_selected_file();
     }
 
+    /// Replaces the complete snapshot while retaining and reconciling review comments.
+    pub fn set_snapshot(&mut self, snapshot: DiffSnapshot) {
+        self.session.set_snapshot(snapshot);
+        self.status = DiffReviewStatus::Ready;
+        self.repository_status = RepositoryOperationStatus::Idle;
+        self.cursor_position = None;
+        self.mark_dirty();
+        let document = self.document().clone();
+        self.drawer.rebuild(&document);
+        if let Some(selected) = self.session.selected_file() {
+            self.drawer.expand_file(&document, selected);
+            self.drawer_selected = self.drawer.position_of_file(selected).unwrap_or(0);
+        } else {
+            self.drawer_selected = 0;
+        }
+        self.follow_drawer_selection();
+        self.scroll_to_selected_file();
+    }
+
     /// Marks the state as waiting for a host snapshot.
     pub fn set_loading(&mut self) {
         self.status = DiffReviewStatus::Loading;
@@ -360,22 +388,11 @@ impl DiffReviewState {
         self.mark_dirty();
     }
 
-    /// Drains lazy complete-source requests for the host to resolve.
-    pub fn take_source_requests(&mut self) -> Vec<SourceRequest> {
-        self.session.take_source_requests()
-    }
-
     fn finish_projection_change(&mut self, changed: bool) -> bool {
         if changed {
             self.request_follow();
         }
         changed
-    }
-
-    /// Installs one host-provided immutable source response.
-    pub fn provide_source(&mut self, response: SourceResponse) -> bool {
-        let changed = self.session.provide_source(response);
-        self.finish_projection_change(changed)
     }
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
