@@ -2,9 +2,9 @@
 
 use crate::{args::CliArgs, preferences, window_chrome};
 use diff_core::{DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
-use diff_git::{GitError, GitRepository, RepositorySnapshot, SourceArchive};
+use diff_git::{GitError, GitRepository, RepositorySnapshot};
 use diff_gpui::{
-    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, SourceRequested, ThemeChanged,
+    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use diff_theme::DiffTheme;
@@ -12,11 +12,7 @@ use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
 };
-use std::{
-    future::Future,
-    path::PathBuf,
-    sync::{Arc, mpsc::Sender},
-};
+use std::{future::Future, path::PathBuf, sync::mpsc::Sender};
 
 type LoadResult = Result<(Option<GitRepository>, RepositorySnapshot), GitError>;
 
@@ -57,9 +53,7 @@ pub(crate) struct DesktopApp {
     state: LoadState,
     viewer: Option<Entity<DiffViewer>>,
     viewer_subscription: Option<Subscription>,
-    source_subscription: Option<Subscription>,
     theme_subscription: Option<Subscription>,
-    source_archive: Option<Arc<SourceArchive>>,
     theme: DiffTheme,
     load_task: Task<()>,
     outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
@@ -79,9 +73,7 @@ impl DesktopApp {
             state: LoadState::Loading,
             viewer: None,
             viewer_subscription: None,
-            source_subscription: None,
             theme_subscription: None,
-            source_archive: None,
             theme: preferences::load_theme(),
             load_task: Task::ready(()),
             outcome_sender,
@@ -116,7 +108,7 @@ impl DesktopApp {
                     if let Some(repository) = repository {
                         this.repository = Some(repository);
                     }
-                    this.install_snapshot(snapshot, cx);
+                    this.install_snapshot(&snapshot, cx);
                 }
                 Ok(Err(error)) => this.set_error(&error, cx),
                 Err(error) => {
@@ -195,7 +187,7 @@ impl DesktopApp {
         self.load_task = cx.spawn(async move |this, cx| {
             let result = operation.await;
             let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok(snapshot)) => this.install_snapshot(snapshot, cx),
+                Ok(Ok(snapshot)) => this.install_snapshot(&snapshot, cx),
                 Ok(Err(error)) => {
                     if let Some(viewer) = &this.viewer {
                         viewer.update(cx, |viewer, cx| {
@@ -217,35 +209,26 @@ impl DesktopApp {
         });
     }
 
-    fn install_snapshot(&mut self, snapshot: RepositorySnapshot, cx: &mut Context<Self>) {
-        let (document, archive) = snapshot.into_parts();
-        self.source_archive = Some(Arc::new(archive));
-        let is_empty = document.files.is_empty();
-        let document = Arc::new(document);
+    fn install_snapshot(&mut self, snapshot: &RepositorySnapshot, cx: &mut Context<Self>) {
+        let is_empty = snapshot.document.files.is_empty();
+        let diff_snapshot = snapshot.diff_snapshot();
         if let Some(viewer) = &self.viewer {
-            viewer.update(cx, |viewer, cx| viewer.set_document(document, cx));
+            viewer.update(cx, |viewer, cx| {
+                viewer.set_snapshot(diff_snapshot.clone(), cx);
+            });
         } else {
             let theme = self.theme.clone();
-            let viewer =
-                cx.new(|_| DiffViewer::with_options(document, theme, DiffViewerOptions::default()));
+            let viewer = cx.new(|_| {
+                DiffViewer::from_snapshot_with_options(
+                    diff_snapshot.clone(),
+                    theme,
+                    DiffViewerOptions::default(),
+                )
+            });
             self.viewer_subscription = Some(cx.subscribe(
                 &viewer,
                 |this, _viewer, event: &DiffReviewEvent, cx| {
                     this.handle_viewer_event(event, cx);
-                },
-            ));
-            self.source_subscription = Some(cx.subscribe(
-                &viewer,
-                |this, viewer, event: &SourceRequested, cx| {
-                    let Some(archive) = this.source_archive.clone() else {
-                        return;
-                    };
-                    for request in &event.requests {
-                        let response = archive.response(request);
-                        viewer.update(cx, |viewer, cx| {
-                            viewer.provide_source(response, cx);
-                        });
-                    }
                 },
             ));
             self.theme_subscription = Some(cx.subscribe(

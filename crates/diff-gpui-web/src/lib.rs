@@ -5,7 +5,7 @@
 //! Review submission is dispatched on `document` as a `diff-review-submit`
 //! `CustomEvent`; its `detail` is a serialized `ReviewSubmission` JSON string.
 
-use diff_core::{DiffDocument, SourceResponse};
+use diff_core::DiffDocument;
 use diff_markdown::MarkdownDocument;
 use diff_theme::DiffTheme;
 use serde::{Deserialize, Serialize};
@@ -19,9 +19,6 @@ pub enum WebError {
     /// The supplied Markdown source payload was malformed.
     #[error("invalid Markdown document payload: {0}")]
     InvalidMarkdownPayload(serde_json::Error),
-    /// A source response payload was malformed.
-    #[error("invalid source response JSON: {0}")]
-    InvalidSourceResponse(serde_json::Error),
     /// The selected embedded theme is not available.
     #[error("unknown built-in theme `{0}`")]
     UnknownTheme(String),
@@ -49,14 +46,6 @@ pub struct MarkdownSourcePayload {
     pub title: Option<String>,
 }
 
-/// Decodes a complete-source response from a browser host.
-///
-/// # Errors
-/// Returns an error when `json` is not a valid source response.
-pub fn decode_source_response(json: &str) -> Result<SourceResponse, WebError> {
-    serde_json::from_str(json).map_err(WebError::InvalidSourceResponse)
-}
-
 /// Decodes and parses a Markdown browser command payload.
 ///
 /// # Errors
@@ -72,8 +61,6 @@ pub fn decode_markdown_document(json: &str) -> Result<MarkdownDocument, WebError
 }
 
 /// Markdown-specific browser event names; existing diff event names remain unchanged.
-pub const SOURCE_REQUEST_EVENT: &str = "diff-review-source-request";
-pub const SOURCE_RESPONSE_EVENT: &str = "diff-review-source-response";
 pub const MARKDOWN_SET_DOCUMENT_EVENT: &str = "markdown-review-set-document";
 pub const MARKDOWN_CLEAR_EVENT: &str = "markdown-review-clear";
 pub const MARKDOWN_SUBMIT_EVENT: &str = "markdown-review-submit";
@@ -102,15 +89,14 @@ pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
 mod wasm {
     use super::{
         MARKDOWN_CANCEL_EVENT, MARKDOWN_CLEAR_EVENT, MARKDOWN_COPY_EVENT,
-        MARKDOWN_SET_DOCUMENT_EVENT, MARKDOWN_SUBMIT_EVENT, SOURCE_REQUEST_EVENT,
-        SOURCE_RESPONSE_EVENT, WebError, decode_document, decode_markdown_document,
-        decode_source_response, decode_theme, demo_document,
+        MARKDOWN_SET_DOCUMENT_EVENT, MARKDOWN_SUBMIT_EVENT, WebError, decode_document,
+        decode_markdown_document, decode_theme, demo_document,
     };
     use async_channel::{Receiver, Sender};
-    use diff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission, SourceResponse};
+    use diff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission};
     use diff_gpui::{
-        DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, SourceRequested,
-        ThemeChanged, load_default_fonts,
+        DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
+        load_default_fonts,
     };
     use diff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
     use diff_theme::DiffTheme;
@@ -134,14 +120,12 @@ mod wasm {
         RepositoryPending,
         RepositoryError(String),
         ClearReview,
-        ProvideSource(SourceResponse),
     }
 
     struct WebRoot {
         viewer: Entity<DiffViewer>,
         _viewer_subscription: Subscription,
         _viewer_theme_subscription: Subscription,
-        _source_subscription: Subscription,
         markdown: Option<Entity<MarkdownReviewer>>,
         markdown_subscription: Option<Subscription>,
         markdown_theme_subscription: Option<Subscription>,
@@ -166,14 +150,6 @@ mod wasm {
                 .subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
                     store_theme(&event.id)
                 });
-            let source_subscription =
-                cx.subscribe(&viewer, |_this, _viewer, event: &SourceRequested, _cx| {
-                    for request in &event.requests {
-                        if let Ok(json) = serde_json::to_string(request) {
-                            let _ = dispatch_custom_event(SOURCE_REQUEST_EVENT, Some(&json));
-                        }
-                    }
-                });
             let command_task = cx.spawn(async move |this, cx| {
                 while let Ok(command) = receiver.recv().await {
                     if this
@@ -189,7 +165,6 @@ mod wasm {
                 viewer,
                 _viewer_subscription: viewer_subscription,
                 _viewer_theme_subscription: viewer_theme_subscription,
-                _source_subscription: source_subscription,
                 markdown: None,
                 markdown_subscription: None,
                 markdown_theme_subscription: None,
@@ -246,11 +221,6 @@ mod wasm {
                 WebCommand::RepositoryError(message) => {
                     self.viewer
                         .update(cx, |viewer, cx| viewer.set_repository_error(message, cx));
-                }
-                WebCommand::ProvideSource(response) => {
-                    self.viewer.update(cx, |viewer, cx| {
-                        viewer.provide_source(response, cx);
-                    });
                 }
                 WebCommand::ClearReview => {
                     if let Some(markdown) = &self.markdown {
@@ -388,7 +358,6 @@ mod wasm {
             set_markdown_document_json,
         )?;
         install_string_command(&document, "diff-review-set-theme", set_theme)?;
-        install_string_command(&document, SOURCE_RESPONSE_EVENT, provide_source_json)?;
         install_string_command(
             &document,
             "diff-review-repository-error",
@@ -493,12 +462,6 @@ mod wasm {
         send(WebCommand::RepositoryError(message.to_owned())).map_err(js_error)
     }
 
-    #[wasm_bindgen]
-    pub fn provide_source_json(json: &str) -> Result<(), JsValue> {
-        let response = decode_source_response(json).map_err(js_error)?;
-        send(WebCommand::ProvideSource(response)).map_err(js_error)
-    }
-
     /// Selects one of the themes returned by the built-in theme catalog.
     #[wasm_bindgen]
     pub fn set_theme(name: &str) -> Result<(), JsValue> {
@@ -515,17 +478,12 @@ mod wasm {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{
-    clear_review, provide_source_json, set_document_json, set_markdown_document_json, set_theme,
-    start,
-};
+pub use wasm::{clear_review, set_document_json, set_markdown_document_json, set_theme, start};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::{DiffSide, RepoPath, SourceKey};
     use diff_theme::ThemeId;
-    use std::sync::Arc;
 
     #[test]
     fn bundled_demo_is_the_captured_workspace_diff() {
@@ -563,26 +521,6 @@ mod tests {
             decode_markdown_document("not json"),
             Err(WebError::InvalidMarkdownPayload(_))
         ));
-    }
-
-    #[test]
-    fn source_response_decoder_preserves_snapshot_coordinates_and_rejects_bad_json() {
-        let expected = SourceResponse {
-            epoch: 9,
-            key: SourceKey {
-                review_path: RepoPath::new("current.rs").unwrap(),
-                side: DiffSide::Old,
-            },
-            result: Ok(Arc::from("old source\n")),
-        };
-        let json = serde_json::to_string(&expected).unwrap();
-        assert_eq!(decode_source_response(&json).unwrap(), expected);
-        assert!(matches!(
-            decode_source_response(r#"{"epoch":"wrong"}"#),
-            Err(WebError::InvalidSourceResponse(_))
-        ));
-        assert_eq!(SOURCE_REQUEST_EVENT, "diff-review-source-request");
-        assert_eq!(SOURCE_RESPONSE_EVENT, "diff-review-source-response");
     }
 
     #[test]
