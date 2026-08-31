@@ -284,11 +284,38 @@ impl SyntaxHighlighter {
     where
         T: IntoIterator<Item = &'line str>,
     {
+        let first = request
+            .target_line
+            .saturating_sub(self.config.context_lines);
+        let last = request.target_line.saturating_add(self.prefetch_lines);
+        let selected = request
+            .lines
+            .into_iter()
+            .enumerate()
+            .skip(first)
+            .take(last.saturating_sub(first).saturating_add(1))
+            .collect();
+        self.highlight_selected(
+            theme,
+            request.language,
+            request.sequence,
+            request.target_line,
+            selected,
+        )
+    }
+
+    fn highlight_selected(
+        &mut self,
+        theme: &SyntaxTheme,
+        hint: LanguageHint<'_>,
+        sequence: SourceSequenceId,
+        target_line: usize,
+        selected: Vec<(usize, &str)>,
+    ) -> Arc<[HighlightSpan]> {
         self.stats.calls += 1;
-        let language = resolve_language(request.language, "");
+        let language = resolve_language(hint, "");
         let id = language.unwrap_or("plain");
-        let target_key =
-            CacheKey::sequence_line(theme.revision(), id, request.sequence, request.target_line);
+        let target_key = CacheKey::sequence_line(theme.revision(), id, sequence, target_line);
         if let Some(spans) = self.cache.get(&target_key) {
             self.stats.hits += 1;
             return Arc::clone(spans);
@@ -299,26 +326,11 @@ impl SyntaxHighlighter {
             self.store(target_key, Arc::clone(&spans));
             return spans;
         };
-
-        self.reserve_sequence(request.sequence.fingerprint());
-        let first = request
-            .target_line
-            .saturating_sub(self.config.context_lines);
-        let last = request.target_line.saturating_add(self.prefetch_lines);
-        let selected: Vec<(usize, &str)> = request
-            .lines
-            .into_iter()
-            .enumerate()
-            .skip(first)
-            .take(last.saturating_sub(first).saturating_add(1))
-            .collect();
-        if selected
-            .iter()
-            .all(|(index, _)| *index != request.target_line)
-        {
+        if selected.iter().all(|(index, _)| *index != target_line) {
             return empty_spans();
         }
 
+        self.reserve_sequence(sequence.fingerprint());
         let window = SourceWindow::new(selected);
         self.stats.bytes = self.stats.bytes.saturating_add(window.source.len());
         let global = highlight_source(&mut self.highlighter, theme, language, &window.source);
@@ -331,18 +343,17 @@ impl SyntaxHighlighter {
         let cache_sequences = self.config.max_sequences != 0;
         for ((line, _, _, _), spans) in window.lines.iter().zip(per_line) {
             let spans: Arc<[HighlightSpan]> = Arc::from(spans);
-            if *line == request.target_line {
+            if *line == target_line {
                 target_spans = Some(spans);
-            } else if *line > request.target_line && cache_sequences {
+            } else if *line > target_line && cache_sequences {
                 prefetched.push((
-                    CacheKey::sequence_line(theme.revision(), id, request.sequence, *line),
+                    CacheKey::sequence_line(theme.revision(), id, sequence, *line),
                     spans,
                 ));
             }
         }
         // Eviction is FIFO by insertion order, so store the prefetch window
-        // farthest line first and the requested line last: lookahead larger
-        // than the cache budget sheds itself before the line the caller needs.
+        // farthest line first and the requested line last.
         for (key, spans) in prefetched.into_iter().rev() {
             self.store(key, spans);
         }
@@ -351,7 +362,7 @@ impl SyntaxHighlighter {
             self.store(target_key, Arc::clone(&target_spans));
         }
         if self.config.max_entries == 0 {
-            self.sequences.remove(&request.sequence.fingerprint());
+            self.sequences.remove(&sequence.fingerprint());
         }
         target_spans
     }

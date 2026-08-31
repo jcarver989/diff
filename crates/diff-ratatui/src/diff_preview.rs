@@ -139,7 +139,7 @@ fn render_cell(
         .bg(color(colors.background));
     let marker = cell.tone.marker();
     let number = cell
-        .line_number
+        .line_number()
         .map_or_else(|| "    ".to_owned(), |line| format!("{line:>4}"));
     let prefix = format!("{number} {marker} ");
     let available = usize::from(width).saturating_sub(7);

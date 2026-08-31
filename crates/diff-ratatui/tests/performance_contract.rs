@@ -65,6 +65,32 @@ fn highlighting_work_is_bounded_by_the_viewport_not_document_size() {
 }
 
 #[test]
+fn deep_full_file_scroll_uses_bounded_whole_source_highlighting() {
+    let old = source_lines(100_000, "");
+    let new = old.replacen(
+        "let value_50000 = 50000;",
+        "let value_50000 = 50000 + 1;",
+        1,
+    );
+    let fixture = DocumentBuilder::new()
+        .changed_with_hunk_window("src/large.rs", &old, &new, 49_997..=50_003)
+        .build_fixture();
+    let mut harness = ReviewHarness::new(fixture.document.clone(), 100, 24);
+    harness.input(key(KeyCode::Tab));
+    harness.input(key(KeyCode::Char('f')));
+    harness.answer_sources(&fixture);
+    harness.draw();
+    let jumped = harness.input_and_draw(key(KeyCode::End));
+    assert!(
+        jumped.highlighted_bytes < 100_000,
+        "deep full-file navigation parsed {} bytes",
+        jumped.highlighted_bytes
+    );
+    let settled = harness.draw();
+    assert_eq!(settled.highlight_misses, 0);
+}
+
+#[test]
 fn deep_split_scroll_parses_bounded_context_and_then_settles() {
     let mut harness = ReviewHarness::new(modified_document(5_000), 100, 24);
     harness.draw();

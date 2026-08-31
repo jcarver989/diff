@@ -2,7 +2,10 @@
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use crossterm::event::KeyCode;
-use diff_core::{DiffDocument, testing::DocumentBuilder};
+use diff_core::{
+    ContentProjection, DiffDocument, DiffPresentation, DiffSide, FileVersionText,
+    PresentationOptions, SourceKey, testing::DocumentBuilder,
+};
 use diff_ratatui::DiffReviewState;
 use std::{hint::black_box, sync::Arc};
 
@@ -27,6 +30,7 @@ const SCROLL_STEPS: u64 = 100;
 const PAGE_STEPS: u64 = 10;
 const FILE_SWITCHES: u64 = 50;
 
+#[allow(clippy::format_collect)]
 fn presentation_creation(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("presentation_creation");
     group.sample_size(20);
@@ -38,6 +42,30 @@ fn presentation_creation(criterion: &mut Criterion) {
                 .iter(|| DiffReviewState::with_theme(black_box(document.clone()), theme.clone()));
         });
     }
+
+    let old = (1..=100_000)
+        .map(|line| format!("let value_{line} = {line};\n"))
+        .collect::<String>();
+    let new = old.replacen("let value_50000 = 50000;", "let value_50000 = 0;", 1);
+    let document = DocumentBuilder::new()
+        .changed_with_hunk_window("src/full.rs", &old, &new, 49_997..=50_003)
+        .build();
+    let path = document.files[0].path.clone();
+    let mut projection = ContentProjection::default();
+    projection.insert_source(
+        SourceKey::new(path.clone(), DiffSide::New),
+        Arc::new(FileVersionText::try_from_text(&new).unwrap()),
+    );
+    projection.set_full_file(path, true);
+    group.bench_function("full-file-100000", |bencher| {
+        bencher.iter(|| {
+            DiffPresentation::with_sources(
+                black_box(document.clone()),
+                PresentationOptions::default(),
+                black_box(&projection),
+            )
+        });
+    });
     group.finish();
 }
 

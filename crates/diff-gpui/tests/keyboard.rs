@@ -1,10 +1,14 @@
-use diff_core::{DiffReviewEvent, RepositoryAction, ViewMode, testing::DocumentBuilder};
-use diff_gpui::{DiffViewer, DiffViewerEvent, ViewerPane};
+use diff_core::{
+    DiffReviewEvent, Layout, RepositoryAction, SourceStatus, ViewMode,
+    testing::{DocumentBuilder, SourceResponseBuilder},
+};
+use diff_gpui::{DiffViewer, DiffViewerEvent, SourceRequested, ViewerPane};
 use gpui::{Context, Entity, Render, TestAppContext, Window, WindowOptions, div, prelude::*};
 
 struct TestRoot {
     viewer: Entity<DiffViewer>,
     events: Vec<DiffViewerEvent>,
+    source_requests: Vec<diff_core::SourceRequest>,
 }
 
 impl TestRoot {
@@ -21,9 +25,14 @@ impl TestRoot {
             root.events.push(event.clone());
         })
         .detach();
+        cx.subscribe(&viewer, |root, _, event: &SourceRequested, _| {
+            root.source_requests.extend(event.requests.iter().cloned());
+        })
+        .detach();
         Self {
             viewer,
             events: Vec::new(),
+            source_requests: Vec::new(),
         }
     }
 }
@@ -69,6 +78,88 @@ fn browse_shortcuts_navigate_rows_files_and_panes(cx: &mut TestAppContext) {
         viewer.read_with(cx, |viewer, _| viewer.pane()),
         ViewerPane::Diff
     );
+}
+
+#[gpui::test]
+fn full_file_shortcut_emits_typed_source_requests_and_rejects_stale_responses(
+    cx: &mut TestAppContext,
+) {
+    let window = open_viewer(cx);
+    let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
+    cx.simulate_keystrokes(*window, "f");
+    let request = window
+        .read_with(cx, |root, _| root.source_requests[0].clone())
+        .unwrap();
+    assert_eq!(request.key.review_path.as_str(), "a.rs");
+    viewer.update(cx, |viewer, cx| {
+        let response = SourceResponseBuilder::from_request(&request)
+            .epoch(request.epoch.wrapping_add(1))
+            .text("ONE\nTWO\nTHREE\n")
+            .build();
+        assert!(!viewer.provide_source(response, cx));
+        assert_eq!(
+            viewer.session().source_status(&request.key),
+            SourceStatus::Queued
+        );
+    });
+}
+
+#[gpui::test]
+fn layout_changes_reemit_pending_source_requests(cx: &mut TestAppContext) {
+    let window = open_viewer(cx);
+    let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
+    cx.simulate_keystrokes(*window, "f");
+    window
+        .update(cx, |root, _, _| root.source_requests.clear())
+        .unwrap();
+
+    let mode = match viewer.read_with(cx, |viewer, _| viewer.session().layout()) {
+        Layout::Unified => ViewMode::Split,
+        Layout::Split => ViewMode::Unified,
+    };
+    viewer.update(cx, |viewer, cx| viewer.set_view_mode(mode, cx));
+    cx.run_until_parked();
+    assert_eq!(
+        window
+            .read_with(cx, |root, _| root.source_requests.len())
+            .unwrap(),
+        2
+    );
+}
+
+#[gpui::test]
+fn enter_only_expands_selected_gap_rows(cx: &mut TestAppContext) {
+    let window = open_viewer(cx);
+    cx.simulate_keystrokes(*window, "enter");
+    assert!(
+        window
+            .read_with(cx, |root, _| root.source_requests.is_empty())
+            .unwrap()
+    );
+    cx.simulate_keystrokes(*window, "o");
+    assert!(
+        !window
+            .read_with(cx, |root, _| root.source_requests.is_empty())
+            .unwrap()
+    );
+}
+
+#[gpui::test]
+fn document_replacement_cancels_the_editor_and_session_draft(cx: &mut TestAppContext) {
+    let window = open_viewer(cx);
+    let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
+    cx.simulate_keystrokes(*window, "c");
+    assert!(viewer.read_with(cx, |viewer, _| viewer.session().draft().is_some()));
+
+    viewer.update(cx, |viewer, cx| {
+        viewer.set_document(
+            DocumentBuilder::new()
+                .changed("a.rs", "different\n", "DIFFERENT\n")
+                .build(),
+            cx,
+        );
+        assert!(viewer.session().draft().is_none());
+    });
 }
 
 #[gpui::test]

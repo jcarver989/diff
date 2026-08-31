@@ -61,6 +61,12 @@ pub enum GitError {
         #[source]
         source: io::Error,
     },
+    /// A source version exceeded the per-file capture limit.
+    #[error("source version is too large ({bytes} bytes)")]
+    SourceTooLarge { bytes: u64 },
+    /// Repository metadata or worktree content changed during capture.
+    #[error("repository changed while capturing the snapshot")]
+    UnstableSnapshot,
     /// Core diff normalization failed.
     #[error("could not normalize Git snapshot: {0}")]
     Diff(#[from] DiffError),

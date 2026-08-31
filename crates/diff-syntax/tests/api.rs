@@ -1,7 +1,9 @@
 use diff_syntax::{
-    HighlightStats, LanguageHint, SequenceLine, SourceSequenceId, SyntaxHighlighter, SyntaxStream,
+    CacheConfig, HighlightStats, LanguageHint, SequenceLine, SourceSequenceId, SyntaxHighlighter,
+    SyntaxStream,
 };
 use diff_theme::SyntaxTheme;
+use std::sync::Arc;
 
 #[test]
 fn sequence_preserves_multiline_context_and_utf8_ranges() {
@@ -35,6 +37,35 @@ fn typed_sequences_and_take_stats_are_public_contracts() {
     let first = highlighter.take_stats();
     assert!(first.calls > 0);
     assert_eq!(highlighter.take_stats(), HighlightStats::default());
+}
+
+#[test]
+fn indexable_iterators_jump_in_bounded_work() {
+    let lines = (0..100_000)
+        .map(|index| Arc::<str>::from(format!("let value_{index} = {index};")))
+        .collect::<Vec<_>>();
+    let id = SourceSequenceId::from_lines(lines.iter().map(AsRef::as_ref));
+    let theme = SyntaxTheme::default();
+    let config = CacheConfig {
+        context_lines: 32,
+        max_entries: 64,
+        max_sequences: 4,
+    };
+    let mut highlighter = SyntaxHighlighter::new(config);
+    let spans = highlighter
+        .with_theme(&theme)
+        .highlight_line(SequenceLine::new(
+            id,
+            "rust",
+            90_000,
+            lines.iter().map(AsRef::as_ref),
+        ));
+    assert!(!spans.is_empty());
+    assert!(
+        highlighter.stats().bytes < 2_000,
+        "deep sequence parsed {} bytes",
+        highlighter.stats().bytes
+    );
 }
 
 #[test]

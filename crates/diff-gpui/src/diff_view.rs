@@ -8,7 +8,10 @@ use crate::{
         prelude::{Button, ButtonVariant, ControlSize, icon_button},
     },
 };
-use diff_core::{DiffSide, DiffTone, PresentedCell, PresentedRow, ReviewComment, RowKind};
+use diff_core::{
+    DiffSide, DiffTone, PresentedCell, PresentedRow, RevealAmount, ReviewComment, RowKind,
+    SourceStatus,
+};
 use gpui::{
     AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState, MouseButton,
     MouseDownEvent, Pixels, SharedString, StyledText, Window, div, list, point, prelude::*, px,
@@ -252,6 +255,7 @@ impl DiffViewer {
         self.render_presented_row(index, &row, cx)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn render_presented_row(
         &mut self,
         index: usize,
@@ -260,10 +264,25 @@ impl DiffViewer {
     ) -> AnyElement {
         let palette = self.theme().palette().clone();
         let row_height = px(self.diff_row_height());
-        if row.kind != RowKind::Code {
-            let text = row
-                .primary_cell()
-                .map_or_else(SharedString::default, |cell| cell.text.to_string().into());
+        if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
+            let text: SharedString = if row.kind == RowKind::ExpandGap {
+                self.presentation().gap_info(index).map_or_else(
+                    || "⋯ unchanged lines".into(),
+                    |info| {
+                        let message = match info.status {
+                            SourceStatus::Loaded => {
+                                format!("{} — o expand · O expand all", info.message())
+                            }
+                            SourceStatus::Stale => format!("{} — r refresh", info.message()),
+                            _ => info.message(),
+                        };
+                        message.into()
+                    },
+                )
+            } else {
+                row.primary_cell()
+                    .map_or_else(SharedString::default, |cell| cell.text.to_string().into())
+            };
             return div()
                 .id(("diff-row", row.id.0))
                 .h(row_height)
@@ -275,6 +294,15 @@ impl DiffViewer {
                 .border_b_1()
                 .border_color(style::color(palette.border))
                 .text_color(style::color(palette.accent))
+                .when(row.kind == RowKind::ExpandGap, |element| {
+                    element.cursor_pointer().on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |viewer, _, _, cx| {
+                            viewer.session_mut().select_row(index);
+                            viewer.expand_selected_gap(RevealAmount::Step, cx);
+                        }),
+                    )
+                })
                 .child(text)
                 .into_any_element();
         }
@@ -370,7 +398,7 @@ impl DiffViewer {
         }));
         let tone = cell.tone;
         let tone_background = palette.tone(tone).background;
-        let commentable = cell.source.is_some();
+        let commentable = cell.patch_source.is_some();
         let comments = self.comments_on(index, cell);
         let hover_group: SharedString = format!("comment-cell-{index}-{side:?}").into();
         let selected =
@@ -456,7 +484,7 @@ impl DiffViewer {
             .text_color(style::color(foreground))
             .text_center()
             .child(
-                cell.line_number
+                cell.line_number()
                     .map_or_else(String::new, |number| number.to_string()),
             )
             .when(commentable, |gutter| {
@@ -593,7 +621,7 @@ impl DiffViewer {
         let palette = self.theme().palette().clone();
         let line = row
             .cell(side)
-            .and_then(|cell| cell.line_number)
+            .and_then(PresentedCell::line_number)
             .map_or_else(|| "line".to_owned(), |number| format!("line {number}"));
         let side_label = if side == DiffSide::Old { "old" } else { "new" };
         let can_submit = !editor.read(cx).is_blank();

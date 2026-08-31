@@ -4,8 +4,11 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{DiffDocument, DiffScope, RepositoryAction, ReviewSubmission};
-use diff_git::GitRepository;
+use diff_core::{
+    DiffDocument, DiffScope, RepositoryAction, ReviewSubmission, SourceRequest, SourceResponse,
+    SourceUnavailable,
+};
+use diff_git::{GitRepository, RepositorySnapshot, SourceArchive};
 use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use diff_ratatui::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
@@ -18,7 +21,7 @@ use std::{
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::Arc,
+    sync::{Arc, mpsc},
     thread,
     time::Duration,
 };
@@ -91,15 +94,23 @@ pub fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
 
 pub fn run_local(
     repository: &GitRepository,
-    document: DiffDocument,
+    snapshot: RepositorySnapshot,
     scope: DiffScope,
 ) -> Result<Option<ReviewSubmission>, TuiError> {
-    let mut backend = LocalBackend { repository, scope };
+    let (document, archive) = snapshot.into_parts();
+    let mut backend = LocalBackend {
+        repository,
+        scope,
+        archive,
+        source_responses: Vec::new(),
+    };
     run_diff_review(Arc::new(document), &mut backend)
 }
 
 trait DiffReviewBackend {
     fn apply(&mut self, action: RepositoryAction) -> Result<DiffDocument, String>;
+    fn begin_source_request(&mut self, request: SourceRequest);
+    fn drain_source_responses(&mut self) -> Vec<SourceResponse>;
 }
 
 fn run_diff_review(
@@ -117,6 +128,12 @@ fn run_diff_review(
     let mut state = DiffReviewState::with_theme(document, crate::preferences::load_theme());
 
     loop {
+        for request in state.take_source_requests() {
+            backend.begin_source_request(request);
+        }
+        for response in backend.drain_source_responses() {
+            state.provide_source(response);
+        }
         terminal.autoresize()?;
         let current_size = terminal.size()?;
         if current_size != terminal_size {
@@ -218,11 +235,18 @@ enum MarkdownEventOutcome {
 
 struct SessionBackend {
     socket_path: PathBuf,
+    source_sender: mpsc::Sender<SourceResponse>,
+    source_receiver: mpsc::Receiver<SourceResponse>,
 }
 
 impl SessionBackend {
     fn new(socket_path: PathBuf) -> Self {
-        Self { socket_path }
+        let (source_sender, source_receiver) = mpsc::channel();
+        Self {
+            socket_path,
+            source_sender,
+            source_receiver,
+        }
     }
 
     fn document(&self) -> Result<DiffDocument, TuiError> {
@@ -244,7 +268,14 @@ impl SessionBackend {
     }
 
     fn request(&self, request: &SessionRequestRef<'_>) -> Result<SessionResponse, TuiError> {
-        let mut stream = UnixStream::connect(&self.socket_path)?;
+        Self::request_at(&self.socket_path, request)
+    }
+
+    fn request_at(
+        socket_path: &Path,
+        request: &SessionRequestRef<'_>,
+    ) -> Result<SessionResponse, TuiError> {
+        let mut stream = UnixStream::connect(socket_path)?;
         write_request(&mut stream, request)?;
         let response = read_response(&mut stream)?;
         match response {
@@ -263,11 +294,38 @@ impl DiffReviewBackend for SessionBackend {
             Err(error) => Err(error.to_string()),
         }
     }
+
+    fn begin_source_request(&mut self, request: SourceRequest) {
+        let socket_path = self.socket_path.clone();
+        let sender = self.source_sender.clone();
+        thread::spawn(move || {
+            let result = match Self::request_at(&socket_path, &SessionRequestRef::Source(&request))
+            {
+                Ok(SessionResponse::Source(response)) => response.result,
+                Ok(response) => Err(SourceUnavailable::Error(format!(
+                    "unexpected review service response: {response:?}"
+                ))),
+                Err(error) => Err(SourceUnavailable::Error(error.to_string())),
+            };
+            let response = SourceResponse {
+                epoch: request.epoch,
+                key: request.key,
+                result,
+            };
+            let _ = sender.send(response);
+        });
+    }
+
+    fn drain_source_responses(&mut self) -> Vec<SourceResponse> {
+        self.source_receiver.try_iter().collect()
+    }
 }
 
 struct LocalBackend<'a> {
     repository: &'a GitRepository,
     scope: DiffScope,
+    archive: SourceArchive,
+    source_responses: Vec<SourceResponse>,
 }
 
 impl DiffReviewBackend for LocalBackend<'_> {
@@ -278,11 +336,24 @@ impl DiffReviewBackend for LocalBackend<'_> {
                     .await
                     .map_err(|error| error.to_string())?;
                 self.repository
-                    .snapshot(self.scope)
+                    .snapshot_with_sources(self.scope)
                     .await
+                    .map(|snapshot| {
+                        let (document, archive) = snapshot.into_parts();
+                        self.archive = archive;
+                        document
+                    })
                     .map_err(|error| error.to_string())
             })
         })
+    }
+
+    fn begin_source_request(&mut self, request: SourceRequest) {
+        self.source_responses.push(self.archive.response(&request));
+    }
+
+    fn drain_source_responses(&mut self) -> Vec<SourceResponse> {
+        std::mem::take(&mut self.source_responses)
     }
 }
 

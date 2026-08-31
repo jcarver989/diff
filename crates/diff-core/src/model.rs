@@ -368,6 +368,15 @@ impl Hunk {
 }
 
 impl FileDiff {
+    /// Returns the repository path used by one side of this file version.
+    #[must_use]
+    pub fn path_for_side(&self, side: DiffSide) -> &RepoPath {
+        match side {
+            DiffSide::Old => self.old_path.as_ref().unwrap_or(&self.path),
+            DiffSide::New => &self.path,
+        }
+    }
+
     /// Builds a one-file diff from complete old and new text snapshots.
     ///
     /// # Errors

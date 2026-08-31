@@ -22,6 +22,25 @@ clankerdiff               CLI orchestration
 
 New embedding code should use the portable crates directly. `diff-core` now exposes only the renderer-neutral diff domain; themes, highlighting, and Markdown APIs live in their dedicated portable crates.
 
+### Patch metadata and immutable source versions
+
+`DiffDocument` remains the serializable source of change semantics: file status, hunks, patch lines, staging metadata, rename paths, and comment anchors. Complete old/new file bodies are deliberately not embedded in it. A `ReviewSession` instead owns a bounded source overlay and projects revealed unchanged rows over immutable `FileVersionText` values supplied by the host.
+
+Native hosts use `GitRepository::snapshot_with_sources`, which returns a `RepositorySnapshot` containing the patch document plus a private `SourceArchive`. The archive captures HEAD/index blobs by immutable object ID and copies worktree content while the snapshot is built. Batched bounded blob capture requires Git 2.36 or newer. Renderers never read Git or the filesystem. `GitRepository::snapshot` remains the metadata-only compatibility API.
+
+Source transfer is lazy and host-neutral. A viewer drains `SourceRequest` values and later installs matching `SourceResponse` values. Epochs reject responses for replaced documents, and patch/source validation rejects stale content. Complete source files are limited to 8 MiB each; the archive and viewer overlay are limited to 64 MiB. Binary, invalid UTF-8, NUL-containing, absent, oversized, over-budget, and unstable versions retain the ordinary hunk view and expose an inline reason when expansion is requested.
+
+### Context and full-file controls
+
+In the TUI and Desktop diff pane:
+
+- `o` reveals up to 20 unchanged lines from each hunk-adjacent edge of the selected gap;
+- `O` reveals the selected gap completely;
+- `f` toggles the selected file's complete-file projection;
+- Enter or clicking a gap reveals one step.
+
+Expanded rows use real old/new source coordinates and whole-file syntax context, but remain non-commentable. Full-file mode keeps hunk headers and diff decorations, and compact preview APIs remain hunk-only unless a source projection is explicitly supplied.
+
 ### Ratatui feature selection
 
 `diff-ratatui` has no review UI in its smallest configurations:
@@ -69,7 +88,7 @@ clankerdiff review \
   /path/to/repository
 ```
 
-The historical external-terminal mode remains the default. It uses `CLANKERDIFF_TUI_COMMAND` and the private `attach` transport. That transport is not a public integration protocol.
+The historical external-terminal mode remains the default. It uses `CLANKERDIFF_TUI_COMMAND` and the private `attach` transport. That transport carries lazy source requests as well as repository actions, but is not a public integration protocol. Complete source bodies never enter the public `clankerdiff-protocol` review-result envelope.
 
 An embedding terminal application is responsible for its own lifecycle: stop its input reader, restore cooked mode, spawn Clankerdiff with stdin and stderr inherited and stdout piped, wait for it, recreate its terminal/event reader, and force a complete redraw.
 
@@ -108,6 +127,10 @@ exit "$status"
 ```
 
 The physical temporary path is not placed into the document metadata when `--source-path` is supplied.
+
+### Web source provider
+
+The Web viewer dispatches one `diff-review-source-request` `CustomEvent` per requested version. `event.detail` is a JSON string containing `epoch`, `key.review_path`, `key.side`, and `source_path`. A host responds by dispatching `diff-review-source-response` with a serialized `SourceResponse`, or by calling the exported `provide_source_json` function. Responses must be bound to the exact document snapshot/epoch. Hosts that do not implement these events retain the ordinary hunk-only review experience.
 
 ## Generic diff input
 

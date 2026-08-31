@@ -1,8 +1,127 @@
 use crate::{
-    DiffDocument, DiffPresentation, DiffSide, Layout, LineAnchor, PresentationOptions,
-    PresentedCell, PresentedRow, Review, ReviewSubmission, ViewMode,
+    ContentProjection, DiffDocument, DiffPresentation, DiffSide, FileStatus, FileVersionText,
+    GapId, Layout, LineAnchor, PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review,
+    ReviewSubmission, SourceKey, SourceLocation, SourceRequest, SourceResponse, SourceStatus,
+    ViewMode, gaps_for_file, presentation::requested_source_sides, validate_file_version,
 };
-use std::{ops::Range, sync::Arc};
+use std::{collections::VecDeque, ops::Range, sync::Arc};
+
+const EXPAND_STEP: usize = 20;
+const MAX_SOURCE_OVERLAY_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Mutable complete-source state kept separately from patch metadata and presentation rows.
+#[derive(Debug, Clone, Default)]
+struct SourceOverlay {
+    projection: ContentProjection,
+    lru: VecDeque<SourceKey>,
+    bytes: u64,
+    queued_requests: VecDeque<SourceRequest>,
+}
+
+impl SourceOverlay {
+    fn reset_sources(&mut self) {
+        self.projection.sources.clear();
+        self.projection.statuses.clear();
+        self.lru.clear();
+        self.bytes = 0;
+        self.queued_requests.clear();
+        self.projection.expansions.clear();
+    }
+
+    fn status(&self, key: &SourceKey) -> SourceStatus {
+        self.projection.status(key)
+    }
+
+    fn queue(&mut self, request: SourceRequest) {
+        match self.status(&request.key) {
+            SourceStatus::Loaded => self.touch(&request.key),
+            SourceStatus::Stale => {}
+            SourceStatus::Queued => {
+                if !self
+                    .queued_requests
+                    .iter()
+                    .any(|queued| queued.key == request.key)
+                {
+                    self.queued_requests.push_back(request);
+                }
+            }
+            SourceStatus::Missing | SourceStatus::Unavailable(_) => {
+                self.projection
+                    .statuses
+                    .insert(request.key.clone(), SourceStatus::Queued);
+                self.queued_requests.push_back(request);
+            }
+        }
+    }
+
+    fn begin_response(&mut self, key: &SourceKey) -> bool {
+        if self.status(key) != SourceStatus::Queued {
+            return false;
+        }
+        self.queued_requests.retain(|request| &request.key != key);
+        true
+    }
+
+    fn set_status(&mut self, key: SourceKey, status: SourceStatus) {
+        debug_assert_ne!(status, SourceStatus::Loaded);
+        self.remove_source(&key);
+        self.projection.statuses.insert(key, status);
+    }
+
+    fn install(&mut self, document: &DiffDocument, key: SourceKey, source: Arc<FileVersionText>) {
+        self.remove_source(&key);
+        self.bytes = self.bytes.saturating_add(source.byte_len());
+        self.lru.push_back(key.clone());
+        self.projection
+            .statuses
+            .insert(key.clone(), SourceStatus::Loaded);
+        self.projection.sources.insert(key, source);
+        while self.bytes > MAX_SOURCE_OVERLAY_BYTES {
+            let Some(evicted) = self.lru.front().cloned() else {
+                break;
+            };
+            self.remove_path(document, &evicted.review_path);
+        }
+    }
+
+    fn remove_source(&mut self, key: &SourceKey) -> Option<Arc<FileVersionText>> {
+        let source = self.projection.sources.remove(key)?;
+        self.bytes = self.bytes.saturating_sub(source.byte_len());
+        self.lru.retain(|candidate| candidate != key);
+        Some(source)
+    }
+
+    fn remove_path(&mut self, document: &DiffDocument, path: &RepoPath) {
+        let keys = self
+            .projection
+            .sources
+            .keys()
+            .filter(|key| &key.review_path == path)
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in keys {
+            self.remove_source(&key);
+            self.projection.statuses.remove(&key);
+        }
+        if let Some(file_index) = document.file_index(path) {
+            self.projection
+                .expansions
+                .retain(|id, _| id.file_index != file_index);
+        }
+        self.projection.full_files.remove(path);
+    }
+
+    fn touch(&mut self, key: &SourceKey) {
+        self.lru.retain(|candidate| candidate != key);
+        self.lru.push_back(key.clone());
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevealAmount {
+    Step,
+    All,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionOptions {
@@ -131,6 +250,10 @@ pub struct ReviewSession {
     selected_row: usize,
     selected_side: DiffSide,
     draft: Option<CommentDraft>,
+    epoch: u64,
+    overlay: SourceOverlay,
+    projection_revision: u64,
+    pending_source_restore: Option<SourceLocation>,
 }
 
 impl ReviewSession {
@@ -159,6 +282,10 @@ impl ReviewSession {
             selected_row: 0,
             selected_side: DiffSide::New,
             draft: None,
+            epoch: 0,
+            overlay: SourceOverlay::default(),
+            projection_revision: 0,
+            pending_source_restore: None,
         };
         session.select_first_row();
         session
@@ -222,6 +349,132 @@ impl ReviewSession {
         self.draft.as_mut()
     }
 
+    #[must_use]
+    pub const fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    #[must_use]
+    pub const fn projection_revision(&self) -> u64 {
+        self.projection_revision
+    }
+
+    #[must_use]
+    pub fn selected_source_line(&self) -> Option<SourceLocation> {
+        let row = self.selected_presented_row()?;
+        self.presentation
+            .source_location(row, row.preferred_cell(self.selected_side)?)
+    }
+
+    #[must_use]
+    pub fn source_status(&self, key: &SourceKey) -> SourceStatus {
+        self.overlay.status(key)
+    }
+
+    pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
+        let id = self
+            .presentation
+            .gap_info(self.selected_row)
+            .map(|info| info.id)
+            .or_else(|| {
+                let row = self.presentation.row(self.selected_row)?;
+                let source = row.preferred_cell(self.selected_side)?.patch_source?;
+                let hunk = self
+                    .document
+                    .files
+                    .get(row.file_index)?
+                    .hunks
+                    .get(source.hunk_index)?;
+                // Code rows reveal the nearest hunk edge when no gap row is selected.
+                let after = source.line_index.saturating_mul(2) >= hunk.lines.len();
+                Some(GapId {
+                    file_index: row.file_index,
+                    gap_index: source.hunk_index + usize::from(after),
+                })
+            });
+        let Some(id) = id else {
+            return false;
+        };
+        let Some(file) = self.document.files.get(id.file_index) else {
+            return false;
+        };
+        let path = file.path.clone();
+        let hunk_count = file.hunks.len();
+        let expansion = self.overlay.projection.expansions.entry(id).or_default();
+        let amount = match amount {
+            RevealAmount::Step => EXPAND_STEP,
+            RevealAmount::All => usize::MAX,
+        };
+        if id.gap_index != 0 || hunk_count == 0 {
+            expansion.revealed_prefix = expansion.revealed_prefix.saturating_add(amount);
+        }
+        if id.gap_index != hunk_count || hunk_count == 0 {
+            expansion.revealed_suffix = expansion.revealed_suffix.saturating_add(amount);
+        }
+        self.queue_sources_for_path(&path);
+        self.rebuild();
+        true
+    }
+
+    pub fn toggle_full_file(&mut self) -> bool {
+        let Some(file) = self.document.files.get(self.selected_file) else {
+            return false;
+        };
+        if file.binary || file.omitted_bytes.is_some() {
+            return false;
+        }
+        let path = file.path.clone();
+        if !self.overlay.projection.full_files.remove(&path) {
+            self.overlay.projection.full_files.insert(path.clone());
+            self.queue_sources_for_path(&path);
+        }
+        self.rebuild();
+        true
+    }
+
+    pub fn take_source_requests(&mut self) -> Vec<SourceRequest> {
+        self.overlay.queued_requests.drain(..).collect()
+    }
+
+    pub fn provide_source(&mut self, response: SourceResponse) -> bool {
+        if response.epoch != self.epoch {
+            return false;
+        }
+        let Some(file_index) = self.document.file_index(&response.key.review_path) else {
+            return false;
+        };
+        if !self.overlay.begin_response(&response.key) {
+            return false;
+        }
+        match response.result {
+            Err(reason) => self
+                .overlay
+                .set_status(response.key, SourceStatus::Unavailable(reason)),
+            Ok(text) => match FileVersionText::try_from_text(&text) {
+                Err(reason) => self
+                    .overlay
+                    .set_status(response.key, SourceStatus::Unavailable(reason)),
+                Ok(source)
+                    if validate_file_version(
+                        &self.document.files[file_index],
+                        response.key.side,
+                        &source,
+                    )
+                    .is_err() =>
+                {
+                    self.overlay.set_status(response.key, SourceStatus::Stale);
+                }
+                Ok(source) => {
+                    self.overlay
+                        .install(&self.document, response.key, Arc::new(source));
+                    self.reject_inconsistent_split_sources(file_index);
+                }
+            },
+        }
+        self.rebuild();
+        true
+    }
+
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
         let selected_path = self
             .document
@@ -233,10 +486,22 @@ impl ReviewSession {
             .and_then(|path| document.file_index(&path))
             .unwrap_or(0)
             .min(document.files.len().saturating_sub(1));
+        self.epoch = self.epoch.wrapping_add(1);
+        self.overlay.reset_sources();
+        self.overlay
+            .projection
+            .full_files
+            .retain(|path| document.file_index(path).is_some());
+        if self
+            .pending_source_restore
+            .as_ref()
+            .is_some_and(|location| document.file_index(&location.path).is_none())
+        {
+            self.pending_source_restore = None;
+        }
         self.document = document;
-        self.draft = None;
+        self.queue_full_file_sources();
         self.rebuild();
-        self.select_first_row();
     }
 
     pub fn set_view_mode(&mut self, mode: ViewMode) -> bool {
@@ -246,8 +511,8 @@ impl ReviewSession {
         let previous = self.layout();
         self.view_mode = mode;
         if self.layout() != previous {
+            self.queue_full_file_sources();
             self.rebuild();
-            self.select_first_row();
         }
         true
     }
@@ -265,8 +530,8 @@ impl ReviewSession {
         if self.layout() == previous {
             return false;
         }
+        self.queue_full_file_sources();
         self.rebuild();
-        self.select_first_row();
         true
     }
 
@@ -279,6 +544,7 @@ impl ReviewSession {
         if index >= self.document.files.len() {
             return false;
         }
+        self.pending_source_restore = None;
         self.selected_file = index;
         self.draft = None;
         self.select_first_row();
@@ -294,12 +560,13 @@ impl ReviewSession {
     }
 
     pub fn move_row(&mut self, delta: isize) {
+        self.pending_source_restore = None;
         let Some(range) = self.selected_file_range() else {
             return;
         };
         let mut current = self.selected_row;
-        if !self.presentation.is_commentable(current) {
-            let Some(first) = self.presentation.first_commentable(range.clone()) else {
+        if !self.presentation.is_navigable(current) {
+            let Some(first) = self.presentation.first_navigable(range.clone()) else {
                 return;
             };
             current = first;
@@ -309,9 +576,9 @@ impl ReviewSession {
             }
         }
         for _ in 0..delta.unsigned_abs() {
-            let Some(next) =
-                self.presentation
-                    .step_commentable(current, delta.is_negative(), &range)
+            let Some(next) = self
+                .presentation
+                .step_navigable(current, delta.is_negative(), &range)
             else {
                 break;
             };
@@ -322,13 +589,14 @@ impl ReviewSession {
     }
 
     pub fn select_boundary(&mut self, end: bool) {
+        self.pending_source_restore = None;
         let Some(range) = self.selected_file_range() else {
             return;
         };
         let selected = if end {
-            self.presentation.last_commentable(range)
+            self.presentation.last_navigable(range)
         } else {
-            self.presentation.first_commentable(range)
+            self.presentation.first_navigable(range)
         };
         if let Some(index) = selected {
             self.selected_row = index;
@@ -337,15 +605,17 @@ impl ReviewSession {
     }
 
     pub fn select_row(&mut self, index: usize) -> bool {
-        if !self.presentation.is_commentable(index) {
+        if !self.presentation.is_navigable(index) {
             return false;
         }
+        self.pending_source_restore = None;
         self.selected_row = index;
         self.normalize_selected_side();
         true
     }
 
     pub fn move_hunk(&mut self, delta: isize) -> bool {
+        self.pending_source_restore = None;
         let Some(file) = self.document.files.get(self.selected_file) else {
             return false;
         };
@@ -363,13 +633,14 @@ impl ReviewSession {
         };
         self.selected_row = self
             .presentation
-            .first_commentable(range)
+            .first_navigable(range)
             .unwrap_or(self.selected_row);
         self.normalize_selected_side();
         true
     }
 
     pub fn set_selected_side(&mut self, side: DiffSide) -> bool {
+        self.pending_source_restore = None;
         let available = self
             .selected_row()
             .and_then(|index| self.presentation.row(index))
@@ -463,18 +734,132 @@ impl ReviewSession {
         self.review.submission()
     }
 
+    fn queue_full_file_sources(&mut self) {
+        let paths = self
+            .overlay
+            .projection
+            .full_files
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        for path in paths {
+            self.queue_sources_for_path(&path);
+        }
+    }
+
+    fn queue_sources_for_path(&mut self, path: &RepoPath) {
+        let Some(file) = self.document.files.iter().find(|file| &file.path == path) else {
+            return;
+        };
+        for &side in requested_source_sides(file.status) {
+            let key = SourceKey::new(path.clone(), side);
+            self.overlay.queue(SourceRequest {
+                epoch: self.epoch,
+                source_path: file.path_for_side(side).clone(),
+                key,
+            });
+        }
+    }
+
+    fn reject_inconsistent_split_sources(&mut self, file_index: usize) {
+        let Some(file) = self.document.files.get(file_index) else {
+            return;
+        };
+        if matches!(
+            file.status,
+            FileStatus::Added | FileStatus::Untracked | FileStatus::Deleted
+        ) {
+            return;
+        }
+        let path = file.path.clone();
+        let old_key = SourceKey::new(path.clone(), DiffSide::Old);
+        let new_key = SourceKey::new(path.clone(), DiffSide::New);
+        let (Some(old), Some(new)) = (
+            self.overlay.projection.sources.get(&old_key),
+            self.overlay.projection.sources.get(&new_key),
+        ) else {
+            return;
+        };
+        let gaps = gaps_for_file(file, old.line_count(), new.line_count());
+        let consistent = gaps.iter().all(|gap| gap.sources_match(old, new));
+        if consistent {
+            return;
+        }
+        for key in [old_key, new_key] {
+            self.overlay.set_status(key, SourceStatus::Stale);
+        }
+    }
+
+    fn projection(&self) -> &ContentProjection {
+        &self.overlay.projection
+    }
+
     fn rebuild(&mut self) {
-        self.presentation = DiffPresentation::new(
+        let source = self
+            .pending_source_restore
+            .take()
+            .or_else(|| self.selected_source_line());
+        let selected_id = self.presentation.row(self.selected_row).map(|row| row.id);
+        let anchor = self.selected_anchor();
+        let draft_anchor = self.draft.as_ref().map(|draft| draft.anchor.clone());
+        self.presentation = DiffPresentation::with_sources(
             self.document.clone(),
             PresentationOptions {
                 view_mode: self.view_mode,
                 split_when_auto: self.split_when_auto,
                 include_file_headers: self.options.include_file_headers,
             },
+            self.projection(),
         );
-        self.selected_row = self
-            .selected_row
-            .min(self.presentation.row_count().saturating_sub(1));
+        self.projection_revision = self.projection_revision.wrapping_add(1);
+        let source_row = source
+            .as_ref()
+            .and_then(|location| self.presentation.row_showing_source(location));
+        if source_row.is_none() {
+            self.pending_source_restore.clone_from(&source);
+        }
+        let restored = source_row
+            .or_else(|| {
+                selected_id.and_then(|id| {
+                    self.presentation
+                        .rows(0..self.presentation.row_count())
+                        .iter()
+                        .position(|row| row.id == id)
+                })
+            })
+            .or_else(|| {
+                anchor
+                    .as_ref()
+                    .and_then(|anchor| self.presentation.row_showing_anchor(anchor))
+            });
+        if let Some(row) = restored {
+            self.selected_row = row;
+            self.selected_file = self
+                .presentation
+                .row(row)
+                .map_or(self.selected_file, |row| row.file_index);
+        } else {
+            self.select_first_row();
+        }
+        let draft_is_current = draft_anchor.as_ref().is_none_or(|anchor| {
+            self.presentation
+                .row_showing_anchor(anchor)
+                .and_then(|row_index| self.presentation.row(row_index))
+                .and_then(|row| {
+                    row.cells()
+                        .find(|cell| {
+                            cell.patch_source
+                                .is_some_and(|source| source.side == anchor.side)
+                                && cell.line_number() == anchor.line_number()
+                        })
+                        .and_then(|cell| self.presentation.cell_anchor(row, cell))
+                })
+                .is_some_and(|current| current == *anchor)
+        });
+        if !draft_is_current {
+            self.draft = None;
+        }
+        self.normalize_selected_side();
     }
 
     fn select_first_row(&mut self) {
@@ -482,7 +867,7 @@ impl ReviewSession {
             Some(range) => {
                 self.selected_row = self
                     .presentation
-                    .first_commentable(range.clone())
+                    .first_navigable(range.clone())
                     .unwrap_or(range.start);
             }
             None => self.selected_row = 0,
@@ -513,7 +898,10 @@ fn offset(value: usize, delta: isize, maximum: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DiffDocument, FileDiff};
+    use crate::{
+        DiffDocument, FileDiff, MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceUnavailable,
+        testing::DocumentBuilder,
+    };
 
     fn session() -> ReviewSession {
         ReviewSession::new(Arc::new(DiffDocument {
@@ -641,6 +1029,260 @@ mod tests {
         assert_eq!(draft.body(), "b");
         draft.move_cursor_to_end();
         assert_eq!(draft.cursor(), 1);
+    }
+
+    #[allow(clippy::format_collect)]
+    fn full_file_source() -> (ReviewSession, Arc<str>, Arc<str>) {
+        let old = (1..=60)
+            .map(|line| format!("old {line}\n"))
+            .collect::<String>();
+        let new = (1..=60)
+            .map(|line| {
+                if line == 31 {
+                    "new 31\n".to_owned()
+                } else {
+                    format!("old {line}\n")
+                }
+            })
+            .collect::<String>();
+        let document = DocumentBuilder::new()
+            .changed_with_hunk_window("a.rs", &old, &new, 28..=34)
+            .build();
+        (ReviewSession::new(document), Arc::from(old), Arc::from(new))
+    }
+
+    #[test]
+    fn full_file_projection_requests_source_and_keeps_expanded_lines_non_commentable() {
+        let (mut session, old, new) = full_file_source();
+        let selected = session.selected_source_line().unwrap();
+        assert!(session.toggle_full_file());
+        let requests = session.take_source_requests();
+        assert_eq!(requests.len(), 2);
+        for request in requests {
+            let source = match request.key.side {
+                DiffSide::Old => Arc::clone(&old),
+                DiffSide::New => Arc::clone(&new),
+            };
+            assert!(session.provide_source(SourceResponse {
+                epoch: request.epoch,
+                key: request.key,
+                result: Ok(source),
+            }));
+        }
+        assert_eq!(session.selected_source_line(), Some(selected));
+        let expanded = session
+            .presentation()
+            .rows(0..session.presentation().row_count())
+            .iter()
+            .position(|row| row.kind == crate::RowKind::ExpandedContext)
+            .unwrap();
+        assert!(session.select_row(expanded));
+        let expanded_location = session.selected_source_line().unwrap();
+        assert!(session.selected_anchor().is_none());
+        assert!(!session.begin_draft(None));
+        assert!(session.toggle_full_file());
+        assert!(session.toggle_full_file());
+        assert_eq!(session.selected_source_line(), Some(expanded_location));
+    }
+
+    #[test]
+    fn repeated_full_file_activation_reemits_an_unanswered_request() {
+        let (mut session, _, _) = full_file_source();
+        assert!(session.toggle_full_file());
+        let first = session.take_source_requests();
+        assert_eq!(first.len(), 2);
+        assert!(session.toggle_full_file());
+        assert!(session.toggle_full_file());
+        let retried = session.take_source_requests();
+        assert_eq!(retried, first);
+    }
+
+    #[test]
+    fn unsolicited_same_epoch_sources_are_rejected() {
+        let (mut session, _, source) = full_file_source();
+        let key = SourceKey::new(RepoPath::new("a.rs").unwrap(), DiffSide::New);
+        assert!(!session.provide_source(SourceResponse {
+            epoch: session.epoch(),
+            key: key.clone(),
+            result: Ok(source),
+        }));
+        assert_eq!(session.source_status(&key), SourceStatus::Missing);
+    }
+
+    #[test]
+    fn stale_epochs_and_mismatching_sources_are_rejected() {
+        let (mut session, _, _) = full_file_source();
+        session.toggle_full_file();
+        let request = session.take_source_requests().remove(0);
+        assert!(!session.provide_source(SourceResponse {
+            epoch: request.epoch.wrapping_add(1),
+            key: request.key.clone(),
+            result: Ok(Arc::from("wrong\n")),
+        }));
+        assert!(session.provide_source(SourceResponse {
+            epoch: request.epoch,
+            key: request.key.clone(),
+            result: Ok(Arc::from("wrong\n")),
+        }));
+        assert_eq!(session.source_status(&request.key), SourceStatus::Stale);
+    }
+
+    #[test]
+    fn inconsistent_old_and_new_unchanged_gaps_are_rejected_as_stale() {
+        let (mut session, old, new) = full_file_source();
+        session.set_view_mode(ViewMode::Split);
+        session.toggle_full_file();
+        let requests = session.take_source_requests();
+        assert_eq!(requests.len(), 2);
+        for request in &requests {
+            let mut text = match request.key.side {
+                DiffSide::Old => old.to_string(),
+                DiffSide::New => new.to_string(),
+            };
+            if request.key.side == DiffSide::Old {
+                text = text.replacen("old 1\n", "inconsistent 1\n", 1);
+            }
+            assert!(session.provide_source(SourceResponse {
+                epoch: request.epoch,
+                key: request.key.clone(),
+                result: Ok(Arc::from(text)),
+            }));
+        }
+        for side in [DiffSide::Old, DiffSide::New] {
+            assert_eq!(
+                session.source_status(&SourceKey {
+                    review_path: RepoPath::new("a.rs").unwrap(),
+                    side,
+                }),
+                SourceStatus::Stale
+            );
+        }
+        assert!(
+            session
+                .presentation()
+                .rows(0..session.presentation().row_count())
+                .iter()
+                .all(|row| row.kind != crate::RowKind::ExpandedContext)
+        );
+    }
+
+    #[test]
+    fn oversized_host_source_is_rejected_before_line_storage() {
+        let (mut session, _, _) = full_file_source();
+        session.toggle_full_file();
+        let request = session.take_source_requests().remove(0);
+        let text = "x".repeat(usize::try_from(MAX_SOURCE_FILE_BYTES).unwrap() + 1);
+        assert!(session.provide_source(SourceResponse {
+            epoch: request.epoch,
+            key: request.key.clone(),
+            result: Ok(Arc::from(text)),
+        }));
+        assert_eq!(
+            session.source_status(&request.key),
+            SourceStatus::Unavailable(SourceUnavailable::TooLarge {
+                bytes: MAX_SOURCE_FILE_BYTES + 1,
+            })
+        );
+    }
+
+    #[test]
+    fn newline_heavy_host_source_is_rejected_before_line_storage() {
+        let (mut session, _, _) = full_file_source();
+        session.toggle_full_file();
+        let request = session.take_source_requests().remove(0);
+        let text = "\n".repeat(MAX_SOURCE_FILE_LINES + 1);
+        assert!(session.provide_source(SourceResponse {
+            epoch: request.epoch,
+            key: request.key.clone(),
+            result: Ok(Arc::from(text)),
+        }));
+        assert_eq!(
+            session.source_status(&request.key),
+            SourceStatus::Unavailable(SourceUnavailable::TooManyLines {
+                lines: MAX_SOURCE_FILE_LINES + 1,
+            })
+        );
+    }
+
+    #[test]
+    fn document_replacement_preserves_an_existing_patch_selection_and_draft() {
+        let mut session = session();
+        session.move_row(2);
+        let anchor = session.selected_anchor().unwrap();
+        assert!(session.begin_draft(None));
+        session.draft_mut().unwrap().insert("still editing");
+        let document = session.document().clone();
+        session.set_document(document);
+        assert_eq!(session.selected_anchor(), Some(anchor));
+        assert_eq!(
+            session.draft().map(CommentDraft::body),
+            Some("still editing")
+        );
+    }
+
+    #[test]
+    fn document_replacement_drops_a_draft_when_content_changes_at_the_same_line() {
+        let mut session = session();
+        assert!(session.begin_draft(None));
+        session.draft_mut().unwrap().insert("stale draft");
+        let replacement = Arc::new(DiffDocument {
+            repo_root: "/repo".into(),
+            files: vec![
+                FileDiff::from_texts("a.rs", "different\ntwo\n", "CHANGED\nTWO\n").unwrap(),
+            ],
+        });
+        session.set_document(replacement);
+        assert!(session.draft().is_none());
+    }
+
+    #[test]
+    fn overlay_evicts_the_least_recently_used_file_and_clears_its_status() {
+        let files = (0..9)
+            .map(|index| {
+                FileDiff::from_texts(
+                    format!("file-{index}.txt"),
+                    "",
+                    &format!("changed {index}\n"),
+                )
+                .unwrap()
+            })
+            .collect();
+        let mut session = ReviewSession::new(Arc::new(DiffDocument {
+            repo_root: "/repo".into(),
+            files,
+        }));
+        let source_bytes = usize::try_from(MAX_SOURCE_OVERLAY_BYTES / 8).unwrap();
+        for index in 0..9 {
+            assert!(session.select_file(index));
+            assert!(session.toggle_full_file());
+            let request = session.take_source_requests().remove(0);
+            let prefix = format!("changed {index}\n");
+            let mut text = String::with_capacity(source_bytes);
+            text.push_str(&prefix);
+            text.extend(std::iter::repeat_n(
+                'x',
+                source_bytes.saturating_sub(prefix.len()),
+            ));
+            assert!(session.provide_source(SourceResponse {
+                epoch: request.epoch,
+                key: request.key,
+                result: Ok(Arc::from(text)),
+            }));
+        }
+        assert_eq!(
+            session.source_status(&SourceKey {
+                review_path: RepoPath::new("file-0.txt").unwrap(),
+                side: DiffSide::New,
+            }),
+            SourceStatus::Missing
+        );
+        assert_eq!(
+            session.source_status(&SourceKey {
+                review_path: RepoPath::new("file-8.txt").unwrap(),
+                side: DiffSide::New,
+            }),
+            SourceStatus::Loaded
+        );
     }
 
     #[test]

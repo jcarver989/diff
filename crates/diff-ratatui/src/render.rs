@@ -11,7 +11,7 @@ use crate::{
     ui::{ActionBar, AppFrame, EmptyState, Modal, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use diff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
+use diff_core::{DiffTone, PresentedCell, PresentedRow, RowKind, SourceStatus};
 use diff_syntax::{HighlightSpan, SyntaxHighlighter};
 use diff_theme::DiffTheme;
 use ratatui::{
@@ -334,6 +334,7 @@ fn render_patch(
                     row_area,
                     buffer,
                     &mut context,
+                    index,
                     row,
                     &RowStyle {
                         selected,
@@ -398,6 +399,7 @@ fn render_row(
     area: Rect,
     buffer: &mut Buffer,
     context: &mut CellContext<'_>,
+    row_index: usize,
     row: &PresentedRow,
     style: &RowStyle,
 ) {
@@ -428,7 +430,35 @@ fn render_row(
                 )
                 .render(area, buffer);
         }
-        RowKind::Code if style.layout.is_split() => {
+        RowKind::ExpandGap => {
+            let text = context.presentation.gap_info(row_index).map_or_else(
+                || " ⋯ unchanged lines".to_owned(),
+                |info| {
+                    let message = match info.status {
+                        SourceStatus::Loaded => {
+                            format!("{} — o expand · O expand all", info.message())
+                        }
+                        SourceStatus::Stale => {
+                            format!("{} — r refresh", info.message())
+                        }
+                        _ => info.message(),
+                    };
+                    format!(" {message}")
+                },
+            );
+            Paragraph::new(text)
+                .style(
+                    Style::new()
+                        .fg(context.theme.ui.text_muted)
+                        .bg(if style.selected {
+                            context.theme.ui.surface_selected
+                        } else {
+                            context.theme.ui.canvas
+                        }),
+                )
+                .render(area, buffer);
+        }
+        RowKind::Code | RowKind::ExpandedContext if style.layout.is_split() => {
             let left_width = area.width.saturating_sub(1) / 2;
             let right_width = area.width.saturating_sub(left_width + 1);
             let [left, separator, right] = Layout::horizontal([
@@ -454,7 +484,7 @@ fn render_row(
                 focused(diff_core::DiffSide::New),
             );
         }
-        RowKind::Code => {
+        RowKind::Code | RowKind::ExpandedContext => {
             render_cell(area, buffer, context, row.primary_cell(), style.selected);
         }
     }
@@ -479,7 +509,7 @@ fn render_cell(
         return;
     };
     let number = cell
-        .line_number
+        .line_number()
         .map_or_else(String::new, |number| number.to_string());
     let indicator = match tone {
         DiffTone::Added | DiffTone::Removed => '▌',
@@ -583,9 +613,9 @@ fn render_footer(
     } else if state.focus == FocusPane::Files {
         "[j/k] entry  [h/l] fold/open  [t] theme  [?] help"
     } else if state.layout().is_split() {
-        "[j/k] line  [←/→] side  [c] comment  [s] submit  [t] theme  [?] help"
+        "[j/k] line  [←/→] side  [o/O] context  [f] full file  [c] comment  [?] help"
     } else {
-        "[j/k] line  [c] comment  [e/x] edit/delete  [s] submit  [y] copy  [h] files"
+        "[j/k] line  [o/O] context  [f] full file  [c] comment  [s] submit  [h] files"
     };
     let review = state.review();
     let outdated = review.outdated_count();
@@ -616,7 +646,7 @@ fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     render_modal_text(
         content,
         buffer,
-        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  r                refresh\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
+        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n  o/Enter          expand context\n  O                expand all context\n  f                toggle full-file view\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  r                refresh\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
         theme,
     );
 }

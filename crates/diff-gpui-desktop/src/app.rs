@@ -1,10 +1,10 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
 use crate::{args::CliArgs, preferences, window_chrome};
-use diff_core::{DiffDocument, DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
-use diff_git::{GitError, GitRepository};
+use diff_core::{DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
+use diff_git::{GitError, GitRepository, RepositorySnapshot, SourceArchive};
 use diff_gpui::{
-    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged,
+    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, SourceRequested, ThemeChanged,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use diff_theme::DiffTheme;
@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, mpsc::Sender},
 };
 
-type LoadResult = Result<(Option<GitRepository>, DiffDocument), GitError>;
+type LoadResult = Result<(Option<GitRepository>, RepositorySnapshot), GitError>;
 
 actions!(desktop_diff, [Refresh, CycleScope, StageAll, UnstageAll]);
 
@@ -57,7 +57,9 @@ pub(crate) struct DesktopApp {
     state: LoadState,
     viewer: Option<Entity<DiffViewer>>,
     viewer_subscription: Option<Subscription>,
+    source_subscription: Option<Subscription>,
     theme_subscription: Option<Subscription>,
+    source_archive: Option<Arc<SourceArchive>>,
     theme: DiffTheme,
     load_task: Task<()>,
     outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
@@ -77,7 +79,9 @@ impl DesktopApp {
             state: LoadState::Loading,
             viewer: None,
             viewer_subscription: None,
+            source_subscription: None,
             theme_subscription: None,
+            source_archive: None,
             theme: preferences::load_theme(),
             load_task: Task::ready(()),
             outcome_sender,
@@ -108,11 +112,11 @@ impl DesktopApp {
         self.load_task = cx.spawn(async move |this, cx| {
             let result = operation.await;
             let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok((repository, document))) => {
+                Ok(Ok((repository, snapshot))) => {
                     if let Some(repository) = repository {
                         this.repository = Some(repository);
                     }
-                    this.install_document(document, cx);
+                    this.install_snapshot(snapshot, cx);
                 }
                 Ok(Err(error)) => this.set_error(&error, cx),
                 Err(error) => {
@@ -129,8 +133,8 @@ impl DesktopApp {
         let scope = self.scope;
         self.load(cx, async move {
             let repository = GitRepository::discover(path).await?;
-            let document = repository.snapshot(scope).await?;
-            Ok((Some(repository), document))
+            let snapshot = repository.snapshot_with_sources(scope).await?;
+            Ok((Some(repository), snapshot))
         });
     }
 
@@ -142,9 +146,9 @@ impl DesktopApp {
         let scope = self.scope;
         self.load(cx, async move {
             repository
-                .snapshot(scope)
+                .snapshot_with_sources(scope)
                 .await
-                .map(|document| (None, document))
+                .map(|snapshot| (None, snapshot))
         });
     }
 
@@ -160,9 +164,9 @@ impl DesktopApp {
                 repository.unstage_all().await?;
             }
             repository
-                .snapshot(scope)
+                .snapshot_with_sources(scope)
                 .await
-                .map(|document| (None, document))
+                .map(|snapshot| (None, snapshot))
         });
     }
 
@@ -186,12 +190,12 @@ impl DesktopApp {
                 }
                 RepositoryAction::Refresh => {}
             }
-            repository.snapshot(scope).await
+            repository.snapshot_with_sources(scope).await
         });
         self.load_task = cx.spawn(async move |this, cx| {
             let result = operation.await;
             let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok(document)) => this.install_document(document, cx),
+                Ok(Ok(snapshot)) => this.install_snapshot(snapshot, cx),
                 Ok(Err(error)) => {
                     if let Some(viewer) = &this.viewer {
                         viewer.update(cx, |viewer, cx| {
@@ -213,7 +217,9 @@ impl DesktopApp {
         });
     }
 
-    fn install_document(&mut self, document: DiffDocument, cx: &mut Context<Self>) {
+    fn install_snapshot(&mut self, snapshot: RepositorySnapshot, cx: &mut Context<Self>) {
+        let (document, archive) = snapshot.into_parts();
+        self.source_archive = Some(Arc::new(archive));
         let is_empty = document.files.is_empty();
         let document = Arc::new(document);
         if let Some(viewer) = &self.viewer {
@@ -226,6 +232,20 @@ impl DesktopApp {
                 &viewer,
                 |this, _viewer, event: &DiffReviewEvent, cx| {
                     this.handle_viewer_event(event, cx);
+                },
+            ));
+            self.source_subscription = Some(cx.subscribe(
+                &viewer,
+                |this, viewer, event: &SourceRequested, cx| {
+                    let Some(archive) = this.source_archive.clone() else {
+                        return;
+                    };
+                    for request in &event.requests {
+                        let response = archive.response(request);
+                        viewer.update(cx, |viewer, cx| {
+                            viewer.provide_source(response, cx);
+                        });
+                    }
                 },
             ));
             self.theme_subscription = Some(cx.subscribe(

@@ -1,7 +1,7 @@
 #![allow(dead_code, missing_docs)]
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use diff_core::DiffDocument;
+use diff_core::{DiffDocument, SourceResponse, testing::DocumentFixture};
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget};
 use diff_syntax::HighlightStats;
 use ratatui::{
@@ -148,6 +148,18 @@ impl ReviewHarness {
 
     pub fn state(&self) -> &DiffReviewState {
         &self.state
+    }
+
+    pub fn state_mut(&mut self) -> &mut DiffReviewState {
+        &mut self.state
+    }
+
+    pub fn answer_sources(&mut self, fixture: &DocumentFixture) -> Vec<SourceResponse> {
+        let responses = fixture.responses(&self.state.take_source_requests());
+        for response in responses.iter().cloned() {
+            self.state.provide_source(response);
+        }
+        responses
     }
 
     pub fn buffer(&self) -> &Buffer {

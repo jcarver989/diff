@@ -1,10 +1,11 @@
 //! Contracts between `diff-git`, the real Git executable, and `diff-core`.
 
 use diff_core::{
-    DiffDocument, DiffScope, FileDiff, FileStatus, PatchLineKind, RepoPath, StageState,
+    DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath, SourceKey,
+    SourceRequest, SourceUnavailable, StageState,
 };
-use diff_git::{FileContent, GitError, GitRepository};
-use std::{fs, path::PathBuf, process::Command};
+use diff_git::{FileContent, GitError, GitRepository, MAX_SOURCE_FILE_BYTES};
+use std::{fs, path::PathBuf, process::Command, sync::Arc};
 use tempfile::TempDir;
 
 struct Repo {
@@ -148,6 +149,210 @@ async fn snapshots_keep_staged_unstaged_and_partial_content_separate() {
     assert_eq!(
         file(&both, "partial.txt").staged,
         StageState::PartiallyStaged
+    );
+}
+
+#[tokio::test]
+async fn richer_snapshots_capture_exact_head_index_and_worktree_versions() {
+    let repo = Repo::init();
+    repo.write("three.txt", "head\n");
+    repo.commit_all();
+    repo.write("three.txt", "index\n");
+    repo.git(&["add", "three.txt"]);
+    repo.write("three.txt", "worktree\n");
+    let repository = repo.repository().await;
+    let key = |side| SourceKey {
+        review_path: path("three.txt"),
+        side,
+    };
+    let text = |snapshot: &diff_git::RepositorySnapshot, side| {
+        snapshot
+            .sources()
+            .get(&key(side))
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .to_owned()
+    };
+
+    let staged = repository
+        .snapshot_with_sources(DiffScope::Staged)
+        .await
+        .unwrap();
+    assert_eq!(text(&staged, DiffSide::Old), "head\n");
+    assert_eq!(text(&staged, DiffSide::New), "index\n");
+
+    let unstaged = repository
+        .snapshot_with_sources(DiffScope::Unstaged)
+        .await
+        .unwrap();
+    assert_eq!(text(&unstaged, DiffSide::Old), "index\n");
+    assert_eq!(text(&unstaged, DiffSide::New), "worktree\n");
+
+    let both = repository
+        .snapshot_with_sources(DiffScope::Both)
+        .await
+        .unwrap();
+    assert_eq!(text(&both, DiffSide::Old), "head\n");
+    assert_eq!(text(&both, DiffSide::New), "worktree\n");
+
+    repo.write("three.txt", "changed after capture\n");
+    assert_eq!(text(&both, DiffSide::Old), "head\n");
+    assert_eq!(text(&both, DiffSide::New), "worktree\n");
+    let mismatched_path = SourceRequest {
+        epoch: 3,
+        key: key(DiffSide::New),
+        source_path: path("different.txt"),
+    };
+    assert!(matches!(
+        both.sources().response(&mismatched_path).result,
+        Err(SourceUnavailable::Error(_))
+    ));
+}
+
+#[tokio::test]
+async fn source_archives_preserve_crlf_and_final_newline_identity() {
+    let repo = Repo::init();
+    repo.write("lines.txt", b"old\r\nsecond\r\n");
+    repo.commit_all();
+    repo.write("lines.txt", b"new\r\nsecond");
+    let repository = repo.repository().await;
+    let snapshot = repository
+        .snapshot_with_sources(DiffScope::Unstaged)
+        .await
+        .unwrap();
+    let source = |side| {
+        snapshot
+            .sources()
+            .get(&SourceKey {
+                review_path: path("lines.txt"),
+                side,
+            })
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .as_ref()
+    };
+    assert_eq!(source(DiffSide::Old), "old\r\nsecond\r\n");
+    assert_eq!(source(DiffSide::New), "new\r\nsecond");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn source_archive_budget_marks_later_versions_unavailable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = Repo::init();
+    let contents = vec![b'x'; usize::try_from(MAX_SOURCE_FILE_BYTES).unwrap()];
+    for index in 0..5 {
+        repo.write(&format!("large-{index}.txt"), &contents);
+    }
+    repo.commit_all();
+    for index in 0..5 {
+        let path = repo.root.join(format!("large-{index}.txt"));
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    let snapshot = repo
+        .repository()
+        .await
+        .snapshot_with_sources(DiffScope::Unstaged)
+        .await
+        .unwrap();
+    for side in [DiffSide::Old, DiffSide::New] {
+        assert!(
+            snapshot
+                .sources()
+                .get(&SourceKey {
+                    review_path: path("large-3.txt"),
+                    side,
+                })
+                .unwrap()
+                .is_ok()
+        );
+        assert_eq!(
+            snapshot.sources().get(&SourceKey {
+                review_path: path("large-4.txt"),
+                side,
+            }),
+            Some(&Err(SourceUnavailable::SnapshotBudgetExceeded))
+        );
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn oversized_blob_does_not_break_batch_framing() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = Repo::init();
+    let oversized_bytes = MAX_SOURCE_FILE_BYTES.saturating_add(1);
+    repo.write(
+        "a-large.txt",
+        vec![b'x'; usize::try_from(oversized_bytes).unwrap()],
+    );
+    repo.write("z-small.txt", "small\n");
+    repo.commit_all();
+    for name in ["a-large.txt", "z-small.txt"] {
+        let path = repo.root.join(name);
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    let snapshot = repo
+        .repository()
+        .await
+        .snapshot_with_sources(DiffScope::Unstaged)
+        .await
+        .unwrap();
+    for side in [DiffSide::Old, DiffSide::New] {
+        assert_eq!(
+            snapshot
+                .sources()
+                .get(&SourceKey::new(path("a-large.txt"), side)),
+            Some(&Err(SourceUnavailable::TooLarge {
+                bytes: oversized_bytes
+            }))
+        );
+        assert_eq!(
+            snapshot
+                .sources()
+                .get(&SourceKey::new(path("z-small.txt"), side)),
+            Some(&Ok(Arc::from("small\n")))
+        );
+    }
+}
+
+#[tokio::test]
+async fn discarded_binary_versions_do_not_consume_the_source_archive_budget() {
+    let repo = Repo::init();
+    let mut binary = vec![b'x'; usize::try_from(MAX_SOURCE_FILE_BYTES).unwrap()];
+    binary[0] = 0;
+    for index in 0..9 {
+        repo.write(&format!("binary-{index}.bin"), &binary);
+    }
+    repo.write("z-text.txt", "before\n");
+    repo.commit_all();
+    binary[1] = b'y';
+    for index in 0..9 {
+        repo.write(&format!("binary-{index}.bin"), &binary);
+    }
+    repo.write("z-text.txt", "after\n");
+
+    let snapshot = repo
+        .repository()
+        .await
+        .snapshot_with_sources(DiffScope::Unstaged)
+        .await
+        .unwrap();
+    let text_key = SourceKey::new(path("z-text.txt"), DiffSide::New);
+    assert_eq!(
+        snapshot.sources().get(&text_key),
+        Some(&Ok(Arc::from("after\n")))
     );
 }
 
@@ -405,6 +610,33 @@ async fn discard_restores_tracked_files_and_removes_untracked_files() {
             .expect("clean snapshot")
             .files
             .is_empty()
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn untracked_symlinks_use_the_link_target_for_patch_and_source() {
+    use std::os::unix::fs::symlink;
+
+    let repo = Repo::init();
+    repo.write("target.txt", "target contents\n");
+    repo.commit_all();
+    symlink("target.txt", repo.root.join("link.txt")).expect("create symlink");
+
+    let snapshot = repo
+        .repository()
+        .await
+        .snapshot_with_sources(DiffScope::Both)
+        .await
+        .expect("capture symlink");
+    assert_eq!(
+        file(&snapshot.document, "link.txt").status,
+        FileStatus::Untracked
+    );
+    let key = SourceKey::new(path("link.txt"), DiffSide::New);
+    assert_eq!(
+        snapshot.sources().get(&key),
+        Some(&Ok(Arc::from("target.txt")))
     );
 }
 

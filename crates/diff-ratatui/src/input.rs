@@ -8,7 +8,7 @@ use crate::{
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
-use diff_core::{DiffSide, RepositoryAction};
+use diff_core::{DiffSide, RepositoryAction, RevealAmount};
 use ratatui::layout::Position;
 
 /// Files one wheel notch scrolls the drawer. A notch is a line, not a file, so
@@ -108,6 +108,7 @@ impl DiffReviewState {
         self.handle_browse_key(key)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn handle_browse_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
         if matches!(self.repository_status, RepositoryOperationStatus::Pending)
             && matches!(key.code, KeyCode::Char(' ' | 'a' | 'A' | 'C' | 'd' | 'r'))
@@ -135,8 +136,8 @@ impl DiffReviewState {
                     self.collapse_drawer_entry();
                 }
             }
-            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
-                if self.focus == FocusPane::Files && !self.expand_or_open_drawer_entry() {
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter if !in_diff => {
+                if !self.expand_or_open_drawer_entry() {
                     self.focus = FocusPane::Diff;
                 }
             }
@@ -195,6 +196,24 @@ impl DiffReviewState {
             }
             KeyCode::Char('t') => {
                 self.theme_picker = Some(ThemePicker::new(&self.theme));
+            }
+            KeyCode::Enter
+                if in_diff
+                    && self
+                        .session
+                        .selected_row()
+                        .is_some_and(|row| self.presentation().gap_info(row).is_some()) =>
+            {
+                self.reveal_selected_gap(RevealAmount::Step);
+            }
+            KeyCode::Char('o') if in_diff => {
+                self.reveal_selected_gap(RevealAmount::Step);
+            }
+            KeyCode::Char('O') if in_diff => {
+                self.reveal_selected_gap(RevealAmount::All);
+            }
+            KeyCode::Char('f') if in_diff => {
+                self.toggle_full_file();
             }
             KeyCode::Char('v') => {
                 if self.session.cycle_view_mode() {

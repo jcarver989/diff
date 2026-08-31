@@ -13,7 +13,7 @@ workspace = true
 [dependencies]
 diff-core = { path = "../diff-core" }
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -1,10 +1,88 @@
-use crate::{DiffDocument, FileDiff, FileStatus, Hunk, PatchLine, RepoPath, StageState};
-use std::sync::Arc;
+use crate::{
+    DiffDocument, DiffSide, FileDiff, FileStatus, Hunk, PatchLine, RepoPath, SourceKey,
+    SourceRequest, SourceResponse, SourceUnavailable, StageState,
+};
+use std::{collections::HashMap, sync::Arc};
+
+/// A document fixture and exact host-owned source responses for its file versions.
+#[derive(Debug, Clone)]
+pub struct DocumentFixture {
+    pub document: Arc<DiffDocument>,
+    sources: HashMap<SourceKey, Result<Arc<str>, SourceUnavailable>>,
+}
+
+impl DocumentFixture {
+    /// Builds a response for a request emitted by a session using this fixture.
+    #[must_use]
+    pub fn response(&self, request: &SourceRequest) -> SourceResponse {
+        SourceResponse {
+            epoch: request.epoch,
+            key: request.key.clone(),
+            result: self
+                .sources
+                .get(&request.key)
+                .cloned()
+                .unwrap_or(Err(SourceUnavailable::Absent)),
+        }
+    }
+
+    /// Answers all requests while preserving their request order.
+    #[must_use]
+    pub fn responses(&self, requests: &[SourceRequest]) -> Vec<SourceResponse> {
+        requests
+            .iter()
+            .map(|request| self.response(request))
+            .collect()
+    }
+}
+
+/// Reusable builder for successful and unavailable source responses.
+#[derive(Debug, Clone)]
+pub struct SourceResponseBuilder {
+    response: SourceResponse,
+}
+
+impl SourceResponseBuilder {
+    #[must_use]
+    pub fn from_request(request: &SourceRequest) -> Self {
+        Self {
+            response: SourceResponse {
+                epoch: request.epoch,
+                key: request.key.clone(),
+                result: Err(SourceUnavailable::Absent),
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn text(mut self, text: impl Into<Arc<str>>) -> Self {
+        self.response.result = Ok(text.into());
+        self
+    }
+
+    #[must_use]
+    pub fn unavailable(mut self, reason: SourceUnavailable) -> Self {
+        self.response.result = Err(reason);
+        self
+    }
+
+    #[must_use]
+    pub fn epoch(mut self, epoch: u64) -> Self {
+        self.response.epoch = epoch;
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> SourceResponse {
+        self.response
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DocumentBuilder {
     repo_root: String,
     files: Vec<FileDiff>,
+    sources: HashMap<SourceKey, Result<Arc<str>, SourceUnavailable>>,
 }
 
 impl Default for DocumentBuilder {
@@ -19,6 +97,7 @@ impl DocumentBuilder {
         Self {
             repo_root: "/repo".to_owned(),
             files: Vec::new(),
+            sources: HashMap::new(),
         }
     }
 
@@ -34,8 +113,68 @@ impl DocumentBuilder {
     ///
     /// Panics when `path` is not a valid repository-relative fixture path.
     #[must_use]
-    pub fn changed(self, path: &str, old: &str, new: &str) -> Self {
-        self.file(FileDiff::from_texts(path, old, new).expect("valid fixture path"))
+    pub fn changed(mut self, path: &str, old: &str, new: &str) -> Self {
+        let file = FileDiff::from_texts(path, old, new).expect("valid fixture path");
+        let review_path = file.path.clone();
+        self.sources.insert(
+            SourceKey::new(review_path.clone(), DiffSide::Old),
+            if file.status == FileStatus::Added {
+                Err(SourceUnavailable::Absent)
+            } else {
+                Ok(Arc::from(old))
+            },
+        );
+        self.sources.insert(
+            SourceKey::new(review_path, DiffSide::New),
+            if file.status == FileStatus::Deleted {
+                Err(SourceUnavailable::Absent)
+            } else {
+                Ok(Arc::from(new))
+            },
+        );
+        self.file(file)
+    }
+
+    /// Adds a changed fixture whose patch contains only the requested source-line window.
+    /// Complete old and new text remain available through the fixture source host.
+    ///
+    /// # Panics
+    /// Panics when the path is invalid or the generated diff has no changed hunk.
+    #[must_use]
+    pub fn changed_with_hunk_window(
+        mut self,
+        path: &str,
+        old: &str,
+        new: &str,
+        window: std::ops::RangeInclusive<usize>,
+    ) -> Self {
+        let mut file = FileDiff::from_texts(path, old, new).expect("valid fixture path");
+        let mut hunk = file.hunks.remove(0);
+        hunk.lines.retain(|line| {
+            line.old_line_no
+                .is_some_and(|number| window.contains(&number))
+                || line
+                    .new_line_no
+                    .is_some_and(|number| window.contains(&number))
+        });
+        let start = *window.start();
+        let count = window.end().saturating_sub(start).saturating_add(1);
+        hunk.old_start = start;
+        hunk.old_count = count;
+        hunk.new_start = start;
+        hunk.new_count = count;
+        hunk.header = format!("@@ -{start},{count} +{start},{count} @@");
+        file.hunks = vec![hunk];
+        let review_path = file.path.clone();
+        self.sources.insert(
+            SourceKey::new(review_path.clone(), DiffSide::Old),
+            Ok(Arc::from(old)),
+        );
+        self.sources.insert(
+            SourceKey::new(review_path, DiffSide::New),
+            Ok(Arc::from(new)),
+        );
+        self.file(file)
     }
 
     #[must_use]
@@ -101,12 +240,35 @@ impl DocumentBuilder {
         self
     }
 
+    /// Attaches an exact source result without changing patch metadata.
+    #[must_use]
+    pub fn source(
+        mut self,
+        path: &str,
+        side: DiffSide,
+        result: Result<impl Into<Arc<str>>, SourceUnavailable>,
+    ) -> Self {
+        self.sources.insert(
+            SourceKey::new(fixture_path(path), side),
+            result.map(Into::into),
+        );
+        self
+    }
+
     #[must_use]
     pub fn build(self) -> Arc<DiffDocument> {
-        Arc::new(DiffDocument {
-            repo_root: self.repo_root,
-            files: self.files,
-        })
+        self.build_fixture().document
+    }
+
+    #[must_use]
+    pub fn build_fixture(self) -> DocumentFixture {
+        DocumentFixture {
+            document: Arc::new(DiffDocument {
+                repo_root: self.repo_root,
+                files: self.files,
+            }),
+            sources: self.sources,
+        }
     }
 }
 

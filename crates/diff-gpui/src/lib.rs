@@ -32,11 +32,12 @@ pub use markdown_viewer::{
     MarkdownShowThemePicker, MarkdownSubmitComment, MarkdownUndoComment,
 };
 pub use viewer::{
-    AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse, CommitChanges,
-    ConfirmDiscard, CopyReview, CycleViewMode, DecreaseFontSize, DeleteComment, DiffViewer,
-    DiffViewerOptions, DiscardChanges, EditComment, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles,
-    HideShortcuts, HideThemePicker, IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem,
-    PageDown, PageUp, PreviousFile, PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide,
-    SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment, SubmitReview,
+    ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse,
+    CommitChanges, ConfirmDiscard, CopyReview, CycleViewMode, DecreaseFontSize, DeleteComment,
+    DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap, ExpandGapAll,
+    ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, HideThemePicker,
+    IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, PageDown, PageUp, PreviousFile,
+    PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide, SelectOldSide, ShowShortcuts,
+    ShowThemePicker, SourceRequested, StageAll, SubmitComment, SubmitReview, ToggleFullFile,
     TogglePane, ToggleStage, UndoComment, UnstageAll, ViewerPane,
 };

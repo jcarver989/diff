@@ -4,8 +4,8 @@ use crate::{
     theme_picker::ThemePicker,
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, RepositoryAction, Review,
-    ReviewSession, StageState, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, RepositoryAction, RevealAmount,
+    Review, ReviewSession, SourceRequest, SourceResponse, StageState, ViewMode,
 };
 use diff_syntax::{HighlightStats, SyntaxHighlighter};
 use diff_theme::DiffTheme;
@@ -360,6 +360,34 @@ impl DiffReviewState {
         self.mark_dirty();
     }
 
+    /// Drains lazy complete-source requests for the host to resolve.
+    pub fn take_source_requests(&mut self) -> Vec<SourceRequest> {
+        self.session.take_source_requests()
+    }
+
+    fn finish_projection_change(&mut self, changed: bool) -> bool {
+        if changed {
+            self.request_follow();
+        }
+        changed
+    }
+
+    /// Installs one host-provided immutable source response.
+    pub fn provide_source(&mut self, response: SourceResponse) -> bool {
+        let changed = self.session.provide_source(response);
+        self.finish_projection_change(changed)
+    }
+
+    pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
+        let changed = self.session.reveal_selected_gap(amount);
+        self.finish_projection_change(changed)
+    }
+
+    pub fn toggle_full_file(&mut self) -> bool {
+        let changed = self.session.toggle_full_file();
+        self.finish_projection_change(changed)
+    }
+
     /// Selects automatic, unified, or split presentation.
     pub fn set_view_mode(&mut self, mode: ViewMode) {
         self.mark_dirty();
@@ -591,6 +619,7 @@ impl DiffReviewState {
         (Arc::as_ptr(self.document()) as usize).hash(&mut hasher);
         self.presentation_width.hash(&mut hasher);
         self.layout().is_split().hash(&mut hasher);
+        self.session.projection_revision().hash(&mut hasher);
         range.start.hash(&mut hasher);
         range.end.hash(&mut hasher);
         for comment in self.review().comments() {
@@ -616,6 +645,9 @@ impl DiffReviewState {
         if let Some(index) = clicked
             && self.session.select_row(index)
         {
+            if self.session.presentation().gap_info(index).is_some() {
+                self.reveal_selected_gap(RevealAmount::Step);
+            }
             self.request_follow();
         }
     }

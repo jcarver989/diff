@@ -63,11 +63,11 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
     let submission = match args.ui {
         Ui::Desktop => diff_gpui_desktop::run_review(root.clone(), args.scope),
         Ui::Tui => {
-            let document = repository.snapshot(args.scope).await?;
+            let snapshot = repository.snapshot_with_sources(args.scope).await?;
             match args.tui_placement {
-                TuiPlacement::Current => tui::run_local(&repository, document, args.scope)?,
+                TuiPlacement::Current => tui::run_local(&repository, snapshot, args.scope)?,
                 TuiPlacement::External => {
-                    session::run(&repository, &document, args.scope, |socket_path| {
+                    session::run(&repository, &snapshot, args.scope, |socket_path| {
                         tui::launch(socket_path).map_err(|error| error.to_string())
                     })?
                 }

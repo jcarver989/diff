@@ -1,4 +1,4 @@
-use diff_core::{DiffDocument, RepositoryAction, ReviewSubmission};
+use diff_core::{DiffDocument, RepositoryAction, ReviewSubmission, SourceRequest, SourceResponse};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 use thiserror::Error;
@@ -10,6 +10,7 @@ const MAX_RESPONSE_BYTES: usize = 128 * 1024 * 1024;
 pub enum SessionRequest {
     Document,
     RepositoryAction(RepositoryAction),
+    Source(SourceRequest),
     Submit(ReviewSubmission),
     Cancel,
 }
@@ -18,6 +19,7 @@ pub enum SessionRequest {
 pub enum SessionRequestRef<'a> {
     Document,
     RepositoryAction(&'a RepositoryAction),
+    Source(&'a SourceRequest),
     Submit(&'a ReviewSubmission),
     Cancel,
 }
@@ -25,6 +27,7 @@ pub enum SessionRequestRef<'a> {
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub enum SessionResponse {
     Document(DiffDocument),
+    Source(SourceResponse),
     Accepted,
     RepositoryError(String),
     ProtocolError(String),
@@ -33,6 +36,7 @@ pub enum SessionResponse {
 #[derive(Serialize)]
 pub enum SessionResponseRef<'a> {
     Document(&'a DiffDocument),
+    Source(&'a SourceResponse),
     Accepted,
     RepositoryError(&'a str),
     ProtocolError(&'a str),
@@ -114,7 +118,8 @@ pub enum ProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::net::UnixStream;
+    use diff_core::{DiffSide, RepoPath, SourceKey};
+    use std::{os::unix::net::UnixStream, sync::Arc};
 
     #[test]
     fn exchanges_length_delimited_messages() {
@@ -138,6 +143,40 @@ mod tests {
             read_response(&mut writer).unwrap(),
             SessionResponse::RepositoryError("repository changed".to_owned())
         );
+    }
+
+    #[test]
+    fn source_messages_round_trip_with_large_bounded_payloads() {
+        let key = SourceKey {
+            review_path: RepoPath::new("src/main.rs").unwrap(),
+            side: DiffSide::New,
+        };
+        let request = SourceRequest {
+            epoch: 7,
+            key: key.clone(),
+            source_path: RepoPath::new("src/main.rs").unwrap(),
+        };
+        let (mut writer, mut reader) = UnixStream::pair().unwrap();
+        write_request(&mut writer, &SessionRequestRef::Source(&request)).unwrap();
+        assert_eq!(
+            read_request(&mut reader).unwrap(),
+            SessionRequest::Source(request.clone())
+        );
+
+        let response = SourceResponse {
+            epoch: request.epoch,
+            key,
+            result: Ok(Arc::from("x".repeat(8 * 1024 * 1024))),
+        };
+        let expected = response.clone();
+        let response_writer = std::thread::spawn(move || {
+            write_response(&mut reader, &SessionResponseRef::Source(&response)).unwrap();
+        });
+        assert_eq!(
+            read_response(&mut writer).unwrap(),
+            SessionResponse::Source(expected)
+        );
+        response_writer.join().unwrap();
     }
 
     #[test]

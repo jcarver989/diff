@@ -159,7 +159,8 @@ fn normalize_hunks(text: &Patch<'_, [u8]>) -> Result<Vec<Hunk>, DiffError> {
                         number
                     });
                     let no_newline = !bytes.ends_with(b"\n");
-                    let text = std::str::from_utf8(bytes.strip_suffix(b"\n").unwrap_or(bytes))?;
+                    let text = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+                    let text = std::str::from_utf8(text.strip_suffix(b"\r").unwrap_or(text))?;
                     Ok(PatchLine {
                         kind,
                         text: text.into(),

@@ -9,8 +9,8 @@ use crate::{
 };
 use diff_core::{
     DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, LineAnchor, PresentedCell,
-    PresentedRow, RepoPath, RepositoryAction, Review, ReviewSession, SessionOptions, StageState,
-    ViewMode,
+    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SessionOptions,
+    SourceRequest, SourceResponse, StageState, ViewMode,
 };
 use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SequenceLine, SyntaxHighlighter};
 use diff_theme::DiffTheme;
@@ -51,6 +51,10 @@ actions!(
         ExpandOrOpen,
         Collapse,
         CycleViewMode,
+        ExpandGap,
+        ActivateGap,
+        ExpandGapAll,
+        ToggleFullFile,
         AddComment,
         EditComment,
         DeleteComment,
@@ -114,6 +118,11 @@ pub(crate) struct CommentTarget {
 enum RepositoryPrompt {
     Commit,
     Discard { path: RepoPath, status: FileStatus },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceRequested {
+    pub requests: Vec<SourceRequest>,
 }
 
 /// The pane currently receiving browse-mode navigation commands.
@@ -268,6 +277,10 @@ impl DiffViewer {
             KeyBinding::new("u", UndoComment, Some(DIFF)),
             KeyBinding::new("s", SubmitReview, Some(DIFF)),
             KeyBinding::new("y", CopyReview, Some(DIFF)),
+            KeyBinding::new("o", ExpandGap, Some(DIFF)),
+            KeyBinding::new("shift-o", ExpandGapAll, Some(DIFF)),
+            KeyBinding::new("f", ToggleFullFile, Some(DIFF)),
+            KeyBinding::new("enter", ActivateGap, Some(DIFF)),
             KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
             KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
             KeyBinding::new("escape", HideShortcuts, Some(SHORTCUTS)),
@@ -412,9 +425,75 @@ impl DiffViewer {
             let document = self.session.document().clone();
             self.sidebar_tree.expand_file(&document, index);
         }
+        self.session.cancel_draft();
         self.clear_comment_editor();
         self.diff_list_file = None;
+        self.emit_source_requests(cx);
         cx.notify();
+    }
+
+    pub fn provide_source(&mut self, response: SourceResponse, cx: &mut Context<Self>) -> bool {
+        let changed = self.session.provide_source(response);
+        if changed {
+            self.diff_list_file = None;
+            cx.notify();
+        }
+        changed
+    }
+
+    fn emit_source_requests(&mut self, cx: &mut Context<Self>) {
+        let requests = self.session.take_source_requests();
+        if !requests.is_empty() {
+            cx.emit(SourceRequested { requests });
+        }
+    }
+
+    fn finish_layout_change(&mut self, changed: bool, cx: &mut Context<Self>) -> bool {
+        if changed {
+            self.diff_list_file = None;
+            self.emit_source_requests(cx);
+            cx.notify();
+        }
+        changed
+    }
+
+    pub(crate) fn expand_selected_gap(&mut self, amount: RevealAmount, cx: &mut Context<Self>) {
+        let selected = self.session.selected_row();
+        let file = self.session.selected_file();
+        let old_range = file.and_then(|file| self.session.presentation().file_range(file));
+        let selected_gap =
+            selected.is_some_and(|row| self.session.presentation().gap_info(row).is_some());
+        if self.session.reveal_selected_gap(amount) {
+            let new_range = file.and_then(|file| self.session.presentation().file_range(file));
+            let can_splice = selected_gap
+                && self.diff_list_file == file
+                && old_range
+                    .as_ref()
+                    .is_some_and(|range| self.diff_list_state.item_count() == range.len());
+            if let (true, Some(selected), Some(old_range), Some(new_range)) =
+                (can_splice, selected, old_range, new_range)
+            {
+                let local = selected.saturating_sub(old_range.start);
+                let replacement_count = new_range
+                    .len()
+                    .saturating_sub(old_range.len())
+                    .saturating_add(1);
+                self.diff_list_state
+                    .splice(local..local.saturating_add(1), replacement_count);
+            } else {
+                self.diff_list_file = None;
+            }
+            self.emit_source_requests(cx);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn toggle_full_file_projection(&mut self, cx: &mut Context<Self>) {
+        if self.session.toggle_full_file() {
+            self.diff_list_file = None;
+            self.emit_source_requests(cx);
+            cx.notify();
+        }
     }
 
     /// Marks a repository operation as pending.
@@ -448,9 +527,8 @@ impl DiffViewer {
 
     /// Selects automatic, unified, or split layout.
     pub fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
-        if self.session.set_view_mode(mode) {
-            cx.notify();
-        }
+        let changed = self.session.set_view_mode(mode);
+        self.finish_layout_change(changed, cx);
     }
 
     /// Clears queued comments and the active draft.
@@ -721,6 +799,33 @@ impl DiffViewer {
         self.clear_comment_editor();
         self.remeasure_row(row);
         cx.notify();
+    }
+
+    fn expand_gap_action(&mut self, _: &ExpandGap, _: &mut Window, cx: &mut Context<Self>) {
+        self.expand_selected_gap(RevealAmount::Step, cx);
+    }
+
+    fn activate_gap_action(&mut self, _: &ActivateGap, _: &mut Window, cx: &mut Context<Self>) {
+        let selected_gap = self
+            .session
+            .selected_row()
+            .is_some_and(|row| self.session.presentation().gap_info(row).is_some());
+        if selected_gap {
+            self.expand_selected_gap(RevealAmount::Step, cx);
+        }
+    }
+
+    fn expand_gap_all_action(&mut self, _: &ExpandGapAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.expand_selected_gap(RevealAmount::All, cx);
+    }
+
+    fn toggle_full_file_action(
+        &mut self,
+        _: &ToggleFullFile,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_full_file_projection(cx);
     }
 
     pub(crate) fn highlight_cell(
@@ -1062,9 +1167,8 @@ impl DiffViewer {
     }
 
     fn cycle_view_mode(&mut self, _: &CycleViewMode, _: &mut Window, cx: &mut Context<Self>) {
-        if self.session.cycle_view_mode() {
-            cx.notify();
-        }
+        let changed = self.session.cycle_view_mode();
+        self.finish_layout_change(changed, cx);
     }
 
     fn increase_font_size(&mut self, _: &IncreaseFontSize, _: &mut Window, cx: &mut Context<Self>) {
@@ -1255,6 +1359,7 @@ impl DiffViewer {
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
 impl EventEmitter<ThemeChanged> for DiffViewer {}
+impl EventEmitter<SourceRequested> for DiffViewer {}
 
 fn clamp_font_size(size: f32) -> f32 {
     size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)
@@ -1286,8 +1391,13 @@ impl Render for DiffViewer {
             self.diff_list_state.remeasure();
         }
         let diff_width = viewport_width - sidebar_width - SIDEBAR_DIVIDER_WIDTH;
-        self.session
-            .set_split_when_auto(diff_width >= self.options.auto_split_width);
+        if self
+            .session
+            .set_split_when_auto(diff_width >= self.options.auto_split_width)
+        {
+            self.diff_list_file = None;
+            self.emit_source_requests(cx);
+        }
         let palette = self.theme.palette().clone();
         let focus_handle = self
             .focus_handle
@@ -1353,6 +1463,10 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::next_hunk))
             .on_action(cx.listener(Self::previous_hunk))
             .on_action(cx.listener(Self::cycle_view_mode))
+            .on_action(cx.listener(Self::expand_gap_action))
+            .on_action(cx.listener(Self::activate_gap_action))
+            .on_action(cx.listener(Self::expand_gap_all_action))
+            .on_action(cx.listener(Self::toggle_full_file_action))
             .on_action(cx.listener(Self::increase_font_size))
             .on_action(cx.listener(Self::decrease_font_size))
             .on_action(cx.listener(Self::reset_font_size_action))
@@ -1421,6 +1535,7 @@ impl Render for DiffViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use diff_core::testing::DocumentBuilder;
 
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < f32::EPSILON);
@@ -1464,7 +1579,7 @@ mod tests {
             })
         }
         let mut viewer = DiffViewer::new(
-            diff_core::testing::DocumentBuilder::new()
+            DocumentBuilder::new()
                 .changed("src/large.rs", &source_lines(""), &source_lines(" + 1"))
                 .build(),
         );

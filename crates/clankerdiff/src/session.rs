@@ -1,6 +1,6 @@
 use crate::protocol::{SessionRequest, SessionResponseRef, read_request, write_response};
-use diff_core::{DiffDocument, DiffScope, RepositoryAction, ReviewSubmission};
-use diff_git::{GitError, GitRepository};
+use diff_core::{DiffScope, RepositoryAction, ReviewSubmission};
+use diff_git::{GitError, GitRepository, RepositorySnapshot};
 use std::{
     io,
     os::unix::net::{UnixListener, UnixStream},
@@ -10,7 +10,7 @@ use thiserror::Error;
 
 pub fn run(
     repository: &GitRepository,
-    document: &DiffDocument,
+    snapshot: &RepositorySnapshot,
     scope: DiffScope,
     launch: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<Option<ReviewSubmission>, SessionError> {
@@ -19,10 +19,10 @@ pub fn run(
     let listener = UnixListener::bind(&socket_path)?;
     launch(&socket_path).map_err(SessionError::Launch)?;
 
-    let mut document = document.clone();
+    let mut snapshot = snapshot.clone();
     for connection in listener.incoming() {
         let mut stream = connection?;
-        match handle_connection(&mut stream, &mut document, repository, scope) {
+        match handle_connection(&mut stream, &mut snapshot, repository, scope) {
             Ok(ConnectionOutcome::Continue) => {}
             Ok(ConnectionOutcome::Submitted(submission)) => return Ok(Some(submission)),
             Ok(ConnectionOutcome::Cancelled) => return Ok(None),
@@ -40,26 +40,26 @@ fn respond_to_bad_request(stream: &mut UnixStream, error: &SessionError) {
 
 fn handle_connection(
     stream: &mut UnixStream,
-    document: &mut DiffDocument,
+    snapshot: &mut RepositorySnapshot,
     repository: &GitRepository,
     scope: DiffScope,
 ) -> Result<ConnectionOutcome, SessionError> {
     match read_request(stream)? {
         SessionRequest::Document => {
-            write_response(stream, &SessionResponseRef::Document(document))?;
+            write_response(stream, &SessionResponseRef::Document(&snapshot.document))?;
             Ok(ConnectionOutcome::Continue)
         }
         SessionRequest::RepositoryAction(action) => {
             let result = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
                     execute_repository_action(repository, action).await?;
-                    repository.snapshot(scope).await
+                    repository.snapshot_with_sources(scope).await
                 })
             });
             match result {
-                Ok(snapshot) => {
-                    *document = snapshot;
-                    write_response(stream, &SessionResponseRef::Document(document))?;
+                Ok(replacement) => {
+                    *snapshot = replacement;
+                    write_response(stream, &SessionResponseRef::Document(&snapshot.document))?;
                 }
                 Err(error) => {
                     write_response(
@@ -68,6 +68,11 @@ fn handle_connection(
                     )?;
                 }
             }
+            Ok(ConnectionOutcome::Continue)
+        }
+        SessionRequest::Source(request) => {
+            let response = snapshot.sources().response(&request);
+            write_response(stream, &SessionResponseRef::Source(&response))?;
             Ok(ConnectionOutcome::Continue)
         }
         SessionRequest::Submit(submission) => {
