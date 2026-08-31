@@ -16,6 +16,7 @@ jq '{kind: "issue", issue: (.issue | {number, title, body, labels: [.labels[].na
 env -u GH_TOKEN -u GITHUB_TOKEN aether headless \
   --agent Orchestrator \
   --cwd "$GITHUB_WORKSPACE" \
+  --events text,tool_call,tool_result,tool_error,turn_ended \
   "$task_file"
 
 [[ $(git rev-parse HEAD) != "$start_sha" ]] || exit 0
