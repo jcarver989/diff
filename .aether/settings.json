@@ -4,7 +4,7 @@
     {
       "name": "Orchestrator",
       "description": "Routes GitHub issues to sub-agents based on task complexity",
-      "model": "zai:glm-5.3",
+      "model": "deepseek:deepseek-v4-flash",
       "reasoningEffort": "high",
       "userInvocable": true,
       "agentInvocable": false,
@@ -31,7 +31,7 @@
     {
       "name": "Simple Builder",
       "description": "Don't spawn unless explicitly asked to",
-      "model": "zai:glm-5.3-flash",
+      "model": "deepseek:deepseek-v4-flash",
       "reasoningEffort": "high",
       "userInvocable": true,
       "agentInvocable": true,
@@ -41,7 +41,7 @@
     {
       "name": "Explorer",
       "description": "Explores codebases to find relevant files, patterns, and integration points",
-      "model": "zai:glm-5.3-flash",
+      "model": "deepseek:deepseek-v4-flash",
       "userInvocable": false,
       "agentInvocable": true,
       "prompts": [".aether/agents/explorer.md"],
