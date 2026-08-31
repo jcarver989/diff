@@ -1,11 +1,14 @@
 #![allow(clippy::unwrap_used)]
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, MouseEventKind};
 use diff_markdown::{
     MarkdownDocument, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownTargetKind,
 };
-use diff_ratatui::{MarkdownReviewInput, MarkdownReviewState, MarkdownReviewWidget};
-use ratatui::{Terminal, backend::TestBackend};
+use diff_ratatui::MarkdownReviewState;
+use diff_ratatui::testing::{
+    markdown_key as key, markdown_mouse as mouse, render_markdown_review as draw,
+    type_markdown_text as type_text,
+};
 use std::sync::Arc;
 
 fn document() -> Arc<MarkdownDocument> {
@@ -14,50 +17,6 @@ fn document() -> Arc<MarkdownDocument> {
         Some("Plan".to_owned()),
         "# Plan\n\nA **paragraph** with `code` and [a link](https://example.com).\n\n- first\n  - nested\n\n> quoted text\n\n| Name | Value |\n| --- | --- |\n| one | two |\n\n```rust\nlet value = 1;\nprintln!(\"{value}\");\n```\n",
     ))
-}
-
-fn draw(state: &mut MarkdownReviewState, width: u16, height: u16) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal
-        .draw(|frame| {
-            frame.render_stateful_widget(MarkdownReviewWidget::new(), frame.area(), state);
-            if let Some(position) = state.cursor_position() {
-                frame.set_cursor_position(position);
-            }
-        })
-        .unwrap();
-    terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .enumerate()
-        .fold(String::new(), |mut output, (index, cell)| {
-            if index != 0 && index % usize::from(width) == 0 {
-                output.push('\n');
-            }
-            output.push_str(cell.symbol());
-            output
-        })
-}
-
-fn key(code: KeyCode) -> MarkdownReviewInput {
-    MarkdownReviewInput::Key(KeyEvent::new(code, KeyModifiers::NONE))
-}
-
-fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MarkdownReviewInput {
-    MarkdownReviewInput::Mouse(MouseEvent {
-        kind,
-        column,
-        row,
-        modifiers: KeyModifiers::NONE,
-    })
-}
-
-fn type_text(state: &mut MarkdownReviewState, text: &str) {
-    for character in text.chars() {
-        state.handle_input(key(KeyCode::Char(character))).unwrap();
-    }
 }
 
 #[test]

@@ -313,6 +313,7 @@ impl Render for CommentEditor {
 
         div()
             .id("comment-input")
+            .debug_selector(|| "comment-input".to_owned())
             .relative()
             .min_h(px(96.0))
             .w_full()

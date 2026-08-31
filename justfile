@@ -29,7 +29,15 @@ check:
     cargo check --workspace --all-targets
 
 test:
-    cargo test --workspace
+    cargo test --workspace --all-features
+
+# Compile benchmark targets without running statistical measurements.
+bench-check:
+    cargo bench --workspace --all-features --no-run
+
+# Run the workspace's statistical rendering benchmarks.
+bench:
+    cargo bench --workspace --all-features
 
 feature-check:
     cargo check -p diff-syntax --no-default-features

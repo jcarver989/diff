@@ -12,6 +12,8 @@ mod review_bar;
 mod shortcuts;
 mod sidebar;
 pub mod style;
+#[cfg(feature = "test-support")]
+pub mod testing;
 pub mod ui;
 mod viewer;
 

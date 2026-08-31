@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+test-support = ["diff-core/test-support", "gpui/test-support"]
+
 [lints]
 workspace = true
 
@@ -16,6 +19,10 @@ diff-markdown = { path = "../diff-markdown", features = ["review"] }
 diff-syntax = { path = "../diff-syntax" }
 diff-theme = { path = "../diff-theme" }
 gpui.workspace = true
+
+[[test]]
+name = "rendered"
+required-features = ["test-support"]
 
 [dev-dependencies]
 diff-core = { path = "../diff-core", features = ["test-support"] }

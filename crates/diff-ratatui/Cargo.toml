@@ -14,6 +14,7 @@ diff-preview = ["syntax", "dep:diff-core"]
 diff-review = ["diff-preview", "dep:crossterm"]
 markdown = ["syntax", "dep:diff-markdown"]
 markdown-review = ["markdown", "diff-markdown/review", "dep:diff-core", "dep:crossterm"]
+test-support = ["diff-review"]
 
 [lints]
 workspace = true
@@ -34,6 +35,19 @@ diff-git = { path = "../diff-git" }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
+[[test]]
+name = "widget"
+required-features = ["test-support"]
+
+[[test]]
+name = "markdown_widget"
+required-features = ["markdown-review", "test-support"]
+
+[[test]]
+name = "performance_contract"
+required-features = ["test-support"]
+
 [[bench]]
 name = "rendering"
 harness = false
+required-features = ["test-support"]

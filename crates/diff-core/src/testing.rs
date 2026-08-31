@@ -53,12 +53,43 @@ impl DocumentBuilder {
     ///
     /// Panics when `path` is not a valid repository-relative fixture path.
     #[must_use]
-    pub fn changed(mut self, path: &str, old: &str, new: &str) -> Self {
-        let file = FileDiff::from_texts(path, old, new).expect("valid fixture path");
+    pub fn changed(self, path: &str, old: &str, new: &str) -> Self {
+        self.changed_with(path, old, new, std::convert::identity)
+    }
+
+    /// Adds a changed text fixture after applying `customize` to its valid defaults.
+    ///
+    /// This is the Rust equivalent of building a factory value with overrides. Struct
+    /// update syntax keeps tests focused on the fields that matter:
+    ///
+    /// ```
+    /// use diff_core::{StageState, testing::DocumentBuilder};
+    ///
+    /// let document = DocumentBuilder::new()
+    ///     .changed_with("src/lib.rs", "old\n", "new\n", |file| diff_core::FileDiff {
+    ///         staged: StageState::Staged,
+    ///         ..file
+    ///     })
+    ///     .build();
+    /// assert_eq!(document.files[0].staged, StageState::Staged);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when `path` is not a valid repository-relative fixture path.
+    #[must_use]
+    pub fn changed_with(
+        mut self,
+        path: &str,
+        old: &str,
+        new: &str,
+        customize: impl FnOnce(FileDiff) -> FileDiff,
+    ) -> Self {
+        let file = customize(FileDiff::from_texts(path, old, new).expect("valid fixture path"));
         let review_path = file.path.clone();
         self.sources.insert(
             SourceKey::new(review_path.clone(), DiffSide::Old),
-            if file.status == FileStatus::Added {
+            if matches!(file.status, FileStatus::Added | FileStatus::Untracked) {
                 Err(SourceUnavailable::Absent)
             } else {
                 Ok(Arc::from(old))
@@ -73,6 +104,49 @@ impl DocumentBuilder {
             },
         );
         self.file(file)
+    }
+
+    /// Adds a deleted text fixture.
+    #[must_use]
+    pub fn deleted(self, path: &str, old: &str) -> Self {
+        self.changed(path, old, "")
+    }
+
+    /// Adds an untracked text fixture.
+    #[must_use]
+    pub fn untracked(self, path: &str, new: &str) -> Self {
+        self.changed_with(path, "", new, |file| FileDiff {
+            status: FileStatus::Untracked,
+            ..file
+        })
+    }
+
+    /// Adds a text fixture with the requested staging state.
+    #[must_use]
+    pub fn changed_staged(self, path: &str, old: &str, new: &str, staged: StageState) -> Self {
+        self.changed_with(path, old, new, |file| FileDiff { staged, ..file })
+    }
+
+    /// Adds a renamed text fixture.
+    #[must_use]
+    pub fn renamed(self, old_path: &str, new_path: &str, old: &str, new: &str) -> Self {
+        let old_path = fixture_path(old_path);
+        self.changed_with(new_path, old, new, |file| FileDiff {
+            old_path: Some(old_path),
+            status: FileStatus::Renamed,
+            ..file
+        })
+    }
+
+    /// Adds a copied text fixture.
+    #[must_use]
+    pub fn copied(self, old_path: &str, new_path: &str, old: &str, new: &str) -> Self {
+        let old_path = fixture_path(old_path);
+        self.changed_with(new_path, old, new, |file| FileDiff {
+            old_path: Some(old_path),
+            status: FileStatus::Copied,
+            ..file
+        })
     }
 
     /// Adds a changed fixture whose patch contains only the requested source-line window.
@@ -221,6 +295,127 @@ impl DocumentBuilder {
     }
 }
 
+/// Returns a valid one-file diff with useful defaults for struct update syntax.
+///
+/// Prefer [`DocumentBuilder::changed_with`] when complete source text should also be
+/// available through a [`DocumentFixture`]. Use this factory for low-level model tests
+/// that intentionally construct unusual combinations of public fields.
+///
+/// # Panics
+///
+/// Panics if the built-in default fixture path becomes invalid.
+#[must_use]
+pub fn file_diff() -> FileDiff {
+    FileDiff::from_texts("src/lib.rs", "old\n", "new\n").expect("valid default fixture")
+}
+
+/// Returns a valid hunk with one removed and one added line for struct update syntax.
+///
+/// # Panics
+///
+/// Panics if [`file_diff`] no longer produces a changed hunk.
+#[must_use]
+pub fn hunk() -> Hunk {
+    file_diff().hunks.remove(0)
+}
+
+/// Returns a valid added patch line for struct update syntax.
+#[must_use]
+pub fn patch_line() -> PatchLine {
+    PatchLine::added("new", 1)
+}
+
+/// Returns a valid diff document for struct update syntax.
+///
+/// # Panics
+///
+/// Panics if the built-in [`file_diff`] defaults become invalid.
+#[must_use]
+pub fn diff_document() -> DiffDocument {
+    DiffDocument {
+        repo_root: "/repo".to_owned(),
+        files: vec![file_diff()],
+    }
+}
+
 fn fixture_path(path: &str) -> RepoPath {
     RepoPath::new(path).expect("valid fixture path")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changed_with_applies_struct_update_overrides_and_preserves_sources() {
+        let fixture = DocumentBuilder::new()
+            .changed_with("src/lib.rs", "old\n", "new\n", |file| FileDiff {
+                staged: StageState::Staged,
+                ..file
+            })
+            .build_fixture();
+
+        assert_eq!(fixture.document.files[0].staged, StageState::Staged);
+        assert_eq!(fixture.snapshot().sources().len(), 2);
+    }
+
+    #[test]
+    fn low_level_factories_support_struct_update_syntax() {
+        let file = FileDiff {
+            binary: true,
+            hunks: Vec::new(),
+            ..file_diff()
+        };
+        let document = DiffDocument {
+            files: vec![file],
+            ..diff_document()
+        };
+
+        assert!(document.files[0].binary);
+    }
+
+    #[test]
+    fn common_file_kinds_have_consistent_status_and_sources() {
+        let fixture = DocumentBuilder::new()
+            .deleted("deleted.rs", "old\n")
+            .untracked("new.rs", "new\n")
+            .renamed("old.rs", "renamed.rs", "old\n", "new\n")
+            .copied("source.rs", "copy.rs", "old\n", "new\n")
+            .build_fixture();
+        let snapshot = fixture.snapshot();
+        let source = |path: &str, side| {
+            snapshot
+                .source(&SourceKey::new(fixture_path(path), side))
+                .expect("fixture source")
+        };
+
+        assert_eq!(fixture.document.files[0].status, FileStatus::Deleted);
+        assert_eq!(fixture.document.files[1].status, FileStatus::Untracked);
+        assert_eq!(fixture.document.files[2].status, FileStatus::Renamed);
+        assert_eq!(fixture.document.files[3].status, FileStatus::Copied);
+        assert_eq!(
+            source("new.rs", DiffSide::Old).as_ref().unwrap_err(),
+            &SourceUnavailable::Absent
+        );
+        assert_eq!(
+            source("new.rs", DiffSide::New).as_ref().unwrap().text(),
+            "new\n"
+        );
+        assert_eq!(
+            source("renamed.rs", DiffSide::Old).as_ref().unwrap().text(),
+            "old\n"
+        );
+        assert_eq!(
+            source("renamed.rs", DiffSide::New).as_ref().unwrap().text(),
+            "new\n"
+        );
+        assert_eq!(
+            source("copy.rs", DiffSide::Old).as_ref().unwrap().text(),
+            "old\n"
+        );
+        assert_eq!(
+            source("copy.rs", DiffSide::New).as_ref().unwrap().text(),
+            "new\n"
+        );
+    }
 }

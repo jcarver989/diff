@@ -22,30 +22,11 @@ fn changed_document() -> Arc<DiffDocument> {
 }
 
 fn draw(state: &mut DiffReviewState, width: u16, height: u16) -> String {
-    let backend = TestBackend::new(width, height);
-    let mut terminal = Terminal::new(backend).expect("test terminal");
-    terminal
-        .draw(|frame| frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), state))
-        .expect("draw widget");
-    terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .enumerate()
-        .fold(String::new(), |mut output, (index, cell)| {
-            if index != 0 && index % usize::from(width) == 0 {
-                output.push('\n');
-            }
-            output.push_str(cell.symbol());
-            output
-        })
+    support::render_review(state, width, height)
 }
 
 fn type_text(state: &mut DiffReviewState, text: &str) {
-    for character in text.chars() {
-        state.handle_input(key(KeyCode::Char(character)));
-    }
+    support::type_review_text(state, text);
 }
 
 #[allow(clippy::format_collect)]

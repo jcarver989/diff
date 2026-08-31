@@ -339,6 +339,7 @@ impl DiffViewer {
         let palette = self.theme().palette();
         let mut rows = div()
             .id("diff-files")
+            .debug_selector(|| "diff-files".to_owned())
             .role(Role::Tree)
             .flex_1()
             .overflow_y_scroll()
@@ -361,6 +362,7 @@ impl DiffViewer {
         }
 
         div()
+            .debug_selector(|| "diff-sidebar".to_owned())
             .w(px(self.sidebar_width()))
             .h_full()
             .flex_shrink_0()

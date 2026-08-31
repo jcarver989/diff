@@ -1445,6 +1445,7 @@ impl Render for DiffViewer {
         key_context.set("pane", pane);
         key_context.set("layout", layout);
         div()
+            .debug_selector(|| "diff-viewer".to_owned())
             .key_context(key_context)
             .track_focus(&focus_handle)
             .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
@@ -1506,6 +1507,7 @@ impl Render for DiffViewer {
             .child(
                 div()
                     .id("diff-viewer-content")
+                    .debug_selector(|| "diff-viewer-content".to_owned())
                     .flex_1()
                     .overflow_hidden()
                     .flex()

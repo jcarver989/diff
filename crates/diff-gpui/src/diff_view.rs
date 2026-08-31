@@ -50,6 +50,7 @@ impl DiffViewer {
         let palette = self.theme().palette().clone();
         let Some(file_index) = self.selected_file() else {
             return div()
+                .debug_selector(|| "diff-pane".to_owned())
                 .flex_1()
                 .h_full()
                 .flex()
@@ -118,6 +119,7 @@ impl DiffViewer {
             );
 
         div()
+            .debug_selector(|| "diff-pane".to_owned())
             .flex_1()
             .h_full()
             .when(self.pane == ViewerPane::Diff, |pane| {

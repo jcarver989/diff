@@ -24,6 +24,8 @@ mod state;
 mod style;
 #[cfg(feature = "syntax")]
 mod syntax;
+#[cfg(feature = "test-support")]
+pub mod testing;
 #[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 mod theme_picker;
 #[cfg(any(feature = "diff-review", feature = "markdown-review"))]
