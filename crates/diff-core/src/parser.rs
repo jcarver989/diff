@@ -42,6 +42,7 @@ pub struct UntrackedFile {
 /// Parses and normalizes a multi-file Git diff.
 ///
 /// # Errors
+///
 /// Returns an error when the patch is malformed, contains unsupported path
 /// encoding, or contains an invalid repository-relative path.
 pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
@@ -218,6 +219,7 @@ fn mode_string(mode: FileMode) -> String {
 /// Parses `git status --porcelain=v1 -z` output.
 ///
 /// # Errors
+///
 /// Returns an error for malformed records, unsupported path encoding, or
 /// invalid repository-relative paths.
 pub fn parse_porcelain_v1_z(bytes: &[u8]) -> Result<Vec<GitStatusEntry>, DiffError> {
@@ -288,6 +290,7 @@ impl DiffDocument {
     /// Builds a document from Git patch and porcelain status output.
     ///
     /// # Errors
+    ///
     /// Returns an error when either Git output cannot be parsed or normalized.
     pub fn from_git_outputs(
         repo_root: impl Into<String>,
@@ -301,6 +304,7 @@ impl DiffDocument {
     /// Builds a document from Git outputs plus separately loaded untracked files.
     ///
     /// # Errors
+    ///
     /// Returns an error when Git output or untracked file data cannot be parsed
     /// or normalized.
     pub fn from_git_outputs_with_untracked(

@@ -88,6 +88,7 @@ impl Fingerprint {
     /// Parses a 64-character hexadecimal fingerprint.
     ///
     /// # Errors
+    ///
     /// Returns an error when the input has the wrong length or contains a
     /// non-hexadecimal character.
     pub fn from_hex(text: &str) -> Result<Self, FingerprintError> {

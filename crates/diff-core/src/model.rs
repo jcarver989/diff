@@ -13,6 +13,7 @@ impl RepoPath {
     /// Validates and stores a repository-relative UTF-8 path.
     ///
     /// # Errors
+    ///
     /// Returns an error for empty, absolute, traversing, or NUL-containing paths.
     pub fn new(path: impl AsRef<str>) -> Result<Self, RepoPathError> {
         let raw = path.as_ref();
@@ -370,6 +371,7 @@ impl FileDiff {
     /// Builds a one-file diff from complete old and new text snapshots.
     ///
     /// # Errors
+    ///
     /// Returns an error when `path` is not a valid repository-relative path.
     pub fn from_texts<T>(path: T, old: &str, new: &str) -> Result<Self, DiffError>
     where

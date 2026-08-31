@@ -31,6 +31,7 @@ impl DocumentBuilder {
     /// Adds a changed text fixture.
     ///
     /// # Panics
+    ///
     /// Panics when `path` is not a valid repository-relative fixture path.
     #[must_use]
     pub fn changed(self, path: &str, old: &str, new: &str) -> Self {
