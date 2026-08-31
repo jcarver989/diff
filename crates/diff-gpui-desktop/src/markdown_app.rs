@@ -1,5 +1,7 @@
 use crate::{preferences, window_chrome};
-use diff_gpui::{DEFAULT_FONT_FAMILY, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged};
+use diff_gpui::{
+    DEFAULT_FONT_FAMILY, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged, default_font_size,
+};
 use diff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
 use gpui::{AppContext, ClipboardItem, Context, Entity, Subscription, Window, div, prelude::*};
 use std::sync::{Arc, mpsc::Sender};
@@ -15,11 +17,19 @@ impl MarkdownDesktopApp {
     pub(crate) fn new(
         document: Arc<MarkdownDocument>,
         outcome: Sender<Option<MarkdownReviewSubmission>>,
+        scale_factor: f32,
         cx: &mut Context<Self>,
     ) -> Self {
         let theme = preferences::load_theme();
         let reviewer = cx.new(|_| {
-            MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default())
+            MarkdownReviewer::with_options(
+                document,
+                theme,
+                MarkdownReviewerOptions {
+                    font_size: default_font_size(scale_factor),
+                    ..MarkdownReviewerOptions::default()
+                },
+            )
         });
         let subscription = cx.subscribe(
             &reviewer,
