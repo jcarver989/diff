@@ -26,6 +26,7 @@ const MIN_DIFF_WIDTH: f32 = 320.0;
 const SIDEBAR_DIVIDER_WIDTH: f32 = 1.0;
 const MIN_FONT_SIZE: f32 = 10.0;
 const MAX_FONT_SIZE: f32 = 24.0;
+pub(crate) const DEFAULT_FONT_SIZE: f32 = 16.0;
 const FONT_SIZE_STEP: f32 = 1.0;
 const DIFF_ROW_VERTICAL_SPACE: f32 = 7.0;
 const SIDEBAR_ROW_VERTICAL_SPACE: f32 = 20.0;
@@ -100,7 +101,7 @@ impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
             sidebar_width: 280.0,
-            font_size: 16.0,
+            font_size: DEFAULT_FONT_SIZE,
             row_height: 20.0,
             auto_split_width: 900.0,
             highlight_cache_capacity: 512,
@@ -1366,6 +1367,19 @@ impl DiffViewer {
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
 impl EventEmitter<ThemeChanged> for DiffViewer {}
+
+/// The default font size, in logical pixels, for a display at the given pixel density.
+///
+/// GPUI's logical pixels already keep text at the same physical size on every display,
+/// so a fixed default renders "enormous" relative to the small, high-density screens of
+/// laptops while looking normal on large monitors. Scaling the base size by the inverse
+/// of the display's scale factor (clamped to the supported range) keeps the default
+/// proportional to the physical screen, so a review fits comfortably on both a 16"
+/// laptop and a 27" monitor.
+#[must_use]
+pub fn default_font_size(scale_factor: f32) -> f32 {
+    (DEFAULT_FONT_SIZE / scale_factor.max(1.0)).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)
+}
 
 fn clamp_font_size(size: f32) -> f32 {
     size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)

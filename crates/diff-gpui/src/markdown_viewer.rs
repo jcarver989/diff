@@ -10,6 +10,7 @@ use crate::{
             ActionBar, Button, ButtonVariant, ControlSize, ThemePicker, ThemePickerItem, UiTheme,
         },
     },
+    viewer::DEFAULT_FONT_SIZE,
 };
 use diff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownReview, MarkdownReviewEvent,
@@ -57,7 +58,7 @@ pub struct MarkdownReviewerOptions {
 impl Default for MarkdownReviewerOptions {
     fn default() -> Self {
         Self {
-            font_size: 16.0,
+            font_size: DEFAULT_FONT_SIZE,
             outline_width: 260.0,
             show_outline: true,
         }

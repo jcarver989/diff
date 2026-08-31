@@ -39,5 +39,5 @@ pub use viewer::{
     IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, PageDown, PageUp, PreviousFile,
     PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide, SelectOldSide, ShowShortcuts,
     ShowThemePicker, StageAll, SubmitComment, SubmitReview, ToggleFullFile, TogglePane,
-    ToggleStage, UndoComment, UnstageAll, ViewerPane,
+    ToggleStage, UndoComment, UnstageAll, ViewerPane, default_font_size,
 };

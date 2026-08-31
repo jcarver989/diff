@@ -4,7 +4,7 @@ use crate::{args::CliArgs, preferences, window_chrome};
 use diff_core::{DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
 use diff_git::{GitError, GitRepository, RepositorySnapshot};
 use diff_gpui::{
-    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged,
+    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged, default_font_size,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use diff_theme::DiffTheme;
@@ -34,6 +34,15 @@ enum HostEventEffect {
     Quit,
 }
 
+/// Builds the viewer options used when a repository snapshot is installed,
+/// deriving the initial font size from the window's pixel density.
+fn viewer_options(scale_factor: f32) -> DiffViewerOptions {
+    DiffViewerOptions {
+        font_size: default_font_size(scale_factor),
+        ..DiffViewerOptions::default()
+    }
+}
+
 fn host_event_effect(event: &DiffReviewEvent) -> HostEventEffect {
     match event {
         DiffReviewEvent::RepositoryAction(_) => HostEventEffect::None,
@@ -57,15 +66,17 @@ pub(crate) struct DesktopApp {
     theme: DiffTheme,
     load_task: Task<()>,
     outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
+    scale_factor: f32,
 }
 
 impl DesktopApp {
     pub(crate) fn new(
         args: CliArgs,
         outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let scale_factor = window.scale_factor();
         let mut app = Self {
             repository_path: args.repository,
             repository: None,
@@ -77,6 +88,7 @@ impl DesktopApp {
             theme: preferences::load_theme(),
             load_task: Task::ready(()),
             outcome_sender,
+            scale_factor,
         };
         app.discover(cx);
         app
@@ -218,12 +230,9 @@ impl DesktopApp {
             });
         } else {
             let theme = self.theme.clone();
+            let options = viewer_options(self.scale_factor);
             let viewer = cx.new(|_| {
-                DiffViewer::from_snapshot_with_options(
-                    diff_snapshot.clone(),
-                    theme,
-                    DiffViewerOptions::default(),
-                )
+                DiffViewer::from_snapshot_with_options(diff_snapshot.clone(), theme, options)
             });
             self.viewer_subscription = Some(cx.subscribe(
                 &viewer,
@@ -367,6 +376,15 @@ impl Render for DesktopApp {
 mod tests {
     use super::*;
     use diff_core::{Review, ReviewSubmission};
+
+    #[test]
+    fn derives_initial_font_size_from_pixel_density() {
+        assert!((viewer_options(1.0).font_size - 16.0).abs() < f32::EPSILON);
+        assert!((viewer_options(2.0).font_size - 10.0).abs() < f32::EPSILON);
+        // Options other than the derived font size keep their defaults.
+        let defaults = DiffViewerOptions::default();
+        assert!((viewer_options(1.0).row_height - defaults.row_height).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn maps_host_events_without_opening_a_window() {

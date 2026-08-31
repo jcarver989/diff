@@ -1,7 +1,7 @@
 //! State-level contracts for the reusable GPUI viewer.
 
 use diff_core::{DiffSide, Layout, LineAnchor, ViewMode, testing::DocumentBuilder};
-use diff_gpui::{DiffViewer, DiffViewerOptions};
+use diff_gpui::{DiffViewer, DiffViewerOptions, default_font_size};
 use diff_theme::{DiffTheme, ThemeId};
 
 #[test]
@@ -18,6 +18,27 @@ fn defaults_to_auto_and_indexes_document() {
     assert_eq!(viewer.review().len(), 0);
     assert_eq!(viewer.theme().id(), &ThemeId::Sage);
     assert!((viewer.font_size() - 16.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn default_font_size_scales_with_pixel_density() {
+    // Standard-density monitors keep the current default.
+    assert!((default_font_size(1.0) - 16.0).abs() < f32::EPSILON);
+    // Higher-density laptop screens get a proportionally smaller default.
+    assert!((default_font_size(2.0) - 10.0).abs() < f32::EPSILON);
+    // Intermediate densities interpolate between the two.
+    assert!((default_font_size(1.5) - 10.666_667).abs() < 0.000_1);
+}
+
+#[test]
+fn default_font_size_stays_within_the_supported_range() {
+    // Sub-1.0 densities are treated as standard density.
+    assert!((default_font_size(0.5) - 16.0).abs() < f32::EPSILON);
+    // Extreme densities clamp to the viewer's minimum font size.
+    assert!((default_font_size(4.0) - 10.0).abs() < f32::EPSILON);
+    // Higher density never produces a larger default.
+    assert!(default_font_size(1.0) >= default_font_size(1.5));
+    assert!(default_font_size(1.5) >= default_font_size(2.0));
 }
 
 #[test]
