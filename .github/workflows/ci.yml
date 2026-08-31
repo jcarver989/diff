@@ -45,6 +45,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev
       - name: Run Clippy
         run: just lint
 
@@ -59,6 +61,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev
       - name: Run tests
         run: just test
 
@@ -103,5 +107,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev
       - name: Check documentation
         run: just doc-check
