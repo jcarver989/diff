@@ -432,6 +432,10 @@ impl RenderOnce for Modal {
             .items_center()
             .justify_center()
             .bg(colors.scrim)
+            // A modal captures input: occlude the content behind the backdrop so
+            // that scroll wheels (and other mouse input) target the modal's own
+            // scrollable regions instead of scrolling the content underneath.
+            .occlude()
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()

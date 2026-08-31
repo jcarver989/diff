@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- modal overlays capture scroll wheel input so scrolling the theme picker no longer scrolls the content behind it
+
 ## [0.1.0](https://github.com/jcarver989/diff/releases/tag/diff-gpui-v0.1.0) - 2026-08-31
 
 ### Added
