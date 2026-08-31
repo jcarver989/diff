@@ -1,12 +1,10 @@
 use diff_syntax::{
-    CacheConfig, HighlightStats, LanguageHint, SequenceLine, SourceSequenceId, SyntaxHighlighter,
-    SyntaxStream,
+    CacheConfig, HighlightStats, LanguageHint, SourceSequenceId, SyntaxHighlighter, SyntaxStream,
 };
 use diff_theme::SyntaxTheme;
-use std::sync::Arc;
 
 #[test]
-fn sequence_preserves_multiline_context_and_utf8_ranges() {
+fn stream_preserves_multiline_context_and_utf8_ranges() {
     let mut highlighter = SyntaxHighlighter::default();
     let theme = SyntaxTheme::default();
     let mut stream = SyntaxStream::new("rust");
@@ -25,47 +23,59 @@ fn sequence_preserves_multiline_context_and_utf8_ranges() {
 }
 
 #[test]
-fn typed_sequences_and_take_stats_are_public_contracts() {
-    let lines = ["/* open", "closed */"];
-    let id = SourceSequenceId::from_lines(lines);
+fn document_highlights_and_take_stats_are_public_contracts() {
+    let text = "/* open\nclosed */\n";
+    let id = SourceSequenceId::from_lines(text.lines());
     let mut highlighter = SyntaxHighlighter::default();
     let theme = SyntaxTheme::default();
-    let spans = highlighter
+    let highlights = highlighter
         .with_theme(&theme)
-        .highlight_line(SequenceLine::new(id, "rust", 1, lines));
-    assert!(!spans.is_empty());
+        .highlight_document(id, "rust", text);
+    assert_eq!(highlights.line_count(), 2);
+    assert!(!highlights.line(1).unwrap().is_empty());
     let first = highlighter.take_stats();
-    assert!(first.calls > 0);
+    assert_eq!(first.calls, 1);
+    assert_eq!(first.misses, 1);
+    assert_eq!(first.bytes, text.len());
     assert_eq!(highlighter.take_stats(), HighlightStats::default());
 }
 
 #[test]
-fn indexable_iterators_jump_in_bounded_work() {
-    let lines = (0..100_000)
-        .map(|index| Arc::<str>::from(format!("let value_{index} = {index};")))
-        .collect::<Vec<_>>();
-    let id = SourceSequenceId::from_lines(lines.iter().map(AsRef::as_ref));
+fn complete_document_is_parsed_once_then_lines_are_constant_time_lookups() {
+    let text = (0..10_000).fold(String::new(), |mut text, index| {
+        use std::fmt::Write;
+        let _ = writeln!(text, "let value_{index} = {index};");
+        text
+    });
+    let id = SourceSequenceId::from_lines(text.lines());
     let theme = SyntaxTheme::default();
     let config = CacheConfig {
-        context_lines: 32,
         max_entries: 64,
-        max_sequences: 4,
+        max_documents: 4,
+        max_stream_lines: 32,
     };
     let mut highlighter = SyntaxHighlighter::new(config);
-    let spans = highlighter
+    let highlights = highlighter
         .with_theme(&theme)
-        .highlight_line(SequenceLine::new(
-            id,
-            "rust",
-            90_000,
-            lines.iter().map(AsRef::as_ref),
-        ));
-    assert!(!spans.is_empty());
-    assert!(
-        highlighter.stats().bytes < 2_000,
-        "deep sequence parsed {} bytes",
-        highlighter.stats().bytes
-    );
+        .highlight_document(id, "rust", &text);
+    assert!(!highlights.line(9_000).unwrap().is_empty());
+    let first_parse = highlighter.take_stats();
+    assert_eq!(first_parse.calls, 1);
+    assert_eq!(first_parse.misses, 1);
+    assert_eq!(first_parse.bytes, text.len());
+
+    for line in [0, 5_000, 9_999] {
+        assert!(highlights.line(line).is_some());
+    }
+    assert_eq!(highlighter.stats(), HighlightStats::default());
+
+    let cached = highlighter
+        .with_theme(&theme)
+        .highlight_document(id, "rust", &text);
+    assert_eq!(cached.line_count(), 10_000);
+    assert_eq!(highlighter.stats().calls, 1);
+    assert_eq!(highlighter.stats().hits, 1);
+    assert_eq!(highlighter.stats().bytes, 0);
 }
 
 #[test]
