@@ -4,11 +4,8 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{
-    DiffDocument, DiffScope, RepositoryAction, ReviewSubmission, SourceRequest, SourceResponse,
-    SourceUnavailable,
-};
-use diff_git::{GitRepository, RepositorySnapshot, SourceArchive};
+use diff_core::{DiffDocument, DiffScope, DiffSnapshot, RepositoryAction, ReviewSubmission};
+use diff_git::{GitRepository, RepositorySnapshot};
 use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use diff_ratatui::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
@@ -21,7 +18,7 @@ use std::{
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{Arc, mpsc},
+    sync::Arc,
     thread,
     time::Duration,
 };
@@ -87,34 +84,34 @@ fn replace_command_placeholder(arguments: &mut [String], command: &str) -> bool 
 pub fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
     let mut backend = SessionBackend::new(socket_path);
     let document = backend.document()?;
-    let outcome = run_diff_review(Arc::new(document), &mut backend)?;
+    let state = DiffReviewState::with_theme(Arc::new(document), crate::preferences::load_theme());
+    let outcome = run_diff_review(state, &mut backend)?;
     backend.complete(outcome.as_ref())?;
     Ok(())
 }
 
 pub fn run_local(
     repository: &GitRepository,
-    snapshot: RepositorySnapshot,
+    snapshot: &RepositorySnapshot,
     scope: DiffScope,
 ) -> Result<Option<ReviewSubmission>, TuiError> {
-    let (document, archive) = snapshot.into_parts();
-    let mut backend = LocalBackend {
-        repository,
-        scope,
-        archive,
-        source_responses: Vec::new(),
-    };
-    run_diff_review(Arc::new(document), &mut backend)
+    let mut state = DiffReviewState::from_snapshot(snapshot.diff_snapshot());
+    state.set_theme(crate::preferences::load_theme());
+    let mut backend = LocalBackend { repository, scope };
+    run_diff_review(state, &mut backend)
+}
+
+enum ReviewUpdate {
+    Document(DiffDocument),
+    Snapshot(DiffSnapshot),
 }
 
 trait DiffReviewBackend {
-    fn apply(&mut self, action: RepositoryAction) -> Result<DiffDocument, String>;
-    fn begin_source_request(&mut self, request: SourceRequest);
-    fn drain_source_responses(&mut self) -> Vec<SourceResponse>;
+    fn apply(&mut self, action: RepositoryAction) -> Result<ReviewUpdate, String>;
 }
 
 fn run_diff_review(
-    document: Arc<DiffDocument>,
+    mut state: DiffReviewState,
     backend: &mut dyn DiffReviewBackend,
 ) -> Result<Option<ReviewSubmission>, TuiError> {
     if !stdin().is_terminal() || !stderr().is_terminal() {
@@ -125,15 +122,8 @@ fn run_diff_review(
     let terminal_backend = CrosstermBackend::new(stderr());
     let mut terminal = Terminal::new(terminal_backend)?;
     let mut terminal_size = terminal.size()?;
-    let mut state = DiffReviewState::with_theme(document, crate::preferences::load_theme());
 
     loop {
-        for request in state.take_source_requests() {
-            backend.begin_source_request(request);
-        }
-        for response in backend.drain_source_responses() {
-            state.provide_source(response);
-        }
         terminal.autoresize()?;
         let current_size = terminal.size()?;
         if current_size != terminal_size {
@@ -235,18 +225,11 @@ enum MarkdownEventOutcome {
 
 struct SessionBackend {
     socket_path: PathBuf,
-    source_sender: mpsc::Sender<SourceResponse>,
-    source_receiver: mpsc::Receiver<SourceResponse>,
 }
 
 impl SessionBackend {
-    fn new(socket_path: PathBuf) -> Self {
-        let (source_sender, source_receiver) = mpsc::channel();
-        Self {
-            socket_path,
-            source_sender,
-            source_receiver,
-        }
+    const fn new(socket_path: PathBuf) -> Self {
+        Self { socket_path }
     }
 
     fn document(&self) -> Result<DiffDocument, TuiError> {
@@ -286,50 +269,23 @@ impl SessionBackend {
 }
 
 impl DiffReviewBackend for SessionBackend {
-    fn apply(&mut self, action: RepositoryAction) -> Result<DiffDocument, String> {
+    fn apply(&mut self, action: RepositoryAction) -> Result<ReviewUpdate, String> {
         match self.request(&SessionRequestRef::RepositoryAction(&action)) {
-            Ok(SessionResponse::Document(document)) => Ok(document),
+            Ok(SessionResponse::Document(document)) => Ok(ReviewUpdate::Document(document)),
             Ok(SessionResponse::RepositoryError(message)) => Err(message),
             Ok(response) => Err(format!("unexpected review service response: {response:?}")),
             Err(error) => Err(error.to_string()),
         }
-    }
-
-    fn begin_source_request(&mut self, request: SourceRequest) {
-        let socket_path = self.socket_path.clone();
-        let sender = self.source_sender.clone();
-        thread::spawn(move || {
-            let result = match Self::request_at(&socket_path, &SessionRequestRef::Source(&request))
-            {
-                Ok(SessionResponse::Source(response)) => response.result,
-                Ok(response) => Err(SourceUnavailable::Error(format!(
-                    "unexpected review service response: {response:?}"
-                ))),
-                Err(error) => Err(SourceUnavailable::Error(error.to_string())),
-            };
-            let response = SourceResponse {
-                epoch: request.epoch,
-                key: request.key,
-                result,
-            };
-            let _ = sender.send(response);
-        });
-    }
-
-    fn drain_source_responses(&mut self) -> Vec<SourceResponse> {
-        self.source_receiver.try_iter().collect()
     }
 }
 
 struct LocalBackend<'a> {
     repository: &'a GitRepository,
     scope: DiffScope,
-    archive: SourceArchive,
-    source_responses: Vec<SourceResponse>,
 }
 
 impl DiffReviewBackend for LocalBackend<'_> {
-    fn apply(&mut self, action: RepositoryAction) -> Result<DiffDocument, String> {
+    fn apply(&mut self, action: RepositoryAction) -> Result<ReviewUpdate, String> {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 execute_repository_action(self.repository, action)
@@ -338,22 +294,10 @@ impl DiffReviewBackend for LocalBackend<'_> {
                 self.repository
                     .snapshot_with_sources(self.scope)
                     .await
-                    .map(|snapshot| {
-                        let (document, archive) = snapshot.into_parts();
-                        self.archive = archive;
-                        document
-                    })
+                    .map(|snapshot| ReviewUpdate::Snapshot(snapshot.diff_snapshot()))
                     .map_err(|error| error.to_string())
             })
         })
-    }
-
-    fn begin_source_request(&mut self, request: SourceRequest) {
-        self.source_responses.push(self.archive.response(&request));
-    }
-
-    fn drain_source_responses(&mut self) -> Vec<SourceResponse> {
-        std::mem::take(&mut self.source_responses)
     }
 }
 
@@ -382,7 +326,8 @@ fn apply_event(
         Some(DiffReviewEvent::RepositoryAction(action)) => {
             state.set_repository_pending();
             match backend.apply(action) {
-                Ok(document) => state.set_document(Arc::new(document)),
+                Ok(ReviewUpdate::Document(document)) => state.set_document(Arc::new(document)),
+                Ok(ReviewUpdate::Snapshot(snapshot)) => state.set_snapshot(snapshot),
                 Err(error) => state.set_repository_error(error.clone()),
             }
             EventOutcome::Continue

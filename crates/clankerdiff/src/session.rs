@@ -70,11 +70,6 @@ fn handle_connection(
             }
             Ok(ConnectionOutcome::Continue)
         }
-        SessionRequest::Source(request) => {
-            let response = snapshot.sources().response(&request);
-            write_response(stream, &SessionResponseRef::Source(&response))?;
-            Ok(ConnectionOutcome::Continue)
-        }
         SessionRequest::Submit(submission) => {
             write_response(stream, &SessionResponseRef::Accepted)?;
             Ok(ConnectionOutcome::Submitted(submission))

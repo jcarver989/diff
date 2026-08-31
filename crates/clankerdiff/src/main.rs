@@ -65,7 +65,7 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
         Ui::Tui => {
             let snapshot = repository.snapshot_with_sources(args.scope).await?;
             match args.tui_placement {
-                TuiPlacement::Current => tui::run_local(&repository, snapshot, args.scope)?,
+                TuiPlacement::Current => tui::run_local(&repository, &snapshot, args.scope)?,
                 TuiPlacement::External => {
                     session::run(&repository, &snapshot, args.scope, |socket_path| {
                         tui::launch(socket_path).map_err(|error| error.to_string())
