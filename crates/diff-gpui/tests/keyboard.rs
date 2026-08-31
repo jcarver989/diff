@@ -1,38 +1,33 @@
-use diff_core::{
-    DiffReviewEvent, Layout, RepositoryAction, SourceStatus, ViewMode,
-    testing::{DocumentBuilder, SourceResponseBuilder},
-};
-use diff_gpui::{DiffViewer, DiffViewerEvent, SourceRequested, ViewerPane};
+use diff_core::{DiffReviewEvent, RepositoryAction, RowKind, ViewMode, testing::DocumentBuilder};
+use diff_gpui::{DiffViewer, DiffViewerEvent, ViewerPane};
 use gpui::{Context, Entity, Render, TestAppContext, Window, WindowOptions, div, prelude::*};
 
 struct TestRoot {
     viewer: Entity<DiffViewer>,
     events: Vec<DiffViewerEvent>,
-    source_requests: Vec<diff_core::SourceRequest>,
 }
 
 impl TestRoot {
     fn new(cx: &mut Context<Self>) -> Self {
         let viewer = cx.new(|_| {
-            DiffViewer::new(
-                DocumentBuilder::new()
-                    .changed("a.rs", "one\ntwo\nthree\n", "ONE\nTWO\nTHREE\n")
-                    .changed("b.rs", "old\n", "new\n")
-                    .build(),
-            )
+            let fixture = DocumentBuilder::new()
+                .changed_with_hunk_window(
+                    "a.rs",
+                    "one\ntwo\nthree\nfour\nfive\n",
+                    "one\ntwo\nTHREE\nfour\nfive\n",
+                    2..=4,
+                )
+                .changed("b.rs", "old\n", "new\n")
+                .build_fixture();
+            DiffViewer::from_snapshot(fixture.snapshot())
         });
         cx.subscribe(&viewer, |root, _, event: &DiffViewerEvent, _| {
             root.events.push(event.clone());
         })
         .detach();
-        cx.subscribe(&viewer, |root, _, event: &SourceRequested, _| {
-            root.source_requests.extend(event.requests.iter().cloned());
-        })
-        .detach();
         Self {
             viewer,
             events: Vec::new(),
-            source_requests: Vec::new(),
         }
     }
 }
@@ -81,67 +76,20 @@ fn browse_shortcuts_navigate_rows_files_and_panes(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn full_file_shortcut_emits_typed_source_requests_and_rejects_stale_responses(
-    cx: &mut TestAppContext,
-) {
+fn full_file_shortcut_projects_eager_snapshot_sources(cx: &mut TestAppContext) {
     let window = open_viewer(cx);
     let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
     cx.simulate_keystrokes(*window, "f");
-    let request = window
-        .read_with(cx, |root, _| root.source_requests[0].clone())
-        .unwrap();
-    assert_eq!(request.key.review_path.as_str(), "a.rs");
-    viewer.update(cx, |viewer, cx| {
-        let response = SourceResponseBuilder::from_request(&request)
-            .epoch(request.epoch.wrapping_add(1))
-            .text("ONE\nTWO\nTHREE\n")
-            .build();
-        assert!(!viewer.provide_source(response, cx));
-        assert_eq!(
-            viewer.session().source_status(&request.key),
-            SourceStatus::Queued
+    viewer.read_with(cx, |viewer, _| {
+        assert!(
+            viewer
+                .session()
+                .presentation()
+                .rows(0..viewer.session().presentation().row_count())
+                .iter()
+                .any(|row| row.kind == RowKind::ExpandedContext)
         );
     });
-}
-
-#[gpui::test]
-fn layout_changes_reemit_pending_source_requests(cx: &mut TestAppContext) {
-    let window = open_viewer(cx);
-    let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
-    cx.simulate_keystrokes(*window, "f");
-    window
-        .update(cx, |root, _, _| root.source_requests.clear())
-        .unwrap();
-
-    let mode = match viewer.read_with(cx, |viewer, _| viewer.session().layout()) {
-        Layout::Unified => ViewMode::Split,
-        Layout::Split => ViewMode::Unified,
-    };
-    viewer.update(cx, |viewer, cx| viewer.set_view_mode(mode, cx));
-    cx.run_until_parked();
-    assert_eq!(
-        window
-            .read_with(cx, |root, _| root.source_requests.len())
-            .unwrap(),
-        2
-    );
-}
-
-#[gpui::test]
-fn enter_only_expands_selected_gap_rows(cx: &mut TestAppContext) {
-    let window = open_viewer(cx);
-    cx.simulate_keystrokes(*window, "enter");
-    assert!(
-        window
-            .read_with(cx, |root, _| root.source_requests.is_empty())
-            .unwrap()
-    );
-    cx.simulate_keystrokes(*window, "o");
-    assert!(
-        !window
-            .read_with(cx, |root, _| root.source_requests.is_empty())
-            .unwrap()
-    );
 }
 
 #[gpui::test]

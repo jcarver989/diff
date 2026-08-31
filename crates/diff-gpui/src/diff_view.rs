@@ -10,7 +10,6 @@ use crate::{
 };
 use diff_core::{
     DiffSide, DiffTone, PresentedCell, PresentedRow, RevealAmount, ReviewComment, RowKind,
-    SourceStatus,
 };
 use gpui::{
     AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState, MouseButton,
@@ -69,7 +68,6 @@ impl DiffViewer {
         let start = file_range.start;
         let row_count = file_range.len();
         let split = self.layout().is_split();
-        self.reserve_highlights_for_viewport(f32::from(window.viewport_size().height));
         let list_state = self.sync_diff_list(file_index, row_count, split);
         list_state.set_scroll_handler({
             let viewer = cx.entity().downgrade();
@@ -269,12 +267,10 @@ impl DiffViewer {
                 self.presentation().gap_info(index).map_or_else(
                     || "⋯ unchanged lines".into(),
                     |info| {
-                        let message = match info.status {
-                            SourceStatus::Loaded => {
-                                format!("{} — o expand · O expand all", info.message())
-                            }
-                            SourceStatus::Stale => format!("{} — r refresh", info.message()),
-                            _ => info.message(),
+                        let message = if info.unavailable.is_none() {
+                            format!("{} — o expand · O expand all", info.message())
+                        } else {
+                            info.message()
                         };
                         message.into()
                     },

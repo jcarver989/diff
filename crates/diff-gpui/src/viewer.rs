@@ -8,11 +8,11 @@ use crate::{
     ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, LineAnchor, PresentedCell,
-    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SessionOptions,
-    SourceRequest, SourceResponse, StageState, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, DiffSnapshot, FileStatus, Layout, LineAnchor,
+    PresentedCell, PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession,
+    SessionOptions, StageState, ViewMode,
 };
-use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SequenceLine, SyntaxHighlighter};
+use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
 use diff_theme::DiffTheme;
 use gpui::{
     App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
@@ -120,11 +120,6 @@ enum RepositoryPrompt {
     Discard { path: RepoPath, status: FileStatus },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceRequested {
-    pub requests: Vec<SourceRequest>,
-}
-
 /// The pane currently receiving browse-mode navigation commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewerPane {
@@ -172,6 +167,28 @@ impl DiffViewer {
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
         Self::with_options(document, DiffTheme::default(), DiffViewerOptions::default())
+    }
+
+    /// Creates a viewer directly from an immutable native snapshot.
+    #[must_use]
+    pub fn from_snapshot(snapshot: DiffSnapshot) -> Self {
+        Self::from_snapshot_with_options(
+            snapshot,
+            DiffTheme::default(),
+            DiffViewerOptions::default(),
+        )
+    }
+
+    #[must_use]
+    pub fn from_snapshot_with_options(
+        snapshot: DiffSnapshot,
+        theme: DiffTheme,
+        options: DiffViewerOptions,
+    ) -> Self {
+        let (document, _) = snapshot.clone().into_parts();
+        let mut viewer = Self::with_options(document, theme, options);
+        viewer.session = ReviewSession::from_snapshot(snapshot);
+        viewer
     }
 
     /// Creates a viewer with explicit theme and adapter options.
@@ -414,6 +431,16 @@ impl DiffViewer {
     }
 
     /// Replaces the document while preserving file selection and reconciling comments.
+    pub fn set_snapshot(&mut self, snapshot: DiffSnapshot, cx: &mut Context<Self>) {
+        let document = snapshot.document().clone();
+        self.sidebar_tree.rebuild(&document);
+        self.session.set_snapshot(snapshot);
+        self.repository_pending = false;
+        self.repository_error = None;
+        self.diff_list_file = None;
+        cx.notify();
+    }
+
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         self.sidebar_tree.rebuild(&document);
         self.session.set_document(document);
@@ -428,30 +455,12 @@ impl DiffViewer {
         self.session.cancel_draft();
         self.clear_comment_editor();
         self.diff_list_file = None;
-        self.emit_source_requests(cx);
         cx.notify();
-    }
-
-    pub fn provide_source(&mut self, response: SourceResponse, cx: &mut Context<Self>) -> bool {
-        let changed = self.session.provide_source(response);
-        if changed {
-            self.diff_list_file = None;
-            cx.notify();
-        }
-        changed
-    }
-
-    fn emit_source_requests(&mut self, cx: &mut Context<Self>) {
-        let requests = self.session.take_source_requests();
-        if !requests.is_empty() {
-            cx.emit(SourceRequested { requests });
-        }
     }
 
     fn finish_layout_change(&mut self, changed: bool, cx: &mut Context<Self>) -> bool {
         if changed {
             self.diff_list_file = None;
-            self.emit_source_requests(cx);
             cx.notify();
         }
         changed
@@ -483,7 +492,6 @@ impl DiffViewer {
             } else {
                 self.diff_list_file = None;
             }
-            self.emit_source_requests(cx);
             cx.notify();
         }
     }
@@ -491,7 +499,6 @@ impl DiffViewer {
     pub(crate) fn toggle_full_file_projection(&mut self, cx: &mut Context<Self>) {
         if self.session.toggle_full_file() {
             self.diff_list_file = None;
-            self.emit_source_requests(cx);
             cx.notify();
         }
     }
@@ -835,31 +842,31 @@ impl DiffViewer {
     ) -> Arc<[HighlightSpan]> {
         let presentation = self.session.presentation();
         let mut syntax = self.highlighter.with_theme(&self.theme);
-        match presentation.cell_sequence(row, cell) {
-            Some(sequence) => syntax.highlight_line(SequenceLine::new(
-                sequence.id,
-                LanguageHint::Path(sequence.language),
-                sequence.target_line,
-                sequence.lines,
-            )),
-            None => {
-                syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
-            }
+        if let (Some(source), Some(path), Some(line)) = (
+            presentation.source_document(row, cell),
+            presentation.source_path(row, cell),
+            cell.line_number().and_then(|line| line.checked_sub(1)),
+        ) {
+            return syntax
+                .highlight_document(
+                    source.sequence_id(),
+                    LanguageHint::Path(path),
+                    source.text(),
+                )
+                .line_shared(line)
+                .unwrap_or_else(diff_syntax::empty_spans);
         }
-    }
-
-    /// Sizes highlight prefetch and cache for a viewport `height` pixels tall.
-    /// Rendering must call this every frame before highlighting cells: prefetch
-    /// is what lets a scroll cost one context parse per screenful instead of
-    /// one per newly exposed row.
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "the viewport row count is a small, non-negative UI measurement"
-    )]
-    pub(crate) fn reserve_highlights_for_viewport(&mut self, height: f32) {
-        let rows = (height / self.diff_row_height()).ceil().max(1.0) as usize;
-        self.highlighter.prepare_viewport(rows);
+        if let Some(sequence) = presentation.hunk_sequence(row, cell) {
+            return syntax
+                .highlight_document_lines(
+                    sequence.id,
+                    LanguageHint::Path(sequence.path),
+                    sequence.lines(),
+                )
+                .line_shared(sequence.target_line)
+                .unwrap_or_else(diff_syntax::empty_spans);
+        }
+        syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
     }
 
     fn move_file(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -1359,7 +1366,6 @@ impl DiffViewer {
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
 impl EventEmitter<ThemeChanged> for DiffViewer {}
-impl EventEmitter<SourceRequested> for DiffViewer {}
 
 fn clamp_font_size(size: f32) -> f32 {
     size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)
@@ -1396,7 +1402,6 @@ impl Render for DiffViewer {
             .set_split_when_auto(diff_width >= self.options.auto_split_width)
         {
             self.diff_list_file = None;
-            self.emit_source_requests(cx);
         }
         let palette = self.theme.palette().clone();
         let focus_handle = self
@@ -1570,7 +1575,7 @@ mod tests {
     }
 
     #[test]
-    fn deep_split_frames_reuse_highlights_after_viewport_reservation() {
+    fn deep_split_frames_parse_each_snapshot_document_once() {
         fn source_lines(suffix: &str) -> String {
             use std::fmt::Write;
             (1..=1_500).fold(String::new(), |mut source, i| {
@@ -1578,13 +1583,11 @@ mod tests {
                 source
             })
         }
-        let mut viewer = DiffViewer::new(
-            DocumentBuilder::new()
-                .changed("src/large.rs", &source_lines(""), &source_lines(" + 1"))
-                .build(),
-        );
+        let fixture = DocumentBuilder::new()
+            .changed("src/large.rs", &source_lines(""), &source_lines(" + 1"))
+            .build_fixture();
+        let mut viewer = DiffViewer::from_snapshot(fixture.snapshot());
         viewer.session_mut().set_view_mode(ViewMode::Split);
-        viewer.reserve_highlights_for_viewport(viewer.diff_row_height() * 24.0);
         let rows: Vec<PresentedRow> = viewer.presentation().rows(1_200..1_224).to_vec();
         for _frame in 0..3 {
             for row in &rows {
@@ -1599,7 +1602,7 @@ mod tests {
         assert_eq!(
             viewer.highlight_stats().misses,
             2,
-            "one context parse per split side serves repeated frames"
+            "each complete side is parsed once across repeated frames"
         );
     }
 }

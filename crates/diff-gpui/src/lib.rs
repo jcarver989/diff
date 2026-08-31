@@ -38,6 +38,6 @@ pub use viewer::{
     ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, HideThemePicker,
     IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, PageDown, PageUp, PreviousFile,
     PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide, SelectOldSide, ShowShortcuts,
-    ShowThemePicker, SourceRequested, StageAll, SubmitComment, SubmitReview, ToggleFullFile,
-    TogglePane, ToggleStage, UndoComment, UnstageAll, ViewerPane,
+    ShowThemePicker, StageAll, SubmitComment, SubmitReview, ToggleFullFile, TogglePane,
+    ToggleStage, UndoComment, UnstageAll, ViewerPane,
 };
