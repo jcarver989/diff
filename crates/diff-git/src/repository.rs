@@ -209,7 +209,7 @@ impl GitRepository {
     /// or the discovered root cannot be represented safely.
     pub async fn discover(path: impl AsRef<Path>) -> Result<Self, GitError> {
         let candidate = path.as_ref();
-        let output = match command::run(
+        let output = match command::run_read(
             candidate,
             "discover repository",
             ["rev-parse", "--show-toplevel"],
@@ -300,10 +300,10 @@ impl GitRepository {
         } else {
             true
         };
-        let diff = command::run(&self.root, "load diff", Self::diff_args(scope, has_head))
+        let diff = command::run_read(&self.root, "load diff", Self::diff_args(scope, has_head))
             .await?
             .stdout;
-        let status = command::run(&self.root, "load status", STATUS_ARGS)
+        let status = command::run_read(&self.root, "load status", STATUS_ARGS)
             .await?
             .stdout;
         let untracked = if scope == DiffScope::Staged {
@@ -494,12 +494,12 @@ impl GitRepository {
             "--".to_owned(),
         ];
         args.extend(paths);
-        let output = command::run(&self.root, "resolve HEAD sources", args).await?;
+        let output = command::run_read(&self.root, "resolve HEAD sources", args).await?;
         Ok(parse_blob_records(&output.stdout, BlobRecordKind::Tree))
     }
 
     async fn resolve_index_blobs(&self) -> Result<HashMap<RepoPath, String>, GitError> {
-        let output = command::run(
+        let output = command::run_read(
             &self.root,
             "resolve index sources",
             ["ls-files", "--stage", "-z"],
@@ -709,7 +709,7 @@ impl GitRepository {
         }
         let mut restore_paths = vec![path.clone()];
         if status == FileStatus::Renamed {
-            let output = command::run(&self.root, "resolve renamed path", STATUS_ARGS).await?;
+            let output = command::run_read(&self.root, "resolve renamed path", STATUS_ARGS).await?;
             if let Some(old_path) = parse_porcelain_v1_z(&output.stdout)?
                 .into_iter()
                 .find(|entry| entry.path == *path)
@@ -727,7 +727,7 @@ impl GitRepository {
     }
 
     async fn read_untracked(&self) -> Result<Vec<UntrackedFile>, GitError> {
-        let output = command::run(
+        let output = command::run_read(
             &self.root,
             "list untracked files",
             ["ls-files", "--others", "--exclude-standard", "-z", "--"],
@@ -769,7 +769,7 @@ impl GitRepository {
     }
 
     async fn has_head(&self) -> Result<bool, GitError> {
-        match command::run(
+        match command::run_read(
             &self.root,
             "resolve HEAD",
             ["rev-parse", "--verify", "--quiet", "HEAD"],

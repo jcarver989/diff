@@ -11,18 +11,34 @@ use tokio::{
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
-pub(crate) async fn run<I, S>(
+pub(crate) async fn run<T: IntoIterator<Item = U>, U: AsRef<OsStr>>(
     cwd: &Path,
     operation: &'static str,
-    args: I,
-) -> Result<Output, GitError>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
+    args: T,
+) -> Result<Output, GitError> {
+    run_command(cwd, operation, args, false).await
+}
+
+pub(crate) async fn run_read<T: IntoIterator<Item = U>, U: AsRef<OsStr>>(
+    cwd: &Path,
+    operation: &'static str,
+    args: T,
+) -> Result<Output, GitError> {
+    run_command(cwd, operation, args, true).await
+}
+
+async fn run_command<T: IntoIterator<Item = U>, U: AsRef<OsStr>>(
+    cwd: &Path,
+    operation: &'static str,
+    args: T,
+    read_only: bool,
+) -> Result<Output, GitError> {
+    let mut command = Command::new("git");
+    command.args(args).current_dir(cwd);
+    if read_only {
+        command.env("GIT_OPTIONAL_LOCKS", "0");
+    }
+    let output = command
         .output()
         .await
         .map_err(|source| GitError::Spawn { operation, source })?;
@@ -45,9 +61,11 @@ pub(crate) struct CatFileBatch {
 impl CatFileBatch {
     pub(crate) fn start(cwd: &Path) -> Result<Self, GitError> {
         const OPERATION: &str = "read source blobs";
-        let mut child = Command::new("git")
+        let mut command = Command::new("git");
+        let mut child = command
             .args(["cat-file", "--batch-command"])
             .current_dir(cwd)
+            .env("GIT_OPTIONAL_LOCKS", "0")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

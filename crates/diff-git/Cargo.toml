@@ -11,7 +11,10 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+async-channel.workspace = true
 diff-core = { path = "../diff-core" }
+notify.workspace = true
+notify-debouncer-full.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
 

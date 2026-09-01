@@ -4,6 +4,7 @@ mod app;
 pub mod args;
 mod markdown_app;
 mod preferences;
+mod repository_worker;
 mod window_chrome;
 
 use app::DesktopApp;

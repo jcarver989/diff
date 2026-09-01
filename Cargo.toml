@@ -41,6 +41,8 @@ gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "797e
 gpui_tokio = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d" }
 gpui_web = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
 open = "5.4.2"
+notify = "8.2.0"
+notify-debouncer-full = "0.7.0"
 pulldown-cmark = "0.13.0"
 rand = "0.9.5"
 crossterm = "0.29.0"

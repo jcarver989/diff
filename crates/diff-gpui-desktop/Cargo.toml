@@ -14,6 +14,7 @@ dist = true
 workspace = true
 
 [dependencies]
+async-channel.workspace = true
 diff-core = { path = "../diff-core" }
 diff-markdown = { path = "../diff-markdown", features = ["review"] }
 diff-theme = { path = "../diff-theme" }
@@ -24,3 +25,4 @@ gpui_platform.workspace = true
 gpui_tokio.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["macros"] }

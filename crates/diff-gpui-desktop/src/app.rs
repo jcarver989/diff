@@ -1,8 +1,13 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
-use crate::{args::CliArgs, preferences, window_chrome};
+use crate::{
+    args::CliArgs,
+    preferences,
+    repository_worker::{RepositoryClient, RepositoryUpdate, RepositoryWorker},
+    window_chrome,
+};
 use diff_core::{DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
-use diff_git::{GitError, GitRepository, RepositorySnapshot};
+use diff_git::RepositorySnapshot;
 use diff_gpui::{
     DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
@@ -12,9 +17,7 @@ use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
 };
-use std::{future::Future, path::PathBuf, sync::mpsc::Sender};
-
-type LoadResult = Result<(Option<GitRepository>, RepositorySnapshot), GitError>;
+use std::sync::mpsc::Sender;
 
 actions!(desktop_diff, [Refresh, CycleScope, StageAll, UnstageAll]);
 
@@ -47,15 +50,15 @@ fn host_event_effect(event: &DiffReviewEvent) -> HostEventEffect {
 }
 
 pub(crate) struct DesktopApp {
-    repository_path: PathBuf,
-    repository: Option<GitRepository>,
     scope: DiffScope,
     state: LoadState,
     viewer: Option<Entity<DiffViewer>>,
     viewer_subscription: Option<Subscription>,
     theme_subscription: Option<Subscription>,
     theme: DiffTheme,
-    load_task: Task<()>,
+    repository: RepositoryClient,
+    _worker_task: Task<()>,
+    repository_update_task: Task<()>,
     outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
 }
 
@@ -66,19 +69,33 @@ impl DesktopApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let (repository, updates, worker) = RepositoryWorker::new(args.repository, args.scope);
+        let worker_operation = gpui_tokio::Tokio::spawn(cx, worker.run());
+        let worker_task = cx.spawn(async move |_this, _cx| {
+            let _ = worker_operation.await;
+        });
         let mut app = Self {
-            repository_path: args.repository,
-            repository: None,
             scope: args.scope,
             state: LoadState::Loading,
             viewer: None,
             viewer_subscription: None,
             theme_subscription: None,
             theme: preferences::load_theme(),
-            load_task: Task::ready(()),
+            repository,
+            _worker_task: worker_task,
+            repository_update_task: Task::ready(()),
             outcome_sender,
         };
-        app.discover(cx);
+        app.repository_update_task = cx.spawn(async move |this, cx| {
+            while let Ok(update) = updates.recv().await {
+                if this
+                    .update(cx, |this, cx| this.apply_repository_update(update, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
         app
     }
 
@@ -95,118 +112,40 @@ impl DesktopApp {
         ]);
     }
 
-    fn load<F>(&mut self, cx: &mut Context<Self>, work: F)
-    where
-        F: Future<Output = LoadResult> + Send + 'static,
-    {
-        self.state = LoadState::Loading;
-        let operation = gpui_tokio::Tokio::spawn(cx, work);
-        self.load_task = cx.spawn(async move |this, cx| {
-            let result = operation.await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok((repository, snapshot))) => {
-                    if let Some(repository) = repository {
-                        this.repository = Some(repository);
-                    }
-                    this.install_snapshot(&snapshot, cx);
+    fn apply_repository_update(&mut self, update: RepositoryUpdate, cx: &mut Context<Self>) {
+        match update {
+            RepositoryUpdate::MutationPending => {
+                if let Some(viewer) = &self.viewer {
+                    viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
                 }
-                Ok(Err(error)) => this.set_error(&error, cx),
-                Err(error) => {
-                    this.state = LoadState::Error(format!("background task failed: {error}"));
+            }
+            RepositoryUpdate::Snapshot(snapshot) => self.install_snapshot(&snapshot, cx),
+            RepositoryUpdate::Error { message, initial } => {
+                if initial || self.viewer.is_none() {
+                    self.state = LoadState::Error(message);
                     cx.notify();
+                } else if let Some(viewer) = &self.viewer {
+                    viewer.update(cx, |viewer, cx| viewer.set_repository_error(message, cx));
                 }
-            });
-        });
-        cx.notify();
-    }
-
-    fn discover(&mut self, cx: &mut Context<Self>) {
-        let path = self.repository_path.clone();
-        let scope = self.scope;
-        self.load(cx, async move {
-            let repository = GitRepository::discover(path).await?;
-            let snapshot = repository.snapshot_with_sources(scope).await?;
-            Ok((Some(repository), snapshot))
-        });
-    }
-
-    fn reload(&mut self, cx: &mut Context<Self>) {
-        let Some(repository) = self.repository.clone() else {
-            self.discover(cx);
-            return;
-        };
-        let scope = self.scope;
-        self.load(cx, async move {
-            repository
-                .snapshot_with_sources(scope)
-                .await
-                .map(|snapshot| (None, snapshot))
-        });
-    }
-
-    fn mutate_all(&mut self, stage: bool, cx: &mut Context<Self>) {
-        let Some(repository) = self.repository.clone() else {
-            return;
-        };
-        let scope = self.scope;
-        self.load(cx, async move {
-            if stage {
-                repository.stage_all().await?;
-            } else {
-                repository.unstage_all().await?;
             }
-            repository
-                .snapshot_with_sources(scope)
-                .await
-                .map(|snapshot| (None, snapshot))
-        });
-    }
-
-    fn mutate(&mut self, action: RepositoryAction, cx: &mut Context<Self>) {
-        let Some(repository) = self.repository.clone() else {
-            return;
-        };
-        if let Some(viewer) = &self.viewer {
-            viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+            RepositoryUpdate::WatcherWarning(message) => {
+                if let Some(viewer) = &self.viewer {
+                    viewer.update(cx, |viewer, cx| viewer.set_repository_error(message, cx));
+                }
+            }
         }
-        let scope = self.scope;
-        let operation = gpui_tokio::Tokio::spawn(cx, async move {
-            match action {
-                RepositoryAction::StagePaths(paths) => repository.stage(&paths).await?,
-                RepositoryAction::UnstagePaths(paths) => repository.unstage(&paths).await?,
-                RepositoryAction::StageAll => repository.stage_all().await?,
-                RepositoryAction::UnstageAll => repository.unstage_all().await?,
-                RepositoryAction::Commit { message } => repository.commit(&message).await?,
-                RepositoryAction::Discard { path, status } => {
-                    repository.discard(&path, status).await?;
-                }
-                RepositoryAction::Refresh => {}
-            }
-            repository.snapshot_with_sources(scope).await
+    }
+
+    fn mutate_all(&self, stage: bool) {
+        self.repository.mutate(if stage {
+            RepositoryAction::StageAll
+        } else {
+            RepositoryAction::UnstageAll
         });
-        self.load_task = cx.spawn(async move |this, cx| {
-            let result = operation.await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok(snapshot)) => this.install_snapshot(&snapshot, cx),
-                Ok(Err(error)) => {
-                    if let Some(viewer) = &this.viewer {
-                        viewer.update(cx, |viewer, cx| {
-                            viewer.set_repository_error(error.to_string(), cx);
-                        });
-                    }
-                }
-                Err(error) => {
-                    if let Some(viewer) = &this.viewer {
-                        viewer.update(cx, |viewer, cx| {
-                            viewer.set_repository_error(
-                                format!("background task failed: {error}"),
-                                cx,
-                            );
-                        });
-                    }
-                }
-            });
-        });
+    }
+
+    fn mutate(&self, action: RepositoryAction) {
+        self.repository.mutate(action);
     }
 
     fn install_snapshot(&mut self, snapshot: &RepositorySnapshot, cx: &mut Context<Self>) {
@@ -250,14 +189,9 @@ impl DesktopApp {
         cx.notify();
     }
 
-    fn set_error(&mut self, error: &GitError, cx: &mut Context<Self>) {
-        self.state = LoadState::Error(error.to_string());
-        cx.notify();
-    }
-
     fn handle_viewer_event(&mut self, event: &DiffReviewEvent, cx: &mut Context<Self>) {
         if let DiffReviewEvent::RepositoryAction(action) = event {
-            self.mutate(action.clone(), cx);
+            self.mutate(action.clone());
             return;
         }
         if let Some(sender) = &self.outcome_sender {
@@ -286,21 +220,21 @@ impl DesktopApp {
         }
     }
 
-    fn refresh(&mut self, _: &Refresh, _: &mut Window, cx: &mut Context<Self>) {
-        self.reload(cx);
+    fn refresh(&mut self, _: &Refresh, _: &mut Window, _: &mut Context<Self>) {
+        self.repository.refresh();
     }
 
-    fn cycle_scope(&mut self, _: &CycleScope, _: &mut Window, cx: &mut Context<Self>) {
+    fn cycle_scope(&mut self, _: &CycleScope, _: &mut Window, _: &mut Context<Self>) {
         self.scope = self.scope.next();
-        self.reload(cx);
+        self.repository.set_scope(self.scope);
     }
 
-    fn stage_all(&mut self, _: &StageAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.mutate_all(true, cx);
+    fn stage_all(&mut self, _: &StageAll, _: &mut Window, _: &mut Context<Self>) {
+        self.mutate_all(true);
     }
 
-    fn unstage_all(&mut self, _: &UnstageAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.mutate_all(false, cx);
+    fn unstage_all(&mut self, _: &UnstageAll, _: &mut Window, _: &mut Context<Self>) {
+        self.mutate_all(false);
     }
 
     fn status_panel(&self, title: &str, detail: &str, tone: NoticeTone) -> impl IntoElement {

@@ -5,7 +5,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use diff_core::{DiffDocument, DiffScope, DiffSnapshot, RepositoryAction, ReviewSubmission};
-use diff_git::{GitRepository, RepositorySnapshot};
+use diff_git::{GitRepository, RepositorySnapshot, RepositoryWatcher};
 use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use diff_ratatui::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
@@ -84,8 +84,17 @@ fn replace_command_placeholder(arguments: &mut [String], command: &str) -> bool 
 pub fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
     let mut backend = SessionBackend::new(socket_path);
     let document = backend.document()?;
-    let state = DiffReviewState::with_theme(Arc::new(document), crate::preferences::load_theme());
-    let outcome = run_diff_review(state, &mut backend)?;
+    let watcher = watcher_for_root(&document.repo_root);
+    let mut state =
+        DiffReviewState::with_theme(Arc::new(document), crate::preferences::load_theme());
+    let watcher = match watcher {
+        Ok(watcher) => watcher,
+        Err(error) => {
+            state.set_repository_error(error);
+            None
+        }
+    };
+    let outcome = run_diff_review(state, &mut backend, watcher)?;
     backend.complete(outcome.as_ref())?;
     Ok(())
 }
@@ -98,7 +107,14 @@ pub fn run_local(
     let mut state = DiffReviewState::from_snapshot(snapshot.diff_snapshot());
     state.set_theme(crate::preferences::load_theme());
     let mut backend = LocalBackend { repository, scope };
-    run_diff_review(state, &mut backend)
+    let watcher = match RepositoryWatcher::new(repository.root()) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            state.set_repository_error(error.to_string());
+            None
+        }
+    };
+    run_diff_review(state, &mut backend, watcher)
 }
 
 enum ReviewUpdate {
@@ -110,9 +126,19 @@ trait DiffReviewBackend {
     fn apply(&mut self, action: RepositoryAction) -> Result<ReviewUpdate, String>;
 }
 
+fn watcher_for_root(root: &str) -> Result<Option<RepositoryWatcher>, String> {
+    if root.is_empty() {
+        return Ok(None);
+    }
+    RepositoryWatcher::new(root)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
 fn run_diff_review(
     mut state: DiffReviewState,
     backend: &mut dyn DiffReviewBackend,
+    mut watcher: Option<RepositoryWatcher>,
 ) -> Result<Option<ReviewSubmission>, TuiError> {
     if !stdin().is_terminal() || !stderr().is_terminal() {
         return Err(TuiError::NoTerminal);
@@ -139,9 +165,12 @@ fn run_diff_review(
             })?;
         }
 
+        drain_watcher(&mut watcher, &mut state, backend);
         if !event::poll(Duration::from_millis(100))? {
+            drain_watcher(&mut watcher, &mut state, backend);
             continue;
         }
+        drain_watcher(&mut watcher, &mut state, backend);
         match apply_event(&mut state, event::read()?, backend) {
             EventOutcome::Continue => {}
             EventOutcome::Cancelled => return Ok(None),
@@ -316,6 +345,35 @@ async fn execute_repository_action(
     }
 }
 
+fn drain_watcher(
+    watcher: &mut Option<RepositoryWatcher>,
+    state: &mut DiffReviewState,
+    backend: &mut dyn DiffReviewBackend,
+) {
+    let result = watcher.as_ref().map(RepositoryWatcher::drain);
+    match result {
+        Some(Ok(true)) => apply_repository_action(state, RepositoryAction::Refresh, backend),
+        Some(Err(error)) => {
+            state.set_repository_error(error);
+            *watcher = None;
+        }
+        Some(Ok(false)) | None => {}
+    }
+}
+
+fn apply_repository_action(
+    state: &mut DiffReviewState,
+    action: RepositoryAction,
+    backend: &mut dyn DiffReviewBackend,
+) {
+    state.set_repository_pending();
+    match backend.apply(action) {
+        Ok(ReviewUpdate::Document(document)) => state.set_document(Arc::new(document)),
+        Ok(ReviewUpdate::Snapshot(snapshot)) => state.set_snapshot(snapshot),
+        Err(error) => state.set_repository_error(error),
+    }
+}
+
 fn apply_event(
     state: &mut DiffReviewState,
     event: Event,
@@ -324,12 +382,7 @@ fn apply_event(
     let previous_theme = state.theme().id().to_string();
     let outcome = match handle_crossterm_event(state, event) {
         Some(DiffReviewEvent::RepositoryAction(action)) => {
-            state.set_repository_pending();
-            match backend.apply(action) {
-                Ok(ReviewUpdate::Document(document)) => state.set_document(Arc::new(document)),
-                Ok(ReviewUpdate::Snapshot(snapshot)) => state.set_snapshot(snapshot),
-                Err(error) => state.set_repository_error(error.clone()),
-            }
+            apply_repository_action(state, action, backend);
             EventOutcome::Continue
         }
         Some(DiffReviewEvent::Cancel) => EventOutcome::Cancelled,
@@ -410,6 +463,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn repository_refresh_uses_shared_action_and_installs_document() {
+        let mut replacement = DiffDocument::empty();
+        replacement.repo_root = "/replacement".to_owned();
+        let mut backend = FakeBackend {
+            actions: Vec::new(),
+            update: Some(Ok(ReviewUpdate::Document(replacement))),
+        };
+        let mut state = DiffReviewState::new(Arc::new(DiffDocument::empty()));
+
+        apply_repository_action(&mut state, RepositoryAction::Refresh, &mut backend);
+
+        assert_eq!(backend.actions, [RepositoryAction::Refresh]);
+        assert_eq!(state.document().repo_root, "/replacement");
+    }
+
+    #[test]
     fn parses_quoted_launcher_command() {
         let (program, arguments) =
             parse_command("ghostty +new-window --title='Clanker Diff Review' -e").unwrap();
@@ -435,5 +504,17 @@ mod tests {
             arguments,
             ["--initial-command='/Applications/Clanker Diff' attach '/tmp/review session.sock'"]
         );
+    }
+
+    struct FakeBackend {
+        actions: Vec<RepositoryAction>,
+        update: Option<Result<ReviewUpdate, String>>,
+    }
+
+    impl DiffReviewBackend for FakeBackend {
+        fn apply(&mut self, action: RepositoryAction) -> Result<ReviewUpdate, String> {
+            self.actions.push(action);
+            self.update.take().expect("one configured backend update")
+        }
     }
 }
