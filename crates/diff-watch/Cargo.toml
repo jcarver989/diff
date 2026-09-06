@@ -1,0 +1,35 @@
+[package]
+name = "diff-watch"
+description = "Native filesystem watching and coalesced Git snapshot publication"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[test]]
+name = "notify_file_watcher_tests"
+path = "tests/file_watcher/notify_file_watcher_tests.rs"
+
+[[test]]
+name = "fake_file_watcher_tests"
+path = "tests/file_watcher/fake_file_watcher_tests.rs"
+
+[lints]
+workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+diff-core = { version = "0.1.0", path = "../diff-core" }
+diff-git = { version = "0.1.0", path = "../diff-git" }
+notify.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+diff-watch = { path = ".", features = ["test-support"] }
+diff-git = { path = "../diff-git", features = ["test-support"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
