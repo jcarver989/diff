@@ -1,10 +1,3 @@
-//! Browser host boundary for [`diff_gpui::DiffViewer`].
-//!
-//! The shell accepts serialized [`diff_core::DiffDocument`] snapshots from
-//! JavaScript and never accesses Git, the filesystem, or native processes.
-//! Review submission is dispatched on `document` as a `diff-review-submit`
-//! `CustomEvent`; its `detail` is a serialized `ReviewSubmission` JSON string.
-
 use diff_core::DiffDocument;
 use diff_markdown::MarkdownDocument;
 use diff_theme::DiffTheme;
@@ -30,13 +23,127 @@ pub enum WebError {
     CommandChannelClosed,
 }
 
+/// A pushed document and its optional host revision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentCommand {
+    /// Monotonic host revision, when the host supplies one.
+    pub revision: Option<u64>,
+    /// The command completed by this push, if any.
+    pub request_id: Option<u64>,
+    pub document: DiffDocument,
+}
+
+/// Wire form of a pushed document: a bare document or a revision envelope.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum DocumentPayload {
+    Envelope {
+        revision: Option<u64>,
+        request_id: Option<u64>,
+        document: DiffDocument,
+    },
+    Bare(DiffDocument),
+}
+
+/// Decodes a pushed document, accepting a bare document or a revision envelope.
+///
+/// # Errors
+/// Returns an error when `json` is neither form.
+pub fn decode_document_command(json: &str) -> Result<DocumentCommand, WebError> {
+    match serde_json::from_str::<DocumentPayload>(json)? {
+        DocumentPayload::Envelope {
+            revision,
+            request_id,
+            document,
+        } => Ok(DocumentCommand {
+            revision,
+            request_id,
+            document,
+        }),
+        DocumentPayload::Bare(document) => Ok(DocumentCommand {
+            revision: None,
+            request_id: None,
+            document,
+        }),
+    }
+}
+
 /// Decodes a serialized diff document command.
 ///
 /// # Errors
 /// Returns an error when `json` is not a valid diff document.
 pub fn decode_document(json: &str) -> Result<DiffDocument, WebError> {
-    serde_json::from_str(json).map_err(WebError::from)
+    decode_document_command(json).map(|command| command.document)
 }
+
+/// What the shell should do with one pushed document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateDecision {
+    /// Install the document and acknowledge a change.
+    Apply,
+    /// The host revision is not newer than the applied one.
+    SkipStale,
+    /// The document is identical to the one already installed.
+    SkipUnchanged,
+}
+
+/// Decides whether a pushed document replaces the installed one.
+///
+/// A push without a revision is never stale, so hosts with no ordering
+/// guarantee still work; identical content is skipped either way.
+#[must_use]
+pub fn document_update_decision(
+    applied: Option<u64>,
+    incoming: Option<u64>,
+    unchanged: impl FnOnce() -> bool,
+) -> UpdateDecision {
+    if let (Some(applied), Some(incoming)) = (applied, incoming)
+        && incoming <= applied
+    {
+        return UpdateDecision::SkipStale;
+    }
+    if unchanged() {
+        return UpdateDecision::SkipUnchanged;
+    }
+    UpdateDecision::Apply
+}
+
+/// A host reply to a repository command. Content pushes are independent.
+#[derive(Debug, Deserialize)]
+pub struct RepositoryReply {
+    pub request_id: u64,
+    pub error: Option<String>,
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Default)]
+struct RepositoryRequests {
+    next: u64,
+    pending: Option<u64>,
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+impl RepositoryRequests {
+    fn begin(&mut self) -> Option<u64> {
+        if self.pending.is_some() {
+            return None;
+        }
+        self.next += 1;
+        self.pending = Some(self.next);
+        self.pending
+    }
+
+    fn finish(&mut self, request_id: u64) -> bool {
+        if self.pending != Some(request_id) {
+            return false;
+        }
+        self.pending = None;
+        true
+    }
+}
+
+/// Acknowledgement dispatched after every pushed document.
+pub const DOCUMENT_APPLIED_EVENT: &str = "diff-review-document-applied";
 
 /// Source-oriented payload used by browser hosts so parsing remains in Rust.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,9 +195,10 @@ pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::{
-        MARKDOWN_CANCEL_EVENT, MARKDOWN_CLEAR_EVENT, MARKDOWN_COPY_EVENT,
-        MARKDOWN_SET_DOCUMENT_EVENT, MARKDOWN_SUBMIT_EVENT, WebError, decode_document,
-        decode_markdown_document, decode_theme, demo_document,
+        DOCUMENT_APPLIED_EVENT, MARKDOWN_CANCEL_EVENT, MARKDOWN_CLEAR_EVENT, MARKDOWN_COPY_EVENT,
+        MARKDOWN_SET_DOCUMENT_EVENT, MARKDOWN_SUBMIT_EVENT, RepositoryReply, RepositoryRequests,
+        UpdateDecision, WebError, decode_document_command, decode_markdown_document, decode_theme,
+        demo_document, document_update_decision,
     };
     use async_channel::{Receiver, Sender};
     use diff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission};
@@ -114,15 +222,20 @@ mod wasm {
     }
 
     enum WebCommand {
-        SetDocument(Arc<DiffDocument>),
+        SetDocument {
+            document: Arc<DiffDocument>,
+            revision: Option<u64>,
+            request_id: Option<u64>,
+        },
         SetTheme(DiffTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
-        RepositoryPending,
-        RepositoryError(String),
+        RepositoryFinished(RepositoryReply),
         ClearReview,
     }
 
     struct WebRoot {
+        applied_revision: Option<u64>,
+        requests: RepositoryRequests,
         viewer: Entity<DiffViewer>,
         _viewer_subscription: Subscription,
         _viewer_theme_subscription: Subscription,
@@ -142,13 +255,34 @@ mod wasm {
                     DiffViewerOptions::default(),
                 )
             });
-            let viewer_subscription = cx
-                .subscribe(&viewer, |_this, _viewer, event: &DiffReviewEvent, _cx| {
-                    dispatch_viewer_event(event)
-                });
-            let viewer_theme_subscription = cx
-                .subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
-                    store_theme(&event.id)
+            let viewer_subscription = cx.subscribe(
+                &viewer,
+                |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| {
+                    if let DiffReviewEvent::RepositoryAction(action) = event {
+                        let Some(request_id) = this.requests.begin() else {
+                            return;
+                        };
+                        this.viewer
+                            .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+                        if let Err(error) = dispatch_repository_action(request_id, action) {
+                            this.finish_repository(
+                                RepositoryReply {
+                                    request_id,
+                                    error: Some(format!(
+                                        "could not dispatch repository action: {error:?}"
+                                    )),
+                                },
+                                cx,
+                            );
+                        }
+                    } else {
+                        dispatch_viewer_event(event);
+                    }
+                },
+            );
+            let viewer_theme_subscription =
+                cx.subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
+                    store_theme(&event.id);
                 });
             let command_task = cx.spawn(async move |this, cx| {
                 while let Ok(command) = receiver.recv().await {
@@ -162,6 +296,8 @@ mod wasm {
             });
 
             Self {
+                applied_revision: None,
+                requests: RepositoryRequests::default(),
                 viewer,
                 _viewer_subscription: viewer_subscription,
                 _viewer_theme_subscription: viewer_theme_subscription,
@@ -172,14 +308,51 @@ mod wasm {
             }
         }
 
+        fn finish_repository(&mut self, reply: RepositoryReply, cx: &mut Context<Self>) {
+            if self.requests.finish(reply.request_id) {
+                self.viewer.update(cx, |viewer, cx| match reply.error {
+                    Some(message) => viewer.set_repository_error(message, cx),
+                    None => viewer.set_repository_pending(false, cx),
+                });
+            }
+        }
+
         fn apply_command(&mut self, command: WebCommand, cx: &mut Context<Self>) {
             match command {
-                WebCommand::SetDocument(document) => {
-                    self.markdown = None;
-                    self.markdown_subscription = None;
-                    self.markdown_theme_subscription = None;
-                    self.viewer
-                        .update(cx, |viewer, cx| viewer.set_document(document, cx));
+                WebCommand::SetDocument {
+                    document,
+                    revision,
+                    request_id,
+                } => {
+                    let decision =
+                        document_update_decision(self.applied_revision, revision, || {
+                            self.viewer.read(cx).document().as_ref() == document.as_ref()
+                        });
+                    if decision == UpdateDecision::Apply {
+                        self.viewer
+                            .update(cx, |viewer, cx| viewer.set_document(document, cx));
+                    }
+                    if decision != UpdateDecision::SkipStale {
+                        self.markdown = None;
+                        self.markdown_subscription = None;
+                        self.markdown_theme_subscription = None;
+                        // An unchanged push still advances the host's ordering.
+                        self.applied_revision = revision.or(self.applied_revision);
+                    }
+                    if let Some(request_id) = request_id {
+                        self.finish_repository(
+                            RepositoryReply {
+                                request_id,
+                                error: None,
+                            },
+                            cx,
+                        );
+                    }
+                    if let Err(error) =
+                        dispatch_document_applied(revision, decision == UpdateDecision::Apply)
+                    {
+                        web_sys::console::error_1(&error);
+                    }
                 }
                 WebCommand::SetMarkdownDocument(document) => {
                     if let Some(markdown) = &self.markdown {
@@ -214,14 +387,7 @@ mod wasm {
                             .update(cx, |viewer, cx| viewer.set_theme(theme, cx));
                     }
                 }
-                WebCommand::RepositoryPending => {
-                    self.viewer
-                        .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
-                }
-                WebCommand::RepositoryError(message) => {
-                    self.viewer
-                        .update(cx, |viewer, cx| viewer.set_repository_error(message, cx));
-                }
+                WebCommand::RepositoryFinished(reply) => self.finish_repository(reply, cx),
                 WebCommand::ClearReview => {
                     if let Some(markdown) = &self.markdown {
                         markdown.update(cx, MarkdownReviewer::clear_review);
@@ -245,12 +411,7 @@ mod wasm {
 
     fn dispatch_viewer_event(event: &DiffReviewEvent) {
         let result = match event {
-            DiffReviewEvent::RepositoryAction(action) => {
-                if let Err(error) = send(WebCommand::RepositoryPending) {
-                    return web_sys::console::error_1(&js_error(error));
-                }
-                dispatch_repository_action(action)
-            }
+            DiffReviewEvent::RepositoryAction(_) => return, // handled by the root
             DiffReviewEvent::SubmitReview(submission) => dispatch_submission(submission),
             DiffReviewEvent::CopyFormattedReview(text) => {
                 dispatch_custom_event("diff-review-copy", Some(text))
@@ -282,8 +443,22 @@ mod wasm {
         dispatch_custom_event(MARKDOWN_SUBMIT_EVENT, Some(&json))
     }
 
-    fn dispatch_repository_action(action: &diff_core::RepositoryAction) -> Result<(), JsValue> {
-        let json = serde_json::to_string(action).map_err(|error| {
+    fn dispatch_document_applied(revision: Option<u64>, changed: bool) -> Result<(), JsValue> {
+        let detail = match revision {
+            Some(revision) => format!(r#"{{"revision":{revision},"changed":{changed}}}"#),
+            None => format!(r#"{{"revision":null,"changed":{changed}}}"#),
+        };
+        dispatch_custom_event(DOCUMENT_APPLIED_EVENT, Some(&detail))
+    }
+
+    fn dispatch_repository_action(
+        request_id: u64,
+        action: &diff_core::RepositoryAction,
+    ) -> Result<(), JsValue> {
+        let json = serde_json::to_string(
+            &serde_json::json!({ "request_id": request_id, "action": action }),
+        )
+        .map_err(|error| {
             JsValue::from_str(&format!("failed to serialize repository action: {error}"))
         })?;
         dispatch_custom_event("diff-review-repository-action", Some(&json))
@@ -336,6 +511,8 @@ mod wasm {
         }
     }
 
+    // Matches Result::map_err's owned error callback.
+    #[allow(clippy::needless_pass_by_value)]
     fn js_error(error: WebError) -> JsValue {
         JsValue::from_str(&error.to_string())
     }
@@ -360,8 +537,8 @@ mod wasm {
         install_string_command(&document, "diff-review-set-theme", set_theme)?;
         install_string_command(
             &document,
-            "diff-review-repository-error",
-            set_repository_error,
+            "diff-review-repository-completed",
+            complete_repository_json,
         )?;
 
         let clear = Closure::<dyn FnMut(CustomEvent)>::new(|_event: CustomEvent| {
@@ -410,6 +587,12 @@ mod wasm {
     }
 
     /// Initializes the single-threaded GPUI browser platform and its one canvas.
+    ///
+    /// # Errors
+    /// Returns an error if already started or browser listeners cannot be installed.
+    ///
+    /// # Panics
+    /// Panics if bundled fonts cannot load or the canvas cannot be opened.
     #[wasm_bindgen(start)]
     pub fn start() -> Result<(), JsValue> {
         console_error_panic_hook::set_once();
@@ -444,25 +627,49 @@ mod wasm {
         Ok(())
     }
 
-    /// Replaces the viewer snapshot with a serialized `DiffDocument`.
+    /// Pushes a document, as a bare `DiffDocument` or a revision envelope.
+    ///
+    /// Pushes are idempotent and the result is acknowledged on
+    /// `diff-review-document-applied`.
+    ///
+    /// # Errors
+    /// Returns an error for invalid JSON or an unavailable command channel.
     #[wasm_bindgen]
     pub fn set_document_json(json: &str) -> Result<(), JsValue> {
-        let document = decode_document(json).map_err(js_error)?;
-        send(WebCommand::SetDocument(Arc::new(document))).map_err(js_error)
+        let command = decode_document_command(json).map_err(js_error)?;
+        send(WebCommand::SetDocument {
+            document: Arc::new(command.document),
+            revision: command.revision,
+            request_id: command.request_id,
+        })
+        .map_err(js_error)
     }
 
     /// Switches the root to rendered Markdown and parses the source payload in Rust.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid payload or an unavailable command channel.
     #[wasm_bindgen]
     pub fn set_markdown_document_json(json: &str) -> Result<(), JsValue> {
         let document = decode_markdown_document(json).map_err(js_error)?;
         send(WebCommand::SetMarkdownDocument(Arc::new(document))).map_err(js_error)
     }
 
-    fn set_repository_error(message: &str) -> Result<(), JsValue> {
-        send(WebCommand::RepositoryError(message.to_owned())).map_err(js_error)
+    /// Completes a specific repository command, even if its content is unchanged.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid reply or an unavailable command channel.
+    #[wasm_bindgen]
+    pub fn complete_repository_json(json: &str) -> Result<(), JsValue> {
+        let reply = serde_json::from_str::<RepositoryReply>(json)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        send(WebCommand::RepositoryFinished(reply)).map_err(js_error)
     }
 
     /// Selects one of the themes returned by the built-in theme catalog.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown theme or an unavailable command channel.
     #[wasm_bindgen]
     pub fn set_theme(name: &str) -> Result<(), JsValue> {
         let theme = decode_theme(name).map_err(js_error)?;
@@ -471,6 +678,9 @@ mod wasm {
     }
 
     /// Removes every queued review comment and active draft.
+    ///
+    /// # Errors
+    /// Returns an error if the command channel is unavailable.
     #[wasm_bindgen]
     pub fn clear_review() -> Result<(), JsValue> {
         send(WebCommand::ClearReview).map_err(js_error)
@@ -478,12 +688,57 @@ mod wasm {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{clear_review, set_document_json, set_markdown_document_json, set_theme, start};
+pub use wasm::{
+    clear_review, complete_repository_json, set_document_json, set_markdown_document_json,
+    set_theme, start,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use diff_theme::ThemeId;
+
+    #[test]
+    fn completion_is_request_scoped_and_independent_of_content() {
+        let mut requests = RepositoryRequests::default();
+        let first = requests.begin().unwrap();
+        assert!(requests.begin().is_none(), "only one command owns pending");
+        for unchanged in [false, true] {
+            let _ = document_update_decision(None, None, || unchanged);
+            assert_eq!(
+                requests.pending,
+                Some(first),
+                "pushes do not complete commands"
+            );
+        }
+        let decision = document_update_decision(Some(2), Some(3), || true);
+        assert_eq!(decision, UpdateDecision::SkipUnchanged);
+        assert!(
+            requests.finish(first),
+            "an unchanged success completes its command"
+        );
+        let second = requests.begin().unwrap();
+        assert!(
+            !requests.finish(first),
+            "duplicate/late replies cannot clear the next command"
+        );
+        assert_eq!(requests.pending, Some(second));
+        assert!(requests.finish(second));
+    }
+
+    #[test]
+    fn document_envelopes_can_complete_a_specific_command() {
+        let command = decode_document_command(
+            r#"{"revision":4,"request_id":7,"document":{"repo_root":"/fixture","files":[]}}"#,
+        )
+        .unwrap();
+        assert_eq!(command.request_id, Some(7));
+        assert_eq!(command.revision, Some(4));
+        let reply: RepositoryReply =
+            serde_json::from_str(r#"{"request_id":7,"error":"git failed"}"#).unwrap();
+        assert_eq!(reply.request_id, 7);
+        assert_eq!(reply.error.as_deref(), Some("git failed"));
+    }
 
     #[test]
     fn bundled_demo_is_the_captured_workspace_diff() {
@@ -497,6 +752,63 @@ mod tests {
         let document = decode_document(r#"{"repo_root":"/fixture","files":[]}"#).unwrap();
         assert_eq!(document.repo_root, "/fixture");
         assert!(document.files.is_empty());
+    }
+
+    #[test]
+    fn decodes_both_bare_documents_and_revision_envelopes() {
+        let bare = decode_document_command(r#"{"repo_root":"/fixture","files":[]}"#).unwrap();
+        assert_eq!(bare.revision, None);
+        assert_eq!(bare.document.repo_root, "/fixture");
+
+        let envelope = decode_document_command(
+            r#"{"revision":4,"document":{"repo_root":"/fixture","files":[]}}"#,
+        )
+        .unwrap();
+        assert_eq!(envelope.revision, Some(4));
+        assert_eq!(envelope.document.repo_root, "/fixture");
+    }
+
+    #[test]
+    fn stale_pushes_do_not_inspect_document_content() {
+        assert_eq!(
+            document_update_decision(Some(3), Some(2), || panic!(
+                "stale content must not be compared"
+            )),
+            UpdateDecision::SkipStale
+        );
+    }
+
+    #[test]
+    fn pushes_are_idempotent_and_ordered_when_revisions_are_supplied() {
+        assert_eq!(
+            document_update_decision(None, None, || false),
+            UpdateDecision::Apply
+        );
+        assert_eq!(
+            document_update_decision(None, None, || true),
+            UpdateDecision::SkipUnchanged
+        );
+        assert_eq!(
+            document_update_decision(Some(2), Some(3), || false),
+            UpdateDecision::Apply
+        );
+        assert_eq!(
+            document_update_decision(Some(3), Some(3), || false),
+            UpdateDecision::SkipStale
+        );
+        assert_eq!(
+            document_update_decision(Some(3), Some(2), || false),
+            UpdateDecision::SkipStale
+        );
+        assert_eq!(
+            document_update_decision(Some(3), None, || false),
+            UpdateDecision::Apply,
+            "a host without revisions is never stale"
+        );
+        assert_eq!(
+            document_update_decision(Some(2), Some(3), || true),
+            UpdateDecision::SkipUnchanged
+        );
     }
 
     #[test]
