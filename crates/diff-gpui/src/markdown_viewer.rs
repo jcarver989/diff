@@ -1,9 +1,9 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
 use crate::{
-    DEFAULT_FONT_FAMILY, ThemeChanged,
+    DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
-    style,
+    default_font_size_for_viewport_width, style,
     ui::{
         comments::{CommentCard, CommentComposer, CommentCount},
         prelude::{
@@ -57,7 +57,7 @@ pub struct MarkdownReviewerOptions {
 impl Default for MarkdownReviewerOptions {
     fn default() -> Self {
         Self {
-            font_size: 16.0,
+            font_size: DEFAULT_FONT_SIZE,
             outline_width: 260.0,
             show_outline: true,
         }
@@ -78,6 +78,7 @@ pub struct MarkdownReviewer {
     highlighter: RefCell<SyntaxHighlighter>,
     code_infos: HashMap<MarkdownTargetId, CodeInfo>,
     options: MarkdownReviewerOptions,
+    font_size: f32,
     editor: Option<Entity<CommentEditor>>,
     editor_subscription: Option<Subscription>,
     theme_picker_open: bool,
@@ -106,6 +107,7 @@ impl MarkdownReviewer {
             theme,
             highlighter: RefCell::new(SyntaxHighlighter::default()),
             options,
+            font_size: options.font_size,
             editor: None,
             editor_subscription: None,
             theme_picker_open: false,
@@ -172,6 +174,18 @@ impl MarkdownReviewer {
         self.session.replace_document(document);
         self.close_editor();
         cx.notify();
+    }
+
+    fn font_size(&self) -> f32 {
+        self.font_size
+    }
+
+    fn maybe_apply_viewport_font_size(&mut self, window: &Window) {
+        if (self.options.font_size - DEFAULT_FONT_SIZE).abs() > f32::EPSILON {
+            return;
+        }
+        let width = f32::from(window.viewport_size().width);
+        self.font_size = default_font_size_for_viewport_width(width);
     }
 
     /// Returns semantic component tokens for the current theme.
@@ -376,7 +390,7 @@ impl MarkdownReviewer {
             .when(comment_count > 0, |row| {
                 row.child(CommentCount::new(
                     comment_count,
-                    self.options.font_size - 2.0,
+                    self.font_size() - 2.0,
                     self.ui_theme(),
                 ))
             });
@@ -396,7 +410,7 @@ impl MarkdownReviewer {
             .on_click(cx.listener(move |reviewer, _, _, cx| reviewer.select(target_id, cx)))
             .child(
                 div()
-                    .text_size(px(self.options.font_size - 3.0))
+                    .text_size(px(self.font_size() - 3.0))
                     .text_color(style::color(palette.muted))
                     .child(label),
             )
@@ -410,7 +424,7 @@ impl MarkdownReviewer {
                         "Comment"
                     },
                     comment.body.clone(),
-                    self.options.font_size - 3.0,
+                    self.font_size() - 3.0,
                     self.ui_theme(),
                     index + 1 == comment_count,
                 )
@@ -716,6 +730,7 @@ impl Focusable for MarkdownReviewer {
 
 impl Render for MarkdownReviewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.maybe_apply_viewport_font_size(window);
         let focus = self
             .focus_handle
             .get_or_insert_with(|| cx.focus_handle())
@@ -762,7 +777,7 @@ impl Render for MarkdownReviewer {
             .flex()
             .flex_col()
             .font_family(DEFAULT_FONT_FAMILY)
-            .text_size(px(self.options.font_size))
+            .text_size(px(self.font_size()))
             .bg(style::color(palette.background))
             .text_color(style::color(palette.foreground))
             .child(

@@ -1,7 +1,10 @@
 //! State-level contracts for the reusable GPUI viewer.
 
 use clankerdiff_core::{DiffSide, Layout, LineAnchor, ViewMode, testing::DocumentBuilder};
-use clankerdiff_gpui::{DiffViewer, DiffViewerOptions};
+use clankerdiff_gpui::{
+    DEFAULT_FONT_SIZE, DiffViewer, DiffViewerOptions, FULL_SIZE_VIEWPORT_WIDTH, MIN_AUTO_FONT_SIZE,
+    default_font_size_for_viewport_width,
+};
 use clankerdiff_theme::{DiffTheme, ThemeId};
 
 #[test]
@@ -78,6 +81,24 @@ fn the_session_drives_selection_and_review() {
             .formatted
             .contains("looks wrong")
     );
+}
+
+#[test]
+fn display_scaled_default_stays_within_supported_bounds() -> Result<(), String> {
+    let narrow = default_font_size_for_viewport_width(1_280.0);
+    let roomy = default_font_size_for_viewport_width(FULL_SIZE_VIEWPORT_WIDTH);
+    if !(MIN_AUTO_FONT_SIZE..DEFAULT_FONT_SIZE).contains(&narrow) {
+        return Err(format!(
+            "narrow viewport should shrink the default: {narrow}"
+        ));
+    }
+    if (roomy - DEFAULT_FONT_SIZE).abs() >= f32::EPSILON {
+        return Err(format!("roomy viewport should keep the default: {roomy}"));
+    }
+    if (default_font_size_for_viewport_width(4_000.0) - DEFAULT_FONT_SIZE).abs() >= f32::EPSILON {
+        return Err("very wide viewports should keep the default".to_owned());
+    }
+    Ok(())
 }
 
 #[test]

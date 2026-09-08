@@ -6,6 +6,30 @@ use std::borrow::Cow;
 /// The bundled font family used by the diff viewer and its hosts.
 pub const DEFAULT_FONT_FAMILY: &str = "Lilex";
 
+/// The default viewer font size in logical pixels for a roomy display.
+pub const DEFAULT_FONT_SIZE: f32 = 16.0;
+
+/// The narrowest viewport width that keeps the default font size.
+pub const FULL_SIZE_VIEWPORT_WIDTH: f32 = 1800.0;
+
+/// The smallest font size automatic display scaling selects.
+pub const MIN_AUTO_FONT_SIZE: f32 = 13.0;
+
+/// Returns the default viewer font size for a viewport width in logical pixels.
+///
+/// Narrower viewports (laptop displays) start smaller so text occupies a
+/// similar fraction of the screen as the default size on large monitors.
+/// Viewports at or above [`FULL_SIZE_VIEWPORT_WIDTH`] keep [`DEFAULT_FONT_SIZE`].
+#[must_use]
+pub fn default_font_size_for_viewport_width(viewport_width: f32) -> f32 {
+    if !viewport_width.is_finite() {
+        return DEFAULT_FONT_SIZE;
+    }
+    let ratio = (viewport_width / FULL_SIZE_VIEWPORT_WIDTH).clamp(0.0, 1.0);
+    (MIN_AUTO_FONT_SIZE + (DEFAULT_FONT_SIZE - MIN_AUTO_FONT_SIZE) * ratio * ratio)
+        .clamp(MIN_AUTO_FONT_SIZE, DEFAULT_FONT_SIZE)
+}
+
 const LILEX_REGULAR: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Regular.ttf");
 const LILEX_BOLD: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Bold.ttf");
 const LILEX_ITALIC: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Italic.ttf");

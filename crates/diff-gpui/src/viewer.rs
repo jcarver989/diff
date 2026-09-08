@@ -1,8 +1,9 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
 use crate::{
-    DEFAULT_FONT_FAMILY, DiffViewerEvent, ThemeChanged,
+    DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DiffViewerEvent, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
+    default_font_size_for_viewport_width,
     sidebar::{SidebarResizeDrag, SidebarTree},
     style::color,
     ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
@@ -101,7 +102,7 @@ impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
             sidebar_width: 280.0,
-            font_size: 16.0,
+            font_size: DEFAULT_FONT_SIZE,
             row_height: 20.0,
             auto_split_width: 900.0,
             highlight_cache_capacity: 512,
@@ -623,6 +624,14 @@ impl DiffViewer {
 
     pub(crate) fn reset_font_size(&mut self, cx: &mut Context<Self>) {
         self.set_font_size(self.options.font_size, cx);
+    }
+
+    fn maybe_apply_viewport_font_size(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if (self.options.font_size - DEFAULT_FONT_SIZE).abs() > f32::EPSILON {
+            return;
+        }
+        let width = f32::from(window.viewport_size().width);
+        self.set_font_size(default_font_size_for_viewport_width(width), cx);
     }
 
     pub(crate) fn reset_sidebar_width(&mut self, cx: &mut Context<Self>) {
@@ -1403,6 +1412,7 @@ impl Render for DiffViewer {
         reason = "GPUI action and overlay wiring is declarative"
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.maybe_apply_viewport_font_size(window, cx);
         let viewport_width = f32::from(window.viewport_size().width);
         let sidebar_width = clamp_sidebar_width(self.sidebar_width, viewport_width);
         if (self.sidebar_width - sidebar_width).abs() > f32::EPSILON {
