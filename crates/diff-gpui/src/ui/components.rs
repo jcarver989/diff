@@ -426,16 +426,22 @@ impl RenderOnce for Modal {
         let colors = self.theme.colors;
         div()
             .id(format!("{}-backdrop", self.id))
+            .debug_selector({
+                let id = self.id.clone();
+                move || format!("{id}-backdrop")
+            })
             .absolute()
             .inset_0()
             .flex()
             .items_center()
             .justify_center()
             .bg(colors.scrim)
+            .occlude()
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .child(
                 div()
-                    .id(self.id)
+                    .id(self.id.clone())
                     .w(px(self.width))
                     .max_w_full()
                     .when_some(self.height, |panel, height| panel.h(px(height)))

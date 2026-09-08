@@ -16,7 +16,8 @@ use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter
 use diff_theme::DiffTheme;
 use gpui::{
     App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
-    ListAlignment, ListState, ScrollHandle, Subscription, Window, actions, div, prelude::*, px,
+    ListAlignment, ListOffset, ListState, ScrollHandle, Subscription, Window, actions, div,
+    prelude::*, px,
 };
 use std::sync::Arc;
 
@@ -374,6 +375,24 @@ impl DiffViewer {
     #[must_use]
     pub const fn shortcuts_open(&self) -> bool {
         self.shortcuts_open
+    }
+
+    /// Returns whether the theme picker is open.
+    #[must_use]
+    pub const fn theme_picker_open(&self) -> bool {
+        self.theme_picker_open
+    }
+
+    /// Returns the current diff list scroll position.
+    #[must_use]
+    pub fn diff_scroll_top(&self) -> ListOffset {
+        self.diff_list_state.logical_scroll_top()
+    }
+
+    /// Scrolls the diff list to the end of the selected file.
+    pub fn scroll_diff_to_end(&mut self, cx: &mut Context<Self>) {
+        self.diff_list_state.scroll_to_end();
+        cx.notify();
     }
 
     /// Returns the current changed-files sidebar width.

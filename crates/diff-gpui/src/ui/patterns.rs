@@ -98,6 +98,7 @@ impl RenderOnce for ThemePicker {
             .child(
                 div()
                     .id(format!("{id}-list"))
+                    .debug_selector(move || format!("{id}-list"))
                     .min_h_0()
                     .flex_1()
                     .overflow_y_scroll()
