@@ -191,9 +191,6 @@ impl DiffReviewState {
             }
             KeyCode::Char('C') => self.begin_commit(),
             KeyCode::Char('d') => self.begin_discard(),
-            KeyCode::Char('r') => {
-                return Some(DiffReviewEvent::RepositoryAction(RepositoryAction::Refresh));
-            }
             KeyCode::Char('t') => {
                 self.theme_picker = Some(ThemePicker::new(&self.theme));
             }

@@ -6,7 +6,7 @@ use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEven
 use diff_core::{
     DiffDocument, DiffReviewEvent, DiffSide, FileDiff, Layout, LineAnchor, PatchLine,
     PatchLineKind, RepositoryAction, Review, RowKind, SourceUnavailable, StageState, ViewMode,
-    testing::{DocumentBuilder, DocumentFixture},
+    testing::DocumentBuilder,
 };
 use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane, RatatuiTheme};
 use diff_theme::DiffTheme;
@@ -30,7 +30,7 @@ fn type_text(state: &mut DiffReviewState, text: &str) {
 }
 
 #[allow(clippy::format_collect)]
-fn full_file_fixture() -> DocumentFixture {
+fn full_file_fixture() -> Arc<DiffDocument> {
     let old = (1..=80).fold(String::new(), |mut text, line| {
         use std::fmt::Write;
         let _ = writeln!(text, "line {line}");
@@ -39,13 +39,13 @@ fn full_file_fixture() -> DocumentFixture {
     let new = old.replace("line 41\n", "changed 41\n");
     DocumentBuilder::new()
         .changed_with_hunk_window("src/main.rs", &old, &new, 38..=44)
-        .build_fixture()
+        .build()
 }
 
 #[test]
 fn context_and_full_file_keys_use_eager_sources_and_keep_expanded_rows_non_commentable() {
     let fixture = full_file_fixture();
-    let mut state = DiffReviewState::from_snapshot(fixture.snapshot());
+    let mut state = DiffReviewState::new(fixture);
     state.session_mut().set_view_mode(ViewMode::Unified);
     state.handle_input(key(KeyCode::Tab));
     assert_eq!(state.focus(), FocusPane::Diff);
@@ -106,8 +106,8 @@ fn unavailable_sources_render_a_deterministic_inline_reason() {
             DiffSide::New,
             Err::<Arc<str>, _>(SourceUnavailable::TooLarge { bytes: 9_000_000 }),
         )
-        .build_fixture();
-    let mut state = DiffReviewState::from_snapshot(fixture.snapshot());
+        .build();
+    let mut state = DiffReviewState::new(fixture);
     state.handle_input(key(KeyCode::Tab));
     state.handle_input(key(KeyCode::Char('f')));
     let rendered = draw(&mut state, 100, 80);
@@ -335,6 +335,87 @@ fn split_view_can_comment_on_the_removed_side() {
 
     state.handle_input(key(KeyCode::Char('h')));
     assert_eq!(state.focus(), FocusPane::Files);
+}
+
+/// A patch long enough to scroll, in a fresh `Arc` on every call so a swap
+/// exercises real snapshot replacement rather than pointer equality.
+fn scrollable_fixture() -> Arc<DiffDocument> {
+    let old = (1..=200).fold(String::new(), |mut text, line| {
+        let _ = writeln!(text, "let value_{line} = {line};");
+        text
+    });
+    let new = old.replace(';', " + 1;");
+    DocumentBuilder::new()
+        .changed("src/large.rs", &old, &new)
+        .build()
+}
+
+#[test]
+fn snapshot_replacement_preserves_scroll_selection_and_draft() {
+    let mut harness = support::ReviewHarness::new(scrollable_fixture(), 100, 24);
+    harness.draw();
+    harness.press(KeyCode::Tab);
+    for _ in 0..40 {
+        harness.press(KeyCode::Down);
+    }
+    harness.press(KeyCode::Char('c'));
+    harness.type_text("keep me");
+    harness.draw();
+
+    let scroll = harness.state().scroll_offset();
+    let selected = harness.state().selected_row();
+    assert!(scroll > 0, "the test must scroll away from the top");
+
+    harness.state_mut().set_document(scrollable_fixture());
+    harness.draw();
+
+    assert_eq!(harness.state().scroll_offset(), scroll);
+    assert_eq!(harness.state().selected_row(), selected);
+    assert_eq!(
+        harness
+            .state()
+            .session()
+            .draft()
+            .map(diff_core::CommentDraft::body),
+        Some("keep me")
+    );
+}
+
+#[test]
+fn replacements_and_background_health_preserve_command_state() {
+    let mut state = DiffReviewState::new(changed_document());
+    state.set_repository_pending();
+    state.set_document(changed_document());
+    state.set_document(scrollable_fixture());
+    assert!(state.repository_pending());
+    state.set_background_error(Some("refresh failed".into()));
+    assert!(state.repository_pending());
+    assert!(draw(&mut state, 100, 12).contains("refresh failed"));
+    state.set_background_error(None);
+    assert!(draw(&mut state, 100, 12).contains("Git operation in progress…"));
+    state.clear_repository_pending();
+    assert!(!state.repository_pending());
+    state.set_repository_error("command failed");
+    state.set_background_error(Some("refresh failed".into()));
+    state.set_background_error(None);
+    state.set_document(changed_document());
+    assert_eq!(state.repository_error(), Some("command failed"));
+}
+
+#[test]
+fn clearing_a_pending_repository_operation_restores_the_idle_hint() {
+    let mut state = DiffReviewState::new(changed_document());
+    state.set_repository_pending();
+    assert!(draw(&mut state, 100, 12).contains("Git operation in progress…"));
+
+    state.clear_repository_pending();
+
+    let rendered = draw(&mut state, 100, 12);
+    assert!(
+        !rendered.contains("Git operation in progress…"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("[t] theme"), "{rendered}");
 }
 
 #[test]

@@ -4,8 +4,8 @@ use crate::{
     theme_picker::ThemePicker,
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, DiffSnapshot, FileStatus, Layout, RepositoryAction,
-    RevealAmount, Review, ReviewSession, StageState, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, RepositoryAction, RevealAmount,
+    Review, ReviewSession, StageState, ViewMode,
 };
 use diff_syntax::{HighlightStats, SyntaxHighlighter};
 use diff_theme::DiffTheme;
@@ -100,6 +100,7 @@ pub struct DiffReviewState {
     pub(crate) theme_picker: Option<ThemePicker>,
     pub(crate) repository_prompt: Option<RepositoryPrompt>,
     pub(crate) repository_status: RepositoryOperationStatus,
+    pub(crate) background_error: Option<String>,
     pub(crate) hit_layout: HitLayout,
     pub(crate) visible_rows: Vec<(u16, usize)>,
     pub(crate) cursor_position: Option<Position>,
@@ -112,15 +113,6 @@ impl DiffReviewState {
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
         Self::with_theme(document, DiffTheme::default())
-    }
-
-    /// Creates terminal state directly from a complete immutable snapshot.
-    #[must_use]
-    pub fn from_snapshot(snapshot: DiffSnapshot) -> Self {
-        let document = snapshot.document().clone();
-        let mut state = Self::new(document);
-        state.session = ReviewSession::from_snapshot(snapshot);
-        state
     }
 
     /// Creates ready state with a shared neutral theme.
@@ -147,6 +139,7 @@ impl DiffReviewState {
             theme_picker: None,
             repository_prompt: None,
             repository_status: RepositoryOperationStatus::Idle,
+            background_error: None,
             hit_layout: HitLayout::default(),
             visible_rows: Vec::new(),
             cursor_position: None,
@@ -279,11 +272,10 @@ impl DiffReviewState {
         self.cursor_position
     }
 
-    /// Replaces the snapshot while retaining and reconciling review comments.
+    /// Replaces the complete document while retaining and reconciling review comments.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
         self.session.set_document(document);
         self.status = DiffReviewStatus::Ready;
-        self.repository_status = RepositoryOperationStatus::Idle;
         self.cursor_position = None;
         self.mark_dirty();
         let document = self.document().clone();
@@ -295,26 +287,7 @@ impl DiffReviewState {
             self.drawer_selected = 0;
         }
         self.follow_drawer_selection();
-        self.scroll_to_selected_file();
-    }
-
-    /// Replaces the complete snapshot while retaining and reconciling review comments.
-    pub fn set_snapshot(&mut self, snapshot: DiffSnapshot) {
-        self.session.set_snapshot(snapshot);
-        self.status = DiffReviewStatus::Ready;
-        self.repository_status = RepositoryOperationStatus::Idle;
-        self.cursor_position = None;
-        self.mark_dirty();
-        let document = self.document().clone();
-        self.drawer.rebuild(&document);
-        if let Some(selected) = self.session.selected_file() {
-            self.drawer.expand_file(&document, selected);
-            self.drawer_selected = self.drawer.position_of_file(selected).unwrap_or(0);
-        } else {
-            self.drawer_selected = 0;
-        }
-        self.follow_drawer_selection();
-        self.scroll_to_selected_file();
+        self.request_follow();
     }
 
     /// Marks the state as waiting for a host snapshot.
@@ -340,11 +313,40 @@ impl DiffReviewState {
         self.mark_dirty();
     }
 
+    /// Clears a pending repository mutation without replacing the snapshot.
+    pub fn clear_repository_pending(&mut self) {
+        self.repository_status = RepositoryOperationStatus::Idle;
+        self.mark_dirty();
+    }
+
     /// Shows a repository mutation error while retaining the current snapshot.
     pub fn set_repository_error(&mut self, message: impl Into<String>) {
         self.repository_status = RepositoryOperationStatus::Error(message.into());
         self.repository_prompt = None;
         self.mark_dirty();
+    }
+
+    /// Reconciles background refresh health independently of command completion.
+    pub fn set_background_error(&mut self, message: Option<String>) {
+        if self.background_error != message {
+            self.background_error = message;
+            self.mark_dirty();
+        }
+    }
+
+    /// Whether a host command is still in flight.
+    #[must_use]
+    pub fn repository_pending(&self) -> bool {
+        matches!(self.repository_status, RepositoryOperationStatus::Pending)
+    }
+
+    /// The command error, or otherwise the current background refresh failure.
+    #[must_use]
+    pub fn repository_error(&self) -> Option<&str> {
+        match &self.repository_status {
+            RepositoryOperationStatus::Error(message) => Some(message),
+            _ => self.background_error.as_deref(),
+        }
     }
 
     pub(crate) fn toggle_stage_action(&self) -> Option<RepositoryAction> {

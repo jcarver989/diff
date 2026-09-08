@@ -597,7 +597,7 @@ fn render_footer(
         }
         return;
     }
-    if let RepositoryOperationStatus::Error(message) = &state.repository_status {
+    if let Some(message) = state.repository_error() {
         EmptyState::new(message, NoticeTone::Error, theme).render(area, buffer);
         return;
     }
@@ -641,7 +641,7 @@ fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     render_modal_text(
         content,
         buffer,
-        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n  o/Enter          expand context\n  O                expand all context\n  f                toggle full-file view\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  r                refresh\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
+        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n  o/Enter          expand context\n  O                expand all context\n  f                toggle full-file view\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
         theme,
     );
 }

@@ -8,7 +8,7 @@ use crate::{DiffReviewInput, DiffReviewState, DiffReviewWidget};
 #[cfg(feature = "markdown-review")]
 use crate::{MarkdownReviewInput, MarkdownReviewState, MarkdownReviewWidget};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use diff_core::{DiffDocument, DiffSnapshot};
+use diff_core::DiffDocument;
 use diff_syntax::HighlightStats;
 use ratatui::{
     Terminal,
@@ -133,7 +133,6 @@ pub struct FrameStats {
 /// ```
 pub struct ReviewHarnessBuilder {
     pub document: Arc<DiffDocument>,
-    pub snapshot: Option<DiffSnapshot>,
     pub width: u16,
     pub height: u16,
 }
@@ -142,7 +141,6 @@ impl Default for ReviewHarnessBuilder {
     fn default() -> Self {
         Self {
             document: Arc::new(DiffDocument::empty()),
-            snapshot: None,
             width: 80,
             height: 24,
         }
@@ -150,14 +148,6 @@ impl Default for ReviewHarnessBuilder {
 }
 
 impl ReviewHarnessBuilder {
-    #[must_use]
-    pub fn from_snapshot(snapshot: DiffSnapshot) -> Self {
-        Self {
-            snapshot: Some(snapshot),
-            ..Self::default()
-        }
-    }
-
     #[must_use]
     pub fn dimensions(mut self, width: u16, height: u16) -> Self {
         self.width = width;
@@ -170,10 +160,7 @@ impl ReviewHarnessBuilder {
     /// Panics if Ratatui cannot initialize the in-memory test terminal.
     #[must_use]
     pub fn build(self) -> ReviewHarness {
-        let state = self.snapshot.map_or_else(
-            || DiffReviewState::new(self.document),
-            DiffReviewState::from_snapshot,
-        );
+        let state = DiffReviewState::new(self.document);
         ReviewHarness {
             terminal: Terminal::new(CountingBackend::new(self.width, self.height))
                 .expect("infallible test terminal"),
@@ -195,16 +182,8 @@ impl ReviewHarness {
             document,
             width,
             height,
-            ..ReviewHarnessBuilder::default()
         }
         .build()
-    }
-
-    #[must_use]
-    pub fn from_snapshot(snapshot: DiffSnapshot, width: u16, height: u16) -> Self {
-        ReviewHarnessBuilder::from_snapshot(snapshot)
-            .dimensions(width, height)
-            .build()
     }
 
     /// Draws one frame and returns deterministic rendering work statistics.

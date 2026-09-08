@@ -47,6 +47,29 @@ fn settled_frame_emits_no_terminal_cells_and_reuses_highlights() {
 }
 
 #[test]
+fn an_equal_content_snapshot_swap_reuses_every_highlight() {
+    let old = source_lines(1_000, "");
+    let new = source_lines(1_000, " + 1");
+    let fixture = || {
+        DocumentBuilder::new()
+            .changed("src/large.rs", &old, &new)
+            .build()
+    };
+    let mut harness = ReviewHarness::new(fixture(), 100, 24);
+    harness.draw();
+    assert_eq!(harness.draw().highlight_misses, 0);
+
+    harness.state_mut().set_document(fixture());
+
+    let swapped = harness.draw();
+    assert_eq!(
+        swapped.highlight_misses, 0,
+        "content-addressed highlights must survive a snapshot swap"
+    );
+    assert_eq!(swapped.highlight_calls, swapped.highlight_hits);
+}
+
+#[test]
 fn highlighting_work_is_bounded_by_the_viewport_not_document_size() {
     let mut small = ReviewHarness::new(large_document(1_000), 80, 20);
     let mut large = ReviewHarness::new(large_document(100_000), 80, 20);
@@ -74,8 +97,8 @@ fn deep_full_file_scroll_parses_complete_sources_once() {
     );
     let fixture = DocumentBuilder::new()
         .changed_with_hunk_window("src/large.rs", &old, &new, 49_997..=50_003)
-        .build_fixture();
-    let mut harness = ReviewHarness::from_snapshot(fixture.snapshot(), 100, 24);
+        .build();
+    let mut harness = ReviewHarness::new(fixture, 100, 24);
     harness.input(key(KeyCode::Tab));
     harness.input(key(KeyCode::Char('f')));
     let first_parse = harness.draw();
