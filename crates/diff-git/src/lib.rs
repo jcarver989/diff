@@ -8,8 +8,10 @@ mod error;
 mod path;
 mod repository;
 
+#[cfg(feature = "test-support")]
+pub mod testing;
+
 pub use error::GitError;
 pub use repository::{
-    FileContent, GitRepository, MAX_SOURCE_ARCHIVE_BYTES, MAX_SOURCE_FILE_BYTES,
-    RepositorySnapshot, SourceArchive,
+    GitRepository, MAX_SOURCE_ARCHIVE_BYTES, MAX_SOURCE_FILE_BYTES, RepositorySnapshot,
 };

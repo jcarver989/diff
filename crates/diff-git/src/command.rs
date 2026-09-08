@@ -3,6 +3,7 @@
 use crate::GitError;
 use std::{
     ffi::OsStr,
+    io,
     path::Path,
     process::{Output, Stdio},
 };
@@ -11,27 +12,84 @@ use tokio::{
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
-pub(crate) async fn run<I, S>(
+pub(crate) async fn run<T, U>(
     cwd: &Path,
     operation: &'static str,
-    args: I,
+    args: T,
 ) -> Result<Output, GitError>
 where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
+    T: IntoIterator<Item = U>,
+    U: AsRef<OsStr>,
 {
-    let output = Command::new("git")
+    execute(cwd, operation, args, None, &[0]).await
+}
+
+pub(crate) async fn run_with_stdin<T, U>(
+    cwd: &Path,
+    operation: &'static str,
+    args: T,
+    stdin: &[u8],
+    accepted_statuses: &[i32],
+) -> Result<Output, GitError>
+where
+    T: IntoIterator<Item = U>,
+    U: AsRef<OsStr>,
+{
+    execute(cwd, operation, args, Some(stdin), accepted_statuses).await
+}
+
+async fn execute<T, U>(
+    cwd: &Path,
+    operation: &'static str,
+    args: T,
+    stdin: Option<&[u8]>,
+    accepted_statuses: &[i32],
+) -> Result<Output, GitError>
+where
+    T: IntoIterator<Item = U>,
+    U: AsRef<OsStr>,
+{
+    let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
-        .output()
-        .await
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
         .map_err(|source| GitError::Spawn { operation, source })?;
-    if output.status.success() {
+
+    let input = child.stdin.take();
+    let write = async move {
+        if let Some(stdin) = stdin {
+            let mut input = input.ok_or_else(|| io::Error::other("Git stdin was not piped"))?;
+            input.write_all(stdin).await?;
+            drop(input);
+        }
+        Ok::<_, io::Error>(())
+    };
+
+    let ((), output) = tokio::try_join!(write, child.wait_with_output())
+        .map_err(|source| GitError::Spawn { operation, source })?;
+    check_status(output, operation, accepted_statuses)
+}
+
+fn check_status(
+    output: Output,
+    operation: &'static str,
+    accepted_statuses: &[i32],
+) -> Result<Output, GitError> {
+    let status = output.status.code();
+    if status.is_some_and(|code| accepted_statuses.contains(&code)) {
         return Ok(output);
     }
     Err(GitError::CommandFailed {
         operation,
-        status: output.status.code(),
+        status,
         stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
     })
 }
@@ -57,14 +115,17 @@ impl CatFileBatch {
                 operation: OPERATION,
                 source,
             })?;
+
         let stdin = child.stdin.take().ok_or_else(|| GitError::Spawn {
             operation: OPERATION,
             source: std::io::Error::other("Git batch stdin was not piped"),
         })?;
+
         let stdout = child.stdout.take().ok_or_else(|| GitError::Spawn {
             operation: OPERATION,
             source: std::io::Error::other("Git batch stdout was not piped"),
         })?;
+
         Ok(Self {
             _child: child,
             stdin,

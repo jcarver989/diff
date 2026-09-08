@@ -1,63 +1,15 @@
 //! Contracts between `diff-git`, the real Git executable, and `diff-core`.
 
 use diff_core::{
-    DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath, SourceKey,
-    SourceUnavailable, StageState,
+    DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath,
+    RepositoryAction, SourceResult, SourceUnavailable, StageState,
 };
-use diff_git::{FileContent, GitError, GitRepository, MAX_SOURCE_FILE_BYTES};
-use std::{fs, path::PathBuf, process::Command};
+use diff_git::{
+    GitError, GitRepository, MAX_SOURCE_FILE_BYTES, RepositorySnapshot,
+    testing::{RepoFixture, RepoFixtureBuilder},
+};
+use std::{error::Error, fs};
 use tempfile::TempDir;
-
-struct Repo {
-    _dir: TempDir,
-    root: PathBuf,
-}
-
-impl Repo {
-    fn init() -> Self {
-        let dir = TempDir::new().expect("temporary directory");
-        let root = dir.path().canonicalize().expect("canonical temporary path");
-        let repo = Self { _dir: dir, root };
-        repo.git(&["init", "--initial-branch=main"]);
-        repo.git(&["config", "user.name", "Diff Contract Test"]);
-        repo.git(&["config", "user.email", "diff@example.com"]);
-        repo
-    }
-
-    fn git(&self, args: &[&str]) {
-        let output = Command::new("git")
-            .current_dir(&self.root)
-            .args(args)
-            .output()
-            .expect("git must run");
-        assert!(
-            output.status.success(),
-            "git {args:?} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    fn write(&self, path: &str, contents: impl AsRef<[u8]>) {
-        let path = self.root.join(path);
-        fs::create_dir_all(path.parent().expect("file has parent")).expect("create parents");
-        fs::write(path, contents).expect("write fixture");
-    }
-
-    fn remove(&self, path: &str) {
-        fs::remove_file(self.root.join(path)).expect("remove fixture");
-    }
-
-    fn commit_all(&self) {
-        self.git(&["add", "-A"]);
-        self.git(&["commit", "-m", "fixture"]);
-    }
-
-    async fn repository(&self) -> GitRepository {
-        GitRepository::discover(&self.root)
-            .await
-            .expect("discover fixture repository")
-    }
-}
 
 fn file<'a>(document: &'a DiffDocument, path: &str) -> &'a FileDiff {
     document
@@ -65,6 +17,10 @@ fn file<'a>(document: &'a DiffDocument, path: &str) -> &'a FileDiff {
         .iter()
         .find(|file| file.path.as_str() == path)
         .unwrap_or_else(|| panic!("{path} missing from {:?}", paths(document)))
+}
+
+fn source_of<'a>(snapshot: &'a RepositorySnapshot, name: &str, side: DiffSide) -> &'a SourceResult {
+    file(&snapshot.document, name).source(side)
 }
 
 fn paths(document: &DiffDocument) -> Vec<&str> {
@@ -80,13 +36,128 @@ fn path(value: &str) -> RepoPath {
 }
 
 #[tokio::test]
+async fn check_ignore_drains_output_while_sending_a_large_batch() {
+    let repo = RepoFixtureBuilder::new().gitignore(&["target/"]).build();
+    let repository = repo.repository().await;
+    let paths: Vec<_> = (0..20_000)
+        .map(|i| format!("target/artifact-{i:08}.bin"))
+        .collect();
+    let ignored = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        repository.ignored_paths(&paths),
+    )
+    .await
+    .expect("large batches must not deadlock")
+    .expect("check-ignore succeeds");
+    assert_eq!(ignored.len(), paths.len());
+    assert!(paths.iter().all(|path| ignored.contains(path)));
+}
+
+#[tokio::test]
+async fn snapshot_scope_is_captured_and_part_of_equality() -> Result<(), GitError> {
+    let repo = RepoFixtureBuilder::new()
+        .file("file.txt", "original\n")
+        .committed()
+        .build();
+    let repository = repo.repository().await;
+    let both = repository.snapshot_with_sources(DiffScope::Both).await?;
+    let staged = repository.snapshot_with_sources(DiffScope::Staged).await?;
+    let unstaged = repository
+        .snapshot_with_sources(DiffScope::Unstaged)
+        .await?;
+
+    assert_eq!(both.scope, DiffScope::Both);
+    assert_eq!(staged.scope, DiffScope::Staged);
+    assert_eq!(unstaged.scope, DiffScope::Unstaged);
+    assert_eq!(both.document, staged.document);
+    assert_eq!(both.document, unstaged.document);
+    assert_ne!(both, staged);
+    assert_ne!(both, unstaged);
+    assert_ne!(staged, unstaged);
+    assert_eq!(
+        both,
+        repository.snapshot_with_sources(DiffScope::Both).await?
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn snapshot_reads_do_not_refresh_the_index_stat_cache() {
+    let repo = RepoFixtureBuilder::new()
+        .file("file.txt", "original\n")
+        .committed()
+        .build();
+    let repository = repo.repository().await;
+    let index = repo.root().join(".git/index");
+    let before = fs::read(&index).expect("read index");
+    // Replacing the file changes its inode/stat data without changing content.
+    repo.remove("file.txt");
+    repo.write("file.txt", "original\n");
+    let snapshot = repository
+        .snapshot_with_sources(DiffScope::Both)
+        .await
+        .expect("load snapshot");
+    assert!(snapshot.document.files.is_empty());
+    assert_eq!(fs::read(index).expect("read index after load"), before);
+}
+
+#[tokio::test]
+async fn check_ignore_classifies_ignored_and_tracked_paths() {
+    let repo = RepoFixtureBuilder::new()
+        .file("src/lib.rs", "fn main() {}\n")
+        .gitignore(&["target/", "*.log"])
+        .committed()
+        .build();
+    repo.write("target/debug/build.txt", "artifact\n");
+    repo.write("run.log", "noise\n");
+    let repository = repo.repository().await;
+
+    let ignored = repository
+        .ignored_paths(&[
+            "target/debug/build.txt".to_owned(),
+            "run.log".to_owned(),
+            "src/lib.rs".to_owned(),
+        ])
+        .await
+        .expect("check-ignore must classify paths");
+
+    assert!(ignored.contains("target/debug/build.txt"));
+    assert!(ignored.contains("run.log"));
+    assert!(!ignored.contains("src/lib.rs"));
+}
+
+#[tokio::test]
+async fn check_ignore_reports_nothing_ignored_without_an_error() {
+    let repo = RepoFixtureBuilder::new()
+        .file("src/lib.rs", "fn main() {}\n")
+        .committed()
+        .build();
+    let repository = repo.repository().await;
+
+    assert!(
+        repository
+            .ignored_paths(&["src/lib.rs".to_owned()])
+            .await
+            .expect("exit status 1 means nothing was ignored")
+            .is_empty()
+    );
+    assert!(
+        repository
+            .ignored_paths(&[])
+            .await
+            .expect("an empty request never spawns Git")
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn discovers_from_a_subdirectory_and_rejects_non_repositories() {
-    let repo = Repo::init();
-    let nested = repo.root.join("nested/deep");
+    let repo = RepoFixture::init();
+    let nested = repo.root().join("nested/deep");
     fs::create_dir_all(&nested).expect("create nested directory");
 
     let discovered = GitRepository::discover(&nested).await.expect("discover");
-    assert_eq!(discovered.root(), repo.root);
+    assert_eq!(discovered.root(), repo.root());
 
     let outside = TempDir::new().expect("temporary directory");
     assert!(matches!(
@@ -97,7 +168,7 @@ async fn discovers_from_a_subdirectory_and_rejects_non_repositories() {
 
 #[tokio::test]
 async fn snapshots_keep_staged_unstaged_and_partial_content_separate() {
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     repo.write("partial.txt", "base\n");
     repo.write("unstaged.txt", "base\n");
     repo.write("staged.txt", "base\n");
@@ -154,22 +225,15 @@ async fn snapshots_keep_staged_unstaged_and_partial_content_separate() {
 
 #[tokio::test]
 async fn richer_snapshots_capture_exact_head_index_and_worktree_versions() {
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     repo.write("three.txt", "head\n");
     repo.commit_all();
     repo.write("three.txt", "index\n");
     repo.git(&["add", "three.txt"]);
     repo.write("three.txt", "worktree\n");
     let repository = repo.repository().await;
-    let key = |side| SourceKey {
-        review_path: path("three.txt"),
-        side,
-    };
-    let text = |snapshot: &diff_git::RepositorySnapshot, side| {
-        snapshot
-            .sources()
-            .get(&key(side))
-            .unwrap()
+    let text = |snapshot: &RepositorySnapshot, side| {
+        source_of(snapshot, "three.txt", side)
             .as_ref()
             .unwrap()
             .text()
@@ -204,7 +268,7 @@ async fn richer_snapshots_capture_exact_head_index_and_worktree_versions() {
 
 #[tokio::test]
 async fn source_archives_preserve_crlf_and_final_newline_identity() {
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     repo.write("lines.txt", b"old\r\nsecond\r\n");
     repo.commit_all();
     repo.write("lines.txt", b"new\r\nsecond");
@@ -213,18 +277,7 @@ async fn source_archives_preserve_crlf_and_final_newline_identity() {
         .snapshot_with_sources(DiffScope::Unstaged)
         .await
         .unwrap();
-    let source = |side| {
-        snapshot
-            .sources()
-            .get(&SourceKey {
-                review_path: path("lines.txt"),
-                side,
-            })
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .as_ref()
-    };
+    let source = |side| source_of(&snapshot, "lines.txt", side).as_ref().unwrap();
     assert_eq!(source(DiffSide::Old).text(), "old\r\nsecond\r\n");
     assert_eq!(source(DiffSide::New).text(), "new\r\nsecond");
 }
@@ -234,14 +287,14 @@ async fn source_archives_preserve_crlf_and_final_newline_identity() {
 async fn source_archive_budget_marks_later_versions_unavailable() {
     use std::os::unix::fs::PermissionsExt;
 
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     let contents = vec![b'x'; usize::try_from(MAX_SOURCE_FILE_BYTES).unwrap()];
     for index in 0..5 {
         repo.write(&format!("large-{index}.txt"), &contents);
     }
     repo.commit_all();
     for index in 0..5 {
-        let path = repo.root.join(format!("large-{index}.txt"));
+        let path = repo.root().join(format!("large-{index}.txt"));
         let mut permissions = fs::metadata(&path).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions).unwrap();
@@ -254,22 +307,10 @@ async fn source_archive_budget_marks_later_versions_unavailable() {
         .await
         .unwrap();
     for side in [DiffSide::Old, DiffSide::New] {
-        assert!(
-            snapshot
-                .sources()
-                .get(&SourceKey {
-                    review_path: path("large-3.txt"),
-                    side,
-                })
-                .unwrap()
-                .is_ok()
-        );
+        assert!(source_of(&snapshot, "large-3.txt", side).is_ok());
         assert_eq!(
-            snapshot.sources().get(&SourceKey {
-                review_path: path("large-4.txt"),
-                side,
-            }),
-            Some(&Err(SourceUnavailable::SnapshotBudgetExceeded))
+            source_of(&snapshot, "large-4.txt", side),
+            &Err(SourceUnavailable::SnapshotBudgetExceeded)
         );
     }
 }
@@ -279,7 +320,7 @@ async fn source_archive_budget_marks_later_versions_unavailable() {
 async fn oversized_blob_does_not_break_batch_framing() {
     use std::os::unix::fs::PermissionsExt;
 
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     let oversized_bytes = MAX_SOURCE_FILE_BYTES.saturating_add(1);
     repo.write(
         "a-large.txt",
@@ -288,7 +329,7 @@ async fn oversized_blob_does_not_break_batch_framing() {
     repo.write("z-small.txt", "small\n");
     repo.commit_all();
     for name in ["a-large.txt", "z-small.txt"] {
-        let path = repo.root.join(name);
+        let path = repo.root().join(name);
         let mut permissions = fs::metadata(&path).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions).unwrap();
@@ -302,18 +343,13 @@ async fn oversized_blob_does_not_break_batch_framing() {
         .unwrap();
     for side in [DiffSide::Old, DiffSide::New] {
         assert_eq!(
-            snapshot
-                .sources()
-                .get(&SourceKey::new(path("a-large.txt"), side)),
-            Some(&Err(SourceUnavailable::TooLarge {
+            source_of(&snapshot, "a-large.txt", side),
+            &Err(SourceUnavailable::TooLarge {
                 bytes: oversized_bytes
-            }))
+            })
         );
         assert_eq!(
-            snapshot
-                .sources()
-                .get(&SourceKey::new(path("z-small.txt"), side))
-                .unwrap()
+            source_of(&snapshot, "z-small.txt", side)
                 .as_ref()
                 .unwrap()
                 .text(),
@@ -324,7 +360,7 @@ async fn oversized_blob_does_not_break_batch_framing() {
 
 #[tokio::test]
 async fn discarded_binary_versions_do_not_consume_the_source_archive_budget() {
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     let mut binary = vec![b'x'; usize::try_from(MAX_SOURCE_FILE_BYTES).unwrap()];
     binary[0] = 0;
     for index in 0..9 {
@@ -344,12 +380,8 @@ async fn discarded_binary_versions_do_not_consume_the_source_archive_budget() {
         .snapshot_with_sources(DiffScope::Unstaged)
         .await
         .unwrap();
-    let text_key = SourceKey::new(path("z-text.txt"), DiffSide::New);
     assert_eq!(
-        snapshot
-            .sources()
-            .get(&text_key)
-            .unwrap()
+        source_of(&snapshot, "z-text.txt", DiffSide::New)
             .as_ref()
             .unwrap()
             .text(),
@@ -359,7 +391,7 @@ async fn discarded_binary_versions_do_not_consume_the_source_archive_budget() {
 
 #[tokio::test]
 async fn unborn_repository_snapshots_and_unstaging_work() {
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     repo.write("staged.txt", "index\n");
     repo.git(&["add", "staged.txt"]);
     repo.write("staged.txt", "worktree\n");
@@ -380,7 +412,7 @@ async fn unborn_repository_snapshots_and_unstaging_work() {
     );
 
     repository
-        .unstage_all()
+        .apply(RepositoryAction::UnstageAll)
         .await
         .expect("unstage unborn index");
     let staged = repository
@@ -389,46 +421,50 @@ async fn unborn_repository_snapshots_and_unstaging_work() {
         .expect("empty staged snapshot");
     assert!(staged.files.is_empty());
     assert!(
-        repo.root.join("staged.txt").exists(),
+        repo.root().join("staged.txt").exists(),
         "unstaging must preserve worktree files"
     );
 }
 
 #[tokio::test]
-async fn untracked_text_binary_and_utf8_paths_are_loaded_without_loss() {
-    let repo = Repo::init();
-    repo.write("space and é.txt", "hello\n");
-    repo.write("tab\tand\nnewline.txt", "odd path\n");
-    repo.write("data.bin", [0, 159, 146, 150]);
+async fn untracked_text_binary_and_utf8_paths_are_loaded_without_loss() -> Result<(), Box<dyn Error>>
+{
+    let repo = RepoFixtureBuilder::new()
+        .file("space and é.txt", "hello\n")
+        .file("tab\tand\nnewline.txt", "odd path\n")
+        .file("data.bin", [0, 159, 146, 150])
+        .build();
     let repository = repo.repository().await;
 
-    let document = repository
-        .snapshot(DiffScope::Unstaged)
-        .await
-        .expect("snapshot");
+    let document = repository.snapshot(DiffScope::Unstaged).await?;
     assert!(!file(&document, "space and é.txt").binary);
     assert!(!file(&document, "tab\tand\nnewline.txt").binary);
     assert!(file(&document, "data.bin").binary);
+    let snapshot = repository
+        .snapshot_with_sources(DiffScope::Unstaged)
+        .await?;
+    for (name, expected) in [
+        ("space and é.txt", "hello\n"),
+        ("tab\tand\nnewline.txt", "odd path\n"),
+    ] {
+        assert_eq!(
+            source_of(&snapshot, name, DiffSide::New)
+                .as_ref()
+                .map(|source| source.text()),
+            Ok(expected)
+        );
+    }
     assert_eq!(
-        repository
-            .read_worktree_file(&path("space and é.txt"))
-            .await
-            .expect("read text"),
-        FileContent::Text("hello\n".to_owned())
+        source_of(&snapshot, "data.bin", DiffSide::New),
+        &Err(SourceUnavailable::Binary)
     );
-    assert!(
-        repository
-            .read_worktree_file(&path("data.bin"))
-            .await
-            .expect("read binary")
-            .is_binary()
-    );
+    Ok(())
 }
 
 #[tokio::test]
 async fn oversized_untracked_content_is_omitted_from_snapshots() {
-    let repo = Repo::init();
-    let large = fs::File::create(repo.root.join("large.bin")).expect("create large fixture");
+    let repo = RepoFixture::init();
+    let large = fs::File::create(repo.root().join("large.bin")).expect("create large fixture");
     large.set_len(9 * 1024 * 1024).expect("size large fixture");
 
     let document = repo
@@ -448,9 +484,9 @@ async fn oversized_untracked_content_is_omitted_from_snapshots() {
 async fn snapshot_rejects_non_utf8_repository_paths() {
     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     let Ok(()) = fs::write(
-        repo.root.join(OsStr::from_bytes(b"invalid-\xff")),
+        repo.root().join(OsStr::from_bytes(b"invalid-\xff")),
         "content\n",
     ) else {
         // Some filesystems (including common macOS volumes) reject non-UTF-8
@@ -468,7 +504,7 @@ async fn snapshot_rejects_non_utf8_repository_paths() {
 
 #[tokio::test]
 async fn stage_unstage_commit_and_empty_message_contracts() {
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     repo.write("file.txt", "one\n");
     repo.commit_all();
     repo.write("file.txt", "two\n");
@@ -476,7 +512,7 @@ async fn stage_unstage_commit_and_empty_message_contracts() {
     let repository = repo.repository().await;
 
     repository
-        .stage(&[path("file.txt")])
+        .apply(RepositoryAction::StagePaths(vec![path("file.txt")]))
         .await
         .expect("stage selected");
     assert_eq!(
@@ -491,7 +527,7 @@ async fn stage_unstage_commit_and_empty_message_contracts() {
         StageState::Staged
     );
     repository
-        .unstage(&[path("file.txt")])
+        .apply(RepositoryAction::UnstagePaths(vec![path("file.txt")]))
         .await
         .expect("unstage selected");
     assert_eq!(
@@ -506,12 +542,24 @@ async fn stage_unstage_commit_and_empty_message_contracts() {
         StageState::Unstaged
     );
     assert!(matches!(
-        repository.commit("  \n").await,
+        repository
+            .apply(RepositoryAction::Commit {
+                message: "  \n".to_owned(),
+            })
+            .await,
         Err(GitError::EmptyCommitMessage)
     ));
 
-    repository.stage_all().await.expect("stage all");
-    repository.commit("update").await.expect("commit");
+    repository
+        .apply(RepositoryAction::StageAll)
+        .await
+        .expect("stage all");
+    repository
+        .apply(RepositoryAction::Commit {
+            message: "update".to_owned(),
+        })
+        .await
+        .expect("commit");
     assert!(
         repository
             .snapshot(DiffScope::Both)
@@ -524,7 +572,7 @@ async fn stage_unstage_commit_and_empty_message_contracts() {
 
 #[tokio::test]
 async fn snapshots_cover_renames_copies_deletions_binary_and_mode_changes() {
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     repo.write("old.rs", "fn kept() {}\n");
     repo.write("source.txt", "copy me\n");
     repo.write("delete.txt", "remove me\n");
@@ -533,18 +581,18 @@ async fn snapshots_cover_renames_copies_deletions_binary_and_mode_changes() {
     repo.commit_all();
 
     repo.git(&["mv", "old.rs", "new.rs"]);
-    fs::copy(repo.root.join("source.txt"), repo.root.join("copy.txt")).expect("copy fixture");
+    fs::copy(repo.root().join("source.txt"), repo.root().join("copy.txt")).expect("copy fixture");
     repo.git(&["add", "copy.txt"]);
     repo.remove("delete.txt");
     repo.write("binary.bin", [0, 255, 3]);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(repo.root.join("script.sh"))
+        let mut permissions = fs::metadata(repo.root().join("script.sh"))
             .expect("metadata")
             .permissions();
         permissions.set_mode(0o755);
-        fs::set_permissions(repo.root.join("script.sh"), permissions).expect("chmod fixture");
+        fs::set_permissions(repo.root().join("script.sh"), permissions).expect("chmod fixture");
     }
 
     let document = repo
@@ -563,7 +611,7 @@ async fn snapshots_cover_renames_copies_deletions_binary_and_mode_changes() {
 
 #[tokio::test]
 async fn discard_restores_tracked_files_and_removes_untracked_files() {
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     repo.write("modified.txt", "original\n");
     repo.write("deleted.txt", "restore\n");
     repo.commit_all();
@@ -577,33 +625,45 @@ async fn discard_restores_tracked_files_and_removes_untracked_files() {
     let repository = repo.repository().await;
 
     repository
-        .discard(&path("modified.txt"), FileStatus::Modified)
+        .apply(RepositoryAction::Discard {
+            path: path("modified.txt"),
+            status: FileStatus::Modified,
+        })
         .await
         .expect("discard modification");
     repository
-        .discard(&path("deleted.txt"), FileStatus::Deleted)
+        .apply(RepositoryAction::Discard {
+            path: path("deleted.txt"),
+            status: FileStatus::Deleted,
+        })
         .await
         .expect("discard deletion");
     repository
-        .discard(&path("untracked.txt"), FileStatus::Untracked)
+        .apply(RepositoryAction::Discard {
+            path: path("untracked.txt"),
+            status: FileStatus::Untracked,
+        })
         .await
         .expect("discard untracked");
     repository
-        .discard(&path("renamed.txt"), FileStatus::Renamed)
+        .apply(RepositoryAction::Discard {
+            path: path("renamed.txt"),
+            status: FileStatus::Renamed,
+        })
         .await
         .expect("discard rename");
 
     assert_eq!(
-        fs::read(repo.root.join("modified.txt")).expect("read"),
+        fs::read(repo.root().join("modified.txt")).expect("read"),
         b"original\n"
     );
     assert_eq!(
-        fs::read(repo.root.join("deleted.txt")).expect("read"),
+        fs::read(repo.root().join("deleted.txt")).expect("read"),
         b"restore\n"
     );
-    assert!(!repo.root.join("untracked.txt").exists());
-    assert!(repo.root.join("rename-me.txt").exists());
-    assert!(!repo.root.join("renamed.txt").exists());
+    assert!(!repo.root().join("untracked.txt").exists());
+    assert!(repo.root().join("rename-me.txt").exists());
+    assert!(!repo.root().join("renamed.txt").exists());
     assert!(
         repository
             .snapshot(DiffScope::Both)
@@ -619,10 +679,10 @@ async fn discard_restores_tracked_files_and_removes_untracked_files() {
 async fn untracked_symlinks_use_the_link_target_for_patch_and_source() {
     use std::os::unix::fs::symlink;
 
-    let repo = Repo::init();
+    let repo = RepoFixture::init();
     repo.write("target.txt", "target contents\n");
     repo.commit_all();
-    symlink("target.txt", repo.root.join("link.txt")).expect("create symlink");
+    symlink("target.txt", repo.root().join("link.txt")).expect("create symlink");
 
     let snapshot = repo
         .repository()
@@ -634,12 +694,8 @@ async fn untracked_symlinks_use_the_link_target_for_patch_and_source() {
         file(&snapshot.document, "link.txt").status,
         FileStatus::Untracked
     );
-    let key = SourceKey::new(path("link.txt"), DiffSide::New);
     assert_eq!(
-        snapshot
-            .sources()
-            .get(&key)
-            .unwrap()
+        source_of(&snapshot, "link.txt", DiffSide::New)
             .as_ref()
             .unwrap()
             .text(),
@@ -649,19 +705,26 @@ async fn untracked_symlinks_use_the_link_target_for_patch_and_source() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn full_file_reads_reject_symlinks_that_escape_the_repository() {
+async fn snapshots_capture_external_symlink_targets_without_reading_them()
+-> Result<(), Box<dyn Error>> {
     use std::os::unix::fs::symlink;
 
-    let repo = Repo::init();
-    let outside = TempDir::new().expect("outside directory");
-    fs::write(outside.path().join("secret"), "secret\n").expect("write secret");
-    symlink(outside.path().join("secret"), repo.root.join("link")).expect("create symlink");
+    let repo = RepoFixtureBuilder::new().build();
+    let outside = TempDir::new()?;
+    let target = outside.path().join("secret");
+    fs::write(&target, "secret\n")?;
+    symlink(&target, repo.root().join("link"))?;
 
-    assert!(matches!(
-        repo.repository()
-            .await
-            .read_worktree_file(&path("link"))
-            .await,
-        Err(GitError::PathEscapesRepository { .. })
-    ));
+    let snapshot = repo
+        .repository()
+        .await
+        .snapshot_with_sources(DiffScope::Both)
+        .await?;
+    assert_eq!(
+        source_of(&snapshot, "link", DiffSide::New)
+            .as_ref()
+            .map(|source| source.text()),
+        Ok(target.to_str().ok_or("non-UTF-8 fixture path")?)
+    );
+    Ok(())
 }

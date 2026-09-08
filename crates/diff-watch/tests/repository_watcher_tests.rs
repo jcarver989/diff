@@ -204,7 +204,6 @@ async fn a_scope_only_change_notifies_but_repeated_scope_does_not() -> TestResul
     updates.borrow_and_update();
     assert_eq!(staged.scope, DiffScope::Staged);
     assert_eq!(original.document, staged.document);
-    assert_eq!(original.sources(), staged.sources());
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx

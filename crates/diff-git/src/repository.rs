@@ -2,102 +2,36 @@
 
 use crate::{GitError, command, command::CatFileBatch, path};
 use diff_core::{
-    DiffDocument, DiffScope, DiffSide, DiffSnapshot, FileDiff, FileStatus, Fingerprint, RepoPath,
-    SourceDocument, SourceKey, SourceUnavailable, UntrackedFile, parse_porcelain_v1_z,
+    DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Fingerprint, RepoPath,
+    RepositoryAction, SourceDocument, SourceResult, SourceUnavailable, UntrackedFile,
+    parse_porcelain_v1_z,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
+use tokio::time::sleep;
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-const STATUS_ARGS: [&str; 4] = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+const STATUS_ARGS: [&str; 5] = [
+    "--no-optional-locks",
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+];
 pub use diff_core::MAX_SOURCE_FILE_BYTES;
 pub const MAX_SOURCE_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_UNTRACKED_SNAPSHOT_BYTES: u64 = MAX_SOURCE_ARCHIVE_BYTES;
 
-/// A patch document and its bounded immutable complete-file versions.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RepositorySnapshot {
-    pub document: DiffDocument,
-    sources: SourceArchive,
-}
-
-impl RepositorySnapshot {
-    #[must_use]
-    pub const fn sources(&self) -> &SourceArchive {
-        &self.sources
-    }
-
-    #[must_use]
-    pub fn into_parts(self) -> (DiffDocument, SourceArchive) {
-        (self.document, self.sources)
-    }
-
-    /// Common immutable snapshot boundary consumed directly by native viewers.
-    #[must_use]
-    pub fn diff_snapshot(&self) -> DiffSnapshot {
-        self.sources.snapshot(self.document.clone())
-    }
-}
-
-/// Host-owned complete source documents, captured eagerly with patch metadata.
+/// A complete review document captured for one scope, with bounded immutable
+/// complete-file versions attached to every file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SourceArchive {
-    entries: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
-}
-
-impl SourceArchive {
-    #[must_use]
-    pub fn get(&self, key: &SourceKey) -> Option<&Result<Arc<SourceDocument>, SourceUnavailable>> {
-        self.entries.get(key)
-    }
-
-    #[must_use]
-    pub fn snapshot(&self, document: DiffDocument) -> DiffSnapshot {
-        DiffSnapshot::new(document, self.entries.clone())
-    }
-}
-
-fn document_from_captured_sources(
-    mut document: DiffDocument,
-    archive: &SourceArchive,
-) -> DiffDocument {
-    for file in &mut document.files {
-        if file.binary {
-            continue;
-        }
-        let source = |side| {
-            let key = SourceKey::new(file.path.clone(), side);
-            match archive.get(&key)? {
-                Ok(document) => Some(document.text()),
-                Err(SourceUnavailable::Absent)
-                    if matches!(
-                        (file.status, side),
-                        (FileStatus::Added | FileStatus::Untracked, DiffSide::Old)
-                            | (FileStatus::Deleted, DiffSide::New)
-                    ) =>
-                {
-                    Some("")
-                }
-                Err(_) => None,
-            }
-        };
-        let (Some(old), Some(new)) = (source(DiffSide::Old), source(DiffSide::New)) else {
-            continue;
-        };
-        let Ok(mut derived) = FileDiff::from_texts(file.path.clone(), old, new) else {
-            continue;
-        };
-        derived.old_path.clone_from(&file.old_path);
-        derived.status = file.status;
-        derived.staged = file.staged;
-        derived.mode.clone_from(&file.mode);
-        derived.omitted_bytes = file.omitted_bytes;
-        *file = derived;
-    }
-    document
+pub struct RepositorySnapshot {
+    pub scope: DiffScope,
+    pub document: Arc<DiffDocument>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,12 +48,6 @@ enum ResolvedContentLocation {
     Blob(String),
     Worktree(RepoPath),
     Unavailable(SourceUnavailable),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SymlinkMode {
-    CaptureLink,
-    FollowContainedLink,
 }
 
 enum BoundedWorktree {
@@ -143,55 +71,9 @@ struct SnapshotInput {
 
 #[derive(Debug)]
 struct CapturedSources {
-    archive: SourceArchive,
+    /// Old and new results for each file, in document order.
+    sides: Vec<[SourceResult; 2]>,
     worktree_ids: HashMap<RepoPath, Fingerprint>,
-}
-
-/// Bytes read from a worktree file, classified for safe text rendering.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FileContent {
-    /// Valid UTF-8 content without embedded NUL bytes.
-    Text(String),
-    /// Binary or non-UTF-8 content.
-    Binary(Vec<u8>),
-}
-
-impl FileContent {
-    /// Classifies file bytes as renderer-safe text or binary content.
-    #[must_use]
-    pub fn from_bytes(bytes: Vec<u8>) -> Self {
-        if bytes.contains(&0) {
-            return Self::Binary(bytes);
-        }
-        match String::from_utf8(bytes) {
-            Ok(text) => Self::Text(text),
-            Err(error) => Self::Binary(error.into_bytes()),
-        }
-    }
-
-    /// Returns the original file bytes.
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        match self {
-            Self::Text(text) => text.as_bytes(),
-            Self::Binary(bytes) => bytes,
-        }
-    }
-
-    /// Returns text content when this file was classified as text.
-    #[must_use]
-    pub fn as_text(&self) -> Option<&str> {
-        match self {
-            Self::Text(text) => Some(text),
-            Self::Binary(_) => None,
-        }
-    }
-
-    /// Returns whether the file was classified as binary.
-    #[must_use]
-    pub const fn is_binary(&self) -> bool {
-        matches!(self, Self::Binary(_))
-    }
 }
 
 /// A discovered Git worktree and its native operations.
@@ -201,12 +83,17 @@ pub struct GitRepository {
 }
 
 impl GitRepository {
-    /// Discovers the containing Git worktree and stores its canonical root.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when Git cannot run, the path is outside a worktree,
-    /// or the discovered root cannot be represented safely.
+    pub async fn apply(&self, action: RepositoryAction) -> Result<(), GitError> {
+        match action {
+            RepositoryAction::StagePaths(paths) => self.stage(&paths).await,
+            RepositoryAction::UnstagePaths(paths) => self.unstage(&paths).await,
+            RepositoryAction::StageAll => self.stage_all().await,
+            RepositoryAction::UnstageAll => self.unstage_all().await,
+            RepositoryAction::Commit { message } => self.commit(&message).await,
+            RepositoryAction::Discard { path, status } => self.discard(&path, status).await,
+        }
+    }
+
     pub async fn discover(path: impl AsRef<Path>) -> Result<Self, GitError> {
         let candidate = path.as_ref();
         let output = match command::run(
@@ -236,24 +123,51 @@ impl GitRepository {
         &self.root
     }
 
-    /// Loads a canonical snapshot for a staged, unstaged, or combined scope.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when Git execution, path validation, file reading, or
-    /// diff normalization fails.
+    pub async fn metadata_directories(&self) -> Result<Vec<PathBuf>, GitError> {
+        let mut directories = Vec::new();
+        for argument in ["--git-dir", "--git-common-dir"] {
+            let output = command::run(
+                &self.root,
+                "resolve Git metadata directory",
+                ["rev-parse", "--path-format=absolute", argument],
+            )
+            .await?;
+            let path = parse_root(&output.stdout)?;
+            let directory = tokio::fs::canonicalize(&path)
+                .await
+                .map_err(|source| GitError::Io { path, source })?;
+            if !directories.contains(&directory) {
+                directories.push(directory);
+            }
+        }
+        Ok(directories)
+    }
+
     pub async fn snapshot(&self, scope: DiffScope) -> Result<DiffDocument, GitError> {
         self.load_snapshot_input(scope, scope == DiffScope::Both)
             .await
             .map(|input| input.document)
     }
 
-    /// Captures patch metadata and exact bounded old/new source versions together.
-    ///
-    /// # Errors
-    /// Returns an error when Git metadata cannot be loaded or captured source does not
-    /// match the patch snapshot.
     pub async fn snapshot_with_sources(
+        &self,
+        scope: DiffScope,
+    ) -> Result<RepositorySnapshot, GitError> {
+        let mut retries = 0;
+        let mut delay = Duration::from_millis(250);
+        loop {
+            match self.capture_snapshot_with_sources(scope).await {
+                Err(GitError::UnstableSnapshot) if retries < 5 => {
+                    retries += 1;
+                    sleep(delay).await;
+                    delay = delay.saturating_mul(2).min(Duration::from_secs(2));
+                }
+                result => return result,
+            }
+        }
+    }
+
+    async fn capture_snapshot_with_sources(
         &self,
         scope: DiffScope,
     ) -> Result<RepositorySnapshot, GitError> {
@@ -280,10 +194,19 @@ impl GitRepository {
                 && initial.document == final_input.document
                 && initial_locations == final_locations;
             if metadata_stable && self.worktrees_match(&captured.worktree_ids).await {
-                let document = document_from_captured_sources(initial.document, &captured.archive);
+                let files = initial
+                    .document
+                    .files
+                    .into_iter()
+                    .zip(captured.sides)
+                    .map(|(file, [old, new])| file.with_sources(old, new))
+                    .collect();
                 return Ok(RepositorySnapshot {
-                    document,
-                    sources: captured.archive,
+                    scope,
+                    document: Arc::new(DiffDocument {
+                        repo_root: initial.document.repo_root,
+                        files,
+                    }),
                 });
             }
         }
@@ -326,12 +249,13 @@ impl GitRepository {
         })
     }
 
+    /// Resolves where each file's old and new versions live, in document order.
     async fn resolve_content_locations(
         &self,
         document: &DiffDocument,
         scope: DiffScope,
         has_head: bool,
-    ) -> HashMap<SourceKey, ResolvedContentLocation> {
+    ) -> Vec<[ResolvedContentLocation; 2]> {
         let head = if has_head {
             self.resolve_head_blobs(document)
                 .await
@@ -340,61 +264,61 @@ impl GitRepository {
             Ok(HashMap::new())
         };
         let index = self.resolve_index_blobs().await.map_err(source_error);
-        let mut resolved = HashMap::new();
-        for file in &document.files {
-            for side in [DiffSide::Old, DiffSide::New] {
-                let key = SourceKey::new(file.path.clone(), side);
-                let location = match content_location(scope, file, side, has_head) {
-                    ContentLocation::Absent => ResolvedContentLocation::Absent,
-                    ContentLocation::Worktree(path) => ResolvedContentLocation::Worktree(path),
-                    ContentLocation::Head(path) => resolve_blob(&head, &path),
-                    ContentLocation::Index(path) => resolve_blob(&index, &path),
-                };
-                resolved.insert(key, location);
-            }
-        }
-        resolved
+        document
+            .files
+            .iter()
+            .map(|file| {
+                [DiffSide::Old, DiffSide::New].map(|side| {
+                    match content_location(scope, file, side, has_head) {
+                        ContentLocation::Absent => ResolvedContentLocation::Absent,
+                        ContentLocation::Worktree(path) => ResolvedContentLocation::Worktree(path),
+                        ContentLocation::Head(path) => resolve_blob(&head, &path),
+                        ContentLocation::Index(path) => resolve_blob(&index, &path),
+                    }
+                })
+            })
+            .collect()
     }
 
     async fn capture_sources(
         &self,
         document: &DiffDocument,
-        locations: &HashMap<SourceKey, ResolvedContentLocation>,
+        locations: &[[ResolvedContentLocation; 2]],
     ) -> Result<CapturedSources, GitError> {
-        let mut archive = SourceArchive::default();
+        let mut sides = Vec::with_capacity(document.files.len());
         let mut worktree_ids = HashMap::new();
         let mut loaded = 0_u64;
         let mut blobs = if locations
-            .values()
+            .iter()
+            .flatten()
             .any(|location| matches!(location, ResolvedContentLocation::Blob(_)))
         {
             Some(CatFileBatch::start(&self.root)?)
         } else {
             None
         };
-        for file in &document.files {
-            for side in [DiffSide::Old, DiffSide::New] {
-                let key = SourceKey::new(file.path.clone(), side);
-                let location = locations
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or(ResolvedContentLocation::Absent);
+        for (file, file_locations) in document.files.iter().zip(locations) {
+            let mut results = Vec::with_capacity(2);
+            for location in file_locations {
                 let (result, exact_id) = if file.binary {
                     (Err(SourceUnavailable::Binary), None)
                 } else {
-                    self.capture_location(&location, &mut loaded, blobs.as_mut())
+                    self.capture_location(location, &mut loaded, blobs.as_mut())
                         .await
                 };
                 if let (ResolvedContentLocation::Worktree(path), Some(exact_id)) =
-                    (&location, exact_id)
+                    (location, exact_id)
                 {
                     worktree_ids.insert(path.clone(), exact_id);
                 }
-                archive.entries.insert(key, result);
+                results.push(result);
             }
+            let [old, new] = <[SourceResult; 2]>::try_from(results)
+                .unwrap_or_else(|_| unreachable!("two sides per file"));
+            sides.push([old, new]);
         }
         Ok(CapturedSources {
-            archive,
+            sides,
             worktree_ids,
         })
     }
@@ -404,10 +328,7 @@ impl GitRepository {
         location: &ResolvedContentLocation,
         loaded: &mut u64,
         blobs: Option<&mut CatFileBatch>,
-    ) -> (
-        Result<Arc<SourceDocument>, SourceUnavailable>,
-        Option<Fingerprint>,
-    ) {
+    ) -> (SourceResult, Option<Fingerprint>) {
         let bytes = match location {
             ResolvedContentLocation::Absent => return (Err(SourceUnavailable::Absent), None),
             ResolvedContentLocation::Unavailable(reason) => return (Err(reason.clone()), None),
@@ -509,20 +430,13 @@ impl GitRepository {
     }
 
     async fn read_bounded_worktree(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
-        match self
-            .read_worktree_bytes(path, SymlinkMode::CaptureLink)
-            .await?
-        {
+        match self.read_worktree_bytes(path).await? {
             BoundedWorktree::Content(bytes) => Ok(bytes),
             BoundedWorktree::TooLarge(bytes) => Err(GitError::SourceTooLarge { bytes }),
         }
     }
 
-    async fn read_worktree_bytes(
-        &self,
-        path: &RepoPath,
-        symlink_mode: SymlinkMode,
-    ) -> Result<BoundedWorktree, GitError> {
+    async fn read_worktree_bytes(&self, path: &RepoPath) -> Result<BoundedWorktree, GitError> {
         let joined = path::lexical_path(&self.root, path)?;
         let metadata = tokio::fs::symlink_metadata(&joined)
             .await
@@ -530,7 +444,7 @@ impl GitRepository {
                 path: joined.clone(),
                 source,
             })?;
-        if metadata.file_type().is_symlink() && symlink_mode == SymlinkMode::CaptureLink {
+        if metadata.file_type().is_symlink() {
             let target = tokio::fs::read_link(&joined)
                 .await
                 .map_err(|source| GitError::Io {
@@ -562,20 +476,29 @@ impl GitRepository {
             })
     }
 
-    /// Reads and classifies a complete worktree file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the path is invalid, missing, not a file, escapes
-    /// through a symlink, or cannot be read.
-    pub async fn read_worktree_file(&self, path: &RepoPath) -> Result<FileContent, GitError> {
-        match self
-            .read_worktree_bytes(path, SymlinkMode::FollowContainedLink)
-            .await?
-        {
-            BoundedWorktree::Content(bytes) => Ok(FileContent::from_bytes(bytes)),
-            BoundedWorktree::TooLarge(bytes) => Err(GitError::SourceTooLarge { bytes }),
+    pub async fn ignored_paths(&self, relative: &[String]) -> Result<HashSet<String>, GitError> {
+        if relative.is_empty() {
+            return Ok(HashSet::new());
         }
+        let mut stdin = Vec::new();
+        for path in relative {
+            stdin.extend_from_slice(path.as_bytes());
+            stdin.push(0);
+        }
+        let output = command::run_with_stdin(
+            &self.root,
+            "check ignored paths",
+            ["check-ignore", "-z", "--stdin"],
+            &stdin,
+            &[0, 1],
+        )
+        .await?;
+        Ok(output
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| String::from_utf8_lossy(entry).into_owned())
+            .collect())
     }
 
     /// Stages selected paths. An empty slice is a no-op.
@@ -583,7 +506,7 @@ impl GitRepository {
     /// # Errors
     ///
     /// Returns an error when a path is invalid or Git cannot stage it.
-    pub async fn stage(&self, paths: &[RepoPath]) -> Result<(), GitError> {
+    async fn stage(&self, paths: &[RepoPath]) -> Result<(), GitError> {
         if paths.is_empty() {
             return Ok(());
         }
@@ -596,7 +519,7 @@ impl GitRepository {
     /// # Errors
     ///
     /// Returns an error when a path is invalid or Git cannot update the index.
-    pub async fn unstage(&self, paths: &[RepoPath]) -> Result<(), GitError> {
+    async fn unstage(&self, paths: &[RepoPath]) -> Result<(), GitError> {
         if paths.is_empty() {
             return Ok(());
         }
@@ -618,7 +541,7 @@ impl GitRepository {
     /// # Errors
     ///
     /// Returns an error when Git cannot update the index.
-    pub async fn stage_all(&self) -> Result<(), GitError> {
+    async fn stage_all(&self) -> Result<(), GitError> {
         command::run(&self.root, "stage all", ["add", "-A", "--"])
             .await
             .map(drop)
@@ -629,7 +552,7 @@ impl GitRepository {
     /// # Errors
     ///
     /// Returns an error when Git cannot update the index.
-    pub async fn unstage_all(&self) -> Result<(), GitError> {
+    async fn unstage_all(&self) -> Result<(), GitError> {
         let args: &[&str] = if self.has_head().await? {
             &["reset", "--quiet", "HEAD", "--"]
         } else {
@@ -655,7 +578,7 @@ impl GitRepository {
     ///
     /// Returns [`GitError::EmptyCommitMessage`] for a blank message, or an
     /// execution error when Git cannot create the commit.
-    pub async fn commit(&self, message: &str) -> Result<(), GitError> {
+    async fn commit(&self, message: &str) -> Result<(), GitError> {
         if message.trim().is_empty() {
             return Err(GitError::EmptyCommitMessage);
         }
@@ -674,7 +597,7 @@ impl GitRepository {
     ///
     /// Returns an error when the path is invalid, status metadata cannot be
     /// parsed, or Git cannot restore or remove the path.
-    pub async fn discard(&self, path: &RepoPath, status: FileStatus) -> Result<(), GitError> {
+    async fn discard(&self, path: &RepoPath, status: FileStatus) -> Result<(), GitError> {
         path::lexical_path(&self.root, path)?;
         if status == FileStatus::Untracked {
             return self
@@ -743,9 +666,7 @@ impl GitRepository {
             let text = std::str::from_utf8(raw_path)
                 .map_err(diff_core::DiffError::UnsupportedPathEncoding)?;
             let path = RepoPath::new(text)?;
-            let captured = self
-                .read_worktree_bytes(&path, SymlinkMode::CaptureLink)
-                .await?;
+            let captured = self.read_worktree_bytes(&path).await?;
             let (contents, size) = match captured {
                 BoundedWorktree::Content(contents) => {
                     let size = u64::try_from(contents.len()).unwrap_or(u64::MAX);
@@ -785,7 +706,10 @@ impl GitRepository {
     }
 
     fn diff_args(scope: DiffScope, has_head: bool) -> Vec<&'static str> {
+        // Diff has its own stat-cache refresh setting, independent of status.
         let mut args = vec![
+            "-c",
+            "diff.autoRefreshIndex=false",
             "diff",
             "--no-ext-diff",
             "--no-color",

@@ -7,15 +7,20 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+test-support = ["dep:tempfile"]
+
 [lints]
 workspace = true
 
 [dependencies]
 diff-core = { path = "../diff-core" }
+tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util"] }
+tokio = { workspace = true, features = ["io-util", "macros", "time"] }
 
 [dev-dependencies]
+diff-git = { path = ".", features = ["test-support"] }
 serde_json.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
