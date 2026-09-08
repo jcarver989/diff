@@ -8,6 +8,6 @@ pub use clankerdiff_theme::{
 };
 pub use highlight::{
     CacheConfig, CacheKey, DocumentHighlights, HighlightStats, SyntaxHighlighter, SyntaxStream,
-    ThemedHighlighter, empty_spans,
+    SyntaxStreamError, SyntaxStreamUpdate, ThemedHighlighter, empty_spans,
 };
 pub use language::{LanguageHint, resolve_language};
