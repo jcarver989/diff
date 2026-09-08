@@ -189,7 +189,7 @@ mod tests {
         let ui = Cli::try_parse_from(["clankerdiff", "review", "--ui", "web"]).unwrap_err();
         assert_eq!(ui.kind(), ErrorKind::InvalidValue);
 
-        for option in ["--port", "--no-open", "--web-assets"] {
+        for option in ["--port", "--no-open", "--web-assets", "--no-watch"] {
             let option = Cli::try_parse_from(["clankerdiff", "review", option]).unwrap_err();
             assert_eq!(option.kind(), ErrorKind::UnknownArgument);
         }

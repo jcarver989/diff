@@ -8,7 +8,11 @@ const MAX_RESPONSE_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub enum SessionRequest {
-    Document,
+    /// Polls for a document newer than the client's installed revision. Revision
+    /// zero requests the initial document.
+    Document {
+        revision: u64,
+    },
     RepositoryAction(RepositoryAction),
     Submit(ReviewSubmission),
     Cancel,
@@ -16,7 +20,7 @@ pub enum SessionRequest {
 
 #[derive(Serialize)]
 pub enum SessionRequestRef<'a> {
-    Document,
+    Document { revision: u64 },
     RepositoryAction(&'a RepositoryAction),
     Submit(&'a ReviewSubmission),
     Cancel,
@@ -24,7 +28,15 @@ pub enum SessionRequestRef<'a> {
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub enum SessionResponse {
-    Document(DiffDocument),
+    Document {
+        revision: u64,
+        document: DiffDocument,
+        background_error: Option<String>,
+    },
+    /// Content is unchanged; background health is reconciled on every poll.
+    Unchanged {
+        background_error: Option<String>,
+    },
     Accepted,
     RepositoryError(String),
     ProtocolError(String),
@@ -32,7 +44,14 @@ pub enum SessionResponse {
 
 #[derive(Serialize)]
 pub enum SessionResponseRef<'a> {
-    Document(&'a DiffDocument),
+    Document {
+        revision: u64,
+        document: &'a DiffDocument,
+        background_error: Option<&'a str>,
+    },
+    Unchanged {
+        background_error: Option<&'a str>,
+    },
     Accepted,
     RepositoryError(&'a str),
     ProtocolError(&'a str),
@@ -121,12 +140,18 @@ mod tests {
         let (mut writer, mut reader) = UnixStream::pair().unwrap();
         write_request(
             &mut writer,
-            &SessionRequestRef::RepositoryAction(&RepositoryAction::Refresh),
+            &SessionRequestRef::RepositoryAction(&RepositoryAction::StageAll),
         )
         .unwrap();
         assert_eq!(
             read_request(&mut reader).unwrap(),
-            SessionRequest::RepositoryAction(RepositoryAction::Refresh)
+            SessionRequest::RepositoryAction(RepositoryAction::StageAll)
+        );
+
+        write_request(&mut writer, &SessionRequestRef::Document { revision: 7 }).unwrap();
+        assert_eq!(
+            read_request(&mut reader).unwrap(),
+            SessionRequest::Document { revision: 7 }
         );
 
         write_response(
@@ -137,6 +162,39 @@ mod tests {
         assert_eq!(
             read_response(&mut writer).unwrap(),
             SessionResponse::RepositoryError("repository changed".to_owned())
+        );
+
+        write_response(
+            &mut reader,
+            &SessionResponseRef::Unchanged {
+                background_error: Some("refresh failed"),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read_response(&mut writer).unwrap(),
+            SessionResponse::Unchanged {
+                background_error: Some("refresh failed".to_owned())
+            }
+        );
+
+        let document = DiffDocument::empty();
+        write_response(
+            &mut reader,
+            &SessionResponseRef::Document {
+                revision: 3,
+                document: &document,
+                background_error: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            read_response(&mut writer).unwrap(),
+            SessionResponse::Document {
+                revision: 3,
+                document,
+                background_error: None,
+            }
         );
     }
 

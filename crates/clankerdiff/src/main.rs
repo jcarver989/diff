@@ -12,6 +12,7 @@ use clap::Parser;
 use diff_core::ReviewSubmission;
 use diff_git::GitRepository;
 use diff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission};
+use diff_watch::{RepositoryWatcher, WatchOptions};
 use std::{
     fs,
     io::{self, Read, Write},
@@ -61,16 +62,19 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
     let repository = GitRepository::discover(&args.repository).await?;
     let root = repository.root().to_path_buf();
     let submission = match args.ui {
-        Ui::Desktop => diff_gpui_desktop::run_review(root.clone(), args.scope),
+        Ui::Desktop => diff_gpui_desktop::run_review(diff_gpui_desktop::args::CliArgs {
+            repository: root.clone(),
+            scope: args.scope,
+        }),
         Ui::Tui => {
-            let snapshot = repository.snapshot_with_sources(args.scope).await?;
+            let watcher =
+                RepositoryWatcher::spawn(repository.clone(), args.scope, WatchOptions::default())
+                    .await?;
             match args.tui_placement {
-                TuiPlacement::Current => tui::run_local(&repository, &snapshot, args.scope)?,
-                TuiPlacement::External => {
-                    session::run(&repository, &snapshot, args.scope, |socket_path| {
-                        tui::launch(socket_path).map_err(|error| error.to_string())
-                    })?
-                }
+                TuiPlacement::Current => tui::run_local(&repository, &watcher)?,
+                TuiPlacement::External => session::run(&repository, &watcher, |socket_path| {
+                    tui::launch(socket_path).map_err(|error| error.to_string())
+                })?,
             }
         }
     };
@@ -237,6 +241,8 @@ fn text_feedback(submission: &ReviewSubmission) -> &str {
 enum AppError {
     #[error(transparent)]
     Git(#[from] diff_git::GitError),
+    #[error(transparent)]
+    Watch(#[from] diff_watch::WatchError),
     #[error("Markdown input path is a directory: {0}")]
     MarkdownDirectory(String),
     #[error("Markdown input is not valid UTF-8: {0}")]

@@ -4,13 +4,14 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{DiffDocument, DiffScope, DiffSnapshot, RepositoryAction, ReviewSubmission};
-use diff_git::{GitRepository, RepositorySnapshot};
+use diff_core::{DiffDocument, RepositoryAction, ReviewSubmission};
+use diff_git::{GitError, GitRepository};
 use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use diff_ratatui::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
     MarkdownReviewWidget, handle_crossterm_event, handle_markdown_crossterm_event,
 };
+use diff_watch::RepositoryWatcher;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     env,
@@ -18,16 +19,22 @@ use std::{
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::Arc,
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender},
+    },
     thread,
     time::Duration,
 };
 use thiserror::Error;
+use tokio::{runtime::Handle, sync::watch, task::JoinHandle};
 
 pub const COMMAND_ENV: &str = "CLANKERDIFF_TUI_COMMAND";
 
 const COMMAND_PLACEHOLDER: &str = "{command}";
 const MAX_COALESCED_EVENTS: usize = 256;
+/// How often an attached client asks the review service for a newer document.
+const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const ENABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1000h\x1b[?1006h";
 const DISABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1006l\x1b[?1000l";
 
@@ -82,37 +89,121 @@ fn replace_command_placeholder(arguments: &mut [String], command: &str) -> bool 
 }
 
 pub fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
-    let mut backend = SessionBackend::new(socket_path);
-    let document = backend.document()?;
-    let state = DiffReviewState::with_theme(Arc::new(document), crate::preferences::load_theme());
-    let outcome = run_diff_review(state, &mut backend)?;
-    backend.complete(outcome.as_ref())?;
+    let (mut backend, mut updates) = SessionBackend::new(socket_path)?;
+    let mut state = DiffReviewState::new(updates.latest.borrow().document.clone());
+    state.set_theme(crate::preferences::load_theme());
+    let outcome = run_diff_review(state, &mut backend, &mut updates)?;
+    backend.complete(outcome)?;
     Ok(())
 }
 
+/// Reviews in this terminal, applying watcher snapshots as they are published.
 pub fn run_local(
     repository: &GitRepository,
-    snapshot: &RepositorySnapshot,
-    scope: DiffScope,
+    watcher: &RepositoryWatcher,
 ) -> Result<Option<ReviewSubmission>, TuiError> {
-    let mut state = DiffReviewState::from_snapshot(snapshot.diff_snapshot());
+    let runtime = Handle::current();
+    let mut subscription = watcher.snapshot_rx.clone();
+    let mut installed = subscription
+        .borrow_and_update()
+        .clone()
+        .map_err(TuiError::Git)?;
+    let revision = 1;
+    let document = installed.document.clone();
+    let mut state = DiffReviewState::new(document.clone());
     state.set_theme(crate::preferences::load_theme());
-    let mut backend = LocalBackend { repository, scope };
-    run_diff_review(state, &mut backend)
+    let initial = HostState {
+        revision,
+        document,
+        background_error: None,
+    };
+    let (latest, receiver) = watch::channel(initial);
+    let (completed, commands) = mpsc::channel();
+    let mut updates = HostUpdates {
+        latest: receiver,
+        commands,
+        installed_revision: revision,
+    };
+
+    let bridge = runtime.spawn(async move {
+        while subscription.changed().await.is_ok() {
+            let result = subscription.borrow_and_update().clone();
+            latest.send_modify(|state| match result {
+                Ok(snapshot) => {
+                    if snapshot != installed {
+                        state.revision += 1;
+                        state.document = snapshot.document.clone();
+                        installed = snapshot;
+                    }
+                    state.background_error = None;
+                }
+                Err(error) => state.background_error = Some(error.to_string()),
+            });
+        }
+    });
+
+    let mut backend = LocalBackend {
+        repository: repository.clone(),
+        runtime,
+        completed,
+        task: None,
+    };
+
+    let outcome =
+        tokio::task::block_in_place(|| run_diff_review(state, &mut backend, &mut updates));
+    bridge.abort();
+    outcome
 }
 
-enum ReviewUpdate {
-    Document(DiffDocument),
-    Snapshot(DiffSnapshot),
+/// Content and health are latest-value state; command results are not.
+#[derive(Clone)]
+struct HostState {
+    revision: u64,
+    document: Arc<DiffDocument>,
+    background_error: Option<String>,
+}
+
+impl HostState {
+    fn document(revision: u64, document: DiffDocument, background_error: Option<String>) -> Self {
+        Self {
+            revision,
+            document: Arc::new(document),
+            background_error,
+        }
+    }
+}
+
+struct HostUpdates {
+    latest: watch::Receiver<HostState>,
+    commands: Receiver<Result<(), String>>,
+    installed_revision: u64,
+}
+
+impl HostUpdates {
+    fn drain(&mut self, state: &mut DiffReviewState) {
+        let latest = self.latest.borrow_and_update().clone();
+        if latest.revision > self.installed_revision {
+            state.set_document(latest.document.clone());
+            self.installed_revision = latest.revision;
+        }
+        state.set_background_error(latest.background_error);
+        // Hosts allow one command at a time. Only its reply can settle pending.
+        match self.commands.try_recv() {
+            Ok(Ok(())) => state.clear_repository_pending(),
+            Ok(Err(message)) => state.set_repository_error(message),
+            Err(_) => {}
+        }
+    }
 }
 
 trait DiffReviewBackend {
-    fn apply(&mut self, action: RepositoryAction) -> Result<ReviewUpdate, String>;
+    fn apply(&mut self, action: RepositoryAction);
 }
 
 fn run_diff_review(
     mut state: DiffReviewState,
     backend: &mut dyn DiffReviewBackend,
+    updates: &mut HostUpdates,
 ) -> Result<Option<ReviewSubmission>, TuiError> {
     if !stdin().is_terminal() || !stderr().is_terminal() {
         return Err(TuiError::NoTerminal);
@@ -140,6 +231,7 @@ fn run_diff_review(
         }
 
         if !event::poll(Duration::from_millis(100))? {
+            updates.drain(&mut state);
             continue;
         }
         match apply_event(&mut state, event::read()?, backend) {
@@ -157,6 +249,7 @@ fn run_diff_review(
                 EventOutcome::Submitted(submission) => return Ok(Some(submission)),
             }
         }
+        updates.drain(&mut state);
     }
 }
 
@@ -223,35 +316,121 @@ enum MarkdownEventOutcome {
     Submitted(MarkdownReviewSubmission),
 }
 
+enum SessionWork {
+    Apply(RepositoryAction),
+    Complete(Option<ReviewSubmission>, Sender<Result<(), TuiError>>),
+    Stop,
+}
+
+/// One owned worker serializes actions, polls and final submission. It tracks
+/// fetched revisions, never the render thread's progress.
 struct SessionBackend {
-    socket_path: PathBuf,
+    commands: Sender<SessionWork>,
+    completed: Sender<Result<(), String>>,
+    worker: Option<thread::JoinHandle<()>>,
 }
 
 impl SessionBackend {
-    const fn new(socket_path: PathBuf) -> Self {
-        Self { socket_path }
-    }
-
-    fn document(&self) -> Result<DiffDocument, TuiError> {
-        match self.request(&SessionRequestRef::Document)? {
-            SessionResponse::Document(document) => Ok(document),
-            response => Err(TuiError::UnexpectedResponse(response)),
-        }
-    }
-
-    fn complete(&self, submission: Option<&ReviewSubmission>) -> Result<(), TuiError> {
-        let request = match submission {
-            Some(submission) => SessionRequestRef::Submit(submission),
-            None => SessionRequestRef::Cancel,
+    fn new(socket_path: PathBuf) -> Result<(Self, HostUpdates), TuiError> {
+        let response =
+            Self::request_at(&socket_path, &SessionRequestRef::Document { revision: 0 })?;
+        let SessionResponse::Document {
+            revision,
+            document,
+            background_error,
+        } = response
+        else {
+            return Err(TuiError::UnexpectedResponse(response));
         };
-        match self.request(&request)? {
+        let (latest, receiver) =
+            watch::channel(HostState::document(revision, document, background_error));
+        let (completed, results) = mpsc::channel();
+        let (commands, requests) = mpsc::channel();
+        let worker_completed = completed.clone();
+        let worker = thread::spawn(move || {
+            loop {
+                match requests.recv_timeout(POLL_INTERVAL) {
+                    Ok(SessionWork::Apply(action)) => {
+                        let result = Self::request_at(
+                            &socket_path,
+                            &SessionRequestRef::RepositoryAction(&action),
+                        )
+                        .and_then(Self::accepted)
+                        .map_err(|error| error.to_string());
+                        Self::poll(&socket_path, &latest);
+                        let _ = worker_completed.send(result);
+                    }
+                    Ok(SessionWork::Complete(submission, reply)) => {
+                        let request = match &submission {
+                            Some(submission) => SessionRequestRef::Submit(submission),
+                            None => SessionRequestRef::Cancel,
+                        };
+                        let _ = reply.send(
+                            Self::request_at(&socket_path, &request).and_then(Self::accepted),
+                        );
+                        return;
+                    }
+                    Ok(SessionWork::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(mpsc::RecvTimeoutError::Timeout) => Self::poll(&socket_path, &latest),
+                }
+            }
+        });
+        Ok((
+            Self {
+                commands,
+                completed,
+                worker: Some(worker),
+            },
+            HostUpdates {
+                latest: receiver,
+                commands: results,
+                installed_revision: revision,
+            },
+        ))
+    }
+
+    fn accepted(response: SessionResponse) -> Result<(), TuiError> {
+        match response {
             SessionResponse::Accepted => Ok(()),
+            SessionResponse::RepositoryError(message) => Err(TuiError::Protocol(message)),
             response => Err(TuiError::UnexpectedResponse(response)),
         }
     }
 
-    fn request(&self, request: &SessionRequestRef<'_>) -> Result<SessionResponse, TuiError> {
-        Self::request_at(&self.socket_path, request)
+    fn poll(socket_path: &Path, latest: &watch::Sender<HostState>) {
+        let revision = latest.borrow().revision;
+        let response = Self::request_at(socket_path, &SessionRequestRef::Document { revision });
+        let background_error = match response {
+            Ok(SessionResponse::Document {
+                revision,
+                document,
+                background_error,
+            }) => {
+                latest.send_replace(HostState::document(revision, document, background_error));
+                return;
+            }
+            Ok(SessionResponse::Unchanged { background_error }) => background_error,
+            Ok(response) => Some(format!("unexpected review service response: {response:?}")),
+            Err(error) => Some(error.to_string()),
+        };
+
+        latest.send_if_modified(|state| {
+            if state.background_error == background_error {
+                return false;
+            }
+            state.background_error = background_error;
+            true
+        });
+    }
+
+    fn complete(&self, submission: Option<ReviewSubmission>) -> Result<(), TuiError> {
+        let (reply, result) = mpsc::channel();
+        self.commands
+            .send(SessionWork::Complete(submission, reply))
+            .map_err(|_| TuiError::Protocol("session worker stopped".to_owned()))?;
+        result
+            .recv()
+            .map_err(|_| TuiError::Protocol("session worker stopped".to_owned()))?
     }
 
     fn request_at(
@@ -259,60 +438,61 @@ impl SessionBackend {
         request: &SessionRequestRef<'_>,
     ) -> Result<SessionResponse, TuiError> {
         let mut stream = UnixStream::connect(socket_path)?;
+        stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(30)))?;
         write_request(&mut stream, request)?;
-        let response = read_response(&mut stream)?;
-        match response {
+        match read_response(&mut stream)? {
             SessionResponse::ProtocolError(message) => Err(TuiError::Protocol(message)),
             response => Ok(response),
         }
     }
 }
 
-impl DiffReviewBackend for SessionBackend {
-    fn apply(&mut self, action: RepositoryAction) -> Result<ReviewUpdate, String> {
-        match self.request(&SessionRequestRef::RepositoryAction(&action)) {
-            Ok(SessionResponse::Document(document)) => Ok(ReviewUpdate::Document(document)),
-            Ok(SessionResponse::RepositoryError(message)) => Err(message),
-            Ok(response) => Err(format!("unexpected review service response: {response:?}")),
-            Err(error) => Err(error.to_string()),
+impl Drop for SessionBackend {
+    fn drop(&mut self) {
+        let _ = self.commands.send(SessionWork::Stop);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
         }
     }
 }
 
-struct LocalBackend<'a> {
-    repository: &'a GitRepository,
-    scope: DiffScope,
-}
-
-impl DiffReviewBackend for LocalBackend<'_> {
-    fn apply(&mut self, action: RepositoryAction) -> Result<ReviewUpdate, String> {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                execute_repository_action(self.repository, action)
-                    .await
-                    .map_err(|error| error.to_string())?;
-                self.repository
-                    .snapshot_with_sources(self.scope)
-                    .await
-                    .map(|snapshot| ReviewUpdate::Snapshot(snapshot.diff_snapshot()))
-                    .map_err(|error| error.to_string())
-            })
-        })
+impl DiffReviewBackend for SessionBackend {
+    fn apply(&mut self, action: RepositoryAction) {
+        if self.commands.send(SessionWork::Apply(action)).is_err() {
+            let _ = self
+                .completed
+                .send(Err("session worker stopped".to_owned()));
+        }
     }
 }
 
-async fn execute_repository_action(
-    repository: &GitRepository,
-    action: RepositoryAction,
-) -> Result<(), diff_git::GitError> {
-    match action {
-        RepositoryAction::StagePaths(paths) => repository.stage(&paths).await,
-        RepositoryAction::UnstagePaths(paths) => repository.unstage(&paths).await,
-        RepositoryAction::StageAll => repository.stage_all().await,
-        RepositoryAction::UnstageAll => repository.unstage_all().await,
-        RepositoryAction::Commit { message } => repository.commit(&message).await,
-        RepositoryAction::Discard { path, status } => repository.discard(&path, status).await,
-        RepositoryAction::Refresh => Ok(()),
+struct LocalBackend {
+    repository: GitRepository,
+    runtime: Handle,
+    completed: Sender<Result<(), String>>,
+    task: Option<JoinHandle<()>>,
+}
+
+impl Drop for LocalBackend {
+    fn drop(&mut self) {
+        if let Some(task) = &self.task {
+            task.abort();
+        }
+    }
+}
+
+impl DiffReviewBackend for LocalBackend {
+    fn apply(&mut self, action: RepositoryAction) {
+        let repository = self.repository.clone();
+        let completed = self.completed.clone();
+        self.task = Some(self.runtime.spawn(async move {
+            let result = repository
+                .apply(action)
+                .await
+                .map_err(|error| error.to_string());
+            let _ = completed.send(result);
+        }));
     }
 }
 
@@ -324,12 +504,11 @@ fn apply_event(
     let previous_theme = state.theme().id().to_string();
     let outcome = match handle_crossterm_event(state, event) {
         Some(DiffReviewEvent::RepositoryAction(action)) => {
-            state.set_repository_pending();
-            match backend.apply(action) {
-                Ok(ReviewUpdate::Document(document)) => state.set_document(Arc::new(document)),
-                Ok(ReviewUpdate::Snapshot(snapshot)) => state.set_snapshot(snapshot),
-                Err(error) => state.set_repository_error(error.clone()),
+            if state.repository_pending() {
+                return EventOutcome::Continue;
             }
+            state.set_repository_pending();
+            backend.apply(action);
             EventOutcome::Continue
         }
         Some(DiffReviewEvent::Cancel) => EventOutcome::Cancelled,
@@ -383,6 +562,8 @@ fn write_all_flushed(bytes: &[u8]) -> io::Result<()> {
 
 #[derive(Debug, Error)]
 pub enum TuiError {
+    #[error(transparent)]
+    Git(Arc<GitError>),
     #[error("{COMMAND_ENV} is required for TUI reviews")]
     MissingCommand,
     #[error("{COMMAND_ENV} must contain a valid, non-empty command")]
@@ -408,6 +589,45 @@ pub enum TuiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn latest_value_updates_preserve_pending_and_reconcile_health() {
+        let initial = HostState::document(1, DiffDocument::empty(), None);
+        let mut state = DiffReviewState::new(initial.document.clone());
+        let (latest, receiver) = watch::channel(initial);
+        let (completed, commands) = mpsc::channel();
+        let mut updates = HostUpdates {
+            latest: receiver,
+            commands,
+            installed_revision: 1,
+        };
+        state.set_repository_pending();
+        for revision in 2..=100 {
+            latest.send_replace(HostState::document(revision, DiffDocument::empty(), None));
+        }
+        latest.send_modify(|state| state.background_error = Some("refresh failed".into()));
+        updates.drain(&mut state);
+        assert_eq!(updates.installed_revision, 100);
+        assert!(state.repository_pending());
+        assert_eq!(state.repository_error(), Some("refresh failed"));
+        latest.send_modify(|state| state.background_error = None);
+        updates.drain(&mut state);
+        assert!(state.repository_pending());
+        assert_eq!(state.repository_error(), None);
+        // Equal/stale content cannot finish a command either.
+        latest.send_replace(HostState::document(99, DiffDocument::empty(), None));
+        updates.drain(&mut state);
+        assert!(state.repository_pending());
+        assert_eq!(updates.installed_revision, 100);
+        completed.send(Ok(())).unwrap();
+        updates.drain(&mut state);
+        assert!(!state.repository_pending());
+        completed.send(Err("command failed".into())).unwrap();
+        updates.drain(&mut state);
+        latest.send_modify(|state| state.background_error = None);
+        updates.drain(&mut state);
+        assert_eq!(state.repository_error(), Some("command failed"));
+    }
 
     #[test]
     fn parses_quoted_launcher_command() {
