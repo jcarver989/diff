@@ -10,8 +10,15 @@ This is a repository for Diff, a performant diff tool with comment support. The 
 2. Prefer using `T`, `U`, `V` etc for generic type param names, always start with `T`.
 3. Use `thiserror` crate for errors.
 
+### Rust docs
+
+1. Never add comments unless explicitly instructed to. 
+
 ### Testing
 
 1. Use real objects where possible. When it's not possible, prefer crate-provided test utilities and/or in-memory fakes over mocks.
 2. Use the test builder pattern described in this [post](https://jmmv.dev/2020/12/builder-pattern-for-tests.html).
 3. Prefer extending an existing fake or test builder to support a use case over creating a new bespoke builder/fake. Good builders and fakes are general purpose, reusable across test suites, and mimic the behavior and APIs of the "real thing".
+4. Tests may only test _public_ APIs; never private. Thus, prefer integration tests in `tests/` over unit tests.
+5. Put non-shared test helpers at the _bottom_ of files, below the tests.
+6. Prefer using `?` in tests by making the test return a `Result` vs using `unwrap`, which is an anti-pattern. 
