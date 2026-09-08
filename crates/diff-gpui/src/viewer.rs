@@ -8,9 +8,9 @@ use crate::{
     ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
 };
 use diff_core::{
-    DiffDocument, DiffPresentation, DiffSide, DiffSnapshot, FileStatus, Layout, LineAnchor,
-    PresentedCell, PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession,
-    SessionOptions, StageState, ViewMode,
+    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, LineAnchor, PresentedCell,
+    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SessionOptions,
+    StageState, ViewMode,
 };
 use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
 use diff_theme::DiffTheme;
@@ -158,6 +158,7 @@ pub struct DiffViewer {
     repository_editor: Option<Entity<CommentEditor>>,
     repository_editor_subscription: Option<Subscription>,
     repository_error: Option<String>,
+    background_error: Option<String>,
     repository_pending: bool,
     focus_handle: Option<gpui::FocusHandle>,
 }
@@ -167,28 +168,6 @@ impl DiffViewer {
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
         Self::with_options(document, DiffTheme::default(), DiffViewerOptions::default())
-    }
-
-    /// Creates a viewer directly from an immutable native snapshot.
-    #[must_use]
-    pub fn from_snapshot(snapshot: DiffSnapshot) -> Self {
-        Self::from_snapshot_with_options(
-            snapshot,
-            DiffTheme::default(),
-            DiffViewerOptions::default(),
-        )
-    }
-
-    #[must_use]
-    pub fn from_snapshot_with_options(
-        snapshot: DiffSnapshot,
-        theme: DiffTheme,
-        options: DiffViewerOptions,
-    ) -> Self {
-        let (document, _) = snapshot.clone().into_parts();
-        let mut viewer = Self::with_options(document, theme, options);
-        viewer.session = ReviewSession::from_snapshot(snapshot);
-        viewer
     }
 
     /// Creates a viewer with explicit theme and adapter options.
@@ -232,6 +211,7 @@ impl DiffViewer {
             repository_editor: None,
             repository_editor_subscription: None,
             repository_error: None,
+            background_error: None,
             repository_pending: false,
             focus_handle: None,
         }
@@ -430,32 +410,24 @@ impl DiffViewer {
         self.highlighter.stats()
     }
 
-    /// Replaces the document while preserving file selection and reconciling comments.
-    pub fn set_snapshot(&mut self, snapshot: DiffSnapshot, cx: &mut Context<Self>) {
-        let document = snapshot.document().clone();
+    pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         self.sidebar_tree.rebuild(&document);
-        self.session.set_snapshot(snapshot);
-        self.repository_pending = false;
-        self.repository_error = None;
+        self.session.set_document(document);
+        self.sidebar_selection =
+            crate::sidebar::SidebarEntry::File(self.session.selected_file().unwrap_or(0));
+        if let Some(index) = self.selected_file() {
+            self.sidebar_tree
+                .expand_file(self.session.document(), index);
+        }
+        self.settle_comment_editor();
         self.diff_list_file = None;
         cx.notify();
     }
 
-    pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
-        self.sidebar_tree.rebuild(&document);
-        self.session.set_document(document);
-        self.repository_pending = false;
-        self.repository_error = None;
-        self.sidebar_selection =
-            crate::sidebar::SidebarEntry::File(self.session.selected_file().unwrap_or(0));
-        if let Some(index) = self.selected_file() {
-            let document = self.session.document().clone();
-            self.sidebar_tree.expand_file(&document, index);
+    fn settle_comment_editor(&mut self) {
+        if self.session.draft().is_none() {
+            self.clear_comment_editor();
         }
-        self.session.cancel_draft();
-        self.clear_comment_editor();
-        self.diff_list_file = None;
-        cx.notify();
     }
 
     fn finish_layout_change(&mut self, changed: bool, cx: &mut Context<Self>) -> bool {
@@ -519,6 +491,28 @@ impl DiffViewer {
         self.repository_error = Some(message.into());
         self.clear_repository_prompt();
         cx.notify();
+    }
+
+    /// Reconciles background refresh health without settling a user command.
+    pub fn set_background_error(&mut self, message: Option<String>, cx: &mut Context<Self>) {
+        if self.background_error != message {
+            self.background_error = message;
+            cx.notify();
+        }
+    }
+
+    /// Whether a host command is still in flight.
+    #[must_use]
+    pub const fn repository_pending(&self) -> bool {
+        self.repository_pending
+    }
+
+    /// The command error, or otherwise the current background refresh failure.
+    #[must_use]
+    pub fn repository_error(&self) -> Option<&str> {
+        self.repository_error
+            .as_deref()
+            .or(self.background_error.as_deref())
     }
 
     /// Changes the theme and invalidates cached syntax spans.
@@ -1526,16 +1520,19 @@ impl Render for DiffViewer {
             .when(self.repository_prompt.is_some(), |viewer| {
                 viewer.child(self.render_repository_prompt())
             })
-            .when_some(self.repository_error.clone(), |viewer, error| {
-                viewer.child(
-                    div()
-                        .absolute()
-                        .bottom_4()
-                        .left_4()
-                        .right_4()
-                        .child(Notification::error(error, self.ui_theme())),
-                )
-            })
+            .when_some(
+                self.repository_error().map(str::to_owned),
+                |viewer, error| {
+                    viewer.child(
+                        div()
+                            .absolute()
+                            .bottom_4()
+                            .left_4()
+                            .right_4()
+                            .child(Notification::error(error, self.ui_theme())),
+                    )
+                },
+            )
     }
 }
 
@@ -1587,8 +1584,8 @@ mod tests {
         }
         let fixture = DocumentBuilder::new()
             .changed("src/large.rs", &source_lines(""), &source_lines(" + 1"))
-            .build_fixture();
-        let mut viewer = DiffViewer::from_snapshot(fixture.snapshot());
+            .build();
+        let mut viewer = DiffViewer::new(fixture);
         viewer.session_mut().set_view_mode(ViewMode::Split);
         let rows: Vec<PresentedRow> = viewer.presentation().rows(1_200..1_224).to_vec();
         for _frame in 0..3 {

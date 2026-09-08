@@ -5,12 +5,13 @@
 //! rendered element bounds. It deliberately does not use image snapshots.
 
 use crate::{DiffViewer, DiffViewerEvent, DiffViewerOptions};
-use diff_core::{DiffSnapshot, testing::DocumentBuilder};
+use diff_core::{DiffDocument, testing::DocumentBuilder};
 use diff_theme::DiffTheme;
 use gpui::{
     AnyWindowHandle, App, Bounds, Context, Entity, Render, TestAppContext, VisualTestContext,
     Window, WindowHandle, WindowOptions, div, prelude::*,
 };
+use std::sync::Arc;
 
 struct HarnessRoot {
     viewer: Entity<DiffViewer>,
@@ -19,12 +20,12 @@ struct HarnessRoot {
 
 impl HarnessRoot {
     fn new(
-        snapshot: DiffSnapshot,
+        document: Arc<DiffDocument>,
         theme: DiffTheme,
         options: DiffViewerOptions,
         cx: &mut Context<Self>,
     ) -> Self {
-        let viewer = cx.new(|_| DiffViewer::from_snapshot_with_options(snapshot, theme, options));
+        let viewer = cx.new(|_| DiffViewer::with_options(document, theme, options));
         cx.subscribe(&viewer, |root, _, event: &DiffViewerEvent, _| {
             root.events.push(event.clone());
         })
@@ -49,16 +50,15 @@ impl Render for HarnessRoot {
 /// use diff_gpui::testing::DiffViewerHarnessBuilder;
 ///
 /// let builder = DiffViewerHarnessBuilder {
-///     snapshot: DocumentBuilder::new()
+///     document: DocumentBuilder::new()
 ///         .changed("src/lib.rs", "old\n", "new\n")
-///         .build_fixture()
-///         .snapshot(),
+///         .build(),
 ///     ..DiffViewerHarnessBuilder::default()
 /// };
 /// # let _ = builder;
 /// ```
 pub struct DiffViewerHarnessBuilder {
-    pub snapshot: DiffSnapshot,
+    pub document: Arc<DiffDocument>,
     pub theme: DiffTheme,
     pub options: DiffViewerOptions,
     pub window_options: WindowOptions,
@@ -67,10 +67,9 @@ pub struct DiffViewerHarnessBuilder {
 impl Default for DiffViewerHarnessBuilder {
     fn default() -> Self {
         Self {
-            snapshot: DocumentBuilder::new()
+            document: DocumentBuilder::new()
                 .changed("src/lib.rs", "old\n", "new\n")
-                .build_fixture()
-                .snapshot(),
+                .build(),
             theme: DiffTheme::default(),
             options: DiffViewerOptions::default(),
             window_options: WindowOptions::default(),
@@ -87,14 +86,14 @@ impl DiffViewerHarnessBuilder {
     pub fn build(self, cx: &mut TestAppContext) -> DiffViewerHarness {
         cx.update(DiffViewer::bind_keys);
         let Self {
-            snapshot,
+            document,
             theme,
             options,
             window_options,
         } = self;
         let window = cx.update(|cx| {
             cx.open_window(window_options, |_, cx| {
-                cx.new(|cx| HarnessRoot::new(snapshot, theme, options, cx))
+                cx.new(|cx| HarnessRoot::new(document, theme, options, cx))
             })
             .expect("open GPUI test window")
         });

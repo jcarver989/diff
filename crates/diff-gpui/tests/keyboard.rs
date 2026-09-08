@@ -18,8 +18,8 @@ impl TestRoot {
                     2..=4,
                 )
                 .changed("b.rs", "old\n", "new\n")
-                .build_fixture();
-            DiffViewer::from_snapshot(fixture.snapshot())
+                .build();
+            DiffViewer::new(fixture)
         });
         cx.subscribe(&viewer, |root, _, event: &DiffViewerEvent, _| {
             root.events.push(event.clone());
@@ -90,6 +90,37 @@ fn full_file_shortcut_projects_eager_snapshot_sources(cx: &mut TestAppContext) {
                 .any(|row| row.kind == RowKind::ExpandedContext)
         );
     });
+}
+
+#[gpui::test]
+fn snapshot_replacement_remaps_sidebar_actions_by_selected_path(cx: &mut TestAppContext) {
+    let window = open_viewer(cx);
+    let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
+    cx.simulate_keystrokes(*window, "h j");
+    assert_eq!(
+        viewer.read_with(cx, |viewer, _| viewer.selected_file()),
+        Some(1)
+    );
+    viewer.update(cx, |viewer, cx| {
+        viewer.set_document(
+            DocumentBuilder::new()
+                .changed("inserted.rs", "before\n", "after\n")
+                .changed("a.rs", "old\n", "new\n")
+                .changed("b.rs", "old\n", "new\n")
+                .build(),
+            cx,
+        );
+        assert_eq!(viewer.selected_file(), Some(2));
+    });
+    cx.simulate_keystrokes(*window, "space");
+    window
+        .read_with(cx, |root, _| {
+            assert!(root.events.iter().any(|event| matches!(event,
+                DiffReviewEvent::RepositoryAction(RepositoryAction::StagePaths(paths))
+                    if paths.len() == 1 && paths[0].as_str() == "b.rs"
+            )));
+        })
+        .unwrap();
 }
 
 #[gpui::test]
