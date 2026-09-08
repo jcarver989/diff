@@ -14,7 +14,7 @@ diff-preview = ["syntax", "dep:clankerdiff-core"]
 diff-review = ["diff-preview", "dep:crossterm"]
 markdown = ["syntax", "dep:clankerdiff-markdown"]
 markdown-review = ["markdown", "clankerdiff-markdown/review", "dep:clankerdiff-core", "dep:crossterm"]
-test-support = ["diff-review"]
+test-support = []
 
 [lints]
 workspace = true
@@ -37,17 +37,26 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [[test]]
 name = "widget"
-required-features = ["test-support"]
+required-features = ["diff-review", "test-support"]
 
 [[test]]
 name = "markdown_widget"
-required-features = ["markdown-review", "test-support"]
+required-features = ["diff-review", "markdown-review", "test-support"]
 
 [[test]]
 name = "performance_contract"
-required-features = ["test-support"]
+required-features = ["diff-review", "test-support"]
+
+[[test]]
+name = "streaming_contract"
+required-features = ["markdown", "test-support"]
+
+[[bench]]
+name = "markdown"
+harness = false
+required-features = ["markdown", "test-support"]
 
 [[bench]]
 name = "rendering"
 harness = false
-required-features = ["test-support"]
+required-features = ["diff-review", "test-support"]

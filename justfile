@@ -51,6 +51,7 @@ feature-check:
     cargo check -p clankerdiff-ratatui --no-default-features --features markdown-review
     cargo check -p clankerdiff-ratatui --all-features
     cargo check -p clankerdiff-ratatui --no-default-features --features syntax,diff-preview,markdown --example streaming_markdown
+    cargo check -p clankerdiff-ratatui --no-default-features --features markdown,test-support --tests --benches
     if cargo tree -i syntect --all-features >/dev/null 2>&1; then echo "syntect unexpectedly remains in the dependency graph" >&2; exit 1; fi
 
 lint:

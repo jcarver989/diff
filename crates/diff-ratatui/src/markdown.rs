@@ -2,16 +2,16 @@
 
 use crate::syntax::highlighted_line;
 use clankerdiff_markdown::{
-    FenceContinuation, MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownInline,
-    MarkdownStream,
+    MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownInline, MarkdownStream,
+    MarkdownStreamIdentity,
 };
-use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter, SyntaxStream};
-use clankerdiff_theme::{Fingerprint, HighlightSpan, ReviewTheme, Rgba};
+use clankerdiff_syntax::{DocumentHighlights, LanguageHint, SourceSequenceId, SyntaxHighlighter};
+use clankerdiff_theme::{Fingerprint, ReviewTheme, Rgba};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 use unicode_width::UnicodeWidthChar;
 
 /// Width and spacing policy for transcript-style Markdown.
@@ -35,43 +35,17 @@ impl Default for MarkdownRenderOptions {
 pub struct MarkdownRenderStats {
     /// Bytes actually supplied to the Markdown parser.
     pub parsed_bytes: usize,
-    pub stable_segments: u64,
-    pub speculative_segments: u64,
-}
-
-/// One committed code line retained for bounded speculative restyling.
-#[derive(Debug, Clone)]
-struct ContextLine {
-    text: String,
-    rows: Vec<Line<'static>>,
-}
-
-#[derive(Debug, Clone)]
-struct StreamingFenceState {
-    continuation: FenceContinuation,
-    /// First source byte not yet appended to `syntax`.
-    content_offset: usize,
-    /// Emit one blank row before the block's first code row.
-    leading_gap: bool,
-    /// Whether rows were already moved into committed output (gap included).
-    flushed_rows: bool,
-    /// Trailing committed code lines and their committed rows. These stay out
-    /// of the committed row list so the speculative tail can restyle them
-    /// without truncating committed output.
-    context: VecDeque<ContextLine>,
-    syntax: SyntaxStream,
+    pub parsed_documents: u64,
+    pub rows_generated: usize,
+    pub rows_reused: usize,
 }
 
 /// Renderer-owned cache for one logical streaming Markdown item.
 #[derive(Debug, Clone, Default)]
 pub struct StreamingMarkdownState {
-    revision: Option<u64>,
-    stream_generation: Option<u64>,
+    parsed: Option<ParsedSource>,
     options: MarkdownRenderOptions,
     theme_revision: Fingerprint,
-    stable_offset: usize,
-    stable_lines: Vec<Line<'static>>,
-    open_fence: Option<StreamingFenceState>,
     lines: Arc<[Line<'static>]>,
     stats: MarkdownRenderStats,
 }
@@ -84,6 +58,27 @@ impl StreamingMarkdownState {
     /// Returns accumulated renderer work counters and resets them.
     pub fn take_stats(&mut self) -> MarkdownRenderStats {
         std::mem::take(&mut self.stats)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ParsedSource {
+    identity: MarkdownStreamIdentity,
+    revision: u64,
+    document: MarkdownDocument,
+}
+
+impl ParsedSource {
+    fn parse(stream: &MarkdownStream) -> Self {
+        Self {
+            identity: stream.identity(),
+            revision: stream.revision(),
+            document: MarkdownDocument::parse(stream.source()),
+        }
+    }
+
+    fn matches(&self, stream: &MarkdownStream) -> bool {
+        self.identity == stream.identity() && self.revision == stream.revision()
     }
 }
 
@@ -109,9 +104,6 @@ impl MarkdownRenderer {
         Arc::from(document_rows(document, options, theme, highlighter))
     }
 
-    /// Renders the current stream snapshot while retaining rows produced from
-    /// the stream's stable source prefix. Width, theme, replacement, or a
-    /// backwards-moving stable offset invalidates the retained prefix.
     pub fn render_stream_lines(
         &self,
         state: &mut StreamingMarkdownState,
@@ -120,259 +112,30 @@ impl MarkdownRenderer {
         theme: &ReviewTheme,
         highlighter: &mut SyntaxHighlighter,
     ) -> Arc<[Line<'static>]> {
-        let revision = stream.revision();
         let theme_revision = theme.revision();
-        if state.revision == Some(revision)
-            && state.options == options
-            && state.theme_revision == theme_revision
-        {
-            return Arc::clone(&state.lines);
-        }
-        let stable_offset = stream.stable_offset().min(stream.source().len());
-        let cache_invalid = state.revision.is_none()
-            || state.stream_generation != Some(stream.generation())
-            || state.options != options
-            || state.theme_revision != theme_revision
-            || stable_offset < state.stable_offset;
-        if cache_invalid {
-            state.stable_offset = 0;
-            state.stable_lines.clear();
-            state.open_fence = None;
-        }
-
-        let mut ctx = RenderCtx {
-            options,
-            theme,
-            highlighter,
-        };
-        if stable_offset > state.stable_offset {
-            commit_stable_segment(&mut ctx, state, stream, stable_offset);
-        }
-
-        let mut combined = state.stable_lines.clone();
-        let tail = &stream.source()[stable_offset..];
-        if let Some(fence) = &state.open_fence {
-            let rows = if tail.is_empty() {
-                fence
-                    .context
-                    .iter()
-                    .flat_map(|line| line.rows.iter().cloned())
-                    .collect()
-            } else {
-                state.stats.speculative_segments =
-                    state.stats.speculative_segments.saturating_add(1);
-                speculative_fence_rows(&mut ctx, fence, tail, &mut state.stats)
-            };
-            if !rows.is_empty() {
-                if fence.leading_gap && !fence.flushed_rows {
-                    combined.push(Line::default());
+        let parsed = match state.parsed.take() {
+            Some(parsed) if parsed.matches(stream) => {
+                if state.options == options && state.theme_revision == theme_revision {
+                    state.stats.rows_reused += state.lines.len();
+                    state.parsed = Some(parsed);
+                    return Arc::clone(&state.lines);
                 }
-                combined.extend(rows);
+                parsed
             }
-        } else if !tail.is_empty() {
-            state.stats.speculative_segments = state.stats.speculative_segments.saturating_add(1);
-            let rows = parsed_rows(&mut ctx, tail, &mut state.stats);
-            append_segment(&mut combined, rows, options.block_spacing);
-        }
-        let lines = Arc::from(combined);
-        state.revision = Some(revision);
-        state.stream_generation = Some(stream.generation());
+            _ => {
+                state.stats.parsed_bytes += stream.source().len();
+                state.stats.parsed_documents += 1;
+                ParsedSource::parse(stream)
+            }
+        };
+        let rows = document_rows(&parsed.document, options, theme, highlighter);
+        state.stats.rows_generated += rows.len();
+        state.parsed = Some(parsed);
         state.options = options;
         state.theme_revision = theme_revision;
-        state.lines = Arc::clone(&lines);
-        lines
+        state.lines = Arc::from(rows);
+        Arc::clone(&state.lines)
     }
-}
-
-/// Shared parameters threaded through the streaming render helpers.
-struct RenderCtx<'a> {
-    options: MarkdownRenderOptions,
-    theme: &'a ReviewTheme,
-    highlighter: &'a mut SyntaxHighlighter,
-}
-
-fn commit_stable_segment(
-    ctx: &mut RenderCtx<'_>,
-    state: &mut StreamingMarkdownState,
-    stream: &MarkdownStream,
-    stable_offset: usize,
-) {
-    state.stats.stable_segments = state.stats.stable_segments.saturating_add(1);
-    let source = stream.source();
-    let mut offset = state.stable_offset;
-    if let Some(mut fence) = state.open_fence.take() {
-        let segment = &source[fence.content_offset..stable_offset];
-        let still_open = stream.continuation().is_some_and(|continuation| {
-            continuation.opening_line() == fence.continuation.opening_line()
-        });
-        if still_open {
-            append_fence_lines(ctx, &mut fence, segment, &mut state.stable_lines);
-            fence.content_offset = stable_offset;
-            state.open_fence = Some(fence);
-            state.stable_offset = stable_offset;
-            return;
-        }
-        if let Some(close) = fence.continuation.find_close(segment) {
-            let closing = fence_append_rows(ctx, &mut fence, &segment[..close.start]);
-            let mut rows: Vec<Line<'static>> =
-                fence.context.drain(..).flat_map(|line| line.rows).collect();
-            rows.extend(closing.into_iter().flat_map(|(_, line_rows)| line_rows));
-            flush_fence_rows(&mut state.stable_lines, &mut fence, rows);
-            offset = fence.content_offset + close.end;
-        } else {
-            // `finish()` can stabilize an unclosed fence. Restyle the retained
-            // bounded context together with the final partial content so
-            // multiline constructs discovered late still render correctly.
-            let rows = restyled_fence_rows(ctx, &fence, segment);
-            flush_fence_rows(&mut state.stable_lines, &mut fence, rows);
-            offset = stable_offset;
-        }
-    }
-    if let Some(continuation) = stream.continuation() {
-        let opening = continuation.opening_line();
-        let prose = &source[offset.min(opening)..opening];
-        if !prose.is_empty() {
-            let rows = parsed_rows(ctx, prose, &mut state.stats);
-            append_segment(&mut state.stable_lines, rows, ctx.options.block_spacing);
-        }
-        let mut fence = StreamingFenceState {
-            continuation: continuation.clone(),
-            content_offset: stable_offset,
-            leading_gap: ctx.options.block_spacing && !state.stable_lines.is_empty(),
-            flushed_rows: false,
-            context: VecDeque::new(),
-            syntax: SyntaxStream::new(LanguageHint::InfoString(continuation.info_string())),
-        };
-        let code = &source[continuation.content_start()..stable_offset];
-        append_fence_lines(ctx, &mut fence, code, &mut state.stable_lines);
-        state.open_fence = Some(fence);
-    } else {
-        let segment = &source[offset..stable_offset];
-        if !segment.is_empty() {
-            let rows = parsed_rows(ctx, segment, &mut state.stats);
-            append_segment(&mut state.stable_lines, rows, ctx.options.block_spacing);
-        }
-    }
-    state.stable_offset = stable_offset;
-}
-
-/// Renders the unstable tail of an open fence from restyled retained context,
-/// plus any prose following a speculative closing fence.
-fn speculative_fence_rows(
-    ctx: &mut RenderCtx<'_>,
-    fence: &StreamingFenceState,
-    tail: &str,
-    stats: &mut MarkdownRenderStats,
-) -> Vec<Line<'static>> {
-    let (code, prose) = match fence.continuation.find_close(tail) {
-        Some(close) => (&tail[..close.start], &tail[close.end..]),
-        None => (tail, ""),
-    };
-    let mut rows = restyled_fence_rows(ctx, fence, code);
-    if !prose.is_empty() {
-        let prose_rows = parsed_rows(ctx, prose, stats);
-        append_segment(&mut rows, prose_rows, ctx.options.block_spacing);
-    }
-    rows
-}
-
-/// Statelessly re-highlights the retained context lines together with `code`,
-/// so partial content can restyle earlier lines without touching the fence's
-/// committed syntax stream.
-fn restyled_fence_rows(
-    ctx: &mut RenderCtx<'_>,
-    fence: &StreamingFenceState,
-    code: &str,
-) -> Vec<Line<'static>> {
-    let mut lines: Vec<&str> = fence
-        .context
-        .iter()
-        .map(|line| line.text.as_str())
-        .collect();
-    lines.extend(code.lines());
-    if lines.is_empty() {
-        return Vec::new();
-    }
-    let line_spans = ctx
-        .highlighter
-        .with_theme(&ctx.theme.syntax)
-        .highlight_lines(
-            LanguageHint::InfoString(fence.continuation.info_string()),
-            lines.iter().copied(),
-        );
-    code_rows(&lines, line_spans, ctx.theme, ctx.options.width, "")
-}
-
-/// Appends committed code to the fence's syntax stream, retains the bounded
-/// trailing stream history, and flushes rows that leave the retention bound.
-fn append_fence_lines(
-    ctx: &mut RenderCtx<'_>,
-    fence: &mut StreamingFenceState,
-    code: &str,
-    output: &mut Vec<Line<'static>>,
-) {
-    for (text, rows) in fence_append_rows(ctx, fence, code) {
-        fence.context.push_back(ContextLine { text, rows });
-    }
-    let retained = ctx.highlighter.config().max_stream_lines;
-    while fence.context.len() > retained {
-        let line = fence.context.pop_front().expect("length checked above");
-        flush_fence_rows(output, fence, line.rows);
-    }
-}
-
-/// Appends code lines to the fence's syntax stream, returning each line with
-/// its rendered rows.
-fn fence_append_rows(
-    ctx: &mut RenderCtx<'_>,
-    fence: &mut StreamingFenceState,
-    code: &str,
-) -> Vec<(String, Vec<Line<'static>>)> {
-    let lines: Vec<&str> = code.lines().collect();
-    if lines.is_empty() {
-        return Vec::new();
-    }
-    let line_spans = ctx
-        .highlighter
-        .with_theme(&ctx.theme.syntax)
-        .append(&mut fence.syntax, lines.iter().copied());
-    lines
-        .into_iter()
-        .zip(line_spans)
-        .map(|(line, spans)| {
-            let rows = code_rows(&[line], vec![spans], ctx.theme, ctx.options.width, "");
-            (line.to_owned(), rows)
-        })
-        .collect()
-}
-
-fn flush_fence_rows(
-    output: &mut Vec<Line<'static>>,
-    fence: &mut StreamingFenceState,
-    rows: Vec<Line<'static>>,
-) {
-    if rows.is_empty() {
-        return;
-    }
-    if fence.leading_gap && !fence.flushed_rows {
-        output.push(Line::default());
-    }
-    fence.flushed_rows = true;
-    output.extend(rows);
-}
-
-fn parsed_rows(
-    ctx: &mut RenderCtx<'_>,
-    source: &str,
-    stats: &mut MarkdownRenderStats,
-) -> Vec<Line<'static>> {
-    stats.parsed_bytes = stats.parsed_bytes.saturating_add(source.len());
-    document_rows(
-        &MarkdownDocument::parse(source),
-        ctx.options,
-        ctx.theme,
-        ctx.highlighter,
-    )
 }
 
 fn document_rows(
@@ -401,7 +164,7 @@ fn document_rows(
 /// Renders highlighted code lines as wrapped rows on the code background.
 fn code_rows(
     lines: &[&str],
-    line_spans: Vec<Vec<HighlightSpan>>,
+    highlights: &DocumentHighlights,
     theme: &ReviewTheme,
     width: u16,
     prefix: &str,
@@ -410,8 +173,9 @@ fn code_rows(
         .fg(color(theme.markdown.code))
         .bg(color(theme.diff.background));
     let mut output = Vec::new();
-    for (line, spans) in lines.iter().zip(line_spans) {
-        let mut rendered = highlighted_line(line, &spans, base);
+    for (index, line) in lines.iter().enumerate() {
+        let spans = highlights.line(index).unwrap_or_default();
+        let mut rendered = highlighted_line(line, spans, base);
         if !prefix.is_empty() {
             rendered
                 .spans
@@ -420,17 +184,6 @@ fn code_rows(
         push_wrapped_spans(&mut output, rendered.spans, width);
     }
     output
-}
-
-fn append_segment(
-    output: &mut Vec<Line<'static>>,
-    segment: Vec<Line<'static>>,
-    block_spacing: bool,
-) {
-    if block_spacing && !output.is_empty() && !segment.is_empty() {
-        output.push(Line::default());
-    }
-    output.extend(segment);
 }
 
 fn render_block(
@@ -500,16 +253,19 @@ fn render_block(
             }
         }
         MarkdownBlockKind::CodeBlock(code) => {
-            let source = code
+            let lines = code
                 .lines
                 .iter()
                 .map(|line| line.text.as_str())
                 .collect::<Vec<_>>();
-            let line_spans = highlighter.with_theme(&theme.syntax).highlight_lines(
-                LanguageHint::InfoString(code.highlight_hint()),
-                source.iter().copied(),
-            );
-            output.extend(code_rows(&source, line_spans, theme, width, prefix));
+            let highlights = highlighter
+                .with_theme(&theme.syntax)
+                .highlight_document_lines(
+                    SourceSequenceId::from_lines(lines.iter().copied()),
+                    LanguageHint::InfoString(code.highlight_hint()),
+                    lines.iter().copied(),
+                );
+            output.extend(code_rows(&lines, &highlights, theme, width, prefix));
         }
         MarkdownBlockKind::Table(table) => {
             for row in &table.rows {
@@ -678,7 +434,7 @@ mod tests {
         for chunk in ["Settled prose.\n\n```rust\n", "/* open\n", "still open"] {
             stream.push(chunk);
         }
-        assert!(stream.continuation().is_some());
+        assert!(!stream.is_finished());
         let options = MarkdownRenderOptions {
             width: 48,
             block_spacing: true,
@@ -782,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_stats_reset_and_stable_prose_is_not_reparsed_from_zero() {
+    fn stream_stats_reset_and_changed_snapshots_parse_complete_context() {
         let renderer = MarkdownRenderer::new();
         let theme = ReviewTheme::default();
         let options = MarkdownRenderOptions::default();
@@ -796,7 +552,7 @@ mod tests {
         stream.push("second paragraph\n\n");
         renderer.render_stream_lines(&mut state, &stream, options, &theme, &mut highlighter);
         let second = state.take_stats();
-        assert_eq!(second.parsed_bytes, "second paragraph\n\n".len());
+        assert_eq!(second.parsed_bytes, stream.source().len());
         assert_eq!(state.take_stats(), MarkdownRenderStats::default());
 
         stream.replace("replacement is longer than both prior paragraphs\n\n");
