@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+message_file="$RUNNER_TEMP/commit-message.txt"
+if [[ ! -s "$message_file" ]]; then
+    printf 'chore: apply Aether changes for #%s\n' "$NUMBER" > "$message_file"
+fi
+
+if [[ "$MODE" == "plan" ]]; then
+    saved_plan="$RUNNER_TEMP/$(basename "$PLAN_FILE")"
+    if [[ -f "$PLAN_FILE" ]]; then
+        cp "$PLAN_FILE" "$saved_plan"
+    fi
+
+    git reset --hard "$START_SHA"
+    git clean --force --quiet -d
+
+    if [[ -f "$saved_plan" ]]; then
+        mkdir -p "$(dirname "$PLAN_FILE")"
+        cp "$saved_plan" "$PLAN_FILE"
+        git add --force "$PLAN_FILE"
+    fi
+else
+    git add --all
+fi
+if ! git diff --cached --quiet; then
+    git commit --file "$message_file"
+fi
+
+if [[ "$(git rev-parse HEAD)" == "$START_SHA" ]]; then
+    echo "pushed=false" >> "$GITHUB_OUTPUT"
+    exit 0
+fi
+
+subject="$(git log -1 --format=%s)"
+
+implemented=false
+if [[ "$MODE" == "pr" ]]; then
+    mapfile -t plans < <(git ls-files -- "$PLANS_DIR/*-plan.md")
+    if (( ${#plans[@]} > 0 )) \
+        && ! git diff --quiet "$START_SHA" HEAD -- . ":(exclude)$PLANS_DIR"; then
+        git rm --quiet -- "${plans[@]}"
+        git commit --message 'chore: drop plan now that it is implemented'
+        implemented=true
+    fi
+fi
+
+git push "https://x-access-token:$GH_TOKEN@github.com/$GH_REPO.git" "HEAD:$BRANCH"
+
+{
+    echo "pushed=true"
+    echo "implemented=$implemented"
+    echo "subject=$subject"
+} >> "$GITHUB_OUTPUT"

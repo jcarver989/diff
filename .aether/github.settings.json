@@ -1,0 +1,75 @@
+{
+  "agent": "Simple Builder",
+  "mcps": [".aether/mcp.json"],
+  "agents": [
+    {
+      "name": "Planner",
+      "description": "Don't spawn unless explicitly asked to",
+      "model": "openrouter:meta/muse-spark-1.3-contributor",
+      "reasoningEffort": "xhigh",
+      "userInvocable": true,
+      "agentInvocable": false,
+      "prompts": [".aether/SYSTEM.md", ".aether/agents/planner.md", "AGENTS.md"]
+    },
+    {
+      "name": "Complex Builder",
+      "description": "Don't spawn unless explicitly asked to",
+      "model": "openrouter:meta/muse-spark-1.3-contributor",
+      "reasoningEffort": "high",
+      "userInvocable": true,
+      "agentInvocable": false,
+      "prompts": [".aether/SYSTEM.md", ".aether/agents/builder.md", "AGENTS.md"]
+    },
+    {
+      "name": "Simple Builder",
+      "description": "Don't spawn unless explicitly asked to",
+      "model": "openrouter:meta/muse-spark-1.3-contributor",
+      "reasoningEffort": "medium",
+      "userInvocable": true,
+      "agentInvocable": false,
+      "prompts": [".aether/SYSTEM.md", ".aether/agents/builder.md", "AGENTS.md"]
+    },
+    {
+      "name": "Reviewer",
+      "description": "Reviews and improves CI agent implementations",
+      "model": "openrouter:meta/muse-spark-1.3-contributor",
+      "reasoningEffort": "high",
+      "userInvocable": true,
+      "agentInvocable": false,
+      "prompts": [".aether/SYSTEM.md", ".aether/agents/reviewer.md", "AGENTS.md"]
+    },
+    {
+      "name": "Explorer",
+      "description": "Explores codebases to find relevant files, patterns, and integration points",
+      "model": "deepseek:deepseek-v4-flash",
+      "userInvocable": false,
+      "agentInvocable": true,
+      "prompts": [".aether/agents/explorer.md"],
+      "mcps": [
+        {
+          "type": "inline",
+          "servers": {
+            "coding": {
+              "type": "in-memory",
+              "args": [
+                "--rules-dir",
+                "${HOME}/.claude/rules",
+                "--rules-dir",
+                "${WORKSPACE}/.claude/rules",
+                "--rules-dir",
+                "${HOME}/.agents/rules",
+                "--rules-dir",
+                "${WORKSPACE}/.agents/rules"
+              ],
+              "input": null
+            }
+          }
+        }
+      ],
+      "tools": {
+        "allow": [{ "readOnly": true }, "plan__*", "skills__*", "tasks__*", "survey__*"],
+        "deny": ["subagents__*"]
+      }
+    }
+  ]
+}

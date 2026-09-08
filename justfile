@@ -78,9 +78,9 @@ doc-check:
 
 # Validate the GitHub Aether automation.
 automation-check:
-    jq empty .aether/settings.json .aether/mcp.json
-    bash -n .github/scripts/implement-issue.sh .github/scripts/implement-plan.sh \
-        .github/scripts/address-pr-feedback.sh
+    jq empty .aether/settings.json .aether/github.settings.json .aether/mcp.json
+    for script in scripts/aether-agent/*; do bash -n "$script"; done
+    python3 -B -m unittest discover -s tests/aether-agent -p 'test_*.py'
     # actionlint does not yet recognize GitHub's concurrency.queue property.
     actionlint -ignore 'unexpected key "queue" for "concurrency" section' \
         .github/workflows/aether-agent.yml .github/workflows/ci.yml
