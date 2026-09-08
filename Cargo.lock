@@ -1842,19 +1842,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "clankerdiff"
+name = "clankerdiff-cli"
 version = "0.1.0"
 dependencies = [
+ "clankerdiff-core",
+ "clankerdiff-git",
+ "clankerdiff-gpui-desktop",
+ "clankerdiff-markdown",
  "clankerdiff-protocol",
+ "clankerdiff-ratatui",
+ "clankerdiff-theme",
+ "clankerdiff-watch",
  "clap",
  "crossterm",
- "diff-core",
- "diff-git",
- "diff-gpui-desktop",
- "diff-markdown",
- "diff-ratatui",
- "diff-theme",
- "diff-watch",
  "ratatui",
  "serde",
  "serde_json",
@@ -1865,14 +1865,163 @@ dependencies = [
 ]
 
 [[package]]
-name = "clankerdiff-protocol"
+name = "clankerdiff-core"
 version = "0.1.0"
 dependencies = [
- "diff-core",
- "diff-markdown",
+ "clankerdiff-fingerprint",
+ "clankerdiff-theme",
+ "diffy",
+ "serde",
+ "serde_json",
+ "similar",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "clankerdiff-fingerprint"
+version = "0.1.0"
+dependencies = [
+ "blake3",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "clankerdiff-git"
+version = "0.1.0"
+dependencies = [
+ "clankerdiff-core",
+ "clankerdiff-git",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "clankerdiff-gpui"
+version = "0.1.0"
+dependencies = [
+ "clankerdiff-core",
+ "clankerdiff-markdown",
+ "clankerdiff-syntax",
+ "clankerdiff-theme",
+ "gpui",
+ "gpui_platform",
+]
+
+[[package]]
+name = "clankerdiff-gpui-desktop"
+version = "0.1.0"
+dependencies = [
+ "clankerdiff-core",
+ "clankerdiff-git",
+ "clankerdiff-gpui",
+ "clankerdiff-markdown",
+ "clankerdiff-theme",
+ "clankerdiff-watch",
+ "gpui",
+ "gpui_platform",
+ "gpui_tokio",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "clankerdiff-gpui-web"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "clankerdiff-core",
+ "clankerdiff-gpui",
+ "clankerdiff-markdown",
+ "clankerdiff-theme",
+ "console_error_panic_hook",
+ "gpui",
+ "gpui_web",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "clankerdiff-markdown"
+version = "0.1.0"
+dependencies = [
+ "clankerdiff-fingerprint",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "clankerdiff-protocol"
+version = "0.1.0"
+dependencies = [
+ "clankerdiff-core",
+ "clankerdiff-markdown",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "clankerdiff-ratatui"
+version = "0.1.0"
+dependencies = [
+ "clankerdiff-core",
+ "clankerdiff-git",
+ "clankerdiff-markdown",
+ "clankerdiff-syntax",
+ "clankerdiff-theme",
+ "criterion",
+ "crossterm",
+ "ratatui",
+ "serde_json",
+ "tokio",
+ "unicode-width",
+]
+
+[[package]]
+name = "clankerdiff-syntax"
+version = "0.1.0"
+dependencies = [
+ "arborium",
+ "arborium-highlight",
+ "arborium-theme",
+ "clankerdiff-fingerprint",
+ "clankerdiff-theme",
+]
+
+[[package]]
+name = "clankerdiff-theme"
+version = "0.1.0"
+dependencies = [
+ "arborium-theme",
+ "clankerdiff-fingerprint",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "clankerdiff-watch"
+version = "0.1.0"
+dependencies = [
+ "clankerdiff-core",
+ "clankerdiff-git",
+ "clankerdiff-watch",
+ "notify",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]
@@ -2491,155 +2640,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "diff-core"
-version = "0.1.0"
-dependencies = [
- "diff-fingerprint",
- "diff-theme",
- "diffy",
- "serde",
- "serde_json",
- "similar",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "diff-fingerprint"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "diff-git"
-version = "0.1.0"
-dependencies = [
- "diff-core",
- "diff-git",
- "serde_json",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "diff-gpui"
-version = "0.1.0"
-dependencies = [
- "diff-core",
- "diff-markdown",
- "diff-syntax",
- "diff-theme",
- "gpui",
- "gpui_platform",
-]
-
-[[package]]
-name = "diff-gpui-desktop"
-version = "0.1.0"
-dependencies = [
- "diff-core",
- "diff-git",
- "diff-gpui",
- "diff-markdown",
- "diff-theme",
- "diff-watch",
- "gpui",
- "gpui_platform",
- "gpui_tokio",
- "schemars",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "diff-gpui-web"
-version = "0.1.0"
-dependencies = [
- "async-channel",
- "console_error_panic_hook",
- "diff-core",
- "diff-gpui",
- "diff-markdown",
- "diff-theme",
- "gpui",
- "gpui_web",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "diff-markdown"
-version = "0.1.0"
-dependencies = [
- "diff-fingerprint",
- "pulldown-cmark",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "diff-ratatui"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "crossterm",
- "diff-core",
- "diff-git",
- "diff-markdown",
- "diff-syntax",
- "diff-theme",
- "ratatui",
- "serde_json",
- "tokio",
- "unicode-width",
-]
-
-[[package]]
-name = "diff-syntax"
-version = "0.1.0"
-dependencies = [
- "arborium",
- "arborium-highlight",
- "arborium-theme",
- "diff-fingerprint",
- "diff-theme",
-]
-
-[[package]]
-name = "diff-theme"
-version = "0.1.0"
-dependencies = [
- "arborium-theme",
- "diff-fingerprint",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "diff-watch"
-version = "0.1.0"
-dependencies = [
- "diff-core",
- "diff-git",
- "diff-watch",
- "notify",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
 ]
 
 [[package]]

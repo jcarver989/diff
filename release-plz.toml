@@ -1,5 +1,6 @@
 [workspace]
-git_only = true
+release = false
+git_only = false
 publish = false
 release_always = false
 git_release_enable = false
@@ -7,3 +8,48 @@ git_tag_name = "{{ package }}-v{{ version }}"
 pr_branch_prefix = "release-plz/"
 pr_name = "chore: release"
 dependencies_update = true
+
+[[package]]
+name = "clankerdiff-protocol"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-core"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-fingerprint"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-git"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-markdown"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-ratatui"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-syntax"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-theme"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-watch"
+release = true
+publish = true
