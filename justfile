@@ -63,6 +63,10 @@ wasm-check:
 web-test:
     cd crates/diff-gpui-web && npm ci && npx playwright install chromium && npm test
 
+# Exercise the filesystem watcher against real Git worktrees.
+watch-test:
+    cargo test -p diff-watch --all-features
+
 fmt:
     cargo fmt --all
 

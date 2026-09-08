@@ -12,6 +12,7 @@ members = [
     "crates/diff-gpui-desktop",
     "crates/diff-gpui-web",
     "crates/diff-ratatui",
+    "crates/diff-watch",
 ]
 exclude = ["patches/gpui"]
 resolver = "3"
@@ -40,6 +41,7 @@ gpui = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c385
 gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
 gpui_tokio = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d" }
 gpui_web = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
+notify = "8.2.0"
 open = "5.4.2"
 pulldown-cmark = "0.13.0"
 rand = "0.9.5"
