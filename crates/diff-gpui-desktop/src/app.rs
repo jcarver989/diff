@@ -300,13 +300,16 @@ impl DesktopApp {
     }
 
     fn handle_viewer_event(&mut self, event: &DiffReviewEvent, cx: &mut Context<Self>) {
-        if let DiffReviewEvent::RepositoryAction(action) = event {
-            self.command(HostCommand::Apply(action.clone()), cx);
-            return;
-        }
-        if let DiffReviewEvent::SetScope(scope) = event {
-            self.command(HostCommand::SetScope(*scope), cx);
-            return;
+        match event {
+            DiffReviewEvent::RepositoryAction(action) => {
+                self.command(HostCommand::Apply(action.clone()), cx);
+                return;
+            }
+            DiffReviewEvent::SetScope(scope) => {
+                self.set_scope(*scope, cx);
+                return;
+            }
+            _ => {}
         }
         if let Some(sender) = &self.outcome_sender {
             match event {
@@ -345,7 +348,7 @@ impl DesktopApp {
     }
 
     fn menu_set_scope(&mut self, action: &SetScope, _: &mut Window, cx: &mut Context<Self>) {
-        self.command(HostCommand::SetScope(action.scope()), cx);
+        self.set_scope(action.scope(), cx);
     }
 
     fn set_scope(&mut self, scope: DiffScope, cx: &mut Context<Self>) {
@@ -357,6 +360,15 @@ impl DesktopApp {
         let scope = self.scope;
         let pending = self.command_task.is_some();
         let theme = UiTheme::new(&self.theme);
+        let segment = |id: &'static str, label: &'static str, value: DiffScope| {
+            Button::new(id, label, theme)
+                .size(ControlSize::Small)
+                .selected(scope == value)
+                .disabled(pending)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.set_scope(value, cx);
+                }))
+        };
         div()
             .flex()
             .flex_col()
@@ -369,38 +381,11 @@ impl DesktopApp {
                 &format!("Scope: {scope} · press S to change scope"),
                 NoticeTone::Info,
             ))
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        Button::new("scope-unstaged", "Unstaged", theme)
-                            .size(ControlSize::Small)
-                            .selected(scope == DiffScope::Unstaged)
-                            .disabled(pending)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.set_scope(DiffScope::Unstaged, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("scope-staged", "Staged", theme)
-                            .size(ControlSize::Small)
-                            .selected(scope == DiffScope::Staged)
-                            .disabled(pending)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.set_scope(DiffScope::Staged, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("scope-both", "Both", theme)
-                            .size(ControlSize::Small)
-                            .selected(scope == DiffScope::Both)
-                            .disabled(pending)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.set_scope(DiffScope::Both, cx);
-                            })),
-                    ),
-            )
+            .child(div().flex().gap_2().children([
+                segment("scope-unstaged", "Unstaged", DiffScope::Unstaged),
+                segment("scope-staged", "Staged", DiffScope::Staged),
+                segment("scope-both", "Both", DiffScope::Both),
+            ]))
     }
 
     fn status_panel(&self, title: &str, detail: &str, tone: NoticeTone) -> impl IntoElement {

@@ -279,44 +279,15 @@ mod wasm {
             });
             let viewer_subscription = cx.subscribe(
                 &viewer,
-                |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| {
-                    if let DiffReviewEvent::RepositoryAction(action) = event {
-                        let Some(request_id) = this.requests.begin() else {
-                            return;
-                        };
-                        this.viewer
-                            .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
-                        if let Err(error) = dispatch_repository_action(request_id, action) {
-                            this.finish_repository(
-                                RepositoryReply {
-                                    request_id,
-                                    error: Some(format!(
-                                        "could not dispatch repository action: {error:?}"
-                                    )),
-                                },
-                                cx,
-                            );
-                        }
-                    } else if let DiffReviewEvent::SetScope(scope) = event {
-                        let Some(request_id) = this.requests.begin() else {
-                            return;
-                        };
-                        this.viewer
-                            .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
-                        if let Err(error) = dispatch_scope_request(*scope) {
-                            this.finish_repository(
-                                RepositoryReply {
-                                    request_id,
-                                    error: Some(format!(
-                                        "could not dispatch scope request: {error:?}"
-                                    )),
-                                },
-                                cx,
-                            );
-                        }
-                    } else {
-                        dispatch_viewer_event(event);
+                |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| match event {
+                    DiffReviewEvent::RepositoryAction(action) => this
+                        .request_repository(cx, |request_id| {
+                            dispatch_repository_action(request_id, action)
+                        }),
+                    DiffReviewEvent::SetScope(scope) => {
+                        this.request_repository(cx, |_| dispatch_scope_request(*scope))
                     }
+                    _ => dispatch_viewer_event(event),
                 },
             );
             let viewer_theme_subscription =
@@ -354,6 +325,27 @@ mod wasm {
                     Some(message) => viewer.set_repository_error(message, cx),
                     None => viewer.set_repository_pending(false, cx),
                 });
+            }
+        }
+
+        fn request_repository(
+            &mut self,
+            cx: &mut Context<Self>,
+            dispatch: impl FnOnce(u64) -> Result<(), JsValue>,
+        ) {
+            let Some(request_id) = self.requests.begin() else {
+                return;
+            };
+            self.viewer
+                .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+            if let Err(error) = dispatch(request_id) {
+                self.finish_repository(
+                    RepositoryReply {
+                        request_id,
+                        error: Some(format!("could not dispatch request: {error:?}")),
+                    },
+                    cx,
+                );
             }
         }
 

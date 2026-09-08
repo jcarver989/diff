@@ -28,9 +28,6 @@ fn run_blocking(
     let socket_path = directory.path().join("session.sock");
     let listener = UnixListener::bind(&socket_path)?;
     let mut snapshot = watcher.snapshot_rx.borrow().as_ref().ok().cloned();
-    let mut last_scope = snapshot
-        .as_ref()
-        .map_or(DiffScope::Both, |snapshot| snapshot.scope);
     let mut revision = u64::from(snapshot.is_some());
     launch(&socket_path).map_err(SessionError::Launch)?;
 
@@ -41,7 +38,6 @@ fn run_blocking(
             repository,
             watcher,
             &mut snapshot,
-            &mut last_scope,
             &mut revision,
         ) {
             Ok(ConnectionOutcome::Continue) => {}
@@ -64,7 +60,6 @@ fn handle_connection(
     repository: &GitRepository,
     watcher: &RepositoryWatcher,
     snapshot: &mut Option<Arc<RepositorySnapshot>>,
-    last_scope: &mut DiffScope,
     published_revision: &mut u64,
 ) -> Result<ConnectionOutcome, SessionError> {
     match read_request(stream)? {
@@ -73,7 +68,6 @@ fn handle_connection(
             let error = match result {
                 Ok(latest) => {
                     if snapshot.as_ref() != Some(&latest) {
-                        *last_scope = latest.scope;
                         *snapshot = Some(latest);
                         *published_revision += 1;
                     }
@@ -82,15 +76,18 @@ fn handle_connection(
                 Err(error) => Some(error.to_string()),
             };
             let background_error = error.as_deref();
+            let scope = snapshot
+                .as_ref()
+                .map_or(DiffScope::Both, |snapshot| snapshot.scope);
             let response = match snapshot.as_ref() {
                 Some(snapshot) if *published_revision != revision => SessionResponseRef::Document {
                     revision: *published_revision,
                     document: &snapshot.document,
-                    scope: *last_scope,
+                    scope,
                     background_error,
                 },
                 _ => SessionResponseRef::Unchanged {
-                    scope: *last_scope,
+                    scope,
                     background_error,
                 },
             };

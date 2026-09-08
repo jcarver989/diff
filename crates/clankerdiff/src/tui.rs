@@ -122,12 +122,13 @@ pub fn run_local(
         scope: installed.scope,
         background_error: None,
     };
-    let (latest, receiver) = watch::channel(initial);
+    let (latest, receiver) = watch::channel(initial.clone());
     let (completed, commands) = mpsc::channel();
     let mut updates = HostUpdates {
         latest: receiver,
         commands,
         installed_revision: revision,
+        installed_scope: initial.scope,
     };
 
     let bridge = runtime.spawn(async move {
@@ -191,17 +192,19 @@ struct HostUpdates {
     latest: watch::Receiver<HostState>,
     commands: Receiver<Result<(), String>>,
     installed_revision: u64,
+    installed_scope: DiffScope,
 }
 
 impl HostUpdates {
     fn drain(&mut self, state: &mut DiffReviewState) {
         let latest = self.latest.borrow_and_update().clone();
         if latest.revision > self.installed_revision {
-            state.set_scope(latest.scope);
             state.set_document(latest.document.clone());
             self.installed_revision = latest.revision;
-        } else {
+        }
+        if latest.scope != self.installed_scope {
             state.set_scope(latest.scope);
+            self.installed_scope = latest.scope;
         }
         state.set_background_error(latest.background_error);
         // Hosts allow one command at a time. Only its reply can settle pending.
@@ -417,6 +420,7 @@ impl SessionBackend {
                 latest: receiver,
                 commands: results,
                 installed_revision: revision,
+                installed_scope: scope,
             },
         ))
     }
@@ -697,12 +701,13 @@ mod tests {
         );
         let mut state = DiffReviewState::new(initial.document.clone());
         state.set_scope(initial.scope);
-        let (latest, receiver) = watch::channel(initial);
+        let (latest, receiver) = watch::channel(initial.clone());
         let (completed, commands) = mpsc::channel();
         let mut updates = HostUpdates {
             latest: receiver,
             commands,
             installed_revision: 1,
+            installed_scope: initial.scope,
         };
         state.set_repository_pending();
         for revision in 2..=100 {
