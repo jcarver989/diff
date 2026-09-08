@@ -1,9 +1,11 @@
 use crate::protocol::{SessionRequestRef, SessionResponse, read_response, write_request};
-use clankerdiff_core::{DiffDocument, RepositoryAction, ReviewSubmission};
+use clankerdiff_core::{
+    DiffDocument, DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission,
+};
 use clankerdiff_git::{GitError, GitRepository};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use clankerdiff_ratatui::{
-    DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
+    DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
     MarkdownReviewWidget, handle_crossterm_event, handle_markdown_crossterm_event,
 };
 use clankerdiff_watch::RepositoryWatcher;
@@ -91,6 +93,7 @@ fn replace_command_placeholder(arguments: &mut [String], command: &str) -> bool 
 pub fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
     let (mut backend, mut updates) = SessionBackend::new(socket_path)?;
     let mut state = DiffReviewState::new(updates.latest.borrow().document.clone());
+    state.set_scope(updates.latest.borrow().scope);
     state.set_theme(crate::preferences::load_theme());
     let outcome = run_diff_review(state, &mut backend, &mut updates)?;
     backend.complete(outcome)?;
@@ -111,10 +114,12 @@ pub fn run_local(
     let revision = 1;
     let document = installed.document.clone();
     let mut state = DiffReviewState::new(document.clone());
+    state.set_scope(installed.scope);
     state.set_theme(crate::preferences::load_theme());
     let initial = HostState {
         revision,
         document,
+        scope: installed.scope,
         background_error: None,
     };
     let (latest, receiver) = watch::channel(initial);
@@ -133,6 +138,7 @@ pub fn run_local(
                     if snapshot != installed {
                         state.revision += 1;
                         state.document = snapshot.document.clone();
+                        state.scope = snapshot.scope;
                         installed = snapshot;
                     }
                     state.background_error = None;
@@ -144,6 +150,7 @@ pub fn run_local(
 
     let mut backend = LocalBackend {
         repository: repository.clone(),
+        requests: Some(watcher.request_tx.clone()),
         runtime,
         completed,
         task: None,
@@ -160,14 +167,21 @@ pub fn run_local(
 struct HostState {
     revision: u64,
     document: Arc<DiffDocument>,
+    scope: DiffScope,
     background_error: Option<String>,
 }
 
 impl HostState {
-    fn document(revision: u64, document: DiffDocument, background_error: Option<String>) -> Self {
+    fn scoped(
+        revision: u64,
+        document: DiffDocument,
+        scope: DiffScope,
+        background_error: Option<String>,
+    ) -> Self {
         Self {
             revision,
             document: Arc::new(document),
+            scope,
             background_error,
         }
     }
@@ -183,8 +197,11 @@ impl HostUpdates {
     fn drain(&mut self, state: &mut DiffReviewState) {
         let latest = self.latest.borrow_and_update().clone();
         if latest.revision > self.installed_revision {
+            state.set_scope(latest.scope);
             state.set_document(latest.document.clone());
             self.installed_revision = latest.revision;
+        } else {
+            state.set_scope(latest.scope);
         }
         state.set_background_error(latest.background_error);
         // Hosts allow one command at a time. Only its reply can settle pending.
@@ -198,6 +215,7 @@ impl HostUpdates {
 
 trait DiffReviewBackend {
     fn apply(&mut self, action: RepositoryAction);
+    fn apply_scope(&mut self, scope: DiffScope);
 }
 
 fn run_diff_review(
@@ -318,6 +336,7 @@ enum MarkdownEventOutcome {
 
 enum SessionWork {
     Apply(RepositoryAction),
+    SetScope(DiffScope),
     Complete(Option<ReviewSubmission>, Sender<Result<(), TuiError>>),
     Stop,
 }
@@ -337,13 +356,18 @@ impl SessionBackend {
         let SessionResponse::Document {
             revision,
             document,
+            scope,
             background_error,
         } = response
         else {
             return Err(TuiError::UnexpectedResponse(response));
         };
-        let (latest, receiver) =
-            watch::channel(HostState::document(revision, document, background_error));
+        let (latest, receiver) = watch::channel(HostState::scoped(
+            revision,
+            document,
+            scope,
+            background_error,
+        ));
         let (completed, results) = mpsc::channel();
         let (commands, requests) = mpsc::channel();
         let worker_completed = completed.clone();
@@ -357,6 +381,14 @@ impl SessionBackend {
                         )
                         .and_then(Self::accepted)
                         .map_err(|error| error.to_string());
+                        Self::poll(&socket_path, &latest);
+                        let _ = worker_completed.send(result);
+                    }
+                    Ok(SessionWork::SetScope(scope)) => {
+                        let result =
+                            Self::request_at(&socket_path, &SessionRequestRef::SetScope(scope))
+                                .and_then(Self::accepted)
+                                .map_err(|error| error.to_string());
                         Self::poll(&socket_path, &latest);
                         let _ = worker_completed.send(result);
                     }
@@ -404,12 +436,35 @@ impl SessionBackend {
             Ok(SessionResponse::Document {
                 revision,
                 document,
+                scope,
                 background_error,
             }) => {
-                latest.send_replace(HostState::document(revision, document, background_error));
+                latest.send_replace(HostState::scoped(
+                    revision,
+                    document,
+                    scope,
+                    background_error,
+                ));
                 return;
             }
-            Ok(SessionResponse::Unchanged { background_error }) => background_error,
+            Ok(SessionResponse::Unchanged {
+                scope,
+                background_error,
+            }) => {
+                latest.send_if_modified(|state| {
+                    let mut modified = false;
+                    if state.scope != scope {
+                        state.scope = scope;
+                        modified = true;
+                    }
+                    if state.background_error != background_error {
+                        state.background_error.clone_from(&background_error);
+                        modified = true;
+                    }
+                    modified
+                });
+                return;
+            }
             Ok(response) => Some(format!("unexpected review service response: {response:?}")),
             Err(error) => Some(error.to_string()),
         };
@@ -465,10 +520,19 @@ impl DiffReviewBackend for SessionBackend {
                 .send(Err("session worker stopped".to_owned()));
         }
     }
+
+    fn apply_scope(&mut self, scope: DiffScope) {
+        if self.commands.send(SessionWork::SetScope(scope)).is_err() {
+            let _ = self
+                .completed
+                .send(Err("session worker stopped".to_owned()));
+        }
+    }
 }
 
 struct LocalBackend {
     repository: GitRepository,
+    requests: Option<tokio::sync::mpsc::Sender<clankerdiff_watch::RepositoryRequest>>,
     runtime: Handle,
     completed: Sender<Result<(), String>>,
     task: Option<JoinHandle<()>>,
@@ -494,6 +558,31 @@ impl DiffReviewBackend for LocalBackend {
             let _ = completed.send(result);
         }));
     }
+
+    fn apply_scope(&mut self, scope: DiffScope) {
+        let Some(requests) = self.requests.clone() else {
+            let _ = self
+                .completed
+                .send(Err("review session stopped".to_owned()));
+            return;
+        };
+        let completed = self.completed.clone();
+        self.task = Some(self.runtime.spawn(async move {
+            let (result_tx, completion) = tokio::sync::oneshot::channel();
+            let mut result = requests
+                .send(clankerdiff_watch::RepositoryRequest::SetScope { scope, result_tx })
+                .await
+                .map_err(|_| "review session stopped".to_owned());
+            if result.is_ok() {
+                result = completion
+                    .await
+                    .map_err(|_| "review session stopped".to_owned())
+                    .map_err(|error| error.clone())
+                    .and_then(|inner| inner.map_err(|error| error.to_string()));
+            }
+            let _ = completed.send(result);
+        }));
+    }
 }
 
 fn apply_event(
@@ -509,6 +598,14 @@ fn apply_event(
             }
             state.set_repository_pending();
             backend.apply(action);
+            EventOutcome::Continue
+        }
+        Some(DiffReviewEvent::SetScope(scope)) => {
+            if state.repository_pending() {
+                return EventOutcome::Continue;
+            }
+            state.set_repository_pending();
+            backend.apply_scope(scope);
             EventOutcome::Continue
         }
         Some(DiffReviewEvent::Cancel) => EventOutcome::Cancelled,
@@ -592,8 +689,14 @@ mod tests {
 
     #[test]
     fn latest_value_updates_preserve_pending_and_reconcile_health() {
-        let initial = HostState::document(1, DiffDocument::empty(), None);
+        let initial = HostState::scoped(
+            1,
+            DiffDocument::empty(),
+            clankerdiff_core::DiffScope::Both,
+            None,
+        );
         let mut state = DiffReviewState::new(initial.document.clone());
+        state.set_scope(initial.scope);
         let (latest, receiver) = watch::channel(initial);
         let (completed, commands) = mpsc::channel();
         let mut updates = HostUpdates {
@@ -603,8 +706,14 @@ mod tests {
         };
         state.set_repository_pending();
         for revision in 2..=100 {
-            latest.send_replace(HostState::document(revision, DiffDocument::empty(), None));
+            latest.send_replace(HostState::scoped(
+                revision,
+                DiffDocument::empty(),
+                clankerdiff_core::DiffScope::Both,
+                None,
+            ));
         }
+        assert_eq!(state.scope(), DiffScope::Both);
         latest.send_modify(|state| state.background_error = Some("refresh failed".into()));
         updates.drain(&mut state);
         assert_eq!(updates.installed_revision, 100);
@@ -615,7 +724,12 @@ mod tests {
         assert!(state.repository_pending());
         assert_eq!(state.repository_error(), None);
         // Equal/stale content cannot finish a command either.
-        latest.send_replace(HostState::document(99, DiffDocument::empty(), None));
+        latest.send_replace(HostState::scoped(
+            99,
+            DiffDocument::empty(),
+            clankerdiff_core::DiffScope::Both,
+            None,
+        ));
         updates.drain(&mut state);
         assert!(state.repository_pending());
         assert_eq!(updates.installed_revision, 100);

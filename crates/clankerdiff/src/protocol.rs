@@ -1,4 +1,4 @@
-use clankerdiff_core::{DiffDocument, RepositoryAction, ReviewSubmission};
+use clankerdiff_core::{DiffDocument, DiffScope, RepositoryAction, ReviewSubmission};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 use thiserror::Error;
@@ -14,6 +14,7 @@ pub enum SessionRequest {
         revision: u64,
     },
     RepositoryAction(RepositoryAction),
+    SetScope(DiffScope),
     Submit(ReviewSubmission),
     Cancel,
 }
@@ -22,6 +23,7 @@ pub enum SessionRequest {
 pub enum SessionRequestRef<'a> {
     Document { revision: u64 },
     RepositoryAction(&'a RepositoryAction),
+    SetScope(DiffScope),
     Submit(&'a ReviewSubmission),
     Cancel,
 }
@@ -31,10 +33,12 @@ pub enum SessionResponse {
     Document {
         revision: u64,
         document: DiffDocument,
+        scope: DiffScope,
         background_error: Option<String>,
     },
     /// Content is unchanged; background health is reconciled on every poll.
     Unchanged {
+        scope: DiffScope,
         background_error: Option<String>,
     },
     Accepted,
@@ -47,9 +51,11 @@ pub enum SessionResponseRef<'a> {
     Document {
         revision: u64,
         document: &'a DiffDocument,
+        scope: DiffScope,
         background_error: Option<&'a str>,
     },
     Unchanged {
+        scope: DiffScope,
         background_error: Option<&'a str>,
     },
     Accepted,
@@ -167,6 +173,7 @@ mod tests {
         write_response(
             &mut reader,
             &SessionResponseRef::Unchanged {
+                scope: DiffScope::Both,
                 background_error: Some("refresh failed"),
             },
         )
@@ -174,8 +181,15 @@ mod tests {
         assert_eq!(
             read_response(&mut writer).unwrap(),
             SessionResponse::Unchanged {
+                scope: DiffScope::Both,
                 background_error: Some("refresh failed".to_owned())
             }
+        );
+
+        write_request(&mut writer, &SessionRequestRef::SetScope(DiffScope::Staged)).unwrap();
+        assert_eq!(
+            read_request(&mut reader).unwrap(),
+            SessionRequest::SetScope(DiffScope::Staged)
         );
 
         let document = DiffDocument::empty();
@@ -184,6 +198,7 @@ mod tests {
             &SessionResponseRef::Document {
                 revision: 3,
                 document: &document,
+                scope: DiffScope::Staged,
                 background_error: None,
             },
         )
@@ -193,6 +208,7 @@ mod tests {
             SessionResponse::Document {
                 revision: 3,
                 document,
+                scope: DiffScope::Staged,
                 background_error: None,
             }
         );

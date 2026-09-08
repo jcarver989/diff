@@ -4,8 +4,8 @@ use crate::{
     theme_picker::ThemePicker,
 };
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, RepositoryAction, RevealAmount,
-    Review, ReviewSession, StageState, ViewMode,
+    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, Layout, RepositoryAction,
+    RevealAmount, Review, ReviewSession, StageState, ViewMode,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::DiffTheme;
@@ -83,6 +83,7 @@ struct CachedPatchLayout {
 #[derive(Debug)]
 pub struct DiffReviewState {
     pub(crate) session: ReviewSession,
+    pub(crate) scope: DiffScope,
     pub(crate) theme: DiffTheme,
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) status: DiffReviewStatus,
@@ -122,6 +123,7 @@ impl DiffReviewState {
         let drawer_selected = drawer.position_of_file(0).unwrap_or(0);
         let mut state = Self {
             session: ReviewSession::new(document),
+            scope: DiffScope::Both,
             theme,
             highlighter: SyntaxHighlighter::default(),
             status: DiffReviewStatus::Ready,
@@ -165,6 +167,16 @@ impl DiffReviewState {
 
     pub const fn session_mut(&mut self) -> &mut ReviewSession {
         &mut self.session
+    }
+
+    #[must_use]
+    pub const fn scope(&self) -> DiffScope {
+        self.scope
+    }
+
+    pub fn set_scope(&mut self, scope: DiffScope) {
+        self.scope = scope;
+        self.mark_dirty();
     }
 
     /// Returns the current immutable snapshot.

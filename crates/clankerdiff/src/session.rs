@@ -1,7 +1,7 @@
 use crate::protocol::{SessionRequest, SessionResponseRef, read_request, write_response};
-use clankerdiff_core::ReviewSubmission;
+use clankerdiff_core::{DiffScope, ReviewSubmission};
 use clankerdiff_git::{GitRepository, RepositorySnapshot};
-use clankerdiff_watch::RepositoryWatcher;
+use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher};
 use std::{
     io,
     os::unix::net::{UnixListener, UnixStream},
@@ -28,6 +28,9 @@ fn run_blocking(
     let socket_path = directory.path().join("session.sock");
     let listener = UnixListener::bind(&socket_path)?;
     let mut snapshot = watcher.snapshot_rx.borrow().as_ref().ok().cloned();
+    let mut last_scope = snapshot
+        .as_ref()
+        .map_or(DiffScope::Both, |snapshot| snapshot.scope);
     let mut revision = u64::from(snapshot.is_some());
     launch(&socket_path).map_err(SessionError::Launch)?;
 
@@ -38,6 +41,7 @@ fn run_blocking(
             repository,
             watcher,
             &mut snapshot,
+            &mut last_scope,
             &mut revision,
         ) {
             Ok(ConnectionOutcome::Continue) => {}
@@ -60,6 +64,7 @@ fn handle_connection(
     repository: &GitRepository,
     watcher: &RepositoryWatcher,
     snapshot: &mut Option<Arc<RepositorySnapshot>>,
+    last_scope: &mut DiffScope,
     published_revision: &mut u64,
 ) -> Result<ConnectionOutcome, SessionError> {
     match read_request(stream)? {
@@ -68,6 +73,7 @@ fn handle_connection(
             let error = match result {
                 Ok(latest) => {
                     if snapshot.as_ref() != Some(&latest) {
+                        *last_scope = latest.scope;
                         *snapshot = Some(latest);
                         *published_revision += 1;
                     }
@@ -80,9 +86,13 @@ fn handle_connection(
                 Some(snapshot) if *published_revision != revision => SessionResponseRef::Document {
                     revision: *published_revision,
                     document: &snapshot.document,
+                    scope: *last_scope,
                     background_error,
                 },
-                _ => SessionResponseRef::Unchanged { background_error },
+                _ => SessionResponseRef::Unchanged {
+                    scope: *last_scope,
+                    background_error,
+                },
             };
             write_response(stream, &response)?;
             Ok(ConnectionOutcome::Continue)
@@ -92,6 +102,25 @@ fn handle_connection(
                 repository
                     .apply(action)
                     .await
+                    .map_err(|error| error.to_string())
+            });
+            match result {
+                Ok(()) => write_response(stream, &SessionResponseRef::Accepted)?,
+                Err(error) => write_response(stream, &SessionResponseRef::RepositoryError(&error))?,
+            }
+            Ok(ConnectionOutcome::Continue)
+        }
+        SessionRequest::SetScope(scope) => {
+            let result = Handle::current().block_on(async {
+                let (result_tx, completion) = tokio::sync::oneshot::channel();
+                watcher
+                    .request_tx
+                    .send(RepositoryRequest::SetScope { scope, result_tx })
+                    .await
+                    .map_err(|_| "review session stopped".to_owned())?;
+                completion
+                    .await
+                    .map_err(|_| "review session stopped".to_owned())?
                     .map_err(|error| error.to_string())
             });
             match result {
@@ -166,6 +195,7 @@ mod tests {
         let unchanged = request(socket_path, &SessionRequestRef::Document { revision });
         if unchanged
             != (SessionResponse::Unchanged {
+                scope: DiffScope::Both,
                 background_error: None,
             })
         {
@@ -202,6 +232,7 @@ mod tests {
                 }
                 SessionResponse::Unchanged {
                     background_error: None,
+                    ..
                 } if Instant::now() < deadline => {
                     thread::sleep(Duration::from_millis(25));
                 }
@@ -212,6 +243,92 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn scope_switch_republishes_with_new_scope() {
+        use std::process::Command as ProcessCommand;
+        let repo = RepoFixtureBuilder::new()
+            .file("src/lib.rs", "fn main() {}\n")
+            .committed()
+            .build();
+        repo.write("src/lib.rs", "fn main() {}\nfn added() {}\n");
+        ProcessCommand::new("git")
+            .args(["add", "src/lib.rs"])
+            .current_dir(repo.root())
+            .output()
+            .expect("stage fixture change");
+        repo.write("src/other.rs", "fn other() {}\n");
+        let watcher = RepositoryWatcher::spawn(
+            repo.repository().await,
+            DiffScope::Both,
+            WatchOptions::default(),
+        )
+        .await
+        .expect("the watcher must start");
+
+        let (report, outcome) = mpsc::channel();
+        let submission = run(&repo.repository().await, &watcher, |socket_path| {
+            let socket_path = socket_path.to_path_buf();
+            thread::spawn(move || {
+                let result = (|| -> Result<(), String> {
+                    let SessionResponse::Document { scope, .. } =
+                        request(&socket_path, &SessionRequestRef::Document { revision: 0 })
+                    else {
+                        return Err("initial request must return a document".to_owned());
+                    };
+                    if scope != DiffScope::Both {
+                        return Err(format!("initial scope must be both, got {scope:?}"));
+                    }
+                    if request(
+                        &socket_path,
+                        &SessionRequestRef::SetScope(DiffScope::Staged),
+                    ) != SessionResponse::Accepted
+                    {
+                        return Err("scope switch must be accepted".to_owned());
+                    }
+                    let deadline = Instant::now() + Duration::from_secs(10);
+                    loop {
+                        match request(&socket_path, &SessionRequestRef::Document { revision: 0 }) {
+                            SessionResponse::Document {
+                                scope: DiffScope::Staged,
+                                ..
+                            } => return Ok(()),
+                            SessionResponse::Document { scope, .. } => {
+                                if Instant::now() >= deadline {
+                                    return Err(format!(
+                                        "timed out waiting for staged scope, got {scope:?}"
+                                    ));
+                                }
+                                thread::sleep(Duration::from_millis(25));
+                            }
+                            SessionResponse::Unchanged { scope, .. } => {
+                                if scope == DiffScope::Staged || Instant::now() < deadline {
+                                    if scope == DiffScope::Staged {
+                                        return Ok(());
+                                    }
+                                    thread::sleep(Duration::from_millis(25));
+                                } else {
+                                    return Err("timed out waiting for staged scope".to_owned());
+                                }
+                            }
+                            other => {
+                                return Err(format!("unexpected scope poll response: {other:?}"));
+                            }
+                        }
+                    }
+                })();
+                let _ = report.send(result);
+                request(&socket_path, &SessionRequestRef::Cancel);
+            });
+            Ok(())
+        })
+        .expect("the session must run");
+        outcome
+            .recv()
+            .expect("the client must report")
+            .expect("scope switch must republish");
+        assert!(submission.is_none());
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -262,9 +379,11 @@ mod tests {
             match request(socket_path, &SessionRequestRef::Document { revision }) {
                 SessionResponse::Unchanged {
                     background_error: Some(_),
+                    ..
                 } => break,
                 SessionResponse::Unchanged {
                     background_error: None,
+                    ..
                 } if Instant::now() < deadline => {
                     thread::sleep(Duration::from_millis(25));
                 }
@@ -276,6 +395,7 @@ mod tests {
                 revision: actual_revision,
                 document: actual,
                 background_error: Some(_),
+                ..
             } if actual_revision == revision && &actual == document => {}
             other => {
                 return Err(format!(
@@ -289,9 +409,11 @@ mod tests {
             match request(socket_path, &SessionRequestRef::Document { revision }) {
                 SessionResponse::Unchanged {
                     background_error: None,
+                    ..
                 } => return Ok(()),
                 SessionResponse::Unchanged {
                     background_error: Some(_),
+                    ..
                 } if Instant::now() < deadline => {
                     thread::sleep(Duration::from_millis(25));
                 }

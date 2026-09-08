@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-const USAGE: &str = "Usage: cargo run -p clankerdiff-ratatui --example review -- [PATH] [--scope SCOPE]\n\nScopes:\n  both       staged and unstaged changes (default)\n  unstaged   worktree changes only\n  staged     index changes only\n\nKeys:\n  j/k        move through files or lines\n  h/l, Tab   switch between file and diff panes\n  c          add a comment to the selected line\n  e/x/u      edit, delete, or undo a comment\n  v          cycle automatic, unified, and split views\n  s          submit the review and print it\n  y          copy event (printed after leaving the TUI)\n  ?          show all shortcuts\n  Esc        exit";
+const USAGE: &str = "Usage: cargo run -p clankerdiff-ratatui --example review -- [PATH] [--scope SCOPE]\n\nScopes:\n  both       staged and unstaged changes (default)\n  unstaged   worktree changes only\n  staged     index changes only\n\nKeys:\n  j/k        move through files or lines\n  h/l, Tab   switch between file and diff panes\n  c          add a comment to the selected line\n  e/x/u      edit, delete, or undo a comment\n  v          cycle automatic, unified, and split views\n  S          cycle scope (unstaged/staged/both)\n  s          submit the review and print it\n  y          copy event (printed after leaving the TUI)\n  ?          show all shortcuts\n  Esc        exit";
 
 #[derive(Debug)]
 struct Options {
@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let repository = GitRepository::discover(&options.path).await?;
     let document = repository.snapshot(options.scope).await?;
-    let outcome = run_tui(Arc::new(document))?;
+    let outcome = run_tui(options.scope, Arc::new(document))?;
 
     match outcome {
         Outcome::Cancelled => {}
@@ -103,11 +103,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_tui(document: Arc<DiffDocument>) -> io::Result<Outcome> {
+fn run_tui(scope: DiffScope, document: Arc<DiffDocument>) -> io::Result<Outcome> {
     let _session = TerminalSession::enter()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
     let mut state = DiffReviewState::new(document);
+    state.set_scope(scope);
 
     loop {
         if state.is_dirty() {
@@ -137,12 +138,18 @@ fn run_tui(document: Arc<DiffDocument>) -> io::Result<Outcome> {
 }
 
 fn apply_event(state: &mut DiffReviewState, event: Event) -> Option<Outcome> {
-    handle_crossterm_event(state, event).and_then(|event| match event {
-        DiffReviewEvent::RepositoryAction(_) => None,
-        DiffReviewEvent::Cancel => Some(Outcome::Cancelled),
-        DiffReviewEvent::SubmitReview(submission) => Some(Outcome::Submitted(submission)),
-        DiffReviewEvent::CopyFormattedReview(formatted) => Some(Outcome::CopyRequested(formatted)),
-    })
+    match handle_crossterm_event(state, event) {
+        Some(DiffReviewEvent::SetScope(scope)) => {
+            state.set_scope(scope);
+            None
+        }
+        Some(DiffReviewEvent::RepositoryAction(_)) | None => None,
+        Some(DiffReviewEvent::Cancel) => Some(Outcome::Cancelled),
+        Some(DiffReviewEvent::SubmitReview(submission)) => Some(Outcome::Submitted(submission)),
+        Some(DiffReviewEvent::CopyFormattedReview(formatted)) => {
+            Some(Outcome::CopyRequested(formatted))
+        }
+    }
 }
 
 fn parse_options(args: impl IntoIterator<Item = String>) -> io::Result<Options> {

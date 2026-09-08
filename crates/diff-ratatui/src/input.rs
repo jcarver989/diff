@@ -1,11 +1,11 @@
 //! Crossterm keyboard, mouse, and paste input helpers.
 
 use crate::{
-    DiffReviewEvent, DiffReviewState, FocusPane,
+    DiffReviewState, FocusPane,
     state::{RepositoryOperationStatus, RepositoryPrompt},
     theme_picker::{ThemePicker, ThemePickerAction},
 };
-use clankerdiff_core::{DiffSide, RepositoryAction, RevealAmount};
+use clankerdiff_core::{DiffReviewEvent, DiffSide, RepositoryAction, RevealAmount};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
@@ -111,7 +111,10 @@ impl DiffReviewState {
     #[allow(clippy::too_many_lines)]
     fn handle_browse_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
         if matches!(self.repository_status, RepositoryOperationStatus::Pending)
-            && matches!(key.code, KeyCode::Char(' ' | 'a' | 'A' | 'C' | 'd' | 'r'))
+            && matches!(
+                key.code,
+                KeyCode::Char(' ' | 'a' | 'A' | 'C' | 'S' | 'd' | 'r')
+            )
         {
             return None;
         }
@@ -216,6 +219,9 @@ impl DiffReviewState {
                 if self.session.cycle_view_mode() {
                     self.scroll_to_selected_file();
                 }
+            }
+            KeyCode::Char('S') => {
+                return Some(DiffReviewEvent::SetScope(self.scope.next()));
             }
             KeyCode::Char('?') => self.help = true,
             _ => {}

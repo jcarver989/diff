@@ -1,6 +1,8 @@
 //! Structured review comments, reconciliation, and agent-facing output.
 
-use crate::{DiffDocument, DiffSide, FileStatus, Fingerprint, LineAnchor, PatchLineKind, RepoPath};
+use crate::{
+    DiffDocument, DiffScope, DiffSide, FileStatus, Fingerprint, LineAnchor, PatchLineKind, RepoPath,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -289,6 +291,7 @@ pub enum RepositoryAction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiffReviewEvent {
     RepositoryAction(RepositoryAction),
+    SetScope(DiffScope),
     SubmitReview(ReviewSubmission),
     CopyFormattedReview(String),
     Cancel,

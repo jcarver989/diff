@@ -1,7 +1,8 @@
-use clankerdiff_core::DiffDocument;
+use clankerdiff_core::{DiffDocument, DiffScope};
 use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_theme::DiffTheme;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 /// Errors returned while validating commands from JavaScript.
 #[derive(Debug, thiserror::Error)]
@@ -15,6 +16,9 @@ pub enum WebError {
     /// The selected embedded theme is not available.
     #[error("unknown built-in theme `{0}`")]
     UnknownTheme(String),
+    /// The supplied scope string was not a valid `DiffScope`.
+    #[error("invalid diff scope `{0}`")]
+    InvalidScope(String),
     /// The GPUI command channel has not been installed yet.
     #[error("the diff viewer has not started")]
     NotStarted,
@@ -30,6 +34,7 @@ pub struct DocumentCommand {
     pub revision: Option<u64>,
     /// The command completed by this push, if any.
     pub request_id: Option<u64>,
+    pub scope: Option<DiffScope>,
     pub document: DiffDocument,
 }
 
@@ -38,8 +43,12 @@ pub struct DocumentCommand {
 #[serde(untagged)]
 enum DocumentPayload {
     Envelope {
+        #[serde(default)]
         revision: Option<u64>,
+        #[serde(default)]
         request_id: Option<u64>,
+        #[serde(default)]
+        scope: Option<String>,
         document: DiffDocument,
     },
     Bare(DiffDocument),
@@ -54,19 +63,30 @@ pub fn decode_document_command(json: &str) -> Result<DocumentCommand, WebError> 
         DocumentPayload::Envelope {
             revision,
             request_id,
+            scope,
             document,
-        } => Ok(DocumentCommand {
-            revision,
-            request_id,
-            document,
-        }),
+        } => {
+            let scope = scope
+                .map(|value| DiffScope::from_str(&value).map_err(|_| WebError::InvalidScope(value)))
+                .transpose()?;
+            Ok(DocumentCommand {
+                revision,
+                request_id,
+                scope,
+                document,
+            })
+        }
         DocumentPayload::Bare(document) => Ok(DocumentCommand {
             revision: None,
             request_id: None,
+            scope: None,
             document,
         }),
     }
 }
+
+/// Outbound event dispatched when the viewer requests a scope change.
+pub const SCOPE_REQUEST_EVENT: &str = "diff-review-set-scope";
 
 /// Decodes a serialized diff document command.
 ///
@@ -226,6 +246,7 @@ mod wasm {
             document: Arc<DiffDocument>,
             revision: Option<u64>,
             request_id: Option<u64>,
+            scope: Option<DiffScope>,
         },
         SetTheme(DiffTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
@@ -235,6 +256,7 @@ mod wasm {
 
     struct WebRoot {
         applied_revision: Option<u64>,
+        current_scope: Option<DiffScope>,
         requests: RepositoryRequests,
         viewer: Entity<DiffViewer>,
         _viewer_subscription: Subscription,
@@ -275,6 +297,23 @@ mod wasm {
                                 cx,
                             );
                         }
+                    } else if let DiffReviewEvent::SetScope(scope) = event {
+                        let Some(request_id) = this.requests.begin() else {
+                            return;
+                        };
+                        this.viewer
+                            .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+                        if let Err(error) = dispatch_scope_request(*scope) {
+                            this.finish_repository(
+                                RepositoryReply {
+                                    request_id,
+                                    error: Some(format!(
+                                        "could not dispatch scope request: {error:?}"
+                                    )),
+                                },
+                                cx,
+                            );
+                        }
                     } else {
                         dispatch_viewer_event(event);
                     }
@@ -297,6 +336,7 @@ mod wasm {
 
             Self {
                 applied_revision: None,
+                current_scope: None,
                 requests: RepositoryRequests::default(),
                 viewer,
                 _viewer_subscription: viewer_subscription,
@@ -323,14 +363,24 @@ mod wasm {
                     document,
                     revision,
                     request_id,
+                    scope,
                 } => {
                     let decision =
                         document_update_decision(self.applied_revision, revision, || {
                             self.viewer.read(cx).document().as_ref() == document.as_ref()
                         });
                     if decision == UpdateDecision::Apply {
-                        self.viewer
-                            .update(cx, |viewer, cx| viewer.set_document(document, cx));
+                        self.viewer.update(cx, |viewer, cx| {
+                            if let Some(scope) = scope {
+                                viewer.set_scope(scope, cx);
+                            }
+                            viewer.set_document(document, cx);
+                        });
+                    }
+                    if decision != UpdateDecision::SkipStale
+                        && let Some(scope) = scope
+                    {
+                        self.current_scope = Some(scope);
                     }
                     if decision != UpdateDecision::SkipStale {
                         self.markdown = None;
@@ -411,7 +461,7 @@ mod wasm {
 
     fn dispatch_viewer_event(event: &DiffReviewEvent) {
         let result = match event {
-            DiffReviewEvent::RepositoryAction(_) => return, // handled by the root
+            DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetScope(_) => return, // handled by the root
             DiffReviewEvent::SubmitReview(submission) => dispatch_submission(submission),
             DiffReviewEvent::CopyFormattedReview(text) => {
                 dispatch_custom_event("diff-review-copy", Some(text))
@@ -449,6 +499,11 @@ mod wasm {
             None => format!(r#"{{"revision":null,"changed":{changed}}}"#),
         };
         dispatch_custom_event(DOCUMENT_APPLIED_EVENT, Some(&detail))
+    }
+
+    fn dispatch_scope_request(scope: DiffScope) -> Result<(), JsValue> {
+        let detail = serde_json::json!({ "scope": scope.as_str() }).to_string();
+        dispatch_custom_event(super::SCOPE_REQUEST_EVENT, Some(&detail))
     }
 
     fn dispatch_repository_action(
@@ -641,6 +696,7 @@ mod wasm {
             document: Arc::new(command.document),
             revision: command.revision,
             request_id: command.request_id,
+            scope: command.scope,
         })
         .map_err(js_error)
     }
@@ -724,6 +780,32 @@ mod tests {
         );
         assert_eq!(requests.pending, Some(second));
         assert!(requests.finish(second));
+    }
+
+    #[test]
+    fn document_envelopes_carry_optional_scope() -> Result<(), WebError> {
+        let bare = decode_document_command(r#"{"repo_root":"/fixture","files":[]}"#)?;
+        assert_eq!(bare.scope, None);
+        let unstaged = decode_document_command(
+            r#"{"revision":4,"scope":"unstaged","document":{"repo_root":"/fixture","files":[]}}"#,
+        )?;
+        assert_eq!(unstaged.scope, Some(clankerdiff_core::DiffScope::Unstaged));
+        let staged = decode_document_command(
+            r#"{"revision":4,"scope":"staged","document":{"repo_root":"/fixture","files":[]}}"#,
+        )?;
+        assert_eq!(staged.scope, Some(clankerdiff_core::DiffScope::Staged));
+        let both = decode_document_command(
+            r#"{"revision":4,"scope":"both","document":{"repo_root":"/fixture","files":[]}}"#,
+        )?;
+        assert_eq!(both.scope, Some(clankerdiff_core::DiffScope::Both));
+        assert!(matches!(
+            decode_document_command(
+                r#"{"scope":"invalid","document":{"repo_root":"/fixture","files":[]}}"#
+            ),
+            Err(WebError::InvalidScope(_))
+        ));
+        assert_eq!(SCOPE_REQUEST_EVENT, "diff-review-set-scope");
+        Ok(())
     }
 
     #[test]

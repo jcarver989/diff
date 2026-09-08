@@ -8,9 +8,9 @@ use crate::{
     ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
 };
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, LineAnchor, PresentedCell,
-    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SessionOptions,
-    StageState, ViewMode,
+    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, Layout, LineAnchor,
+    PresentedCell, PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession,
+    SessionOptions, StageState, ViewMode,
 };
 use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
 use clankerdiff_theme::DiffTheme;
@@ -74,6 +74,7 @@ actions!(
         ToggleStage,
         StageAll,
         UnstageAll,
+        CycleScope,
         CommitChanges,
         DiscardChanges,
         ConfirmDiscard,
@@ -138,6 +139,7 @@ pub enum ViewerPane {
 )]
 pub struct DiffViewer {
     session: ReviewSession,
+    scope: DiffScope,
     theme: DiffTheme,
     highlighter: SyntaxHighlighter,
     options: DiffViewerOptions,
@@ -191,6 +193,7 @@ impl DiffViewer {
                     include_file_headers: false,
                 },
             ),
+            scope: DiffScope::Both,
             theme,
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
@@ -280,6 +283,7 @@ impl DiffViewer {
             KeyBinding::new("f", ToggleFullFile, Some(DIFF)),
             KeyBinding::new("enter", ActivateGap, Some(DIFF)),
             KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
+            KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
             KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
             KeyBinding::new("escape", HideShortcuts, Some(SHORTCUTS)),
             KeyBinding::new("shift-/", HideShortcuts, Some(SHORTCUTS)),
@@ -309,6 +313,16 @@ impl DiffViewer {
             KeyBinding::new("cmd-0", ResetFontSize, Some("DiffViewer")),
             KeyBinding::new("ctrl-0", ResetFontSize, Some("DiffViewer")),
         ]);
+    }
+
+    #[must_use]
+    pub const fn scope(&self) -> DiffScope {
+        self.scope
+    }
+
+    pub fn set_scope(&mut self, scope: DiffScope, cx: &mut Context<Self>) {
+        self.scope = scope;
+        cx.notify();
     }
 
     #[must_use]
@@ -432,6 +446,7 @@ impl DiffViewer {
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         self.sidebar_tree.rebuild(&document);
         self.session.set_document(document);
+
         self.sidebar_selection =
             crate::sidebar::SidebarEntry::File(self.session.selected_file().unwrap_or(0));
         if let Some(index) = self.selected_file() {
@@ -1186,6 +1201,13 @@ impl DiffViewer {
         self.repository_editor_subscription = None;
     }
 
+    pub(crate) fn cycle_scope(&mut self, _: &CycleScope, _: &mut Window, cx: &mut Context<Self>) {
+        if self.repository_pending {
+            return;
+        }
+        cx.emit(DiffViewerEvent::SetScope(self.scope.next()));
+    }
+
     fn cycle_view_mode(&mut self, _: &CycleViewMode, _: &mut Window, cx: &mut Context<Self>) {
         let changed = self.session.cycle_view_mode();
         self.finish_layout_change(changed, cx);
@@ -1481,6 +1503,7 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::previous_file))
             .on_action(cx.listener(Self::next_hunk))
             .on_action(cx.listener(Self::previous_hunk))
+            .on_action(cx.listener(Self::cycle_scope))
             .on_action(cx.listener(Self::cycle_view_mode))
             .on_action(cx.listener(Self::expand_gap_action))
             .on_action(cx.listener(Self::activate_gap_action))

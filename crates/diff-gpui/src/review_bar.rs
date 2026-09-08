@@ -2,6 +2,7 @@ use crate::{
     Cancel, CopyReview, DiffViewer, ShowThemePicker, SubmitReview, ViewerPane,
     ui::prelude::{ActionBar, Button, ButtonVariant, ControlSize, MutedText},
 };
+use clankerdiff_core::{DiffReviewEvent, DiffScope};
 use gpui::{Context, div, prelude::*};
 
 impl DiffViewer {
@@ -16,6 +17,8 @@ impl DiffViewer {
         } else {
             "j/k line · c comment · e/x edit/delete · s submit · y copy · ? help"
         };
+        let scope = self.scope();
+        let pending = self.repository_pending();
         ActionBar::new(theme)
             .child(
                 div()
@@ -27,6 +30,33 @@ impl DiffViewer {
                         format!("{hint}    ·    {} review comments", self.review().len()),
                         theme,
                     )),
+            )
+            .child(
+                Button::new("scope-unstaged", "Unstaged", theme)
+                    .size(ControlSize::Small)
+                    .selected(scope == DiffScope::Unstaged)
+                    .disabled(pending)
+                    .on_click(cx.listener(|viewer, _, window, cx| {
+                        viewer.set_scope_intent(DiffScope::Unstaged, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("scope-staged", "Staged", theme)
+                    .size(ControlSize::Small)
+                    .selected(scope == DiffScope::Staged)
+                    .disabled(pending)
+                    .on_click(cx.listener(|viewer, _, window, cx| {
+                        viewer.set_scope_intent(DiffScope::Staged, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("scope-both", "Both", theme)
+                    .size(ControlSize::Small)
+                    .selected(scope == DiffScope::Both)
+                    .disabled(pending)
+                    .on_click(cx.listener(|viewer, _, window, cx| {
+                        viewer.set_scope_intent(DiffScope::Both, window, cx);
+                    })),
             )
             .child(
                 Button::new("select-theme", "Theme", theme)
@@ -60,5 +90,17 @@ impl DiffViewer {
                         cx.listener(|viewer, _, window, cx| viewer.cancel(&Cancel, window, cx)),
                     ),
             )
+    }
+
+    pub(crate) fn set_scope_intent(
+        &mut self,
+        scope: DiffScope,
+        _: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.repository_pending() {
+            return;
+        }
+        cx.emit(DiffReviewEvent::SetScope(scope));
     }
 }
