@@ -46,7 +46,6 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
           permission-issues: write
-          permission-workflows: write
 
       - name: Acknowledge the request
         continue-on-error: true
@@ -195,7 +194,6 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
           permission-issues: write
-          permission-workflows: write
 
       - name: Commit and push
         id: push
