@@ -8,8 +8,9 @@ use crate::{DiffViewer, DiffViewerEvent, DiffViewerOptions};
 use diff_core::{DiffDocument, testing::DocumentBuilder};
 use diff_theme::DiffTheme;
 use gpui::{
-    AnyWindowHandle, App, Bounds, Context, Entity, Render, TestAppContext, VisualTestContext,
-    Window, WindowHandle, WindowOptions, div, prelude::*,
+    AnyWindowHandle, App, Bounds, Context, Entity, InputEvent, ListOffset, Pixels, Point, Render,
+    ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
+    WindowHandle, WindowOptions, div, prelude::*,
 };
 use std::sync::Arc;
 
@@ -137,6 +138,59 @@ impl DiffViewerHarness {
 
     pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str) {
         cx.simulate_keystrokes(*self.window, keystrokes);
+        self.draw(cx);
+    }
+
+    /// Dispatches a synthetic scroll-wheel event, then settles the frame.
+    ///
+    /// # Panics
+    ///
+    /// Panics if GPUI cannot update or draw the test window.
+    pub fn simulate_scroll(
+        &self,
+        cx: &mut TestAppContext,
+        position: Point<Pixels>,
+        delta: Point<Pixels>,
+    ) {
+        cx.update_window(*self.window, |_, window, cx| {
+            window.dispatch_event(
+                ScrollWheelEvent {
+                    position,
+                    delta: ScrollDelta::Pixels(delta),
+                    touch_phase: TouchPhase::Moved,
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        })
+        .expect("dispatch test scroll wheel event");
+        self.draw(cx);
+    }
+
+    /// Returns the center of the element painted under a debug selector.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the selector was never painted.
+    #[must_use]
+    pub fn scroll_center(&self, cx: &mut TestAppContext, selector: &'static str) -> Point<Pixels> {
+        let bounds = self
+            .bounds(cx, selector)
+            .unwrap_or_else(|| panic!("missing painted bounds for {selector}"));
+        Point::new(
+            bounds.origin.x + bounds.size.width / 2.0,
+            bounds.origin.y + bounds.size.height / 2.0,
+        )
+    }
+
+    #[must_use]
+    pub fn diff_scroll_top(&self, cx: &TestAppContext) -> ListOffset {
+        self.read(cx, |viewer, _| viewer.diff_scroll_top())
+    }
+
+    pub fn scroll_to_bottom_of_diff(&self, cx: &mut TestAppContext) {
+        self.update(cx, DiffViewer::scroll_diff_to_end);
         self.draw(cx);
     }
 

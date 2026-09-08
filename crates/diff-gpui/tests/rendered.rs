@@ -115,6 +115,35 @@ fn replacing_an_equal_document_keeps_the_open_comment_editor(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+fn scrolling_the_open_theme_picker_keeps_the_background_in_place(cx: &mut TestAppContext) {
+    let harness = DiffViewerHarnessBuilder {
+        document: DocumentBuilder::new().generated_files(40, 60).build(),
+        ..DiffViewerHarnessBuilder::default()
+    }
+    .build(cx);
+    harness.simulate_keystrokes(cx, "t");
+    assert!(
+        harness.read(cx, |viewer, _| viewer.theme_picker_open()),
+        "theme picker opens"
+    );
+    harness.scroll_to_bottom_of_diff(cx);
+    let scrolled = harness.diff_scroll_top(cx);
+    assert!(
+        scrolled.item_ix > 0,
+        "the diff list starts away from the top"
+    );
+    let position = harness.scroll_center(cx, "theme-picker-backdrop");
+    harness.simulate_scroll(cx, position, gpui::point(gpui::px(0.0), gpui::px(240.0)));
+    assert!(
+        harness.read(cx, |viewer, _| viewer.theme_picker_open()),
+        "scrolling the picker keeps it open"
+    );
+    let after = harness.diff_scroll_top(cx);
+    assert_eq!(scrolled.item_ix, after.item_ix);
+    assert_eq!(scrolled.offset_in_item, after.offset_in_item);
+}
+
+#[gpui::test]
 fn replacing_a_document_that_drops_the_anchor_closes_the_editor(cx: &mut TestAppContext) {
     let harness = viewer_builder().build(cx);
     harness.simulate_keystrokes(cx, "c");
