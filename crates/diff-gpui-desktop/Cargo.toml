@@ -23,6 +23,8 @@ diff-watch = { path = "../diff-watch" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui_tokio.workspace = true
+schemars.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"] }

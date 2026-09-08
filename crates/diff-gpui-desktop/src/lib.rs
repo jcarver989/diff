@@ -3,6 +3,7 @@
 mod app;
 pub mod args;
 mod markdown_app;
+mod menus;
 mod preferences;
 mod window_chrome;
 
@@ -61,6 +62,7 @@ pub fn run_markdown_review(document: MarkdownDocument) -> Option<MarkdownReviewS
     gpui_platform::application().run(move |cx: &mut App| {
         load_default_fonts(cx).expect("failed to load the bundled fonts");
         MarkdownReviewer::bind_keys(cx);
+        menus::install(cx);
         let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
         cx.open_window(window_options(bounds), |_window, cx| {
             cx.new(|cx| MarkdownDesktopApp::new(std::sync::Arc::new(document), sender, cx))
@@ -77,6 +79,7 @@ fn run_application(args: CliArgs, outcome_sender: Option<mpsc::Sender<Option<Rev
         load_default_fonts(cx).expect("failed to load the bundled fonts");
         DiffViewer::bind_keys(cx);
         DesktopApp::bind_keys(cx);
+        menus::install(cx);
 
         let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
         cx.open_window(window_options(bounds), |window, cx| {
@@ -87,10 +90,66 @@ fn run_application(args: CliArgs, outcome_sender: Option<mpsc::Sender<Option<Rev
     });
 }
 
+pub use menus::{About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom};
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{point, size};
+    use gpui::{OwnedMenuItem, point, size};
+
+    fn action_names(menu: &gpui::OwnedMenu) -> Vec<String> {
+        menu.items
+            .iter()
+            .filter_map(|item| match item {
+                OwnedMenuItem::Action { action, .. } => Some(action.name().to_owned()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn desktop_menus_expose_app_edit_and_window_menus() {
+        let menus: Vec<gpui::OwnedMenu> =
+            menus::build().into_iter().map(gpui::Menu::owned).collect();
+        let names: Vec<&str> = menus.iter().map(|menu| menu.name.as_ref()).collect();
+        assert_eq!(names, vec!["ClankerDiff", "Edit", "Window"]);
+
+        let app_actions = action_names(&menus[0]);
+        assert!(app_actions.contains(&"desktop_menu::About".to_owned()));
+        assert!(app_actions.contains(&"desktop_menu::Quit".to_owned()));
+        assert!(app_actions.contains(&"desktop_menu::Hide".to_owned()));
+        assert!(app_actions.contains(&"desktop_menu::HideOthers".to_owned()));
+        assert!(app_actions.contains(&"desktop_menu::ShowAll".to_owned()));
+        assert!(
+            menus[0]
+                .items
+                .iter()
+                .any(|item| matches!(item, OwnedMenuItem::SystemMenu(_)))
+        );
+
+        let edit_os_actions: Vec<Option<gpui::OsAction>> = menus[1]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                OwnedMenuItem::Action { os_action, .. } => Some(*os_action),
+                _ => None,
+            })
+            .collect();
+        for expected in [
+            gpui::OsAction::Undo,
+            gpui::OsAction::Redo,
+            gpui::OsAction::Cut,
+            gpui::OsAction::Copy,
+            gpui::OsAction::Paste,
+            gpui::OsAction::SelectAll,
+        ] {
+            assert!(edit_os_actions.contains(&Some(expected)));
+        }
+
+        let window_actions = action_names(&menus[2]);
+        assert!(window_actions.contains(&"desktop_menu::Minimize".to_owned()));
+        assert!(window_actions.contains(&"desktop_menu::Zoom".to_owned()));
+    }
 
     #[test]
     fn constructs_explicit_native_first_window_options() {

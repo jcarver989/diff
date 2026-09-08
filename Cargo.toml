@@ -48,6 +48,7 @@ rand = "0.9.5"
 crossterm = "0.29.0"
 criterion = "0.7.0"
 ratatui = { version = "0.30.0", default-features = false, features = ["crossterm", "layout-cache"] }
+schemars = { version = "1.2.2", features = ["indexmap2"] }
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 similar = "3.2.0"
 thiserror = "2.0.20"
