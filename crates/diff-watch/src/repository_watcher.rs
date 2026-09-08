@@ -133,7 +133,7 @@ impl RepositoryActor {
                     return false;
                 }
 
-                *state = result.clone();
+                state.clone_from(&result);
                 true
             });
 
