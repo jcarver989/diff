@@ -1,7 +1,7 @@
 //! Immutable complete-file source versions.
 
 use crate::{DiffSide, Fingerprint, RepoPath, SourceSequenceId};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::sync::Arc;
 
 /// Maximum UTF-8 bytes accepted for one complete source version.
@@ -9,13 +9,8 @@ pub const MAX_SOURCE_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// Defensive maximum normalized lines accepted for one complete source version.
 pub const MAX_SOURCE_FILE_LINES: usize = 1_000_000;
 
-/// Identifies one side of one changed file in a review snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct SourceKey {
-    /// The current path used to identify the file in the review sidebar.
-    pub review_path: RepoPath,
-    pub side: DiffSide,
-}
+/// One side of a changed file: its complete source, or why it is unavailable.
+pub type SourceResult = Result<Arc<SourceDocument>, SourceUnavailable>;
 
 /// A one-based source coordinate independent of patch provenance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -36,7 +31,7 @@ pub struct SourceLocation {
 ///
 /// The source text is retained as one allocation. `line_starts` makes line lookup
 /// and byte spans constant time without copying or normalizing the document.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SourceDocument {
     text: Arc<str>,
     line_starts: Arc<[usize]>,
@@ -46,10 +41,24 @@ pub struct SourceDocument {
     trailing_newline: bool,
 }
 
-impl SourceKey {
-    #[must_use]
-    pub fn new(review_path: RepoPath, side: DiffSide) -> Self {
-        Self { review_path, side }
+impl PartialEq for SourceDocument {
+    fn eq(&self, other: &Self) -> bool {
+        self.content_id == other.content_id
+    }
+}
+
+impl Eq for SourceDocument {}
+
+impl Serialize for SourceDocument {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.text)
+    }
+}
+
+impl<'de> Deserialize<'de> for SourceDocument {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        Self::try_from_text(&text).map_err(serde::de::Error::custom)
     }
 }
 
@@ -189,6 +198,8 @@ impl SourceDocument {
 pub enum SourceUnavailable {
     #[error("source version is absent")]
     Absent,
+    #[error("source version was not captured")]
+    NotCaptured,
     #[error("source version is binary or not valid UTF-8")]
     Binary,
     #[error("source version is too large ({bytes} bytes)")]
@@ -230,6 +241,18 @@ mod tests {
         assert_eq!(document.line_span(2), Some(4..5));
         assert_eq!(document.line(1), Some("α"));
         assert_eq!(document.identity(), document.content_id());
+    }
+
+    #[test]
+    fn equality_and_serialization_follow_the_text() {
+        let document = SourceDocument::new("a\r\nb").unwrap();
+        let json = serde_json::to_string(&document).unwrap();
+        assert_eq!(json, "\"a\\r\\nb\"");
+        let decoded = serde_json::from_str::<SourceDocument>(&json).unwrap();
+        assert_eq!(decoded, document);
+        assert_eq!(decoded.line_starts(), document.line_starts());
+        assert!(!decoded.trailing_newline());
+        assert_ne!(SourceDocument::new("a\nb").unwrap(), document);
     }
 
     #[test]

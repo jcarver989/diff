@@ -6,15 +6,14 @@ pub mod parser;
 pub mod presentation;
 pub mod review;
 pub mod session;
-pub mod snapshot;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
 
 pub use anchor::LineAnchor;
 pub use content::{
-    MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceDocument, SourceKey, SourceLineRef,
-    SourceLocation, SourceUnavailable,
+    MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceDocument, SourceLineRef, SourceLocation,
+    SourceResult, SourceUnavailable,
 };
 pub use diff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId};
 pub use error::{DiffError, ParseDiffScopeError, RepoPathError};
@@ -33,4 +32,3 @@ pub use review::{
     ReviewSubmission, format_review,
 };
 pub use session::{CommentDraft, RevealAmount, ReviewSession, SessionOptions};
-pub use snapshot::{DiffSnapshot, SnapshotSources};
