@@ -1,7 +1,7 @@
 pub mod anchor;
 pub mod content;
 pub mod error;
-pub mod model;
+pub mod models;
 pub mod parser;
 pub mod presentation;
 pub mod review;
@@ -17,7 +17,8 @@ pub use content::{
 };
 pub use diff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId};
 pub use error::{DiffError, ParseDiffScopeError, RepoPathError};
-pub use model::{
+pub use models as model;
+pub use models::{
     DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange, PatchLine,
     PatchLineKind, RepoPath, StageState,
 };

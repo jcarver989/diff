@@ -1,7 +1,7 @@
 use crate::{
-    ContentProjection, DiffDocument, DiffPresentation, DiffSide, DiffSnapshot, GapId, Layout,
-    LineAnchor, PresentationOptions, PresentedCell, PresentedRow, Review, ReviewSubmission,
-    SourceLocation, ViewMode,
+    ContentProjection, DiffDocument, DiffPresentation, DiffSide, GapId, Layout, LineAnchor,
+    PresentationOptions, PresentedCell, PresentedRow, Review, ReviewSubmission, SourceLocation,
+    ViewMode, presentation::retained_expansions,
 };
 use std::{ops::Range, sync::Arc};
 
@@ -149,25 +149,6 @@ impl ReviewSession {
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
         Self::with_options(document, SessionOptions::default())
-    }
-
-    /// Creates a session from a complete immutable snapshot. Native hosts use this
-    /// boundary directly; source transport remains available for compatibility.
-    #[must_use]
-    pub fn from_snapshot(snapshot: DiffSnapshot) -> Self {
-        let (document, sources) = snapshot.into_parts();
-        let mut session = Self::new(document);
-        session.projection = ContentProjection::with_sources(sources);
-        session.rebuild();
-        session
-    }
-
-    /// Replaces the complete immutable snapshot while preserving review and view state.
-    pub fn set_snapshot(&mut self, snapshot: DiffSnapshot) {
-        let (document, sources) = snapshot.into_parts();
-        self.set_document(document);
-        self.projection.sources = sources;
-        self.rebuild();
     }
 
     #[must_use]
@@ -326,7 +307,11 @@ impl ReviewSession {
         true
     }
 
+    /// Replaces the complete immutable document while preserving review and view
+    /// state, including gap expansions for files whose content did not change.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
+        let expansions =
+            retained_expansions(&self.document, &self.projection.expansions, &document);
         let selected_path = self
             .document
             .files
@@ -337,8 +322,7 @@ impl ReviewSession {
             .and_then(|path| document.file_index(&path))
             .unwrap_or(0)
             .min(document.files.len().saturating_sub(1));
-        self.projection.sources.clear();
-        self.projection.expansions.clear();
+        self.projection.expansions = expansions;
         self.projection
             .full_files
             .retain(|path| document.file_index(path).is_some());
@@ -589,7 +573,7 @@ impl ReviewSession {
         let selected_id = self.presentation.row(self.selected_row).map(|row| row.id);
         let anchor = self.selected_anchor();
         let draft_anchor = self.draft.as_ref().map(|draft| draft.anchor.clone());
-        self.presentation = DiffPresentation::with_sources(
+        self.presentation = DiffPresentation::with_projection(
             self.document.clone(),
             PresentationOptions {
                 view_mode: self.view_mode,
@@ -685,9 +669,7 @@ fn offset(value: usize, delta: isize, maximum: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        DiffDocument, FileDiff, RepoPath, SourceDocument, SourceKey, testing::DocumentBuilder,
-    };
+    use crate::{DiffDocument, FileDiff, testing::DocumentBuilder};
 
     fn session() -> ReviewSession {
         ReviewSession::new(Arc::new(DiffDocument {
@@ -823,23 +805,11 @@ mod tests {
             .map(|line| format!("old {line}\n"))
             .collect::<String>();
         let new = old.replace("old 31\n", "new 31\n");
-        let document = DocumentBuilder::new()
-            .changed_with_hunk_window("a.rs", &old, &new, 28..=34)
-            .build();
-        let path = RepoPath::new("a.rs").unwrap();
-        let sources = [
-            (
-                SourceKey::new(path.clone(), DiffSide::Old),
-                Ok(Arc::new(SourceDocument::new(&old).unwrap())),
-            ),
-            (
-                SourceKey::new(path, DiffSide::New),
-                Ok(Arc::new(SourceDocument::new(&new).unwrap())),
-            ),
-        ]
-        .into_iter()
-        .collect();
-        ReviewSession::from_snapshot(DiffSnapshot::from_parts(document, sources))
+        ReviewSession::new(
+            DocumentBuilder::new()
+                .changed_with_hunk_window("a.rs", &old, &new, 28..=34)
+                .build(),
+        )
     }
 
     #[test]
@@ -892,6 +862,169 @@ mod tests {
         });
         session.set_document(replacement);
         assert!(session.draft().is_none());
+    }
+
+    #[allow(clippy::format_collect)]
+    fn windowed_source(changed_lines: &[usize]) -> (String, String) {
+        let old = (1..=60)
+            .map(|line| format!("old {line}\n"))
+            .collect::<String>();
+        let new = changed_lines.iter().fold(old.clone(), |text, line| {
+            text.replace(&format!("old {line}\n"), &format!("new {line}\n"))
+        });
+        (old, new)
+    }
+
+    fn windowed_fixture(new_text: &str) -> Arc<DiffDocument> {
+        let (old, _) = windowed_source(&[]);
+        DocumentBuilder::new()
+            .changed_with_hunk_window("a.rs", &old, new_text, 28..=34)
+            .build()
+    }
+
+    fn expanded_row_count(session: &ReviewSession) -> usize {
+        let presentation = session.presentation();
+        presentation
+            .rows(0..presentation.row_count())
+            .iter()
+            .filter(|row| row.kind == crate::RowKind::ExpandedContext)
+            .count()
+    }
+
+    fn reveal_from_first_code_row(session: &mut ReviewSession) -> usize {
+        let code_row = (0..session.presentation().row_count())
+            .find(|index| {
+                session
+                    .presentation()
+                    .row(*index)
+                    .is_some_and(|row| row.kind == crate::RowKind::Code)
+            })
+            .expect("a code row");
+        assert!(session.select_row(code_row));
+        assert!(session.reveal_selected_gap(RevealAmount::Step));
+        let expanded = expanded_row_count(session);
+        assert!(expanded > 0, "revealing must expand context");
+        expanded
+    }
+
+    #[test]
+    fn from_texts_documents_capture_both_sides_and_reveal_unchanged_context() {
+        let old = (1..=80).fold(String::new(), |mut text, line| {
+            use std::fmt::Write;
+            let _ = writeln!(text, "line {line}");
+            text
+        });
+        let new = old.replace("line 40\n", "changed 40\n");
+        let document = DiffDocument::from_texts([
+            ("src/changed.rs", old.as_str(), new.as_str()),
+            ("src/added.rs", "", "fn main() {}\n"),
+        ])
+        .unwrap();
+        let changed = &document.files[0];
+        assert_eq!(changed.hunks.len(), 1);
+        assert!(changed.hunks[0].lines.len() <= 8);
+        assert_eq!(
+            changed.source_document(DiffSide::Old).unwrap().line_count(),
+            80
+        );
+        assert_eq!(
+            document.files[1].source_unavailable(DiffSide::Old),
+            Some(&crate::SourceUnavailable::Absent)
+        );
+
+        let mut session = ReviewSession::new(Arc::new(document));
+        reveal_from_first_code_row(&mut session);
+        let presentation = session.presentation();
+        let gap = (0..presentation.row_count())
+            .find_map(|index| presentation.gap_info(index))
+            .expect("a remaining collapsed gap");
+        assert_eq!(gap.unavailable, None);
+    }
+
+    #[test]
+    fn snapshot_replacement_retains_gap_expansions_through_an_index_shift() {
+        let (_, new) = windowed_source(&[31]);
+        let fixture = windowed_fixture(&new);
+        let mut session = ReviewSession::new(fixture.clone());
+        let expanded = reveal_from_first_code_row(&mut session);
+
+        let (old, _) = windowed_source(&[]);
+        let replacement = DocumentBuilder::new()
+            .changed("inserted.rs", "one\n", "two\n")
+            .changed_with_hunk_window("a.rs", &old, &new, 28..=34)
+            .build();
+        session.set_document(replacement);
+
+        assert_eq!(session.selected_file(), Some(1));
+        assert_eq!(expanded_row_count(&session), expanded);
+    }
+
+    #[test]
+    fn snapshot_replacement_keeps_selection_in_expanded_context() {
+        let (_, new) = windowed_source(&[31]);
+        let fixture = windowed_fixture(&new);
+        let mut session = ReviewSession::new(fixture.clone());
+        reveal_from_first_code_row(&mut session);
+        let expanded = session
+            .presentation()
+            .rows(0..session.presentation().row_count())
+            .iter()
+            .position(|row| row.kind == crate::RowKind::ExpandedContext)
+            .expect("expanded context exists");
+        assert!(session.select_row(expanded));
+        let source = session
+            .selected_source_line()
+            .expect("expanded row has source location");
+        session.set_document(windowed_fixture(&new));
+        assert_eq!(session.selected_source_line(), Some(source));
+        assert_eq!(
+            session
+                .presentation()
+                .row(session.selected_row().unwrap())
+                .unwrap()
+                .kind,
+            crate::RowKind::ExpandedContext
+        );
+    }
+
+    #[test]
+    fn snapshot_replacement_drops_gap_expansions_when_a_side_changes() {
+        let (_, new) = windowed_source(&[31]);
+        let fixture = windowed_fixture(&new);
+        let mut session = ReviewSession::new(fixture.clone());
+        reveal_from_first_code_row(&mut session);
+
+        let (_, edited) = windowed_source(&[31, 55]);
+        let replacement = windowed_fixture(&edited);
+        assert_eq!(
+            replacement.files[0].hunks, fixture.files[0].hunks,
+            "the retained window must stay equal so only source content differs"
+        );
+        session.set_document(replacement);
+
+        assert_eq!(expanded_row_count(&session), 0);
+    }
+
+    #[test]
+    fn snapshot_replacement_keeps_a_draft_when_another_file_changes() {
+        let fixture = DocumentBuilder::new()
+            .changed("a.rs", "one\ntwo\n", "ONE\nTWO\n")
+            .changed("b.rs", "keep\n", "kept\n")
+            .build();
+        let mut session = ReviewSession::new(fixture.clone());
+        assert!(session.begin_draft(None));
+        session.draft_mut().unwrap().insert("still editing");
+
+        let replacement = DocumentBuilder::new()
+            .changed("a.rs", "one\ntwo\n", "ONE\nTWO\n")
+            .changed("b.rs", "keep\n", "changed\n")
+            .build();
+        session.set_document(replacement);
+
+        assert_eq!(
+            session.draft().map(CommentDraft::body),
+            Some("still editing")
+        );
     }
 
     #[test]

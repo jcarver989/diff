@@ -283,7 +283,6 @@ pub enum RepositoryAction {
     UnstageAll,
     Commit { message: String },
     Discard { path: RepoPath, status: FileStatus },
-    Refresh,
 }
 
 /// Events emitted by a diff review UI.

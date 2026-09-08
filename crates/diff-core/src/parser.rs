@@ -1,8 +1,8 @@
 //! Normalization adapters for Git patches and porcelain status output.
 
 use crate::{
-    DiffDocument, DiffError, DiffScope, FileDiff, FileStatus, Hunk, ModeChange, PatchLine,
-    PatchLineKind, RepoPath, StageState,
+    DiffDocument, DiffError, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange,
+    PatchLine, PatchLineKind, RepoPath, StageState,
 };
 use diffy::{
     Line, Patch,
@@ -81,6 +81,8 @@ fn normalize_patch(patch: &FilePatch<'_, [u8]>) -> Result<FileDiff, DiffError> {
         mode: normalize_mode(patch),
         no_newline_at_end,
         omitted_bytes,
+        old_source: FileDiff::uncaptured_source(status, DiffSide::Old),
+        new_source: FileDiff::uncaptured_source(status, DiffSide::New),
     })
 }
 
@@ -376,6 +378,8 @@ fn untracked_diff(file: &UntrackedFile) -> Result<FileDiff, DiffError> {
             mode: None,
             no_newline_at_end: false,
             omitted_bytes: file.omitted_bytes,
+            old_source: FileDiff::uncaptured_source(FileStatus::Untracked, DiffSide::Old),
+            new_source: FileDiff::uncaptured_source(FileStatus::Untracked, DiffSide::New),
         },
     };
     diff.status = FileStatus::Untracked;

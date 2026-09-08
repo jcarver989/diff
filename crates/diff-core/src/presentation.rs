@@ -2,8 +2,8 @@
 
 use crate::{
     DiffDocument, DiffSide, FileDiff, FileStatus, Fingerprint, Hunk, LineAnchor, PatchLine,
-    PatchLineKind, RepoPath, SourceDocument, SourceKey, SourceLineRef, SourceLocation,
-    SourceSequenceId, SourceUnavailable,
+    PatchLineKind, RepoPath, SourceDocument, SourceLineRef, SourceLocation, SourceSequenceId,
+    SourceUnavailable,
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
@@ -160,33 +160,14 @@ impl GapInfo {
     }
 }
 
-/// Complete source and reveal state used to project a document.
+/// Reveal state used to project a document over the sources it carries.
 #[derive(Debug, Clone, Default)]
 pub struct ContentProjection {
-    pub(crate) sources: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
     pub(crate) expansions: HashMap<GapId, GapExpansion>,
     pub(crate) full_files: HashSet<RepoPath>,
 }
 
 impl ContentProjection {
-    #[must_use]
-    pub fn with_sources(
-        sources: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
-    ) -> Self {
-        Self {
-            sources,
-            ..Self::default()
-        }
-    }
-
-    pub fn insert_source(&mut self, key: SourceKey, source: Arc<SourceDocument>) {
-        self.sources.insert(key, Ok(source));
-    }
-
-    pub fn insert_unavailable(&mut self, key: SourceKey, reason: SourceUnavailable) {
-        self.sources.insert(key, Err(reason));
-    }
-
     pub fn set_expansion(&mut self, id: GapId, expansion: GapExpansion) {
         self.expansions.insert(id, expansion);
     }
@@ -197,16 +178,6 @@ impl ContentProjection {
         } else {
             self.full_files.remove(&path);
         }
-    }
-
-    #[must_use]
-    pub fn source(&self, key: &SourceKey) -> Option<&Arc<SourceDocument>> {
-        self.sources.get(key)?.as_ref().ok()
-    }
-
-    #[must_use]
-    pub fn unavailable(&self, key: &SourceKey) -> Option<&SourceUnavailable> {
-        self.sources.get(key)?.as_ref().err()
     }
 
     #[must_use]
@@ -352,7 +323,6 @@ pub struct DiffPresentation {
     anchor_rows: HashMap<(usize, DiffSide, usize), usize>,
     source_rows: HashMap<(usize, DiffSide, usize), usize>,
     gap_info: HashMap<usize, GapInfo>,
-    sources: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
     /// Lazily fingerprinted per hunk so presentations that never fall back to
@@ -364,13 +334,13 @@ impl DiffPresentation {
     /// Indexes a document once for O(1) row lookup and slicing.
     #[must_use]
     pub fn new(document: Arc<DiffDocument>, options: PresentationOptions) -> Self {
-        Self::with_sources(document, options, &ContentProjection::default())
+        Self::with_projection(document, options, &ContentProjection::default())
     }
 
-    /// Builds a windowed projection over optional immutable complete-file sources.
+    /// Builds a windowed projection over the document's complete-file sources.
     #[must_use]
     #[allow(clippy::too_many_lines)]
-    pub fn with_sources(
+    pub fn with_projection(
         document: Arc<DiffDocument>,
         options: PresentationOptions,
         projection: &ContentProjection,
@@ -385,13 +355,11 @@ impl DiffPresentation {
             if options.include_file_headers {
                 rows.push(header_row(file_index, file));
             }
-            let old_key = SourceKey::new(file.path.clone(), DiffSide::Old);
-            let new_key = SourceKey::new(file.path.clone(), DiffSide::New);
-            let old_count = projection
-                .source(&old_key)
+            let old_count = file
+                .source_document(DiffSide::Old)
                 .map_or(0, |source| source.line_count());
-            let new_count = projection
-                .source(&new_key)
+            let new_count = file
+                .source_document(DiffSide::New)
                 .map_or(0, |source| source.line_count());
             let gaps = gaps_for_file(file, old_count, new_count);
             let mut file_hunks = Vec::with_capacity(file.hunks.len());
@@ -492,7 +460,6 @@ impl DiffPresentation {
             anchor_rows,
             source_rows,
             gap_info,
-            sources: projection.sources.clone(),
             file_ranges,
             hunk_ranges,
             sequence_ids,
@@ -564,8 +531,7 @@ impl DiffPresentation {
     ) -> Option<&SourceDocument> {
         let source = cell.source_line?;
         let file = self.document.files.get(row.file_index)?;
-        let key = SourceKey::new(file.path.clone(), source.side);
-        self.sources.get(&key)?.as_ref().ok().map(AsRef::as_ref)
+        file.source_document(source.side).map(AsRef::as_ref)
     }
 
     /// Returns the side-specific repository path used as a syntax language hint.
@@ -729,6 +695,41 @@ impl DiffPresentation {
     }
 }
 
+pub(crate) fn retained_expansions(
+    previous: &DiffDocument,
+    expansions: &HashMap<GapId, GapExpansion>,
+    next: &DiffDocument,
+) -> HashMap<GapId, GapExpansion> {
+    let mut resolved: HashMap<usize, Option<usize>> = HashMap::new();
+    let mut retained = HashMap::with_capacity(expansions.len());
+    for (id, expansion) in expansions {
+        let next_index = *resolved
+            .entry(id.file_index)
+            .or_insert_with(|| retained_file_index(previous, id.file_index, next));
+        if let Some(file_index) = next_index {
+            retained.insert(
+                GapId {
+                    file_index,
+                    gap_index: id.gap_index,
+                },
+                *expansion,
+            );
+        }
+    }
+    retained
+}
+
+fn retained_file_index(
+    previous: &DiffDocument,
+    file_index: usize,
+    next: &DiffDocument,
+) -> Option<usize> {
+    let previous = previous.files.get(file_index)?;
+    let next_index = next.file_index(&previous.path)?;
+    let next = next.files.get(next_index)?;
+    (previous.content_id() == next.content_id()).then_some(next_index)
+}
+
 /// Computes leading, between-hunk, and trailing one-based source intervals.
 #[must_use]
 pub fn gaps_for_file(
@@ -808,10 +809,8 @@ fn append_gap_projection(
         return;
     }
     let expansion = expansion.unwrap_or_default();
-    let old_key = SourceKey::new(file.path.clone(), DiffSide::Old);
-    let new_key = SourceKey::new(file.path.clone(), DiffSide::New);
-    let old = projection.source(&old_key);
-    let new = projection.source(&new_key);
+    let old = file.source_document(DiffSide::Old);
+    let new = file.source_document(DiffSide::New);
     let total = gap.old.len().max(gap.new.len());
     let loaded = gap_required_sides(layout, file.status)
         .iter()
@@ -849,7 +848,7 @@ fn append_gap_projection(
         }
     }
     if hidden != 0 || !loaded {
-        let unavailable = gap_unavailable(file, layout, projection, &old_key, &new_key);
+        let unavailable = gap_unavailable(file, layout);
         let row_index = rows.len();
         rows.push(PresentedRow {
             id: row_id(&file.path, "expand-gap", Some(gap_index), None, None),
@@ -891,26 +890,10 @@ fn gap_required_sides(layout: Layout, status: FileStatus) -> &'static [DiffSide]
     }
 }
 
-fn gap_unavailable(
-    file: &FileDiff,
-    layout: Layout,
-    projection: &ContentProjection,
-    old_key: &SourceKey,
-    new_key: &SourceKey,
-) -> Option<SourceUnavailable> {
+fn gap_unavailable(file: &FileDiff, layout: Layout) -> Option<SourceUnavailable> {
     gap_required_sides(layout, file.status)
         .iter()
-        .find_map(|side| {
-            let key = match side {
-                DiffSide::Old => old_key,
-                DiffSide::New => new_key,
-            };
-            match projection.sources.get(key) {
-                Some(Ok(_)) => None,
-                Some(Err(reason)) => Some(reason.clone()),
-                None => Some(SourceUnavailable::Absent),
-            }
-        })
+        .find_map(|side| file.source_unavailable(*side).cloned())
 }
 
 #[derive(Clone, Copy)]
@@ -1580,6 +1563,8 @@ mod tests {
             mode: None,
             no_newline_at_end: false,
             omitted_bytes: None,
+            old_source: Err(SourceUnavailable::NotCaptured),
+            new_source: Err(SourceUnavailable::NotCaptured),
         };
         assert_eq!(
             gaps_for_file(&file, 10, 10),
@@ -1621,6 +1606,8 @@ mod tests {
             mode: None,
             no_newline_at_end: false,
             omitted_bytes: None,
+            old_source: Err(SourceUnavailable::NotCaptured),
+            new_source: Err(SourceUnavailable::NotCaptured),
         };
         assert_eq!(
             gaps_for_file(&file, 5, 6),
@@ -1645,8 +1632,11 @@ mod tests {
                 ..PresentationOptions::default()
             };
             let expected = DiffPresentation::new(document(), options);
-            let actual =
-                DiffPresentation::with_sources(document(), options, &ContentProjection::default());
+            let actual = DiffPresentation::with_projection(
+                document(),
+                options,
+                &ContentProjection::default(),
+            );
             assert_eq!(
                 expected.rows(0..expected.row_count()),
                 actual.rows(0..actual.row_count())
@@ -1666,27 +1656,13 @@ mod tests {
             .build();
         let path = document.files[0].path.clone();
         let mut projection = ContentProjection::default();
-        projection.insert_source(
-            SourceKey {
-                review_path: path.clone(),
-                side: DiffSide::Old,
-            },
-            Arc::new(SourceDocument::try_from_text(&old).unwrap()),
-        );
-        projection.insert_source(
-            SourceKey {
-                review_path: path.clone(),
-                side: DiffSide::New,
-            },
-            Arc::new(SourceDocument::try_from_text(&new).unwrap()),
-        );
         projection.set_full_file(path, true);
         let options = PresentationOptions {
             view_mode: ViewMode::Split,
             ..PresentationOptions::default()
         };
-        let first = DiffPresentation::with_sources(document.clone(), options, &projection);
-        let second = DiffPresentation::with_sources(document, options, &projection);
+        let first = DiffPresentation::with_projection(document.clone(), options, &projection);
+        let second = DiffPresentation::with_projection(document, options, &projection);
         let source_lines = |presentation: &DiffPresentation, side| {
             presentation
                 .rows(0..presentation.row_count())
@@ -1739,19 +1715,19 @@ mod tests {
             }),
             no_newline_at_end: false,
             omitted_bytes: None,
+            old_source: Err(SourceUnavailable::Absent),
+            new_source: Err(SourceUnavailable::Absent),
         };
-        let document = Arc::new(DiffDocument {
-            repo_root: "/repo".into(),
-            files: vec![file],
-        });
-        let key = SourceKey {
-            review_path: path.clone(),
-            side: DiffSide::New,
+        let document = |file: FileDiff| {
+            Arc::new(DiffDocument {
+                repo_root: "/repo".into(),
+                files: vec![file],
+            })
         };
         let mut projection = ContentProjection::default();
         projection.set_full_file(path, true);
-        let absent = DiffPresentation::with_sources(
-            document.clone(),
+        let absent = DiffPresentation::with_projection(
+            document(file.clone()),
             PresentationOptions::default(),
             &projection,
         );
@@ -1765,9 +1741,11 @@ mod tests {
             Some(SourceUnavailable::Absent)
         );
 
-        projection.insert_unavailable(key.clone(), SourceUnavailable::Binary);
-        let unavailable = DiffPresentation::with_sources(
-            document.clone(),
+        let unavailable = DiffPresentation::with_projection(
+            document(FileDiff {
+                new_source: Err(SourceUnavailable::Binary),
+                ..file.clone()
+            }),
             PresentationOptions::default(),
             &projection,
         );
@@ -1781,12 +1759,16 @@ mod tests {
             Some(SourceUnavailable::Binary)
         );
 
-        projection.insert_source(
-            key,
-            Arc::new(SourceDocument::try_from_text("#!/bin/sh\necho ok\n").unwrap()),
+        let loaded = DiffPresentation::with_projection(
+            document(FileDiff {
+                new_source: Ok(Arc::new(
+                    SourceDocument::try_from_text("#!/bin/sh\necho ok\n").unwrap(),
+                )),
+                ..file
+            }),
+            PresentationOptions::default(),
+            &projection,
         );
-        let loaded =
-            DiffPresentation::with_sources(document, PresentationOptions::default(), &projection);
         assert_eq!(
             loaded
                 .rows(0..loaded.row_count())

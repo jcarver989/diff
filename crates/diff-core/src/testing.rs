@@ -1,28 +1,16 @@
 use crate::{
-    DiffDocument, DiffSide, DiffSnapshot, FileDiff, FileStatus, Hunk, PatchLine, RepoPath,
-    SourceDocument, SourceKey, SourceUnavailable, StageState,
+    DiffDocument, DiffSide, FileDiff, FileStatus, Hunk, PatchLine, RepoPath, SourceDocument,
+    SourceResult, SourceUnavailable, StageState,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-/// A document fixture and its eager immutable source snapshot.
-#[derive(Debug, Clone)]
-pub struct DocumentFixture {
-    pub document: Arc<DiffDocument>,
-    sources: HashMap<SourceKey, Result<Arc<SourceDocument>, SourceUnavailable>>,
-}
-
-impl DocumentFixture {
-    #[must_use]
-    pub fn snapshot(&self) -> DiffSnapshot {
-        DiffSnapshot::from_parts(self.document.clone(), self.sources.clone())
-    }
-}
-
+/// Builds complete review documents: every text fixture carries both of its
+/// source versions, so sessions built from it can reveal unchanged context.
 #[derive(Debug, Clone)]
 pub struct DocumentBuilder {
     repo_root: String,
     files: Vec<FileDiff>,
-    sources: HashMap<SourceKey, Result<Arc<str>, SourceUnavailable>>,
+    overrides: Vec<(RepoPath, DiffSide, SourceResult)>,
 }
 
 impl Default for DocumentBuilder {
@@ -37,7 +25,7 @@ impl DocumentBuilder {
         Self {
             repo_root: "/repo".to_owned(),
             files: Vec::new(),
-            sources: HashMap::new(),
+            overrides: Vec::new(),
         }
     }
 
@@ -58,6 +46,7 @@ impl DocumentBuilder {
     }
 
     /// Adds a changed text fixture after applying `customize` to its valid defaults.
+    /// Both complete source versions travel with the file.
     ///
     /// This is the Rust equivalent of building a factory value with overrides. Struct
     /// update syntax keeps tests focused on the fields that matter:
@@ -79,30 +68,13 @@ impl DocumentBuilder {
     /// Panics when `path` is not a valid repository-relative fixture path.
     #[must_use]
     pub fn changed_with(
-        mut self,
+        self,
         path: &str,
         old: &str,
         new: &str,
         customize: impl FnOnce(FileDiff) -> FileDiff,
     ) -> Self {
         let file = customize(FileDiff::from_texts(path, old, new).expect("valid fixture path"));
-        let review_path = file.path.clone();
-        self.sources.insert(
-            SourceKey::new(review_path.clone(), DiffSide::Old),
-            if matches!(file.status, FileStatus::Added | FileStatus::Untracked) {
-                Err(SourceUnavailable::Absent)
-            } else {
-                Ok(Arc::from(old))
-            },
-        );
-        self.sources.insert(
-            SourceKey::new(review_path, DiffSide::New),
-            if file.status == FileStatus::Deleted {
-                Err(SourceUnavailable::Absent)
-            } else {
-                Ok(Arc::from(new))
-            },
-        );
         self.file(file)
     }
 
@@ -150,13 +122,13 @@ impl DocumentBuilder {
     }
 
     /// Adds a changed fixture whose patch contains only the requested source-line window.
-    /// Complete old and new text remain available through the fixture source host.
+    /// Complete old and new text remain attached to the file.
     ///
     /// # Panics
     /// Panics when the path is invalid or the generated diff has no changed hunk.
     #[must_use]
     pub fn changed_with_hunk_window(
-        mut self,
+        self,
         path: &str,
         old: &str,
         new: &str,
@@ -179,15 +151,6 @@ impl DocumentBuilder {
         hunk.new_count = count;
         hunk.header = format!("@@ -{start},{count} +{start},{count} @@");
         file.hunks = vec![hunk];
-        let review_path = file.path.clone();
-        self.sources.insert(
-            SourceKey::new(review_path.clone(), DiffSide::Old),
-            Ok(Arc::from(old)),
-        );
-        self.sources.insert(
-            SourceKey::new(review_path, DiffSide::New),
-            Ok(Arc::from(new)),
-        );
         self.file(file)
     }
 
@@ -209,6 +172,8 @@ impl DocumentBuilder {
             mode: None,
             no_newline_at_end: false,
             omitted_bytes: None,
+            old_source: Err(SourceUnavailable::Binary),
+            new_source: Err(SourceUnavailable::Binary),
         })
     }
 
@@ -237,6 +202,8 @@ impl DocumentBuilder {
             mode: None,
             no_newline_at_end: false,
             omitted_bytes: None,
+            old_source: FileDiff::uncaptured_source(FileStatus::Added, DiffSide::Old),
+            new_source: FileDiff::uncaptured_source(FileStatus::Added, DiffSide::New),
         })
     }
 
@@ -254,52 +221,50 @@ impl DocumentBuilder {
         self
     }
 
-    /// Attaches an exact source result without changing patch metadata.
+    /// Overrides one side's source result without changing patch metadata.
+    /// Applied when the document is built, so it may precede or follow the file.
     #[must_use]
     pub fn source(
         mut self,
         path: &str,
         side: DiffSide,
-        result: Result<impl Into<Arc<str>>, SourceUnavailable>,
+        result: Result<impl AsRef<str>, SourceUnavailable>,
     ) -> Self {
-        self.sources.insert(
-            SourceKey::new(fixture_path(path), side),
-            result.map(Into::into),
-        );
+        let result = result.and_then(|text| SourceDocument::new(text).map(Arc::new));
+        self.overrides.push((fixture_path(path), side, result));
         self
     }
 
+    /// Builds the complete document.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a source override names a path that was never added.
     #[must_use]
     pub fn build(self) -> Arc<DiffDocument> {
-        self.build_fixture().document
-    }
-
-    #[must_use]
-    pub fn build_fixture(self) -> DocumentFixture {
-        let sources = self
-            .sources
-            .into_iter()
-            .map(|(key, source)| {
-                let source =
-                    source.and_then(|text| SourceDocument::new(text.as_ref()).map(Arc::new));
-                (key, source)
-            })
-            .collect();
-        DocumentFixture {
-            document: Arc::new(DiffDocument {
-                repo_root: self.repo_root,
-                files: self.files,
-            }),
-            sources,
+        let mut files = self.files;
+        for (path, side, result) in self.overrides {
+            let file = files
+                .iter_mut()
+                .find(|file| file.path == path)
+                .unwrap_or_else(|| panic!("source override for unknown fixture path {path}"));
+            match side {
+                DiffSide::Old => file.old_source = result,
+                DiffSide::New => file.new_source = result,
+            }
         }
+        Arc::new(DiffDocument {
+            repo_root: self.repo_root,
+            files,
+        })
     }
 }
 
 /// Returns a valid one-file diff with useful defaults for struct update syntax.
 ///
-/// Prefer [`DocumentBuilder::changed_with`] when complete source text should also be
-/// available through a [`DocumentFixture`]. Use this factory for low-level model tests
-/// that intentionally construct unusual combinations of public fields.
+/// Prefer [`DocumentBuilder::changed_with`] for documents that a session will project.
+/// Use this factory for low-level model tests that intentionally construct unusual
+/// combinations of public fields.
 ///
 /// # Panics
 ///
@@ -348,15 +313,25 @@ mod tests {
 
     #[test]
     fn changed_with_applies_struct_update_overrides_and_preserves_sources() {
-        let fixture = DocumentBuilder::new()
+        let document = DocumentBuilder::new()
             .changed_with("src/lib.rs", "old\n", "new\n", |file| FileDiff {
                 staged: StageState::Staged,
                 ..file
             })
-            .build_fixture();
+            .source(
+                "src/lib.rs",
+                DiffSide::New,
+                Err::<&str, _>(SourceUnavailable::Binary),
+            )
+            .build();
 
-        assert_eq!(fixture.document.files[0].staged, StageState::Staged);
-        assert_eq!(fixture.snapshot().sources().len(), 2);
+        let file = &document.files[0];
+        assert_eq!(file.staged, StageState::Staged);
+        assert_eq!(file.source_document(DiffSide::Old).unwrap().text(), "old\n");
+        assert_eq!(
+            file.source_unavailable(DiffSide::New),
+            Some(&SourceUnavailable::Binary)
+        );
     }
 
     #[test]
@@ -376,46 +351,36 @@ mod tests {
 
     #[test]
     fn common_file_kinds_have_consistent_status_and_sources() {
-        let fixture = DocumentBuilder::new()
+        let document = DocumentBuilder::new()
             .deleted("deleted.rs", "old\n")
             .untracked("new.rs", "new\n")
             .renamed("old.rs", "renamed.rs", "old\n", "new\n")
             .copied("source.rs", "copy.rs", "old\n", "new\n")
-            .build_fixture();
-        let snapshot = fixture.snapshot();
-        let source = |path: &str, side| {
-            snapshot
-                .source(&SourceKey::new(fixture_path(path), side))
+            .build();
+        let text = |index: usize, side| {
+            document.files[index]
+                .source_document(side)
                 .expect("fixture source")
+                .text()
+                .to_owned()
         };
 
-        assert_eq!(fixture.document.files[0].status, FileStatus::Deleted);
-        assert_eq!(fixture.document.files[1].status, FileStatus::Untracked);
-        assert_eq!(fixture.document.files[2].status, FileStatus::Renamed);
-        assert_eq!(fixture.document.files[3].status, FileStatus::Copied);
+        assert_eq!(document.files[0].status, FileStatus::Deleted);
+        assert_eq!(document.files[1].status, FileStatus::Untracked);
+        assert_eq!(document.files[2].status, FileStatus::Renamed);
+        assert_eq!(document.files[3].status, FileStatus::Copied);
         assert_eq!(
-            source("new.rs", DiffSide::Old).as_ref().unwrap_err(),
-            &SourceUnavailable::Absent
+            document.files[0].source_unavailable(DiffSide::New),
+            Some(&SourceUnavailable::Absent)
         );
         assert_eq!(
-            source("new.rs", DiffSide::New).as_ref().unwrap().text(),
-            "new\n"
+            document.files[1].source_unavailable(DiffSide::Old),
+            Some(&SourceUnavailable::Absent)
         );
-        assert_eq!(
-            source("renamed.rs", DiffSide::Old).as_ref().unwrap().text(),
-            "old\n"
-        );
-        assert_eq!(
-            source("renamed.rs", DiffSide::New).as_ref().unwrap().text(),
-            "new\n"
-        );
-        assert_eq!(
-            source("copy.rs", DiffSide::Old).as_ref().unwrap().text(),
-            "old\n"
-        );
-        assert_eq!(
-            source("copy.rs", DiffSide::New).as_ref().unwrap().text(),
-            "new\n"
-        );
+        assert_eq!(text(1, DiffSide::New), "new\n");
+        assert_eq!(text(2, DiffSide::Old), "old\n");
+        assert_eq!(text(2, DiffSide::New), "new\n");
+        assert_eq!(text(3, DiffSide::Old), "old\n");
+        assert_eq!(text(3, DiffSide::New), "new\n");
     }
 }
