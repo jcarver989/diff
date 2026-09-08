@@ -90,7 +90,7 @@ fn run_application(args: CliArgs, outcome_sender: Option<mpsc::Sender<Option<Rev
     });
 }
 
-pub use menus::{About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom};
+pub use menus::{About, Hide, HideOthers, Minimize, Quit, SetScope, ShowAll, Zoom};
 
 #[cfg(test)]
 mod tests {
@@ -112,7 +112,7 @@ mod tests {
         let menus: Vec<gpui::OwnedMenu> =
             menus::build().into_iter().map(gpui::Menu::owned).collect();
         let names: Vec<&str> = menus.iter().map(|menu| menu.name.as_ref()).collect();
-        assert_eq!(names, vec!["ClankerDiff", "Edit", "Window"]);
+        assert_eq!(names, vec!["ClankerDiff", "Edit", "View", "Window"]);
 
         let app_actions = action_names(&menus[0]);
         assert!(app_actions.contains(&"desktop_menu::About".to_owned()));
@@ -146,7 +146,10 @@ mod tests {
             assert!(edit_os_actions.contains(&Some(expected)));
         }
 
-        let window_actions = action_names(&menus[2]);
+        let view_actions = action_names(&menus[2]);
+        assert!(view_actions.contains(&"desktop_menu::SetScope".to_owned()));
+
+        let window_actions = action_names(&menus[3]);
         assert!(window_actions.contains(&"desktop_menu::Minimize".to_owned()));
         assert!(window_actions.contains(&"desktop_menu::Zoom".to_owned()));
     }

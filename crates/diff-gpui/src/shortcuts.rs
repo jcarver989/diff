@@ -20,6 +20,7 @@ const GIT: &[(&str, &str)] = &[
     ("a / A", "stage / unstage all"),
     ("C", "commit staged changes"),
     ("d", "discard selected file"),
+    ("S", "cycle scope (unstaged/staged/both)"),
 ];
 const REVIEW: &[(&str, &str)] = &[
     ("c / e / x", "add / edit / delete comment"),

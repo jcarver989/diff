@@ -2,6 +2,7 @@ use crate::{
     Cancel, CopyReview, DiffViewer, ShowThemePicker, SubmitReview, ViewerPane,
     ui::prelude::{ActionBar, Button, ButtonVariant, ControlSize, MutedText},
 };
+use clankerdiff_core::{DiffReviewEvent, DiffScope};
 use gpui::{Context, div, prelude::*};
 
 impl DiffViewer {
@@ -16,49 +17,75 @@ impl DiffViewer {
         } else {
             "j/k line · c comment · e/x edit/delete · s submit · y copy · ? help"
         };
-        ActionBar::new(theme)
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .child(MutedText::new(
-                        format!("{hint}    ·    {} review comments", self.review().len()),
-                        theme,
-                    )),
-            )
-            .child(
-                Button::new("select-theme", "Theme", theme)
+        let scope = self.scope();
+        let pending = self.repository_pending();
+        let mut bar = ActionBar::new(theme).child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .child(MutedText::new(
+                    format!("{hint}    ·    {} review comments", self.review().len()),
+                    theme,
+                )),
+        );
+        for (id, label, value) in [
+            ("scope-unstaged", "Unstaged", DiffScope::Unstaged),
+            ("scope-staged", "Staged", DiffScope::Staged),
+            ("scope-both", "Both", DiffScope::Both),
+        ] {
+            bar = bar.child(
+                Button::new(id, label, theme)
+                    .size(ControlSize::Small)
+                    .selected(scope == value)
+                    .disabled(pending)
+                    .on_click(cx.listener(move |viewer, _, window, cx| {
+                        viewer.set_scope_intent(value, window, cx);
+                    })),
+            );
+        }
+        bar.child(
+            Button::new("select-theme", "Theme", theme)
+                .size(ControlSize::Small)
+                .on_click(cx.listener(|viewer, _, window, cx| {
+                    viewer.show_theme_picker(&ShowThemePicker, window, cx);
+                })),
+        )
+        .when(!self.review().is_empty(), |bar| {
+            bar.child(
+                Button::new("copy-review", "Copy", theme)
+                    .variant(ButtonVariant::Secondary)
                     .size(ControlSize::Small)
                     .on_click(cx.listener(|viewer, _, window, cx| {
-                        viewer.show_theme_picker(&ShowThemePicker, window, cx);
+                        viewer.copy_review(&CopyReview, window, cx);
                     })),
             )
-            .when(!self.review().is_empty(), |bar| {
-                bar.child(
-                    Button::new("copy-review", "Copy", theme)
-                        .variant(ButtonVariant::Secondary)
-                        .size(ControlSize::Small)
-                        .on_click(cx.listener(|viewer, _, window, cx| {
-                            viewer.copy_review(&CopyReview, window, cx);
-                        })),
-                )
-                .child(
-                    Button::new("submit-review", "Submit", theme)
-                        .variant(ButtonVariant::Primary)
-                        .size(ControlSize::Small)
-                        .on_click(cx.listener(|viewer, _, window, cx| {
-                            viewer.submit_review(&SubmitReview, window, cx);
-                        })),
-                )
-            })
             .child(
-                Button::new("cancel-review", "Cancel", theme)
+                Button::new("submit-review", "Submit", theme)
+                    .variant(ButtonVariant::Primary)
                     .size(ControlSize::Small)
-                    .on_click(
-                        cx.listener(|viewer, _, window, cx| viewer.cancel(&Cancel, window, cx)),
-                    ),
+                    .on_click(cx.listener(|viewer, _, window, cx| {
+                        viewer.submit_review(&SubmitReview, window, cx);
+                    })),
             )
+        })
+        .child(
+            Button::new("cancel-review", "Cancel", theme)
+                .size(ControlSize::Small)
+                .on_click(cx.listener(|viewer, _, window, cx| viewer.cancel(&Cancel, window, cx))),
+        )
+    }
+
+    pub(crate) fn set_scope_intent(
+        &mut self,
+        scope: DiffScope,
+        _: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.repository_pending() {
+            return;
+        }
+        cx.emit(DiffReviewEvent::SetScope(scope));
     }
 }

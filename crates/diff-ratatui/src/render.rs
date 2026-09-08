@@ -92,9 +92,10 @@ fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, the
         DiffReviewStatus::Error(message) => {
             Some((format!("Diff unavailable: {message}"), NoticeTone::Error))
         }
-        DiffReviewStatus::Ready if state.document().files.is_empty() => {
-            Some(("No changes".to_owned(), NoticeTone::Info))
-        }
+        DiffReviewStatus::Ready if state.document().files.is_empty() => Some((
+            format!("No changes (scope: {})", state.scope()),
+            NoticeTone::Info,
+        )),
         DiffReviewStatus::Ready => None,
     };
     match notice {
@@ -608,11 +609,11 @@ fn render_footer(
     } else if state.session.draft().is_some() {
         "[Enter] save  [Shift-Enter] newline  [Esc] cancel"
     } else if state.focus == FocusPane::Files {
-        "[j/k] entry  [h/l] fold/open  [t] theme  [?] help"
+        "[j/k] entry  [h/l] fold/open  [S] scope  [t] theme  [?] help"
     } else if state.layout().is_split() {
-        "[j/k] line  [←/→] side  [o/O] context  [f] full file  [c] comment  [?] help"
+        "[j/k] line  [←/→] side  [o/O] context  [f] full file  [c] comment  [S] scope  [?] help"
     } else {
-        "[j/k] line  [o/O] context  [f] full file  [c] comment  [s] submit  [h] files"
+        "[j/k] line  [o/O] context  [f] full file  [c] comment  [s] submit  [S] scope  [h] files"
     };
     let review = state.review();
     let outdated = review.outdated_count();
@@ -643,7 +644,7 @@ fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     render_modal_text(
         content,
         buffer,
-        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n  o/Enter          expand context\n  O                expand all context\n  f                toggle full-file view\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
+        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n  o/Enter          expand context\n  O                expand all context\n  f                toggle full-file view\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  S                cycle scope (unstaged/staged/both)\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
         theme,
     );
 }

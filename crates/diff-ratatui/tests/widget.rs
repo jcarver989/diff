@@ -3,7 +3,7 @@
 mod support;
 
 use clankerdiff_core::{
-    DiffDocument, DiffReviewEvent, DiffSide, FileDiff, Layout, LineAnchor, PatchLine,
+    DiffDocument, DiffReviewEvent, DiffScope, DiffSide, FileDiff, Layout, LineAnchor, PatchLine,
     PatchLineKind, RepositoryAction, Review, RowKind, SourceUnavailable, StageState, ViewMode,
     testing::DocumentBuilder,
 };
@@ -436,7 +436,7 @@ fn document_replacement_retains_outdated_comments() {
     );
     assert_eq!(state.review().len(), 1);
     assert!(state.review().comments()[0].outdated);
-    let rendered = draw(&mut state, 80, 8);
+    let rendered = draw(&mut state, 100, 8);
     assert!(rendered.contains("1 comment (1 outdated)"), "{rendered}");
 }
 
@@ -938,4 +938,28 @@ fn keyboard_navigation_brings_a_scrolled_away_selection_back() {
         state.scroll_offset() <= followed,
         "{followed} is off screen"
     );
+}
+
+#[test]
+fn scope_key_cycles_from_both_to_unstaged() {
+    let mut state = DiffReviewState::new(changed_document());
+    assert_eq!(state.scope(), DiffScope::Both);
+    let event = state.handle_input(key(KeyCode::Char('S')));
+    assert_eq!(event, Some(DiffReviewEvent::SetScope(DiffScope::Unstaged)));
+    state.set_scope(DiffScope::Unstaged);
+    let event = state.handle_input(key(KeyCode::Char('S')));
+    assert_eq!(event, Some(DiffReviewEvent::SetScope(DiffScope::Staged)));
+}
+
+#[test]
+fn empty_document_renders_scope_pill() -> Result<(), String> {
+    let mut state = DiffReviewState::new(Arc::new(DiffDocument::empty()));
+    state.set_scope(DiffScope::Staged);
+    let rendered = draw(&mut state, 100, 20);
+    if !rendered.contains("scope: staged") {
+        return Err(format!(
+            "expected scope pill in empty state, got: {rendered}"
+        ));
+    }
+    Ok(())
 }

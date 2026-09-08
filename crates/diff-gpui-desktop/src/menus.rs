@@ -1,3 +1,4 @@
+use clankerdiff_core::DiffScope;
 use gpui::{Action, App, Menu, MenuItem, OsAction, actions};
 use serde::Deserialize;
 
@@ -31,6 +32,7 @@ pub(crate) fn register_actions(cx: &mut App) {
     cx.on_action(hide);
     cx.on_action(hide_others);
     cx.on_action(show_all);
+    cx.on_action(|_: &SetScope, _: &mut App| {});
 }
 
 pub(crate) fn build() -> Vec<Menu> {
@@ -64,6 +66,15 @@ pub(crate) fn build() -> Vec<Menu> {
             ],
         },
         Menu {
+            name: "View".into(),
+            disabled: false,
+            items: vec![
+                MenuItem::action("Unstaged", SetScope::unstaged()),
+                MenuItem::action("Staged", SetScope::staged()),
+                MenuItem::action("Both", SetScope::both()),
+            ],
+        },
+        Menu {
             name: "Window".into(),
             disabled: false,
             items: vec![
@@ -87,6 +98,49 @@ enum EditKind {
     Copy,
     Paste,
     SelectAll,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+enum ScopeKind {
+    Unstaged,
+    Staged,
+    Both,
+}
+
+#[derive(Clone, PartialEq, Deserialize, schemars::JsonSchema, Action)]
+#[allow(clippy::unsafe_derive_deserialize)]
+#[action(namespace = desktop_menu)]
+pub struct SetScope {
+    kind: ScopeKind,
+}
+
+impl SetScope {
+    fn unstaged() -> Self {
+        Self {
+            kind: ScopeKind::Unstaged,
+        }
+    }
+
+    fn staged() -> Self {
+        Self {
+            kind: ScopeKind::Staged,
+        }
+    }
+
+    fn both() -> Self {
+        Self {
+            kind: ScopeKind::Both,
+        }
+    }
+
+    #[must_use]
+    pub const fn scope(&self) -> DiffScope {
+        match self.kind {
+            ScopeKind::Unstaged => DiffScope::Unstaged,
+            ScopeKind::Staged => DiffScope::Staged,
+            ScopeKind::Both => DiffScope::Both,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Deserialize, schemars::JsonSchema, Action)]

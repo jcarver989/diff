@@ -1,6 +1,6 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
-use crate::{args::CliArgs, preferences, window_chrome};
+use crate::{args::CliArgs, menus::SetScope, preferences, window_chrome};
 use clankerdiff_core::{DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
 use clankerdiff_git::{GitError, GitRepository, RepositorySnapshot};
 use clankerdiff_gpui::{
@@ -19,7 +19,7 @@ use std::{
 };
 use tokio::sync::oneshot;
 
-actions!(desktop_diff, [CycleScope, StageAll, UnstageAll]);
+actions!(desktop_diff, [StageAll, UnstageAll]);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LoadState {
@@ -39,7 +39,9 @@ enum HostEventEffect {
 
 fn host_event_effect(event: &DiffReviewEvent) -> HostEventEffect {
     match event {
-        DiffReviewEvent::RepositoryAction(_) => HostEventEffect::None,
+        DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetScope(_) => {
+            HostEventEffect::None
+        }
         DiffReviewEvent::CopyFormattedReview(text) => HostEventEffect::Copy(text.clone()),
         DiffReviewEvent::SubmitReview(submission) => HostEventEffect::PrintSubmission(
             serde_json::to_string_pretty(submission)
@@ -100,8 +102,6 @@ impl DesktopApp {
 
     pub(crate) fn bind_keys(cx: &mut App) {
         cx.bind_keys([
-            KeyBinding::new("cmd-shift-v", CycleScope, Some("DesktopDiff")),
-            KeyBinding::new("ctrl-shift-v", CycleScope, Some("DesktopDiff")),
             KeyBinding::new("cmd-shift-s", StageAll, Some("DesktopDiff")),
             KeyBinding::new("ctrl-shift-s", StageAll, Some("DesktopDiff")),
             KeyBinding::new("cmd-shift-u", UnstageAll, Some("DesktopDiff")),
@@ -243,14 +243,21 @@ impl DesktopApp {
     fn install_snapshot(&mut self, snapshot: &RepositorySnapshot, cx: &mut Context<Self>) {
         let is_empty = snapshot.document.files.is_empty();
         let document = snapshot.document.clone();
+        let scope = snapshot.scope;
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |viewer, cx| {
+                viewer.set_scope(scope, cx);
                 viewer.set_document(document, cx);
             });
         } else {
             let theme = self.theme.clone();
-            let viewer =
-                cx.new(|_| DiffViewer::with_options(document, theme, DiffViewerOptions::default()));
+            let scope = snapshot.scope;
+            let viewer = cx.new(|cx| {
+                let mut viewer =
+                    DiffViewer::with_options(document, theme, DiffViewerOptions::default());
+                viewer.set_scope(scope, cx);
+                viewer
+            });
             self.viewer_subscription = Some(cx.subscribe(
                 &viewer,
                 |this, _viewer, event: &DiffReviewEvent, cx| {
@@ -293,13 +300,22 @@ impl DesktopApp {
     }
 
     fn handle_viewer_event(&mut self, event: &DiffReviewEvent, cx: &mut Context<Self>) {
-        if let DiffReviewEvent::RepositoryAction(action) = event {
-            self.command(HostCommand::Apply(action.clone()), cx);
-            return;
+        match event {
+            DiffReviewEvent::RepositoryAction(action) => {
+                self.command(HostCommand::Apply(action.clone()), cx);
+                return;
+            }
+            DiffReviewEvent::SetScope(scope) => {
+                self.set_scope(*scope, cx);
+                return;
+            }
+            _ => {}
         }
         if let Some(sender) = &self.outcome_sender {
             match event {
-                DiffReviewEvent::RepositoryAction(_) => unreachable!("handled above"),
+                DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetScope(_) => {
+                    unreachable!("handled above")
+                }
                 DiffReviewEvent::CopyFormattedReview(text) => {
                     cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
                 }
@@ -323,16 +339,53 @@ impl DesktopApp {
         }
     }
 
-    fn cycle_scope(&mut self, _: &CycleScope, _: &mut Window, cx: &mut Context<Self>) {
-        self.command(HostCommand::SetScope(self.scope.next()), cx);
-    }
-
     fn stage_all(&mut self, _: &StageAll, _: &mut Window, cx: &mut Context<Self>) {
         self.command(HostCommand::Apply(RepositoryAction::StageAll), cx);
     }
 
     fn unstage_all(&mut self, _: &UnstageAll, _: &mut Window, cx: &mut Context<Self>) {
         self.command(HostCommand::Apply(RepositoryAction::UnstageAll), cx);
+    }
+
+    fn menu_set_scope(&mut self, action: &SetScope, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_scope(action.scope(), cx);
+    }
+
+    fn set_scope(&mut self, scope: DiffScope, cx: &mut Context<Self>) {
+        self.command(HostCommand::SetScope(scope), cx);
+    }
+
+    fn render_empty(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        use clankerdiff_gpui::ui::prelude::{Button, ControlSize};
+        let scope = self.scope;
+        let pending = self.command_task.is_some();
+        let theme = UiTheme::new(&self.theme);
+        let segment = |id: &'static str, label: &'static str, value: DiffScope| {
+            Button::new(id, label, theme)
+                .size(ControlSize::Small)
+                .selected(scope == value)
+                .disabled(pending)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.set_scope(value, cx);
+                }))
+        };
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .size_full()
+            .gap_2()
+            .child(self.status_panel(
+                "No changes",
+                &format!("Scope: {scope} · press S to change scope"),
+                NoticeTone::Info,
+            ))
+            .child(div().flex().gap_2().children([
+                segment("scope-unstaged", "Unstaged", DiffScope::Unstaged),
+                segment("scope-staged", "Staged", DiffScope::Staged),
+                segment("scope-both", "Both", DiffScope::Both),
+            ]))
     }
 
     fn status_panel(&self, title: &str, detail: &str, tone: NoticeTone) -> impl IntoElement {
@@ -349,7 +402,7 @@ impl Render for DesktopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = div()
             .key_context("DesktopDiff")
-            .on_action(cx.listener(Self::cycle_scope))
+            .on_action(cx.listener(Self::menu_set_scope))
             .on_action(cx.listener(Self::stage_all))
             .on_action(cx.listener(Self::unstage_all))
             .size_full()
@@ -369,13 +422,7 @@ impl Render for DesktopApp {
                         NoticeTone::Error,
                     )
                     .into_any_element(),
-                LoadState::Empty => self
-                    .status_panel(
-                        "No changes",
-                        &format!("Scope: {} · press ⇧⌘/Ctrl+V to change scope", self.scope),
-                        NoticeTone::Info,
-                    )
-                    .into_any_element(),
+                LoadState::Empty => self.render_empty(cx).into_any_element(),
                 LoadState::Ready => self.viewer.as_ref().map_or_else(
                     || {
                         self.status_panel(

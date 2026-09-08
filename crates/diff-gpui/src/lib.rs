@@ -35,9 +35,9 @@ pub use markdown_viewer::{
 };
 pub use viewer::{
     ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse,
-    CommitChanges, ConfirmDiscard, CopyReview, CycleViewMode, DecreaseFontSize, DeleteComment,
-    DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap, ExpandGapAll,
-    ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, HideThemePicker,
+    CommitChanges, ConfirmDiscard, CopyReview, CycleScope, CycleViewMode, DecreaseFontSize,
+    DeleteComment, DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap,
+    ExpandGapAll, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, HideThemePicker,
     IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, PageDown, PageUp, PreviousFile,
     PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide, SelectOldSide, ShowShortcuts,
     ShowThemePicker, StageAll, SubmitComment, SubmitReview, ToggleFullFile, TogglePane,
