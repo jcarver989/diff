@@ -1,9 +1,5 @@
 use clankerdiff_protocol::{CapabilityResponse, PROTOCOL_VERSION};
-use std::process::Command;
-
-fn clankerdiff() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_clankerdiff"))
-}
+use std::{io, process::Command};
 
 #[test]
 fn capabilities_are_one_clean_json_line() {
@@ -38,4 +34,20 @@ fn process_failures_keep_stdout_protocol_clean() {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
+}
+
+#[test]
+fn version_uses_the_executable_name() -> io::Result<()> {
+    let output = clankerdiff().arg("--version").output()?;
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        output.stdout,
+        format!("clankerdiff {}\n", env!("CARGO_PKG_VERSION")).as_bytes()
+    );
+    Ok(())
+}
+
+fn clankerdiff() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_clankerdiff"))
 }

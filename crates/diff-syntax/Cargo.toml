@@ -1,5 +1,5 @@
 [package]
-name = "diff-syntax"
+name = "clankerdiff-syntax"
 description = "Portable Arborium syntax highlighting"
 version.workspace = true
 edition.workspace = true
@@ -36,5 +36,5 @@ workspace = true
 arborium = { workspace = true }
 arborium-highlight.workspace = true
 arborium-theme.workspace = true
-diff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
-diff-theme = { version = "0.1.0", path = "../diff-theme" }
+clankerdiff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
+clankerdiff-theme = { version = "0.1.0", path = "../diff-theme" }

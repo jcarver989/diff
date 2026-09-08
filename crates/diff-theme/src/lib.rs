@@ -1,7 +1,7 @@
 //! Renderer-neutral colors, semantic diff palettes, and syntax themes.
 
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
-pub use diff_fingerprint::{Fingerprint, FingerprintError};
+pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
 

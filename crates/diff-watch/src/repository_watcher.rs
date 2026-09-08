@@ -3,8 +3,8 @@ use crate::{
     file_watcher::{FileWatchError, FileWatcher, NotifyFileWatcher},
     filter::should_refresh,
 };
-use diff_core::DiffScope;
-use diff_git::{GitError, GitRepository, RepositorySnapshot};
+use clankerdiff_core::DiffScope;
+use clankerdiff_git::{GitError, GitRepository, RepositorySnapshot};
 use std::{sync::Arc, time::Duration};
 use tokio::{
     sync::{mpsc, oneshot, watch},

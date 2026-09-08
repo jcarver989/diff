@@ -1,10 +1,10 @@
 use crate::annotation::{AnnotationBox, AnnotationKind};
-use diff_markdown::{
+use clankerdiff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownInline, MarkdownReviewSession,
     MarkdownTable, MarkdownTableAlignment, MarkdownTableRow, MarkdownTargetId,
 };
-use diff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter};
-use diff_theme::DiffTheme;
+use clankerdiff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter};
+use clankerdiff_theme::DiffTheme;
 use std::collections::HashMap;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 

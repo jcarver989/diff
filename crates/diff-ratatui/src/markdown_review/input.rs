@@ -1,9 +1,9 @@
 use super::{MarkdownFocusPane, MarkdownReviewEvent, MarkdownReviewState};
 use crate::theme_picker::{ThemePicker, ThemePickerAction};
+use clankerdiff_markdown::MarkdownReviewError;
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
-use diff_markdown::MarkdownReviewError;
 use ratatui::layout::Position;
 
 /// Framework-neutral input accepted by [`MarkdownReviewState::handle_input`].

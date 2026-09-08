@@ -1,9 +1,10 @@
+use clankerdiff_core::DiffScope;
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
-use diff_core::DiffScope;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(
+    name = "clankerdiff",
     version,
     about = "Agent-driven code review for Git working tree changes"
 )]

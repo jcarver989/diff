@@ -1,4 +1,4 @@
-use diff_core::{RepoPath, RepoPathError};
+use clankerdiff_core::{RepoPath, RepoPathError};
 
 #[test]
 fn validates_relative_utf8_paths() -> Result<(), RepoPathError> {

@@ -1,17 +1,17 @@
 use crate::protocol::{SessionRequestRef, SessionResponse, read_response, write_request};
+use clankerdiff_core::{DiffDocument, RepositoryAction, ReviewSubmission};
+use clankerdiff_git::{GitError, GitRepository};
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
+use clankerdiff_ratatui::{
+    DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
+    MarkdownReviewWidget, handle_crossterm_event, handle_markdown_crossterm_event,
+};
+use clankerdiff_watch::RepositoryWatcher;
 use crossterm::{
     event::{self, Event},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{DiffDocument, RepositoryAction, ReviewSubmission};
-use diff_git::{GitError, GitRepository};
-use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
-use diff_ratatui::{
-    DiffReviewEvent, DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
-    MarkdownReviewWidget, handle_crossterm_event, handle_markdown_crossterm_event,
-};
-use diff_watch::RepositoryWatcher;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     env,
@@ -581,7 +581,7 @@ pub enum TuiError {
     #[error(transparent)]
     Transport(#[from] crate::protocol::ProtocolError),
     #[error("Markdown review action failed: {0}")]
-    MarkdownReview(#[from] diff_markdown::MarkdownReviewError),
+    MarkdownReview(#[from] clankerdiff_markdown::MarkdownReviewError),
     #[error("terminal or review service I/O failed: {0}")]
     Io(#[from] io::Error),
 }

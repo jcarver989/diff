@@ -2,7 +2,7 @@ use super::{
     test_result::TestResult,
     wait::{assert_pending, wait_for},
 };
-use diff_git::{GitError, RepositorySnapshot};
+use clankerdiff_git::{GitError, RepositorySnapshot};
 use std::sync::Arc;
 use tokio::sync::watch;
 

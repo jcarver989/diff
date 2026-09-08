@@ -1,14 +1,14 @@
 #![allow(clippy::unwrap_used)]
 
-use crossterm::event::{KeyCode, MouseEventKind};
-use diff_markdown::{
+use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownTargetKind,
 };
-use diff_ratatui::MarkdownReviewState;
-use diff_ratatui::testing::{
+use clankerdiff_ratatui::MarkdownReviewState;
+use clankerdiff_ratatui::testing::{
     markdown_key as key, markdown_mouse as mouse, render_markdown_review as draw,
     type_markdown_text as type_text,
 };
+use crossterm::event::{KeyCode, MouseEventKind};
 use std::sync::Arc;
 
 fn document() -> Arc<MarkdownDocument> {

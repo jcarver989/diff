@@ -1,6 +1,6 @@
 //! Errors produced by native Git and filesystem operations.
 
-use diff_core::{DiffError, RepoPathError};
+use clankerdiff_core::{DiffError, RepoPathError};
 use std::{io, path::PathBuf};
 
 /// An error from repository discovery, Git execution, or worktree access.

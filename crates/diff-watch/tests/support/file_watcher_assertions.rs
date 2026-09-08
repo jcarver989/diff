@@ -1,5 +1,5 @@
 use super::wait::{assert_pending, wait_for};
-use diff_watch::file_watcher::FileWatcher;
+use clankerdiff_watch::file_watcher::FileWatcher;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 

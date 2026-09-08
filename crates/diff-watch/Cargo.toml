@@ -1,5 +1,5 @@
 [package]
-name = "diff-watch"
+name = "clankerdiff-watch"
 description = "Native filesystem watching and coalesced Git snapshot publication"
 version.workspace = true
 edition.workspace = true
@@ -22,14 +22,14 @@ workspace = true
 test-support = []
 
 [dependencies]
-diff-core = { version = "0.1.0", path = "../diff-core" }
-diff-git = { version = "0.1.0", path = "../diff-git" }
+clankerdiff-core = { version = "0.1.0", path = "../diff-core" }
+clankerdiff-git = { version = "0.1.0", path = "../diff-git" }
 notify.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
-diff-watch = { path = ".", features = ["test-support"] }
-diff-git = { path = "../diff-git", features = ["test-support"] }
+clankerdiff-watch = { path = ".", features = ["test-support"] }
+clankerdiff-git = { path = "../diff-git", features = ["test-support"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -11,11 +11,11 @@ pub mod session;
 pub mod testing;
 
 pub use anchor::LineAnchor;
+pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId};
 pub use content::{
     MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceDocument, SourceLineRef, SourceLocation,
     SourceResult, SourceUnavailable,
 };
-pub use diff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId};
 pub use error::{DiffError, ParseDiffScopeError, RepoPathError};
 pub use models as model;
 pub use models::{

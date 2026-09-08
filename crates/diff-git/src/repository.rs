@@ -1,7 +1,7 @@
 //! Concrete native Git repository service.
 
 use crate::{GitError, command, command::CatFileBatch, path};
-use diff_core::{
+use clankerdiff_core::{
     DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Fingerprint, RepoPath,
     RepositoryAction, SourceDocument, SourceResult, SourceUnavailable, UntrackedFile,
     parse_porcelain_v1_z,
@@ -22,7 +22,7 @@ const STATUS_ARGS: [&str; 5] = [
     "-z",
     "--untracked-files=all",
 ];
-pub use diff_core::MAX_SOURCE_FILE_BYTES;
+pub use clankerdiff_core::MAX_SOURCE_FILE_BYTES;
 pub const MAX_SOURCE_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_UNTRACKED_SNAPSHOT_BYTES: u64 = MAX_SOURCE_ARCHIVE_BYTES;
 
@@ -664,7 +664,7 @@ impl GitRepository {
             .filter(|path| !path.is_empty())
         {
             let text = std::str::from_utf8(raw_path)
-                .map_err(diff_core::DiffError::UnsupportedPathEncoding)?;
+                .map_err(clankerdiff_core::DiffError::UnsupportedPathEncoding)?;
             let path = RepoPath::new(text)?;
             let captured = self.read_worktree_bytes(&path).await?;
             let (contents, size) = match captured {

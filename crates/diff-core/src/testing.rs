@@ -52,10 +52,10 @@ impl DocumentBuilder {
     /// update syntax keeps tests focused on the fields that matter:
     ///
     /// ```
-    /// use diff_core::{StageState, testing::DocumentBuilder};
+    /// use clankerdiff_core::{StageState, testing::DocumentBuilder};
     ///
     /// let document = DocumentBuilder::new()
-    ///     .changed_with("src/lib.rs", "old\n", "new\n", |file| diff_core::FileDiff {
+    ///     .changed_with("src/lib.rs", "old\n", "new\n", |file| clankerdiff_core::FileDiff {
     ///         staged: StageState::Staged,
     ///         ..file
     ///     })

@@ -8,7 +8,7 @@ mod wait;
 #[path = "../support/test_result.rs"]
 mod test_result;
 
-use diff_watch::file_watcher::FakeFileWatcher;
+use clankerdiff_watch::file_watcher::FakeFileWatcher;
 use file_watcher_assertions::{assert_invalidated, assert_watcher_closed};
 use test_result::TestResult;
 use wait::wait_for;

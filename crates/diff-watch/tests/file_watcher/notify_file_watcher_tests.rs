@@ -11,7 +11,7 @@ mod wait;
 #[path = "../support/test_result.rs"]
 mod test_result;
 
-use diff_watch::file_watcher::NotifyFileWatcher;
+use clankerdiff_watch::file_watcher::NotifyFileWatcher;
 use file_watcher_assertions::{assert_invalidated, assert_no_invalidation, wait_for_path};
 use std::{fs, future::pending, time::Duration};
 use temp_dir_builder::TempDirBuilder;

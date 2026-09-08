@@ -7,13 +7,13 @@ use crate::{
     style::color,
     ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
 };
-use diff_core::{
+use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffSide, FileStatus, Layout, LineAnchor, PresentedCell,
     PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SessionOptions,
     StageState, ViewMode,
 };
-use diff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
-use diff_theme::DiffTheme;
+use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
+use clankerdiff_theme::DiffTheme;
 use gpui::{
     App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
     ListAlignment, ListOffset, ListState, ScrollHandle, Subscription, Window, actions, div,
@@ -867,7 +867,7 @@ impl DiffViewer {
                     source.text(),
                 )
                 .line_shared(line)
-                .unwrap_or_else(diff_syntax::empty_spans);
+                .unwrap_or_else(clankerdiff_syntax::empty_spans);
         }
         if let Some(sequence) = presentation.hunk_sequence(row, cell) {
             return syntax
@@ -877,7 +877,7 @@ impl DiffViewer {
                     sequence.lines(),
                 )
                 .line_shared(sequence.target_line)
-                .unwrap_or_else(diff_syntax::empty_spans);
+                .unwrap_or_else(clankerdiff_syntax::empty_spans);
         }
         syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
     }
@@ -1558,7 +1558,7 @@ impl Render for DiffViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::testing::DocumentBuilder;
+    use clankerdiff_core::testing::DocumentBuilder;
 
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < f32::EPSILON);
@@ -1609,7 +1609,7 @@ mod tests {
         let rows: Vec<PresentedRow> = viewer.presentation().rows(1_200..1_224).to_vec();
         for _frame in 0..3 {
             for row in &rows {
-                if row.kind != diff_core::RowKind::Code {
+                if row.kind != clankerdiff_core::RowKind::Code {
                     continue;
                 }
                 for cell in row.cells() {

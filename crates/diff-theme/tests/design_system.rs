@@ -1,4 +1,4 @@
-use diff_theme::{
+use clankerdiff_theme::{
     ButtonVariant, ControlState, DiffPalette, InteractionState, NoticeTone, SCRIM_ALPHA,
     SelectionState, UiPalette,
 };

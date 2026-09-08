@@ -1,8 +1,8 @@
 //! State-level contracts for the reusable GPUI viewer.
 
-use diff_core::{DiffSide, Layout, LineAnchor, ViewMode, testing::DocumentBuilder};
-use diff_gpui::{DiffViewer, DiffViewerOptions};
-use diff_theme::{DiffTheme, ThemeId};
+use clankerdiff_core::{DiffSide, Layout, LineAnchor, ViewMode, testing::DocumentBuilder};
+use clankerdiff_gpui::{DiffViewer, DiffViewerOptions};
+use clankerdiff_theme::{DiffTheme, ThemeId};
 
 #[test]
 fn defaults_to_auto_and_indexes_document() {
@@ -32,7 +32,7 @@ fn the_sticky_header_replaces_the_file_header_row() {
             .presentation()
             .rows(0..viewer.presentation().row_count())
             .iter()
-            .all(|row| row.kind != diff_core::RowKind::FileHeader),
+            .all(|row| row.kind != clankerdiff_core::RowKind::FileHeader),
         "the diff pane draws its own file header"
     );
 }

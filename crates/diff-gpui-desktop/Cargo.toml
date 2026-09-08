@@ -1,5 +1,6 @@
 [package]
-name = "diff-gpui-desktop"
+name = "clankerdiff-gpui-desktop"
+publish = false
 description = "Native desktop shell for the GPUI diff viewer"
 version.workspace = true
 edition.workspace = true
@@ -14,12 +15,12 @@ dist = true
 workspace = true
 
 [dependencies]
-diff-core = { path = "../diff-core" }
-diff-markdown = { path = "../diff-markdown", features = ["review"] }
-diff-theme = { path = "../diff-theme" }
-diff-git = { path = "../diff-git" }
-diff-gpui = { path = "../diff-gpui" }
-diff-watch = { path = "../diff-watch" }
+clankerdiff-core = { version = "0.1.0", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.1.0", path = "../diff-markdown", features = ["review"] }
+clankerdiff-theme = { version = "0.1.0", path = "../diff-theme" }
+clankerdiff-git = { version = "0.1.0", path = "../diff-git" }
+clankerdiff-gpui = { version = "0.1.0", path = "../diff-gpui" }
+clankerdiff-watch = { version = "0.1.0", path = "../diff-watch" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui_tokio.workspace = true

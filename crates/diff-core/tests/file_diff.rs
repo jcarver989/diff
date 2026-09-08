@@ -1,4 +1,4 @@
-use diff_core::{
+use clankerdiff_core::{
     DiffError, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath, SourceDocument,
     SourceUnavailable, StageState,
 };

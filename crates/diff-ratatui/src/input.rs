@@ -5,10 +5,10 @@ use crate::{
     state::{RepositoryOperationStatus, RepositoryPrompt},
     theme_picker::{ThemePicker, ThemePickerAction},
 };
+use clankerdiff_core::{DiffSide, RepositoryAction, RevealAmount};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
-use diff_core::{DiffSide, RepositoryAction, RevealAmount};
 use ratatui::layout::Position;
 
 /// Files one wheel notch scrolls the drawer. A notch is a line, not a file, so

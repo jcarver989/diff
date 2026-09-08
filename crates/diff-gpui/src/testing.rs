@@ -5,8 +5,8 @@
 //! rendered element bounds. It deliberately does not use image snapshots.
 
 use crate::{DiffViewer, DiffViewerEvent, DiffViewerOptions};
-use diff_core::{DiffDocument, testing::DocumentBuilder};
-use diff_theme::DiffTheme;
+use clankerdiff_core::{DiffDocument, testing::DocumentBuilder};
+use clankerdiff_theme::DiffTheme;
 use gpui::{
     AnyWindowHandle, App, Bounds, Context, Entity, InputEvent, ListOffset, Pixels, Point, Render,
     ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
@@ -47,8 +47,8 @@ impl Render for HarnessRoot {
 /// Struct-update-friendly configuration for a [`DiffViewerHarness`].
 ///
 /// ```
-/// use diff_core::testing::DocumentBuilder;
-/// use diff_gpui::testing::DiffViewerHarnessBuilder;
+/// use clankerdiff_core::testing::DocumentBuilder;
+/// use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
 ///
 /// let builder = DiffViewerHarnessBuilder {
 ///     document: DocumentBuilder::new()

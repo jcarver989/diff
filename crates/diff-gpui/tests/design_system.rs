@@ -1,5 +1,5 @@
-use diff_gpui::ui::{theme::UiTheme, tokens};
-use diff_theme::{
+use clankerdiff_gpui::ui::{theme::UiTheme, tokens};
+use clankerdiff_theme::{
     ButtonVariant, ControlState, DiffTheme, InteractionState, NoticeTone, SelectionState,
 };
 
@@ -9,15 +9,15 @@ fn semantic_theme_maps_the_diff_palette() {
     let ui = UiTheme::new(&source);
     assert_eq!(
         ui.colors.canvas,
-        diff_gpui::style::color(source.palette().background)
+        clankerdiff_gpui::style::color(source.palette().background)
     );
     assert_eq!(
         ui.colors.accent,
-        diff_gpui::style::color(source.palette().accent)
+        clankerdiff_gpui::style::color(source.palette().accent)
     );
     assert_eq!(
         ui.colors.destructive,
-        diff_gpui::style::color(source.palette().deletion)
+        clankerdiff_gpui::style::color(source.palette().deletion)
     );
     assert!((ui.colors.scrim.a - tokens::SCRIM_OPACITY).abs() < f32::EPSILON);
 }

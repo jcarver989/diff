@@ -1,7 +1,7 @@
 use crate::protocol::{SessionRequest, SessionResponseRef, read_request, write_response};
-use diff_core::ReviewSubmission;
-use diff_git::{GitRepository, RepositorySnapshot};
-use diff_watch::RepositoryWatcher;
+use clankerdiff_core::ReviewSubmission;
+use clankerdiff_git::{GitRepository, RepositorySnapshot};
+use clankerdiff_watch::RepositoryWatcher;
 use std::{
     io,
     os::unix::net::{UnixListener, UnixStream},
@@ -133,9 +133,9 @@ pub enum SessionError {
 mod tests {
     use super::*;
     use crate::protocol::{SessionRequestRef, SessionResponse, read_response, write_request};
-    use diff_core::{DiffDocument, DiffScope, RepoPath, RepositoryAction, StageState};
-    use diff_git::testing::{RepoFixture, RepoFixtureBuilder};
-    use diff_watch::WatchOptions;
+    use clankerdiff_core::{DiffDocument, DiffScope, RepoPath, RepositoryAction, StageState};
+    use clankerdiff_git::testing::{RepoFixture, RepoFixtureBuilder};
+    use clankerdiff_watch::WatchOptions;
     use std::{
         fs,
         os::unix::net::UnixStream,

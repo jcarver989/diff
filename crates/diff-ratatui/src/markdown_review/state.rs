@@ -1,8 +1,10 @@
 use super::layout::MarkdownVisualLayout;
 use crate::theme_picker::ThemePicker;
-use diff_markdown::{MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId};
-use diff_syntax::{HighlightStats, SyntaxHighlighter};
-use diff_theme::DiffTheme;
+use clankerdiff_markdown::{
+    MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId,
+};
+use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
+use clankerdiff_theme::DiffTheme;
 use ratatui::layout::{Position, Rect};
 use std::{
     hash::{Hash, Hasher},

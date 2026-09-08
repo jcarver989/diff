@@ -1,7 +1,7 @@
 #![cfg(feature = "agent-languages")]
 
-use diff_syntax::{LanguageHint, SyntaxHighlighter, resolve_language};
-use diff_theme::SyntaxTheme;
+use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter, resolve_language};
+use clankerdiff_theme::SyntaxTheme;
 
 #[test]
 fn agent_bundle_resolves_representative_families_and_excludes_nginx() {

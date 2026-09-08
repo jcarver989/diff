@@ -1,5 +1,6 @@
 [package]
-name = "diff-gpui"
+name = "clankerdiff-gpui"
+publish = false
 description = "Reusable GPUI diff review component"
 version.workspace = true
 edition.workspace = true
@@ -8,16 +9,16 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-test-support = ["diff-core/test-support", "gpui/test-support"]
+test-support = ["clankerdiff-core/test-support", "gpui/test-support"]
 
 [lints]
 workspace = true
 
 [dependencies]
-diff-core = { path = "../diff-core" }
-diff-markdown = { path = "../diff-markdown", features = ["review"] }
-diff-syntax = { path = "../diff-syntax" }
-diff-theme = { path = "../diff-theme" }
+clankerdiff-core = { version = "0.1.0", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.1.0", path = "../diff-markdown", features = ["review"] }
+clankerdiff-syntax = { version = "0.1.0", path = "../diff-syntax" }
+clankerdiff-theme = { version = "0.1.0", path = "../diff-theme" }
 gpui.workspace = true
 
 [[test]]
@@ -25,6 +26,6 @@ name = "rendered"
 required-features = ["test-support"]
 
 [dev-dependencies]
-diff-core = { path = "../diff-core", features = ["test-support"] }
+clankerdiff-core = { path = "../diff-core", features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 gpui_platform.workspace = true

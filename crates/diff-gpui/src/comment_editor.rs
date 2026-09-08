@@ -1,5 +1,5 @@
 use crate::style;
-use diff_theme::DiffTheme;
+use clankerdiff_theme::DiffTheme;
 use gpui::{
     App, Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler, FocusHandle,
     Focusable, KeyDownEvent, MouseButton, Pixels, UTF16Selection, Window, canvas, div, prelude::*,

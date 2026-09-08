@@ -1,7 +1,7 @@
 //! GPUI-facing semantic theme tokens.
 
 use crate::style::color;
-use diff_theme::{
+use clankerdiff_theme::{
     ButtonVariant, ControlState, DiffTheme, NoticeTone, SelectionState, SemanticStyle, UiPalette,
 };
 use gpui::Hsla;

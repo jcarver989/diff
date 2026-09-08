@@ -1,9 +1,9 @@
-use diff_core::{DiffScope, ParseDiffScopeError};
+use clankerdiff_core::{DiffScope, ParseDiffScopeError};
 use std::{ffi::OsString, path::PathBuf};
 use thiserror::Error;
 
 /// Desktop command-line usage text.
-pub const USAGE: &str = "Usage: diff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n  -h, --help           Print help";
+pub const USAGE: &str = "Usage: clankerdiff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n  -h, --help           Print help";
 
 /// Arguments accepted by the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]

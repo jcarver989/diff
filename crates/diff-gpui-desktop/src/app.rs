@@ -1,14 +1,14 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
 use crate::{args::CliArgs, preferences, window_chrome};
-use diff_core::{DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
-use diff_git::{GitError, GitRepository, RepositorySnapshot};
-use diff_gpui::{
+use clankerdiff_core::{DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
+use clankerdiff_git::{GitError, GitRepository, RepositorySnapshot};
+use clankerdiff_gpui::{
     DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
-use diff_theme::DiffTheme;
-use diff_watch::{RepositoryRequest, RepositoryWatcher, WatchError, WatchOptions};
+use clankerdiff_theme::DiffTheme;
+use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchError, WatchOptions};
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
@@ -397,7 +397,7 @@ impl Render for DesktopApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::{Review, ReviewSubmission};
+    use clankerdiff_core::{Review, ReviewSubmission};
 
     #[test]
     fn maps_host_events_without_opening_a_window() {

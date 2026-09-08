@@ -2,8 +2,8 @@
 mod highlight;
 mod language;
 
-pub use diff_fingerprint::SourceSequenceId;
-pub use diff_theme::{
+pub use clankerdiff_fingerprint::SourceSequenceId;
+pub use clankerdiff_theme::{
     DiffPalette, DiffTheme, FontStyle, HighlightSpan, Rgba, SyntaxStyle, SyntaxTheme,
 };
 pub use highlight::{

@@ -5,7 +5,7 @@ use super::{
     theme::UiTheme,
     tokens,
 };
-use diff_theme::SelectionState;
+use clankerdiff_theme::SelectionState;
 use gpui::{
     App, ClickEvent, IntoElement, ParentElement, RenderOnce, SharedString, Window, div, prelude::*,
 };

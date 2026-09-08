@@ -1,6 +1,6 @@
-use diff_core::DiffDocument;
-use diff_markdown::MarkdownDocument;
-use diff_theme::DiffTheme;
+use clankerdiff_core::DiffDocument;
+use clankerdiff_markdown::MarkdownDocument;
+use clankerdiff_theme::DiffTheme;
 use serde::{Deserialize, Serialize};
 
 /// Errors returned while validating commands from JavaScript.
@@ -201,13 +201,13 @@ mod wasm {
         demo_document, document_update_decision,
     };
     use async_channel::{Receiver, Sender};
-    use diff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission};
-    use diff_gpui::{
+    use clankerdiff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission};
+    use clankerdiff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
         load_default_fonts,
     };
-    use diff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
-    use diff_theme::DiffTheme;
+    use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
+    use clankerdiff_theme::DiffTheme;
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
         Window, WindowBounds, WindowOptions, prelude::*, px, size,
@@ -453,7 +453,7 @@ mod wasm {
 
     fn dispatch_repository_action(
         request_id: u64,
-        action: &diff_core::RepositoryAction,
+        action: &clankerdiff_core::RepositoryAction,
     ) -> Result<(), JsValue> {
         let json = serde_json::to_string(
             &serde_json::json!({ "request_id": request_id, "action": action }),
@@ -696,7 +696,7 @@ pub use wasm::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_theme::ThemeId;
+    use clankerdiff_theme::ThemeId;
 
     #[test]
     fn completion_is_request_scoped_and_independent_of_content() {

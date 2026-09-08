@@ -1,12 +1,12 @@
 #![allow(missing_docs)]
 
-use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use crossterm::event::KeyCode;
-use diff_core::{
+use clankerdiff_core::{
     ContentProjection, DiffDocument, DiffPresentation, PresentationOptions,
     testing::DocumentBuilder,
 };
-use diff_ratatui::DiffReviewState;
+use clankerdiff_ratatui::DiffReviewState;
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use crossterm::event::KeyCode;
 use std::{hint::black_box, sync::Arc};
 
 #[path = "../tests/support/mod.rs"]
@@ -34,7 +34,7 @@ const FILE_SWITCHES: u64 = 50;
 fn presentation_creation(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("presentation_creation");
     group.sample_size(20);
-    let theme = diff_theme::DiffTheme::default();
+    let theme = clankerdiff_theme::DiffTheme::default();
     for rows in [1_000, 10_000, 100_000] {
         let document = large_document(rows);
         group.bench_with_input(BenchmarkId::from_parameter(rows), &rows, |bencher, _| {

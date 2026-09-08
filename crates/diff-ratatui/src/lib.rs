@@ -1,6 +1,6 @@
 //! An embeddable, repository-agnostic Ratatui diff review widget.
-//! Hosts provide [`diff_core::DiffDocument`] snapshots and route emitted
-//! [`diff_core::DiffReviewEvent`] values. This crate never executes Git.
+//! Hosts provide [`clankerdiff_core::DiffDocument`] snapshots and route emitted
+//! [`clankerdiff_core::DiffReviewEvent`] values. This crate never executes Git.
 
 #[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 mod annotation;
@@ -57,4 +57,4 @@ pub use syntax::highlighted_line;
 
 /// Review event emitted to the embedding host.
 #[cfg(feature = "diff-review")]
-pub type DiffReviewEvent = diff_core::DiffReviewEvent;
+pub type DiffReviewEvent = clankerdiff_core::DiffReviewEvent;

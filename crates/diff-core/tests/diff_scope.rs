@@ -1,4 +1,4 @@
-use diff_core::{DiffScope, ParseDiffScopeError};
+use clankerdiff_core::{DiffScope, ParseDiffScopeError};
 
 #[test]
 fn parses_and_renders_scopes() -> Result<(), ParseDiffScopeError> {

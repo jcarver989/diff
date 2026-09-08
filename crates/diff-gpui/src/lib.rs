@@ -1,6 +1,6 @@
 //! A reusable, renderer-only GPUI diff review component.
 //!
-//! [`DiffViewer`] accepts an immutable [`diff_core::DiffDocument`] snapshot and
+//! [`DiffViewer`] accepts an immutable [`clankerdiff_core::DiffDocument`] snapshot and
 //! clipboard policy, and agent communication belong to the embedding shell.
 
 mod annotation;
@@ -17,8 +17,8 @@ pub mod testing;
 pub mod ui;
 mod viewer;
 
-pub use diff_core::DiffReviewEvent as DiffViewerEvent;
-pub use diff_markdown::MarkdownReviewEvent as MarkdownReviewerEvent;
+pub use clankerdiff_core::DiffReviewEvent as DiffViewerEvent;
+pub use clankerdiff_markdown::MarkdownReviewEvent as MarkdownReviewerEvent;
 pub use fonts::{DEFAULT_FONT_FAMILY, load_default_fonts};
 
 /// Emitted when an in-app theme selection is committed.

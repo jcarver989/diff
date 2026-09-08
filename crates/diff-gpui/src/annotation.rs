@@ -1,5 +1,5 @@
 use crate::style;
-use diff_theme::DiffPalette;
+use clankerdiff_theme::DiffPalette;
 use gpui::{Div, SharedString, div, prelude::*, px};
 
 /// Builds a hover-revealed add-comment affordance.

@@ -1,6 +1,6 @@
 //! Conversion of renderer-neutral syntax spans to Ratatui text.
 
-use diff_syntax::HighlightSpan;
+use clankerdiff_syntax::HighlightSpan;
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -56,7 +56,7 @@ pub fn highlighted_line(source: &str, spans: &[HighlightSpan], base: Style) -> L
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_theme::{FontStyle, Rgba};
+    use clankerdiff_theme::{FontStyle, Rgba};
 
     #[test]
     fn preserves_utf8_gaps_and_base_background() {

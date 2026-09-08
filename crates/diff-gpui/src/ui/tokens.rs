@@ -1,7 +1,7 @@
 //! Shared measurements for the GPUI visual language.
 
 /// Standard overlay opacity.
-pub const SCRIM_OPACITY: f32 = diff_theme::SCRIM_ALPHA as f32 / 255.0;
+pub const SCRIM_OPACITY: f32 = clankerdiff_theme::SCRIM_ALPHA as f32 / 255.0;
 /// Small control horizontal padding.
 pub const CONTROL_PADDING_X_SMALL: f32 = 8.0;
 /// Medium control horizontal padding.

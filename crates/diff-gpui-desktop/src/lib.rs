@@ -9,9 +9,9 @@ mod window_chrome;
 
 use app::DesktopApp;
 use args::CliArgs;
-use diff_core::ReviewSubmission;
-use diff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
-use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
+use clankerdiff_core::ReviewSubmission;
+use clankerdiff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use gpui::{
     App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };

@@ -1,4 +1,4 @@
-use diff_core::{DiffDocument, DiffSide, FileDiff, SourceUnavailable};
+use clankerdiff_core::{DiffDocument, DiffSide, FileDiff, SourceUnavailable};
 use std::error::Error;
 
 #[test]
@@ -43,7 +43,7 @@ fn documents_round_trip_complete_sources_and_accept_patch_only_json() -> Result<
 
 #[test]
 fn model_namespaces_reexport_the_same_types() {
-    let document: diff_core::models::DiffDocument = DiffDocument::empty();
-    let legacy: diff_core::model::DiffDocument = document.clone();
+    let document: clankerdiff_core::models::DiffDocument = DiffDocument::empty();
+    let legacy: clankerdiff_core::model::DiffDocument = document.clone();
     assert_eq!(legacy, document);
 }

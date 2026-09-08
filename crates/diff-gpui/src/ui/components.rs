@@ -4,7 +4,7 @@ use super::{
     theme::{UiStyle, UiTheme},
     tokens,
 };
-pub use diff_theme::{
+pub use clankerdiff_theme::{
     ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone,
     SelectionState,
 };

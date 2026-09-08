@@ -8,7 +8,7 @@ use crate::{
         prelude::{Button, ButtonVariant, ControlSize, icon_button},
     },
 };
-use diff_core::{
+use clankerdiff_core::{
     DiffSide, DiffTone, PresentedCell, PresentedRow, RevealAmount, ReviewComment, RowKind,
 };
 use gpui::{
@@ -682,7 +682,7 @@ fn set_scrollbar_from_pointer(list_state: &ListState, pointer_y: Pixels, thumb_o
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::testing::DocumentBuilder;
+    use clankerdiff_core::testing::DocumentBuilder;
 
     #[test]
     fn scrollbar_drag_releases_frozen_height_on_drop() {

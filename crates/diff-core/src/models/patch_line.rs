@@ -1,5 +1,5 @@
 use super::DiffSide;
-use diff_theme::DiffTone;
+use clankerdiff_theme::DiffTone;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

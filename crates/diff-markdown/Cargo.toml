@@ -1,5 +1,5 @@
 [package]
-name = "diff-markdown"
+name = "clankerdiff-markdown"
 description = "Portable semantic Markdown parsing and review state"
 version.workspace = true
 edition.workspace = true
@@ -15,7 +15,7 @@ review = []
 workspace = true
 
 [dependencies]
-diff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
+clankerdiff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
 pulldown-cmark.workspace = true
 serde.workspace = true
 thiserror.workspace = true

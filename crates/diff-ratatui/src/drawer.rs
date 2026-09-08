@@ -1,4 +1,4 @@
-use diff_core::{DiffDocument, RepoPath, StageState};
+use clankerdiff_core::{DiffDocument, RepoPath, StageState};
 use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,7 +262,7 @@ fn collect_visible(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::testing::DocumentBuilder;
+    use clankerdiff_core::testing::DocumentBuilder;
 
     fn nested_document() -> std::sync::Arc<DiffDocument> {
         DocumentBuilder::new()

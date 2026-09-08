@@ -1,5 +1,5 @@
 [package]
-name = "diff-fingerprint"
+name = "clankerdiff-fingerprint"
 description = "Content fingerprints shared by the Diff crates"
 version.workspace = true
 edition.workspace = true

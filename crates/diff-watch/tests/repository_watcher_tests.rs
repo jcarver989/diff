@@ -5,12 +5,12 @@ mod test_result;
 #[path = "support/wait.rs"]
 mod wait;
 
-use diff_core::{DiffScope, RepoPath, RepositoryAction, StageState};
-use diff_git::{
+use clankerdiff_core::{DiffScope, RepoPath, RepositoryAction, StageState};
+use clankerdiff_git::{
     RepositorySnapshot,
     testing::{RepoFixture, RepoFixtureBuilder},
 };
-use diff_watch::{RepositoryRequest, RepositoryWatcher, WatchOptions};
+use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchOptions};
 use repository_watcher_assertions::{assert_snapshot_unchanged, wait_for_snapshot};
 use std::time::Duration;
 use test_result::TestResult;
@@ -100,7 +100,7 @@ async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
     repository
         .apply(RepositoryAction::Discard {
             path: RepoPath::new("file.txt")?,
-            status: diff_core::FileStatus::Modified,
+            status: clankerdiff_core::FileStatus::Modified,
         })
         .await?;
 

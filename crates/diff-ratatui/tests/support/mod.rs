@@ -1,3 +1,3 @@
 #![allow(unused_imports)]
 
-pub use diff_ratatui::testing::*;
+pub use clankerdiff_ratatui::testing::*;

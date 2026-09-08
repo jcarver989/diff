@@ -1,7 +1,7 @@
 //! Diff-specific adaptation from review annotations to visual patch rows.
 
 use crate::annotation::{AnnotationBox, AnnotationKind, AnnotationLayout, AnnotationRow};
-use diff_core::{CommentDraft, ReviewComment, ReviewSession};
+use clankerdiff_core::{CommentDraft, ReviewComment, ReviewSession};
 use std::{collections::BTreeMap, ops::Range};
 
 pub(crate) type PatchVisualRow<'a> = AnnotationRow<'a>;
@@ -87,7 +87,7 @@ fn draft_box(draft: &CommentDraft, width: u16) -> AnnotationBox {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::testing::DocumentBuilder;
+    use clankerdiff_core::testing::DocumentBuilder;
 
     #[test]
     fn adapts_diff_comments_without_changing_their_order() {

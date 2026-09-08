@@ -7,9 +7,9 @@
 use crate::{DiffReviewInput, DiffReviewState, DiffReviewWidget};
 #[cfg(feature = "markdown-review")]
 use crate::{MarkdownReviewInput, MarkdownReviewState, MarkdownReviewWidget};
+use clankerdiff_core::DiffDocument;
+use clankerdiff_syntax::HighlightStats;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use diff_core::DiffDocument;
-use diff_syntax::HighlightStats;
 use ratatui::{
     Terminal,
     backend::{Backend, ClearType, TestBackend, WindowSize},
@@ -119,8 +119,8 @@ pub struct FrameStats {
 /// Struct-update-friendly configuration for a [`ReviewHarness`].
 ///
 /// ```
-/// use diff_core::testing::DocumentBuilder;
-/// use diff_ratatui::testing::ReviewHarnessBuilder;
+/// use clankerdiff_core::testing::DocumentBuilder;
+/// use clankerdiff_ratatui::testing::ReviewHarnessBuilder;
 ///
 /// let mut harness = ReviewHarnessBuilder {
 ///     document: DocumentBuilder::new().changed("a.rs", "old\n", "new\n").build(),

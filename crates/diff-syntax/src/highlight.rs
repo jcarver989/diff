@@ -4,8 +4,8 @@ use crate::language::{LanguageHint, resolve_language};
 use arborium::{Config, Highlighter};
 use arborium_highlight::spans_to_flat_tokens;
 use arborium_theme::tag_to_name;
-use diff_fingerprint::SourceSequenceId;
-use diff_theme::{DiffTheme, Fingerprint, HighlightSpan, SyntaxTheme};
+use clankerdiff_fingerprint::SourceSequenceId;
+use clankerdiff_theme::{DiffTheme, Fingerprint, HighlightSpan, SyntaxTheme};
 use std::{
     collections::{HashMap, VecDeque},
     fmt,

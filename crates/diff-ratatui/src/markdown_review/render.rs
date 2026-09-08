@@ -13,7 +13,7 @@ use crate::{
     },
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use diff_syntax::HighlightSpan;
+use clankerdiff_syntax::HighlightSpan;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},

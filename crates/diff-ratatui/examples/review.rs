@@ -1,13 +1,15 @@
-//! Interactive review of a real Git worktree using `diff-ratatui`.
+//! Interactive review of a real Git worktree using `clankerdiff-ratatui`.
 
+use clankerdiff_core::{DiffDocument, DiffScope, ReviewSubmission};
+use clankerdiff_git::GitRepository;
+use clankerdiff_ratatui::{
+    DiffReviewEvent, DiffReviewState, DiffReviewWidget, handle_crossterm_event,
+};
 use crossterm::{
     event::{self, Event},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_core::{DiffDocument, DiffScope, ReviewSubmission};
-use diff_git::GitRepository;
-use diff_ratatui::{DiffReviewEvent, DiffReviewState, DiffReviewWidget, handle_crossterm_event};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     env,
@@ -18,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-const USAGE: &str = "Usage: cargo run -p diff-ratatui --example review -- [PATH] [--scope SCOPE]\n\nScopes:\n  both       staged and unstaged changes (default)\n  unstaged   worktree changes only\n  staged     index changes only\n\nKeys:\n  j/k        move through files or lines\n  h/l, Tab   switch between file and diff panes\n  c          add a comment to the selected line\n  e/x/u      edit, delete, or undo a comment\n  v          cycle automatic, unified, and split views\n  s          submit the review and print it\n  y          copy event (printed after leaving the TUI)\n  ?          show all shortcuts\n  Esc        exit";
+const USAGE: &str = "Usage: cargo run -p clankerdiff-ratatui --example review -- [PATH] [--scope SCOPE]\n\nScopes:\n  both       staged and unstaged changes (default)\n  unstaged   worktree changes only\n  staged     index changes only\n\nKeys:\n  j/k        move through files or lines\n  h/l, Tab   switch between file and diff panes\n  c          add a comment to the selected line\n  e/x/u      edit, delete, or undo a comment\n  v          cycle automatic, unified, and split views\n  s          submit the review and print it\n  y          copy event (printed after leaving the TUI)\n  ?          show all shortcuts\n  Esc        exit";
 
 #[derive(Debug)]
 struct Options {

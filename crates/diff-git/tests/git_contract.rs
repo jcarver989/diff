@@ -1,10 +1,10 @@
-//! Contracts between `diff-git`, the real Git executable, and `diff-core`.
+//! Contracts between `clankerdiff-git`, the real Git executable, and `clankerdiff-core`.
 
-use diff_core::{
+use clankerdiff_core::{
     DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath,
     RepositoryAction, SourceResult, SourceUnavailable, StageState,
 };
-use diff_git::{
+use clankerdiff_git::{
     GitError, GitRepository, MAX_SOURCE_FILE_BYTES, RepositorySnapshot,
     testing::{RepoFixture, RepoFixtureBuilder},
 };
@@ -497,7 +497,7 @@ async fn snapshot_rejects_non_utf8_repository_paths() {
     assert!(matches!(
         repo.repository().await.snapshot(DiffScope::Unstaged).await,
         Err(GitError::Diff(
-            diff_core::DiffError::UnsupportedPathEncoding(_)
+            clankerdiff_core::DiffError::UnsupportedPathEncoding(_)
         ))
     ));
 }

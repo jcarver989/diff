@@ -1,4 +1,4 @@
-use diff_git::GitRepository;
+use clankerdiff_git::GitRepository;
 use std::path::{Component, Path, PathBuf};
 
 const GIT_METADATA_ENTRIES: [&str; 7] = [

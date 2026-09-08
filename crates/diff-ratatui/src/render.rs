@@ -11,9 +11,9 @@ use crate::{
     ui::{ActionBar, AppFrame, EmptyState, Modal, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use diff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
-use diff_syntax::{HighlightSpan, SyntaxHighlighter};
-use diff_theme::DiffTheme;
+use clankerdiff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
+use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
+use clankerdiff_theme::DiffTheme;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Position, Rect},
@@ -213,13 +213,12 @@ fn render_drawer(
                     continue;
                 };
                 let status_color = match file.status {
-                    diff_core::FileStatus::Added | diff_core::FileStatus::Untracked => {
-                        theme.addition
-                    }
-                    diff_core::FileStatus::Deleted => theme.deletion,
-                    diff_core::FileStatus::Modified
-                    | diff_core::FileStatus::Renamed
-                    | diff_core::FileStatus::Copied => theme.ui.accent,
+                    clankerdiff_core::FileStatus::Added
+                    | clankerdiff_core::FileStatus::Untracked => theme.addition,
+                    clankerdiff_core::FileStatus::Deleted => theme.deletion,
+                    clankerdiff_core::FileStatus::Modified
+                    | clankerdiff_core::FileStatus::Renamed
+                    | clankerdiff_core::FileStatus::Copied => theme.ui.accent,
                 };
                 Paragraph::new(Line::from(vec![
                     Span::raw("  ".repeat(*depth)),
@@ -264,11 +263,11 @@ fn render_drawer(
     rows
 }
 
-const fn stage_marker(state: diff_core::StageState) -> &'static str {
+const fn stage_marker(state: clankerdiff_core::StageState) -> &'static str {
     match state {
-        diff_core::StageState::Unstaged => "☐",
-        diff_core::StageState::Staged => "☑",
-        diff_core::StageState::PartiallyStaged => "◩",
+        clankerdiff_core::StageState::Unstaged => "☐",
+        clankerdiff_core::StageState::Staged => "☑",
+        clankerdiff_core::StageState::PartiallyStaged => "◩",
     }
 }
 
@@ -372,7 +371,10 @@ fn render_patch(
     );
 }
 
-fn file_stats(session: &diff_core::ReviewSession, row: &PresentedRow) -> Option<(usize, usize)> {
+fn file_stats(
+    session: &clankerdiff_core::ReviewSession,
+    row: &PresentedRow,
+) -> Option<(usize, usize)> {
     (row.kind == RowKind::FileHeader)
         .then(|| session.document().files.get(row.file_index))
         .flatten()
@@ -381,8 +383,8 @@ fn file_stats(session: &diff_core::ReviewSession, row: &PresentedRow) -> Option<
 
 struct RowStyle {
     selected: bool,
-    selected_side: diff_core::DiffSide,
-    layout: diff_core::Layout,
+    selected_side: clankerdiff_core::DiffSide,
+    layout: clankerdiff_core::Layout,
     file_stats: Option<(usize, usize)>,
 }
 
@@ -390,7 +392,7 @@ struct CellContext<'a> {
     theme: &'a RatatuiTheme,
     diff_theme: &'a DiffTheme,
     highlighter: &'a mut SyntaxHighlighter,
-    presentation: &'a diff_core::DiffPresentation,
+    presentation: &'a clankerdiff_core::DiffPresentation,
     row: &'a PresentedRow,
 }
 
@@ -468,7 +470,7 @@ fn render_row(
                 buffer,
                 context,
                 row.left.as_ref(),
-                focused(diff_core::DiffSide::Old),
+                focused(clankerdiff_core::DiffSide::Old),
             );
             render_separator(separator, buffer, context.theme);
             render_cell(
@@ -476,7 +478,7 @@ fn render_row(
                 buffer,
                 context,
                 row.right.as_ref(),
-                focused(diff_core::DiffSide::New),
+                focused(clankerdiff_core::DiffSide::New),
             );
         }
         RowKind::Code | RowKind::ExpandedContext => {

@@ -2,14 +2,16 @@
 
 mod support;
 
-use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use diff_core::{
+use clankerdiff_core::{
     DiffDocument, DiffReviewEvent, DiffSide, FileDiff, Layout, LineAnchor, PatchLine,
     PatchLineKind, RepositoryAction, Review, RowKind, SourceUnavailable, StageState, ViewMode,
     testing::DocumentBuilder,
 };
-use diff_ratatui::{DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane, RatatuiTheme};
-use diff_theme::DiffTheme;
+use clankerdiff_ratatui::{
+    DiffReviewInput, DiffReviewState, DiffReviewWidget, FocusPane, RatatuiTheme,
+};
+use clankerdiff_theme::DiffTheme;
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{Terminal, backend::TestBackend, layout::Position};
 use std::{fmt::Write, sync::Arc};
 use support::{key, key_with, mouse};
@@ -376,7 +378,7 @@ fn snapshot_replacement_preserves_scroll_selection_and_draft() {
             .state()
             .session()
             .draft()
-            .map(diff_core::CommentDraft::body),
+            .map(clankerdiff_core::CommentDraft::body),
         Some("keep me")
     );
 }

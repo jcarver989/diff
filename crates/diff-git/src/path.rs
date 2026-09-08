@@ -1,7 +1,7 @@
 //! Safe conversion from repository paths to host filesystem paths.
 
 use crate::GitError;
-use diff_core::RepoPath;
+use clankerdiff_core::RepoPath;
 use std::path::{Component, Path, PathBuf};
 
 pub(crate) fn lexical_path(root: &Path, path: &RepoPath) -> Result<PathBuf, GitError> {

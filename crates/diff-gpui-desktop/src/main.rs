@@ -1,6 +1,6 @@
 //! Native GPUI shell for reviewing changes in a local Git repository.
 
-use diff_gpui_desktop::{
+use clankerdiff_gpui_desktop::{
     args::{ArgsError, CliArgs, USAGE},
     run,
 };

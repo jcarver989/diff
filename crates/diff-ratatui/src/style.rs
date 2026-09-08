@@ -1,7 +1,7 @@
 //! Ratatui conversions for renderer-neutral diff themes.
 
-use diff_core::DiffTone;
-use diff_theme::{
+use clankerdiff_core::DiffTone;
+use clankerdiff_theme::{
     ButtonVariant, ControlState, DiffTheme, FontStyle, ModalSize, NoticeTone, Rgba, SelectionState,
     SemanticStyle, UiPalette,
 };

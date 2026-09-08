@@ -1,4 +1,4 @@
-use diff_theme::{FontStyle, Rgba, SyntaxStyle, SyntaxTheme};
+use clankerdiff_theme::{FontStyle, Rgba, SyntaxStyle, SyntaxTheme};
 
 #[test]
 fn builder_provides_capture_fallback_and_revision() {

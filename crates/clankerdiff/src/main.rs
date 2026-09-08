@@ -7,12 +7,12 @@ mod tui;
 use args::{
     CapabilitiesArgs, Cli, Command, MarkdownArgs, OutputFormat, ReviewArgs, TuiPlacement, Ui,
 };
+use clankerdiff_core::ReviewSubmission;
+use clankerdiff_git::GitRepository;
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission};
 use clankerdiff_protocol::{CapabilityResponse, PROTOCOL_VERSION, ReviewOutcome, ReviewResponse};
+use clankerdiff_watch::{RepositoryWatcher, WatchOptions};
 use clap::Parser;
-use diff_core::ReviewSubmission;
-use diff_git::GitRepository;
-use diff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission};
-use diff_watch::{RepositoryWatcher, WatchOptions};
 use std::{
     fs,
     io::{self, Read, Write},
@@ -62,10 +62,12 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
     let repository = GitRepository::discover(&args.repository).await?;
     let root = repository.root().to_path_buf();
     let submission = match args.ui {
-        Ui::Desktop => diff_gpui_desktop::run_review(diff_gpui_desktop::args::CliArgs {
-            repository: root.clone(),
-            scope: args.scope,
-        }),
+        Ui::Desktop => {
+            clankerdiff_gpui_desktop::run_review(clankerdiff_gpui_desktop::args::CliArgs {
+                repository: root.clone(),
+                scope: args.scope,
+            })
+        }
         Ui::Tui => {
             let watcher =
                 RepositoryWatcher::spawn(repository.clone(), args.scope, WatchOptions::default())
@@ -129,7 +131,7 @@ fn run_markdown(args: &MarkdownArgs) -> Result<ReviewResponse, AppError> {
     let document = MarkdownDocument::parse_with_metadata(source_path.clone(), title, source);
     let submission = match args.ui {
         Ui::Tui => tui::run_markdown(Arc::new(document))?,
-        Ui::Desktop => diff_gpui_desktop::run_markdown_review(document),
+        Ui::Desktop => clankerdiff_gpui_desktop::run_markdown_review(document),
     };
     let outcome =
         submission
@@ -240,9 +242,9 @@ fn text_feedback(submission: &ReviewSubmission) -> &str {
 #[derive(Debug, Error)]
 enum AppError {
     #[error(transparent)]
-    Git(#[from] diff_git::GitError),
+    Git(#[from] clankerdiff_git::GitError),
     #[error(transparent)]
-    Watch(#[from] diff_watch::WatchError),
+    Watch(#[from] clankerdiff_watch::WatchError),
     #[error("Markdown input path is a directory: {0}")]
     MarkdownDirectory(String),
     #[error("Markdown input is not valid UTF-8: {0}")]
@@ -264,8 +266,8 @@ enum AppError {
 #[cfg(test)]
 mod tests {
     use crate::{markdown_text_feedback, text_feedback};
-    use diff_core::Review;
-    use diff_markdown::{MarkdownReview, MarkdownReviewDecision};
+    use clankerdiff_core::Review;
+    use clankerdiff_markdown::{MarkdownReview, MarkdownReviewDecision};
 
     #[test]
     fn markdown_decisions_have_explicit_text() {

@@ -1,12 +1,12 @@
 //! Read-only whole-document and append-stream Markdown rendering.
 
 use crate::syntax::highlighted_line;
-use diff_markdown::{
+use clankerdiff_markdown::{
     FenceContinuation, MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownInline,
     MarkdownStream,
 };
-use diff_syntax::{LanguageHint, SyntaxHighlighter, SyntaxStream};
-use diff_theme::{Fingerprint, HighlightSpan, ReviewTheme, Rgba};
+use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter, SyntaxStream};
+use clankerdiff_theme::{Fingerprint, HighlightSpan, ReviewTheme, Rgba};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},

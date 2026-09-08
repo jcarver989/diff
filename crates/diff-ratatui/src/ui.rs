@@ -1,8 +1,8 @@
 //! Renderer-native components backed by shared semantic design roles.
 
 use crate::{RatatuiTheme, RatatuiUiTheme};
-use diff_theme::ControlState;
-pub use diff_theme::{ButtonVariant, ModalSize, NoticeTone, SelectionState};
+use clankerdiff_theme::ControlState;
+pub use clankerdiff_theme::{ButtonVariant, ModalSize, NoticeTone, SelectionState};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
@@ -228,7 +228,7 @@ pub(crate) fn render_modal_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_theme::DiffTheme;
+    use clankerdiff_theme::DiffTheme;
 
     #[test]
     fn component_gallery_renders_shared_states() {

@@ -1,5 +1,5 @@
-use diff_core::{DiffDocument, testing::DocumentBuilder};
-use diff_gpui::testing::DiffViewerHarnessBuilder;
+use clankerdiff_core::{DiffDocument, testing::DocumentBuilder};
+use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
 use gpui::{TestAppContext, px};
 use std::sync::Arc;
 

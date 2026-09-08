@@ -186,7 +186,7 @@ impl ContentProjection {
     }
 }
 
-pub use diff_theme::DiffTone;
+pub use clankerdiff_theme::DiffTone;
 
 /// Renderer-neutral description of the hunk-side line sequence containing a
 /// patch cell, used to keep multiline syntax context for patch-only files.

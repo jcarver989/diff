@@ -1,4 +1,4 @@
-use diff_core::{DiffDocument, RepositoryAction, ReviewSubmission};
+use clankerdiff_core::{DiffDocument, RepositoryAction, ReviewSubmission};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 use thiserror::Error;

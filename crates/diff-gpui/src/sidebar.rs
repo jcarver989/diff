@@ -1,5 +1,5 @@
 use crate::{DiffViewer, ViewerPane, style::color};
-use diff_core::{DiffDocument, FileStatus, RepoPath, StageState};
+use clankerdiff_core::{DiffDocument, FileStatus, RepoPath, StageState};
 use gpui::{ClickEvent, Context, Div, Empty, Role, Stateful, div, prelude::*, px};
 use std::collections::{BTreeMap, HashSet};
 
@@ -545,7 +545,7 @@ const fn stage_marker(state: StageState) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::testing::DocumentBuilder;
+    use clankerdiff_core::testing::DocumentBuilder;
 
     fn nested_document() -> std::sync::Arc<DiffDocument> {
         DocumentBuilder::new()

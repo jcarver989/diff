@@ -4,8 +4,8 @@
 //! Deserialization accepts unknown fields for forward compatibility, while
 //! [`parse_response`] validates versions and outcome/submission invariants.
 
-use diff_core::{DiffScope, ReviewSubmission};
-use diff_markdown::MarkdownReviewSubmission;
+use clankerdiff_core::{DiffScope, ReviewSubmission};
+use clankerdiff_markdown::MarkdownReviewSubmission;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -91,7 +91,7 @@ impl ReviewResponse {
 }
 
 mod diff_scope {
-    use diff_core::DiffScope;
+    use clankerdiff_core::DiffScope;
     use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
     use std::str::FromStr;
 

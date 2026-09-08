@@ -1,4 +1,4 @@
-use diff_git::GitError;
+use clankerdiff_git::GitError;
 use std::path::PathBuf;
 
 /// A failure while starting, watching, or loading for a [`crate::RepositoryWatcher`].

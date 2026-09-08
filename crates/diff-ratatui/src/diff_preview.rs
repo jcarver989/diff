@@ -1,12 +1,12 @@
 //! Compact, bounded rendering for replaceable in-progress diff previews.
 
 use crate::syntax::highlighted_line;
-use diff_core::{
+use clankerdiff_core::{
     DiffDocument, DiffPresentation, FileDiff, Layout, PresentationOptions, PresentedCell,
     PresentedRow, RowKind, ViewMode,
 };
-use diff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme};
-use diff_theme::{ReviewTheme, Rgba};
+use clankerdiff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme};
+use clankerdiff_theme::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
@@ -59,7 +59,7 @@ pub(crate) fn cell_highlights(
                 source.text(),
             )
             .line_shared(line)
-            .unwrap_or_else(diff_syntax::empty_spans);
+            .unwrap_or_else(clankerdiff_syntax::empty_spans);
     }
     if let Some(sequence) = presentation.hunk_sequence(row, cell) {
         return syntax
@@ -69,7 +69,7 @@ pub(crate) fn cell_highlights(
                 sequence.lines(),
             )
             .line_shared(sequence.target_line)
-            .unwrap_or_else(diff_syntax::empty_spans);
+            .unwrap_or_else(clankerdiff_syntax::empty_spans);
     }
     syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
 }
@@ -204,7 +204,7 @@ const fn color(value: Rgba) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diff_core::testing::DocumentBuilder;
+    use clankerdiff_core::testing::DocumentBuilder;
 
     #[test]
     fn patch_only_cells_keep_multiline_hunk_context() {

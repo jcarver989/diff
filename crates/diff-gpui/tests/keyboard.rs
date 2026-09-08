@@ -1,5 +1,7 @@
-use diff_core::{DiffReviewEvent, RepositoryAction, RowKind, ViewMode, testing::DocumentBuilder};
-use diff_gpui::{DiffViewer, DiffViewerEvent, ViewerPane};
+use clankerdiff_core::{
+    DiffReviewEvent, RepositoryAction, RowKind, ViewMode, testing::DocumentBuilder,
+};
+use clankerdiff_gpui::{DiffViewer, DiffViewerEvent, ViewerPane};
 use gpui::{Context, Entity, Render, TestAppContext, Window, WindowOptions, div, prelude::*};
 
 struct TestRoot {

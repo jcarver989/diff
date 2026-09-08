@@ -1,7 +1,7 @@
-use diff_syntax::{
+use clankerdiff_syntax::{
     CacheConfig, HighlightStats, LanguageHint, SourceSequenceId, SyntaxHighlighter, SyntaxStream,
 };
-use diff_theme::SyntaxTheme;
+use clankerdiff_theme::SyntaxTheme;
 
 #[test]
 fn stream_preserves_multiline_context_and_utf8_ranges() {

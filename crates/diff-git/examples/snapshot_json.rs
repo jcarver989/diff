@@ -1,7 +1,7 @@
 //! Writes a repository diff snapshot as `DiffDocument` JSON.
 
-use diff_core::DiffScope;
-use diff_git::GitRepository;
+use clankerdiff_core::DiffScope;
+use clankerdiff_git::GitRepository;
 use std::{env, path::PathBuf, process::ExitCode};
 
 #[tokio::main]

@@ -11,12 +11,12 @@ use crate::{
         },
     },
 };
-use diff_markdown::{
+use clankerdiff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownReview, MarkdownReviewEvent,
     MarkdownReviewSession, MarkdownTargetId, MarkdownTargetKind,
 };
-use diff_syntax::{LanguageHint, SyntaxHighlighter};
-use diff_theme::DiffTheme;
+use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
+use clankerdiff_theme::DiffTheme;
 use gpui::{
     App, Context, Entity, EventEmitter, Focusable, HighlightStyle, KeyBinding, KeyContext,
     SharedString, StyledText, Subscription, Window, actions, div, prelude::*, px,
@@ -633,8 +633,8 @@ impl MarkdownReviewer {
 
 fn flatten_line_spans(
     lines: &[String],
-    highlighted: Vec<Vec<diff_theme::HighlightSpan>>,
-) -> Vec<diff_theme::HighlightSpan> {
+    highlighted: Vec<Vec<clankerdiff_theme::HighlightSpan>>,
+) -> Vec<clankerdiff_theme::HighlightSpan> {
     let mut offset = 0;
     let mut flattened = Vec::new();
     for (line, spans) in lines.iter().zip(highlighted) {

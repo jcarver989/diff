@@ -1,5 +1,5 @@
 [package]
-name = "diff-core"
+name = "clankerdiff-core"
 description = "Renderer-independent diff and code review domain model"
 version.workspace = true
 edition.workspace = true
@@ -14,8 +14,8 @@ test-support = []
 workspace = true
 
 [dependencies]
-diff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
-diff-theme = { version = "0.1.0", path = "../diff-theme" }
+clankerdiff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
+clankerdiff-theme = { version = "0.1.0", path = "../diff-theme" }
 diffy.workspace = true
 serde.workspace = true
 similar.workspace = true

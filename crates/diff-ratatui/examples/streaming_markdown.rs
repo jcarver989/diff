@@ -1,7 +1,7 @@
-use diff_markdown::{MarkdownDocument, MarkdownStream};
-use diff_ratatui::{MarkdownRenderOptions, MarkdownRenderer, StreamingMarkdownState};
-use diff_syntax::SyntaxHighlighter;
-use diff_theme::ReviewTheme;
+use clankerdiff_markdown::{MarkdownDocument, MarkdownStream};
+use clankerdiff_ratatui::{MarkdownRenderOptions, MarkdownRenderer, StreamingMarkdownState};
+use clankerdiff_syntax::SyntaxHighlighter;
+use clankerdiff_theme::ReviewTheme;
 
 fn main() {
     let renderer = MarkdownRenderer::new();

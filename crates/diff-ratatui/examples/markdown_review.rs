@@ -1,11 +1,13 @@
 //! Review one rendered Markdown file in a terminal.
 
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
+use clankerdiff_ratatui::{
+    MarkdownReviewState, MarkdownReviewWidget, handle_markdown_crossterm_event,
+};
 use crossterm::{
     event, execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use diff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
-use diff_ratatui::{MarkdownReviewState, MarkdownReviewWidget, handle_markdown_crossterm_event};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{env, error::Error, fs, io::stdout, path::Path, sync::Arc};
 
