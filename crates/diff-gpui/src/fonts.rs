@@ -6,6 +6,12 @@ use std::borrow::Cow;
 /// The bundled font family used by the diff viewer and its hosts.
 pub const DEFAULT_FONT_FAMILY: &str = "Lilex";
 
+pub const DEFAULT_FONT_SIZE: f32 = if cfg!(target_os = "macos") {
+    13.0
+} else {
+    16.0
+};
+
 const LILEX_REGULAR: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Regular.ttf");
 const LILEX_BOLD: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Bold.ttf");
 const LILEX_ITALIC: &[u8] = include_bytes!("../assets/fonts/lilex/Lilex-Italic.ttf");

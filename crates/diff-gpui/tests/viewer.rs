@@ -1,7 +1,7 @@
 //! State-level contracts for the reusable GPUI viewer.
 
 use clankerdiff_core::{DiffSide, Layout, LineAnchor, ViewMode, testing::DocumentBuilder};
-use clankerdiff_gpui::{DiffViewer, DiffViewerOptions};
+use clankerdiff_gpui::{DEFAULT_FONT_SIZE, DiffViewer, DiffViewerOptions};
 use clankerdiff_theme::{DiffTheme, ThemeId};
 
 #[test]
@@ -17,7 +17,7 @@ fn defaults_to_auto_and_indexes_document() {
     assert!(viewer.presentation().row_count() > 0);
     assert_eq!(viewer.review().len(), 0);
     assert_eq!(viewer.theme().id(), &ThemeId::Sage);
-    assert!((viewer.font_size() - 16.0).abs() < f32::EPSILON);
+    assert!((viewer.font_size() - DEFAULT_FONT_SIZE).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -78,6 +78,21 @@ fn the_session_drives_selection_and_review() {
             .formatted
             .contains("looks wrong")
     );
+}
+
+#[test]
+fn default_font_size_follows_platform_convention() -> Result<(), String> {
+    let expected = if cfg!(target_os = "macos") {
+        13.0
+    } else {
+        16.0
+    };
+    if (DEFAULT_FONT_SIZE - expected).abs() >= f32::EPSILON {
+        return Err(format!(
+            "default font size should be {expected}: {DEFAULT_FONT_SIZE}"
+        ));
+    }
+    Ok(())
 }
 
 #[test]

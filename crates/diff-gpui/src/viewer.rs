@@ -1,7 +1,7 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
 use crate::{
-    DEFAULT_FONT_FAMILY, DiffViewerEvent, ThemeChanged,
+    DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DiffViewerEvent, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
     sidebar::{SidebarResizeDrag, SidebarTree},
     style::color,
@@ -101,7 +101,7 @@ impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
             sidebar_width: 280.0,
-            font_size: 16.0,
+            font_size: DEFAULT_FONT_SIZE,
             row_height: 20.0,
             auto_split_width: 900.0,
             highlight_cache_capacity: 512,
