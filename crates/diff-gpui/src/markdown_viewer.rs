@@ -3,7 +3,7 @@
 use crate::{
     DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
-    default_font_size_for_viewport_width, style,
+    style,
     ui::{
         comments::{CommentCard, CommentComposer, CommentCount},
         prelude::{
@@ -178,14 +178,6 @@ impl MarkdownReviewer {
 
     fn font_size(&self) -> f32 {
         self.font_size
-    }
-
-    fn maybe_apply_viewport_font_size(&mut self, window: &Window) {
-        if (self.options.font_size - DEFAULT_FONT_SIZE).abs() > f32::EPSILON {
-            return;
-        }
-        let width = f32::from(window.viewport_size().width);
-        self.font_size = default_font_size_for_viewport_width(width);
     }
 
     /// Returns semantic component tokens for the current theme.
@@ -730,7 +722,6 @@ impl Focusable for MarkdownReviewer {
 
 impl Render for MarkdownReviewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.maybe_apply_viewport_font_size(window);
         let focus = self
             .focus_handle
             .get_or_insert_with(|| cx.focus_handle())

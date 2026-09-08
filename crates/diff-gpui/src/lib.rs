@@ -19,10 +19,7 @@ mod viewer;
 
 pub use clankerdiff_core::DiffReviewEvent as DiffViewerEvent;
 pub use clankerdiff_markdown::MarkdownReviewEvent as MarkdownReviewerEvent;
-pub use fonts::{
-    DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, FULL_SIZE_VIEWPORT_WIDTH, MIN_AUTO_FONT_SIZE,
-    default_font_size_for_viewport_width, load_default_fonts,
-};
+pub use fonts::{DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, load_default_fonts};
 
 /// Emitted when an in-app theme selection is committed.
 #[derive(Debug, Clone, PartialEq, Eq)]
