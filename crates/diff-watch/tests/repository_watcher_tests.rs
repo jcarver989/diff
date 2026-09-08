@@ -340,8 +340,16 @@ async fn changes_from_a_failed_mutation_are_observed() -> TestResult {
         })
         .await;
     assert!(result.is_err());
-    let published = wait_for_snapshot(&mut watcher.snapshot_rx.clone()).await?;
-    assert!(added_lines(&published, "file.txt").contains(&"hook changed".to_owned()));
+    let mut snapshots = watcher.snapshot_rx.clone();
+    wait_for("the failed hook's worktree edit", async {
+        loop {
+            let published = wait_for_snapshot(&mut snapshots).await?;
+            if added_lines(&published, "file.txt").contains(&"hook changed".to_owned()) {
+                return TestResult::Ok(());
+            }
+        }
+    })
+    .await?;
     Ok(())
 }
 
