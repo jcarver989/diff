@@ -436,7 +436,7 @@ fn document_replacement_retains_outdated_comments() {
     );
     assert_eq!(state.review().len(), 1);
     assert!(state.review().comments()[0].outdated);
-    let rendered = draw(&mut state, 80, 8);
+    let rendered = draw(&mut state, 100, 8);
     assert!(rendered.contains("1 comment (1 outdated)"), "{rendered}");
 }
 
@@ -941,7 +941,7 @@ fn keyboard_navigation_brings_a_scrolled_away_selection_back() {
 }
 
 #[test]
-fn scope_key_cycles_from_both_to_unstaged() -> Result<(), String> {
+fn scope_key_cycles_from_both_to_unstaged() {
     let mut state = DiffReviewState::new(changed_document());
     assert_eq!(state.scope(), DiffScope::Both);
     let event = state.handle_input(key(KeyCode::Char('S')));
@@ -949,7 +949,6 @@ fn scope_key_cycles_from_both_to_unstaged() -> Result<(), String> {
     state.set_scope(DiffScope::Unstaged);
     let event = state.handle_input(key(KeyCode::Char('S')));
     assert_eq!(event, Some(DiffReviewEvent::SetScope(DiffScope::Staged)));
-    Ok(())
 }
 
 #[test]

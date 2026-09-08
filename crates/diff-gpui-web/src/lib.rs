@@ -221,7 +221,7 @@ mod wasm {
         demo_document, document_update_decision,
     };
     use async_channel::{Receiver, Sender};
-    use clankerdiff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission};
+    use clankerdiff_core::{DiffDocument, DiffReviewEvent, DiffScope, ReviewSubmission};
     use clankerdiff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
         load_default_fonts,
