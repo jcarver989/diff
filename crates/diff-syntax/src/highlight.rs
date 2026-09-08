@@ -9,11 +9,12 @@ use clankerdiff_theme::{DiffTheme, Fingerprint, HighlightSpan, SyntaxTheme};
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
+    ops::Range,
     sync::{Arc, OnceLock},
 };
 const DEFAULT_CAPACITY: usize = 512;
 const DEFAULT_MAX_DOCUMENTS: usize = 32;
-const DEFAULT_STREAM_LINES: usize = 1_024;
+const DEFAULT_STREAM_BYTES: usize = 8 * 1024 * 1024;
 const SOURCE_KEY_DOMAIN: &[u8] = b"syntax-source-v1";
 const DOCUMENT_KEY_DOMAIN: &[u8] = b"syntax-document-v1";
 
@@ -78,7 +79,7 @@ impl CacheKey {
 pub struct CacheConfig {
     pub max_entries: usize,
     pub max_documents: usize,
-    pub max_stream_lines: usize,
+    pub max_stream_bytes: usize,
 }
 
 impl Default for CacheConfig {
@@ -86,7 +87,7 @@ impl Default for CacheConfig {
         Self {
             max_entries: DEFAULT_CAPACITY,
             max_documents: DEFAULT_MAX_DOCUMENTS,
-            max_stream_lines: DEFAULT_STREAM_LINES,
+            max_stream_bytes: DEFAULT_STREAM_BYTES,
         }
     }
 }
@@ -100,11 +101,27 @@ impl From<usize> for CacheConfig {
     }
 }
 
-/// Opaque bounded continuation state for an append-only source stream.
 #[derive(Debug, Clone, Default)]
 pub struct SyntaxStream {
     hint: String,
-    lines: Vec<String>,
+    source: String,
+    revision: u64,
+    theme_revision: Option<Fingerprint>,
+    highlights: Arc<DocumentHighlights>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SyntaxStreamError {
+    #[error("syntax stream input requires {attempted} bytes, exceeding the {limit}-byte limit")]
+    InputLimit { limit: usize, attempted: usize },
+}
+
+#[derive(Debug, Clone)]
+pub struct SyntaxStreamUpdate {
+    pub base_revision: u64,
+    pub revision: u64,
+    pub changed_lines: Range<usize>,
+    pub highlights: Arc<DocumentHighlights>,
 }
 
 impl SyntaxStream {
@@ -112,8 +129,23 @@ impl SyntaxStream {
     pub fn new<'a>(hint: impl Into<LanguageHint<'a>>) -> Self {
         Self {
             hint: hint.into().as_str().to_owned(),
-            lines: Vec::new(),
+            ..Self::default()
         }
+    }
+
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    #[must_use]
+    pub fn highlights(&self) -> &Arc<DocumentHighlights> {
+        &self.highlights
     }
 }
 
@@ -137,6 +169,56 @@ impl DocumentHighlights {
     #[must_use]
     pub fn line_count(&self) -> usize {
         self.lines.len()
+    }
+
+    fn from_spans(spans: &[HighlightSpan], text: &str) -> Self {
+        let starts = if text.is_empty() {
+            Vec::new()
+        } else {
+            let mut starts = vec![0];
+            starts.extend(
+                text.bytes()
+                    .enumerate()
+                    .filter_map(|(index, byte)| (byte == b'\n').then_some(index + 1)),
+            );
+            if text.ends_with('\n') {
+                starts.pop();
+            }
+            starts
+        };
+        let mut lines = Vec::with_capacity(starts.len());
+        let mut first_span = 0;
+        for (line, &start) in starts.iter().enumerate() {
+            let next = starts.get(line + 1).copied().unwrap_or(text.len());
+            let mut end = next;
+            if end > start && text.as_bytes()[end - 1] == b'\n' {
+                end -= 1;
+            }
+            if end > start && text.as_bytes()[end - 1] == b'\r' {
+                end -= 1;
+            }
+            while spans
+                .get(first_span)
+                .is_some_and(|span| span.range.end <= start)
+            {
+                first_span += 1;
+            }
+            let projected = spans[first_span..]
+                .iter()
+                .take_while(|span| span.range.start < end)
+                .filter_map(|span| {
+                    let from = span.range.start.max(start);
+                    let to = span.range.end.min(end);
+                    (from < to).then_some(HighlightSpan {
+                        range: from - start..to - start,
+                        foreground: span.foreground,
+                        font_style: span.font_style,
+                    })
+                })
+                .collect::<Vec<_>>();
+            lines.push(Arc::from(projected));
+        }
+        Self { lines }
     }
 }
 
@@ -272,33 +354,6 @@ impl SyntaxHighlighter {
             )
     }
 
-    fn append<'line>(
-        &mut self,
-        theme: &SyntaxTheme,
-        stream: &mut SyntaxStream,
-        lines: impl IntoIterator<Item = &'line str>,
-    ) -> Vec<Vec<HighlightSpan>> {
-        let appended = lines.into_iter().map(str::to_owned).collect::<Vec<_>>();
-        if appended.is_empty() {
-            return Vec::new();
-        }
-        let previous_len = stream.lines.len();
-        stream.lines.extend(appended);
-        let first = previous_len.saturating_sub(self.config.max_stream_lines);
-        let target_offset = previous_len - first;
-        let mut highlighted = self.highlight_lines(
-            theme,
-            LanguageHint::Id(stream.hint.as_str()),
-            stream.lines[first..].iter().map(String::as_str),
-        );
-        let result = highlighted.split_off(target_offset);
-        if stream.lines.len() > self.config.max_stream_lines {
-            let discard = stream.lines.len() - self.config.max_stream_lines;
-            stream.lines.drain(..discard);
-        }
-        result
-    }
-
     fn store(&mut self, key: CacheKey, spans: Arc<[HighlightSpan]>) {
         if self.config.max_entries == 0 {
             return;
@@ -329,7 +384,9 @@ impl SyntaxHighlighter {
             let Some(evicted) = self.document_order.pop_front() else {
                 break;
             };
-            self.documents.remove(&evicted);
+            if self.documents.remove(&evicted).is_some() {
+                self.stats.evictions += 1;
+            }
         }
     }
 }
@@ -367,7 +424,8 @@ impl ThemedHighlighter<'_> {
         lines: impl IntoIterator<Item = &'line str>,
     ) -> Arc<DocumentHighlights> {
         self.highlighter.stats.calls += 1;
-        let resolved = resolve_language(language.into(), "");
+        let mut lines = lines.into_iter().peekable();
+        let resolved = resolve_language(language.into(), lines.peek().copied().unwrap_or_default());
         let key = CacheKey::document(self.theme.revision(), resolved.unwrap_or("plain"), sequence);
         if let Some(highlights) = self.highlighter.documents.get(&key) {
             self.highlighter.stats.hits += 1;
@@ -388,10 +446,16 @@ impl ThemedHighlighter<'_> {
         text: &str,
     ) -> Arc<DocumentHighlights> {
         self.highlighter.stats.misses += 1;
+        let highlights = Arc::new(self.project(resolved, text));
+        self.highlighter
+            .store_document(key, Arc::clone(&highlights));
+        highlights
+    }
+
+    fn project(&mut self, resolved: Option<&str>, text: &str) -> DocumentHighlights {
         let spans = resolved
             .and_then(|language| {
-                self.highlighter.stats.bytes =
-                    self.highlighter.stats.bytes.saturating_add(text.len());
+                self.highlighter.stats.bytes += text.len();
                 highlight_source(
                     &mut self.highlighter.highlighter,
                     self.theme,
@@ -400,56 +464,7 @@ impl ThemedHighlighter<'_> {
                 )
             })
             .unwrap_or_default();
-        let starts = if text.is_empty() {
-            Vec::new()
-        } else {
-            let mut starts = vec![0];
-            starts.extend(
-                text.bytes()
-                    .enumerate()
-                    .filter_map(|(index, byte)| (byte == b'\n').then_some(index + 1)),
-            );
-            if text.ends_with('\n') {
-                starts.pop();
-            }
-            starts
-        };
-        let mut lines = Vec::with_capacity(starts.len());
-        let mut first_span = 0;
-        for (line, &start) in starts.iter().enumerate() {
-            let next = starts.get(line + 1).copied().unwrap_or(text.len());
-            let mut end = next;
-            if end > start && text.as_bytes()[end - 1] == b'\n' {
-                end -= 1;
-            }
-            if end > start && text.as_bytes()[end - 1] == b'\r' {
-                end -= 1;
-            }
-            while spans
-                .get(first_span)
-                .is_some_and(|span| span.range.end <= start)
-            {
-                first_span += 1;
-            }
-            let projected = spans[first_span..]
-                .iter()
-                .take_while(|span| span.range.start < end)
-                .filter_map(|span| {
-                    let from = span.range.start.max(start);
-                    let to = span.range.end.min(end);
-                    (from < to).then_some(HighlightSpan {
-                        range: from - start..to - start,
-                        foreground: span.foreground,
-                        font_style: span.font_style,
-                    })
-                })
-                .collect::<Vec<_>>();
-            lines.push(Arc::from(projected));
-        }
-        let highlights = Arc::new(DocumentHighlights { lines });
-        self.highlighter
-            .store_document(key, Arc::clone(&highlights));
-        highlights
+        DocumentHighlights::from_spans(&spans, text)
     }
 
     /// Highlights a complete source. Hints may be IDs, aliases, or repository paths.
@@ -475,14 +490,57 @@ impl ThemedHighlighter<'_> {
             .highlight_lines(self.theme, language.into(), lines)
     }
 
-    /// Appends lines to a stream and returns their spans in append order.
-    /// Only bounded preceding context is retained between calls.
     pub fn append<'line>(
         &mut self,
         stream: &mut SyntaxStream,
         lines: impl IntoIterator<Item = &'line str>,
-    ) -> Vec<Vec<HighlightSpan>> {
-        self.highlighter.append(self.theme, stream, lines)
+    ) -> Result<SyntaxStreamUpdate, SyntaxStreamError> {
+        let limit = self.highlighter.config.max_stream_bytes;
+        let mut appended = String::new();
+        for line in lines {
+            let newline = usize::from(!line.ends_with('\n'));
+            let attempted = stream.source.len() + appended.len() + line.len() + newline;
+            if attempted > limit {
+                return Err(SyntaxStreamError::InputLimit { limit, attempted });
+            }
+            appended.push_str(line);
+            if newline != 0 {
+                appended.push('\n');
+            }
+        }
+        let base_revision = stream.revision;
+        let theme_revision = self.theme.revision();
+        if appended.is_empty() && stream.theme_revision == Some(theme_revision) {
+            let end = stream.highlights.line_count();
+            return Ok(SyntaxStreamUpdate {
+                base_revision,
+                revision: stream.revision,
+                changed_lines: end..end,
+                highlights: Arc::clone(&stream.highlights),
+            });
+        }
+        if !appended.is_empty() {
+            stream.source.push_str(&appended);
+            stream.revision = stream.revision.wrapping_add(1);
+        }
+        self.highlighter.stats.calls += 1;
+        let resolved = resolve_language(stream.hint.as_str(), &stream.source);
+        let highlights = Arc::new(self.project(resolved, &stream.source));
+        let first_changed = stream
+            .highlights
+            .lines
+            .iter()
+            .zip(&highlights.lines)
+            .position(|(before, after)| before != after)
+            .unwrap_or_else(|| stream.highlights.line_count().min(highlights.line_count()));
+        stream.highlights = Arc::clone(&highlights);
+        stream.theme_revision = Some(theme_revision);
+        Ok(SyntaxStreamUpdate {
+            base_revision,
+            revision: stream.revision,
+            changed_lines: first_changed..highlights.line_count(),
+            highlights,
+        })
     }
 }
 

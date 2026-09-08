@@ -16,4 +16,4 @@ pub use document::*;
 pub use review::*;
 #[cfg(feature = "review")]
 pub use session::*;
-pub use stream::{FenceContinuation, MarkdownStream, MarkdownStreamUpdate};
+pub use stream::{MarkdownStream, MarkdownStreamIdentity, MarkdownStreamUpdate};

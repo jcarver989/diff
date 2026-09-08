@@ -1998,6 +1998,7 @@ dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

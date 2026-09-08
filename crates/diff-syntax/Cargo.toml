@@ -36,5 +36,6 @@ workspace = true
 arborium = { workspace = true }
 arborium-highlight.workspace = true
 arborium-theme.workspace = true
+thiserror.workspace = true
 clankerdiff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
 clankerdiff-theme = { version = "0.1.0", path = "../diff-theme" }

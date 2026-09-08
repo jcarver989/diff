@@ -30,7 +30,6 @@ fn main() {
     println!("markdown: {:?}", state.take_stats());
     println!("syntax: {:?}", highlighter.take_stats());
 
-    // Replacing a host item invalidates committed streaming state automatically.
     stream.replace("Replacement.\n\n");
     renderer.render_stream_lines(&mut state, &stream, options, &theme, &mut highlighter);
 }
