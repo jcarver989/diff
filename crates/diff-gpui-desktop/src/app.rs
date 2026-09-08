@@ -8,15 +8,18 @@ use diff_gpui::{
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use diff_theme::DiffTheme;
+use diff_watch::{RepositoryRequest, RepositoryWatcher, WatchError, WatchOptions};
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
     actions, div, prelude::*,
 };
-use std::{future::Future, path::PathBuf, sync::mpsc::Sender};
+use std::{
+    path::PathBuf,
+    sync::{Arc, mpsc::Sender},
+};
+use tokio::sync::oneshot;
 
-type LoadResult = Result<(Option<GitRepository>, RepositorySnapshot), GitError>;
-
-actions!(desktop_diff, [Refresh, CycleScope, StageAll, UnstageAll]);
+actions!(desktop_diff, [CycleScope, StageAll, UnstageAll]);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LoadState {
@@ -46,16 +49,25 @@ fn host_event_effect(event: &DiffReviewEvent) -> HostEventEffect {
     }
 }
 
+enum HostCommand {
+    Apply(RepositoryAction),
+    SetScope(DiffScope),
+}
+
 pub(crate) struct DesktopApp {
     repository_path: PathBuf,
     repository: Option<GitRepository>,
+    watcher: Option<RepositoryWatcher>,
     scope: DiffScope,
+    installed_snapshot: Option<Arc<RepositorySnapshot>>,
     state: LoadState,
     viewer: Option<Entity<DiffViewer>>,
     viewer_subscription: Option<Subscription>,
     theme_subscription: Option<Subscription>,
     theme: DiffTheme,
-    load_task: Task<()>,
+    load_task: Option<Task<()>>,
+    command_task: Option<Task<()>>,
+    watch_task: Task<()>,
     outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
 }
 
@@ -69,13 +81,17 @@ impl DesktopApp {
         let mut app = Self {
             repository_path: args.repository,
             repository: None,
+            watcher: None,
             scope: args.scope,
+            installed_snapshot: None,
             state: LoadState::Loading,
             viewer: None,
             viewer_subscription: None,
             theme_subscription: None,
             theme: preferences::load_theme(),
-            load_task: Task::ready(()),
+            load_task: None,
+            command_task: None,
+            watch_task: Task::ready(()),
             outcome_sender,
         };
         app.discover(cx);
@@ -84,8 +100,6 @@ impl DesktopApp {
 
     pub(crate) fn bind_keys(cx: &mut App) {
         cx.bind_keys([
-            KeyBinding::new("cmd-r", Refresh, Some("DesktopDiff")),
-            KeyBinding::new("ctrl-r", Refresh, Some("DesktopDiff")),
             KeyBinding::new("cmd-shift-v", CycleScope, Some("DesktopDiff")),
             KeyBinding::new("ctrl-shift-v", CycleScope, Some("DesktopDiff")),
             KeyBinding::new("cmd-shift-s", StageAll, Some("DesktopDiff")),
@@ -95,136 +109,148 @@ impl DesktopApp {
         ]);
     }
 
-    fn load<F>(&mut self, cx: &mut Context<Self>, work: F)
-    where
-        F: Future<Output = LoadResult> + Send + 'static,
-    {
+    fn discover(&mut self, cx: &mut Context<Self>) {
+        if self.load_task.is_some() {
+            return;
+        }
+        let path = self.repository_path.clone();
+        let scope = self.scope;
         self.state = LoadState::Loading;
-        let operation = gpui_tokio::Tokio::spawn(cx, work);
-        self.load_task = cx.spawn(async move |this, cx| {
+        let operation = gpui_tokio::Tokio::spawn(cx, async move {
+            let repository = GitRepository::discover(path).await?;
+            let watcher =
+                RepositoryWatcher::spawn(repository.clone(), scope, WatchOptions::default())
+                    .await?;
+            Ok::<_, WatchError>((repository, watcher))
+        });
+        self.load_task = Some(cx.spawn(async move |this, cx| {
             let result = operation.await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok((repository, snapshot))) => {
-                    if let Some(repository) = repository {
+            let _ = this.update(cx, |this, cx| {
+                this.load_task = None;
+                match result {
+                    Ok(Ok((repository, watcher))) => {
                         this.repository = Some(repository);
+                        this.install_watcher(watcher, cx);
                     }
-                    this.install_snapshot(&snapshot, cx);
-                }
-                Ok(Err(error)) => this.set_error(&error, cx),
-                Err(error) => {
-                    this.state = LoadState::Error(format!("background task failed: {error}"));
-                    cx.notify();
+                    Ok(Err(error)) => this.set_error(&error.to_string(), cx),
+                    Err(error) => this.set_error(&format!("background task failed: {error}"), cx),
                 }
             });
-        });
+        }));
         cx.notify();
     }
 
-    fn discover(&mut self, cx: &mut Context<Self>) {
-        let path = self.repository_path.clone();
-        let scope = self.scope;
-        self.load(cx, async move {
-            let repository = GitRepository::discover(path).await?;
-            let snapshot = repository.snapshot_with_sources(scope).await?;
-            Ok((Some(repository), snapshot))
-        });
-    }
-
-    fn reload(&mut self, cx: &mut Context<Self>) {
-        let Some(repository) = self.repository.clone() else {
-            self.discover(cx);
-            return;
-        };
-        let scope = self.scope;
-        self.load(cx, async move {
-            repository
-                .snapshot_with_sources(scope)
-                .await
-                .map(|snapshot| (None, snapshot))
-        });
-    }
-
-    fn mutate_all(&mut self, stage: bool, cx: &mut Context<Self>) {
-        let Some(repository) = self.repository.clone() else {
-            return;
-        };
-        let scope = self.scope;
-        self.load(cx, async move {
-            if stage {
-                repository.stage_all().await?;
-            } else {
-                repository.unstage_all().await?;
+    fn install_watcher(&mut self, watcher: RepositoryWatcher, cx: &mut Context<Self>) {
+        let mut updates = watcher.snapshot_rx.clone();
+        let state = updates.borrow_and_update().clone();
+        self.watcher = Some(watcher);
+        self.apply_watch_state(&state, cx);
+        self.watch_task = cx.spawn(async move |this, cx| {
+            while updates.changed().await.is_ok() {
+                let state = updates.borrow_and_update().clone();
+                if this
+                    .update(cx, |this, cx| this.apply_watch_state(&state, cx))
+                    .is_err()
+                {
+                    return;
+                }
             }
-            repository
-                .snapshot_with_sources(scope)
-                .await
-                .map(|snapshot| (None, snapshot))
         });
     }
 
-    fn mutate(&mut self, action: RepositoryAction, cx: &mut Context<Self>) {
+    fn apply_watch_state(
+        &mut self,
+        result: &Result<Arc<RepositorySnapshot>, Arc<GitError>>,
+        cx: &mut Context<Self>,
+    ) {
+        let error = match result {
+            Ok(snapshot) => {
+                if self.installed_snapshot.as_ref() != Some(snapshot) {
+                    self.scope = snapshot.scope;
+                    self.install_snapshot(snapshot, cx);
+                    self.installed_snapshot = Some(Arc::clone(snapshot));
+                }
+                None
+            }
+            Err(error) => Some(error.to_string()),
+        };
+        if let Some(viewer) = &self.viewer {
+            viewer.update(cx, |viewer, cx| {
+                viewer.set_background_error(error, cx);
+            });
+        } else if let Some(error) = error {
+            self.set_error(&error, cx);
+        }
+    }
+
+    fn command(&mut self, command: HostCommand, cx: &mut Context<Self>) {
+        // A single command owns pending state; snapshots never settle it.
+        if self.command_task.is_some() {
+            return;
+        }
+        let Some(watcher) = &self.watcher else {
+            return;
+        };
         let Some(repository) = self.repository.clone() else {
             return;
         };
+        let requests = watcher.request_tx.clone();
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
         }
-        let scope = self.scope;
         let operation = gpui_tokio::Tokio::spawn(cx, async move {
-            match action {
-                RepositoryAction::StagePaths(paths) => repository.stage(&paths).await?,
-                RepositoryAction::UnstagePaths(paths) => repository.unstage(&paths).await?,
-                RepositoryAction::StageAll => repository.stage_all().await?,
-                RepositoryAction::UnstageAll => repository.unstage_all().await?,
-                RepositoryAction::Commit { message } => repository.commit(&message).await?,
-                RepositoryAction::Discard { path, status } => {
-                    repository.discard(&path, status).await?;
+            match command {
+                HostCommand::Apply(action) => repository
+                    .apply(action)
+                    .await
+                    .map_err(|error| error.to_string()),
+                HostCommand::SetScope(scope) => {
+                    let (reply, completion) = oneshot::channel();
+                    requests
+                        .send(RepositoryRequest::SetScope {
+                            scope,
+                            result_tx: reply,
+                        })
+                        .await
+                        .map_err(|_| WatchError::Stopped.to_string())?;
+                    completion
+                        .await
+                        .map_err(|_| WatchError::Stopped.to_string())?
+                        .map_err(|error| error.to_string())
                 }
-                RepositoryAction::Refresh => {}
             }
-            repository.snapshot_with_sources(scope).await
         });
-        self.load_task = cx.spawn(async move |this, cx| {
+        self.command_task = Some(cx.spawn(async move |this, cx| {
             let result = operation.await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(Ok(snapshot)) => this.install_snapshot(&snapshot, cx),
-                Ok(Err(error)) => {
-                    if let Some(viewer) = &this.viewer {
-                        viewer.update(cx, |viewer, cx| {
-                            viewer.set_repository_error(error.to_string(), cx);
-                        });
+            let _ = this.update(cx, |this, cx| {
+                this.command_task = None;
+                match result {
+                    Ok(Ok(())) => {
+                        if let Some(viewer) = &this.viewer {
+                            viewer
+                                .update(cx, |viewer, cx| viewer.set_repository_pending(false, cx));
+                        }
                     }
-                }
-                Err(error) => {
-                    if let Some(viewer) = &this.viewer {
-                        viewer.update(cx, |viewer, cx| {
-                            viewer.set_repository_error(
-                                format!("background task failed: {error}"),
-                                cx,
-                            );
-                        });
+                    Ok(Err(error)) => this.report_error(&error, cx),
+                    Err(error) => {
+                        this.report_error(&format!("background task failed: {error}"), cx);
                     }
                 }
             });
-        });
+        }));
     }
 
     fn install_snapshot(&mut self, snapshot: &RepositorySnapshot, cx: &mut Context<Self>) {
         let is_empty = snapshot.document.files.is_empty();
-        let diff_snapshot = snapshot.diff_snapshot();
+        let document = snapshot.document.clone();
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |viewer, cx| {
-                viewer.set_snapshot(diff_snapshot.clone(), cx);
+                viewer.set_document(document, cx);
             });
         } else {
             let theme = self.theme.clone();
-            let viewer = cx.new(|_| {
-                DiffViewer::from_snapshot_with_options(
-                    diff_snapshot.clone(),
-                    theme,
-                    DiffViewerOptions::default(),
-                )
-            });
+            let viewer =
+                cx.new(|_| DiffViewer::with_options(document, theme, DiffViewerOptions::default()));
             self.viewer_subscription = Some(cx.subscribe(
                 &viewer,
                 |this, _viewer, event: &DiffReviewEvent, cx| {
@@ -250,14 +276,25 @@ impl DesktopApp {
         cx.notify();
     }
 
-    fn set_error(&mut self, error: &GitError, cx: &mut Context<Self>) {
-        self.state = LoadState::Error(error.to_string());
+    fn set_error(&mut self, message: &str, cx: &mut Context<Self>) {
+        self.state = LoadState::Error(message.to_owned());
         cx.notify();
+    }
+
+    /// Reports a failure without discarding the snapshot already on screen.
+    fn report_error(&mut self, message: &str, cx: &mut Context<Self>) {
+        if let Some(viewer) = &self.viewer {
+            viewer.update(cx, |viewer, cx| {
+                viewer.set_repository_error(message.to_owned(), cx);
+            });
+            return;
+        }
+        self.set_error(message, cx);
     }
 
     fn handle_viewer_event(&mut self, event: &DiffReviewEvent, cx: &mut Context<Self>) {
         if let DiffReviewEvent::RepositoryAction(action) = event {
-            self.mutate(action.clone(), cx);
+            self.command(HostCommand::Apply(action.clone()), cx);
             return;
         }
         if let Some(sender) = &self.outcome_sender {
@@ -286,21 +323,16 @@ impl DesktopApp {
         }
     }
 
-    fn refresh(&mut self, _: &Refresh, _: &mut Window, cx: &mut Context<Self>) {
-        self.reload(cx);
-    }
-
     fn cycle_scope(&mut self, _: &CycleScope, _: &mut Window, cx: &mut Context<Self>) {
-        self.scope = self.scope.next();
-        self.reload(cx);
+        self.command(HostCommand::SetScope(self.scope.next()), cx);
     }
 
     fn stage_all(&mut self, _: &StageAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.mutate_all(true, cx);
+        self.command(HostCommand::Apply(RepositoryAction::StageAll), cx);
     }
 
     fn unstage_all(&mut self, _: &UnstageAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.mutate_all(false, cx);
+        self.command(HostCommand::Apply(RepositoryAction::UnstageAll), cx);
     }
 
     fn status_panel(&self, title: &str, detail: &str, tone: NoticeTone) -> impl IntoElement {
@@ -317,7 +349,6 @@ impl Render for DesktopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = div()
             .key_context("DesktopDiff")
-            .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cycle_scope))
             .on_action(cx.listener(Self::stage_all))
             .on_action(cx.listener(Self::unstage_all))

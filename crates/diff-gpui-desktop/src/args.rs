@@ -14,6 +14,15 @@ pub struct CliArgs {
     pub scope: DiffScope,
 }
 
+impl Default for CliArgs {
+    fn default() -> Self {
+        Self {
+            repository: PathBuf::from("."),
+            scope: DiffScope::Both,
+        }
+    }
+}
+
 impl CliArgs {
     /// Parses arguments from the current process.
     ///
@@ -96,6 +105,13 @@ mod tests {
         let args = CliArgs::parse_from(["--unstaged", "."].map(OsString::from))
             .expect("arguments should parse");
         assert_eq!(args.scope, DiffScope::Unstaged);
+    }
+
+    #[test]
+    fn rejects_disabling_watching() {
+        let error = CliArgs::parse_from(["--no-watch", "."].map(OsString::from))
+            .expect_err("watching is always enabled");
+        assert!(matches!(error, ArgsError::UnknownOption(_)));
     }
 
     #[test]

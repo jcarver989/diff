@@ -19,8 +19,10 @@ diff-markdown = { path = "../diff-markdown", features = ["review"] }
 diff-theme = { path = "../diff-theme" }
 diff-git = { path = "../diff-git" }
 diff-gpui = { path = "../diff-gpui" }
+diff-watch = { path = "../diff-watch" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui_tokio.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }

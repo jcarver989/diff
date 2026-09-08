@@ -8,14 +8,14 @@ mod window_chrome;
 
 use app::DesktopApp;
 use args::CliArgs;
-use diff_core::{DiffScope, ReviewSubmission};
+use diff_core::ReviewSubmission;
 use diff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
 use diff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use gpui::{
     App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
 use markdown_app::MarkdownDesktopApp;
-use std::{path::PathBuf, sync::mpsc};
+use std::sync::mpsc;
 
 fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
     WindowOptions {
@@ -43,9 +43,9 @@ pub fn run(args: CliArgs) {
 ///
 /// Closing or cancelling the window returns `None`.
 #[must_use]
-pub fn run_review(repository: PathBuf, scope: DiffScope) -> Option<ReviewSubmission> {
+pub fn run_review(args: CliArgs) -> Option<ReviewSubmission> {
     let (sender, receiver) = mpsc::channel();
-    run_application(CliArgs { repository, scope }, Some(sender));
+    run_application(args, Some(sender));
     receiver.try_recv().ok().flatten()
 }
 
