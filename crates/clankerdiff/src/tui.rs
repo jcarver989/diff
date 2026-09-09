@@ -600,7 +600,7 @@ fn apply_event(
     if let InputOutcome::ThemeSelected(id) = &input {
         let _ = crate::preferences::save_theme(&id.to_string());
     }
-    let outcome = match input.into_event() {
+    match input.into_event() {
         Some(DiffReviewEvent::Refresh) => {
             state.set_repository_pending();
             backend.apply_scope(state.scope());
@@ -625,8 +625,7 @@ fn apply_event(
         Some(DiffReviewEvent::Cancel) => EventOutcome::Cancelled,
         Some(DiffReviewEvent::SubmitReview(submission)) => EventOutcome::Submitted(submission),
         Some(DiffReviewEvent::CopyFormattedReview(_)) | None => EventOutcome::Continue,
-    };
-    outcome
+    }
 }
 
 enum EventOutcome {

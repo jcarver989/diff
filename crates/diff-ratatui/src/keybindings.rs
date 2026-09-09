@@ -3,7 +3,7 @@ use crate::{
     MarkdownReviewCommand, ReviewCommand,
 };
 use clankerdiff_core::{DiffSide, RevealAmount};
-use std::ptr;
+use std::{fmt::Write, ptr};
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -44,6 +44,7 @@ impl<T> KeyBinding<T> {
         }
     }
 
+    #[must_use]
     pub fn with_scope(mut self, scope: BindingScope) -> Self {
         self.scope = scope;
         self
@@ -67,11 +68,13 @@ impl<T> KeyBinding<T> {
                 key.push_str(name);
             }
         }
-        key.push_str(&match self.key.code {
-            KeyCode::Char(' ') => "Space".into(),
-            KeyCode::Char(c) => c.to_string(),
-            code => format!("{code:?}"),
-        });
+        match self.key.code {
+            KeyCode::Char(' ') => key.push_str("Space"),
+            KeyCode::Char(c) => key.push(c),
+            code => {
+                let _ = write!(key, "{code:?}");
+            }
+        }
         format!("{key} {}", self.label)
     }
 }
@@ -159,6 +162,11 @@ fn normalize_key(mut key: KeyEvent) -> KeyEvent {
     key
 }
 
+#[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Declarative table of default keybindings"
+)]
 pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
     use BindingScope::{Any, Document, Navigation, SplitDocument};
     use DiffReviewCommand as C;

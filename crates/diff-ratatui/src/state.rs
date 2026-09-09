@@ -416,6 +416,7 @@ impl DiffReviewState {
         &self.options
     }
 
+    #[must_use]
     pub fn keybindings(&self) -> &[KeyBinding<DiffReviewCommand>] {
         &self.keybindings
     }

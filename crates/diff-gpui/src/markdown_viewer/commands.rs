@@ -3,6 +3,7 @@ use crate::ThemeChanged;
 use clankerdiff_core::{CommandContext, InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
     MarkdownFocusPane, MarkdownReviewCommand, MarkdownReviewError, MarkdownReviewEvent,
+    MarkdownTargetId,
 };
 use clankerdiff_theme::{ThemeChoice, ThemeSelection};
 use gpui::{Context, Window};
@@ -36,6 +37,10 @@ impl MarkdownReviewer {
         cx.notify();
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive command dispatch keeps routing in one place"
+    )]
     pub fn handle_command(
         &mut self,
         command: impl Into<MarkdownReviewCommand>,
@@ -216,7 +221,7 @@ impl MarkdownReviewer {
                 let selected = self
                     .session
                     .selected_target()
-                    .map_or(0, |target| target.index());
+                    .map_or(0, MarkdownTargetId::index);
                 let current = outline
                     .partition_point(|heading| heading.target_id.index() <= selected)
                     .saturating_sub(1);

@@ -3,7 +3,7 @@ use super::{
     state::{MarkdownFocusPane, MarkdownHitRegion, MarkdownReviewState},
 };
 use crate::{
-    RatatuiTheme,
+    KeyBinding, RatatuiTheme,
     annotation::render_annotation_line,
     theme_picker::render_theme_picker,
     ui::{
@@ -338,7 +338,7 @@ fn render_help(area: Rect, buffer: &mut Buffer, state: &MarkdownReviewState, the
         state
             .help_bindings()
             .skip(state.help_scroll)
-            .map(|binding| binding.hint())
+            .map(KeyBinding::hint)
             .collect::<Vec<_>>()
             .join("\n"),
         theme,

@@ -5,7 +5,7 @@ use crate::{
     annotation::render_annotation_line,
     drawer::{DrawerEntry, DrawerTree},
     patch_layout::PatchVisualRow,
-    state::RepositoryPrompt,
+    state::{HitLayout, RepositoryPrompt},
     style::syntax_style,
     theme_picker::render_theme_picker,
     ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
@@ -70,7 +70,7 @@ impl StatefulWidget for DiffReviewWidget {
 
     fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
         state.cursor_position = None;
-        state.hit_layout = Default::default();
+        state.hit_layout = HitLayout::default();
         state.visible_rows.clear();
         let theme = RatatuiTheme::from(&state.theme);
         let regions = AppFrame::new(&self.title, self.borders, &theme)

@@ -1,6 +1,6 @@
 use clankerdiff_syntax::{
-    CacheConfig, DocumentHighlights, HighlightSpan, HighlightStats, LanguageHint, SourceSequenceId,
-    SyntaxHighlighter, SyntaxStream, SyntaxStreamError, SyntaxTheme,
+    CacheConfig, CacheUsage, DocumentHighlights, HighlightSpan, HighlightStats, LanguageHint,
+    SourceSequenceId, SyntaxHighlighter, SyntaxStream, SyntaxStreamError, SyntaxTheme,
 };
 use clankerdiff_theme::ReviewTheme;
 use std::{error::Error, fmt::Write, sync::Arc};
@@ -34,7 +34,7 @@ fn entry_limits_and_clear_apply_to_both_caches() {
         assert_eq!(usage.span_entries, if documents { 0 } else { 2 });
         assert_eq!(usage.document_entries, if documents { 2 } else { 0 });
         fixture.highlighter.clear_cache();
-        assert_eq!(fixture.highlighter.cache_usage(), Default::default());
+        assert_eq!(fixture.highlighter.cache_usage(), CacheUsage::default());
         fixture.highlighter.reset_stats();
         fixture.highlight("let d = 4;");
         assert_eq!(fixture.highlighter.stats().misses, 1);
@@ -50,7 +50,7 @@ fn zero_capacity_disables_both_caches() {
         fixture.highlight("let a = 1;");
         assert_eq!(fixture.highlighter.stats().misses, 2);
         assert_eq!(fixture.highlighter.stats().evictions, 0);
-        assert_eq!(fixture.highlighter.cache_usage(), Default::default());
+        assert_eq!(fixture.highlighter.cache_usage(), CacheUsage::default());
     }
 }
 

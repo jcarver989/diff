@@ -8,6 +8,7 @@ use clankerdiff_theme::{ThemeChoice, ThemeSelection};
 use gpui::{Context, ListOffset, Window, px};
 
 impl DiffViewer {
+    #[must_use]
     pub fn command_context(&self) -> CommandContext {
         let phase = if self.theme_selection.is_some() {
             InteractionPhase::ThemePicker
@@ -29,6 +30,7 @@ impl DiffViewer {
         }
     }
 
+    #[must_use]
     pub fn command_enabled(&self, command: &DiffReviewCommand) -> bool {
         command.enabled(&self.command_context())
             && !matches!(
@@ -46,6 +48,10 @@ impl DiffViewer {
         cx.notify();
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive command dispatch keeps routing in one place"
+    )]
     pub fn handle_command(
         &mut self,
         command: impl Into<DiffReviewCommand>,
@@ -258,7 +264,7 @@ impl DiffViewer {
             C::Review(R::ShowHelp) => self.shortcuts_open = true,
             C::Review(R::ScrollHelp(_)) => return false,
             C::Review(R::OpenThemePicker) => {
-                self.theme_selection = ThemeSelection::new(&self.theme, ThemeChoice::catalog())
+                self.theme_selection = ThemeSelection::new(&self.theme, ThemeChoice::catalog());
             }
             C::Review(R::SelectTheme(index)) => {
                 let Some(theme) = self

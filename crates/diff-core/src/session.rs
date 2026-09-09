@@ -447,6 +447,7 @@ impl ReviewSession {
         true
     }
 
+    #[must_use]
     pub fn hunk_target(&self, delta: isize) -> Option<usize> {
         let file = self.document.files.get(self.selected_file)?;
         if file.hunks.is_empty() {

@@ -6,7 +6,11 @@ use clankerdiff_ratatui::{
     MarkdownReviewState, MarkdownReviewWidget, MouseButton, MouseEvent, MouseEventKind,
     NavigationPane, ReviewCommand, ReviewInput, ReviewOptions,
 };
-use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
+use ratatui::{
+    buffer::{Buffer, Cell},
+    layout::Rect,
+    widgets::StatefulWidget,
+};
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -338,5 +342,5 @@ fn assert_outside_untouched(buffer: &Buffer, area: Rect) {
 }
 
 fn text(buffer: &Buffer) -> String {
-    buffer.content.iter().map(|cell| cell.symbol()).collect()
+    buffer.content.iter().map(Cell::symbol).collect()
 }

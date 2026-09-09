@@ -7,6 +7,7 @@ use clankerdiff_core::{CommandContext, RepositoryAction, ReviewCapabilities};
 use std::sync::Arc;
 
 impl DiffReviewState {
+    #[must_use]
     pub fn command_for_key(&self, key: KeyEvent) -> Option<DiffReviewCommand> {
         if self.interaction_phase() != InteractionPhase::Browse {
             return None;
@@ -43,6 +44,7 @@ impl DiffReviewState {
         )
     }
 
+    #[must_use]
     pub fn command_context(&self) -> CommandContext {
         CommandContext {
             phase: self.interaction_phase(),
@@ -65,6 +67,7 @@ impl DiffReviewState {
         self.mark_dirty();
     }
 
+    #[must_use]
     pub fn command_enabled(&self, command: &DiffReviewCommand) -> bool {
         self.command_enabled_in(command, &self.command_context())
     }
@@ -74,6 +77,10 @@ impl DiffReviewState {
             && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive command dispatch keeps routing in one place"
+    )]
     pub fn handle_command(
         &mut self,
         command: impl Into<DiffReviewCommand>,
@@ -247,7 +254,7 @@ impl DiffReviewState {
                     .min(self.help_bindings().count().saturating_sub(1));
             }
             C::Review(R::OpenThemePicker) => {
-                self.theme_picker = ThemePicker::new(&self.theme, Arc::clone(&self.theme_choices))
+                self.theme_picker = ThemePicker::new(&self.theme, Arc::clone(&self.theme_choices));
             }
             C::Review(R::SelectTheme(index)) => {
                 let Some(theme) = self

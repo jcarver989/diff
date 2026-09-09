@@ -22,6 +22,7 @@ pub fn handle_crossterm_event(
 }
 
 impl MarkdownReviewState {
+    #[must_use]
     pub fn interaction_phase(&self) -> InteractionPhase {
         if self.theme_picker.is_some() {
             InteractionPhase::ThemePicker
@@ -41,6 +42,7 @@ impl MarkdownReviewState {
         interaction::handle_input(self, input)
     }
 
+    #[must_use]
     pub fn command_for_key(&self, key: KeyEvent) -> Option<MarkdownReviewCommand> {
         if self.interaction_phase() != InteractionPhase::Browse {
             return None;
@@ -77,6 +79,7 @@ impl MarkdownReviewState {
         )
     }
 
+    #[must_use]
     pub fn command_context(&self) -> CommandContext {
         CommandContext {
             phase: self.interaction_phase(),
@@ -95,20 +98,25 @@ impl MarkdownReviewState {
         self.mark_dirty();
     }
 
+    #[must_use]
     pub fn command_enabled(&self, command: &MarkdownReviewCommand) -> bool {
         command.enabled(&self.command_context())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive command dispatch keeps routing in one place"
+    )]
     pub fn handle_command(
         &mut self,
         command: impl Into<MarkdownReviewCommand>,
     ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+        use MarkdownReviewCommand as C;
+        use ReviewCommand as R;
         let command = command.into();
         if !self.command_enabled(&command) {
             return Ok(InputOutcome::Ignored);
         }
-        use MarkdownReviewCommand as C;
-        use ReviewCommand as R;
         let previous = (self.focus, self.session.selected_target());
         match command {
             C::Focus(pane) => self.focus = pane,
@@ -151,7 +159,7 @@ impl MarkdownReviewState {
                         self.outline_scroll = self
                             .outline_scroll
                             .saturating_add_signed(lines)
-                            .min(self.document().outline().len().saturating_sub(1))
+                            .min(self.document().outline().len().saturating_sub(1));
                     }
                 }
                 self.mark_dirty();

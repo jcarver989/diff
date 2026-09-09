@@ -21,6 +21,10 @@ pub enum InteractionPhase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Capabilities are independent flags"
+)]
 pub struct ReviewCapabilities {
     pub repository: bool,
     pub refresh: bool,
@@ -42,6 +46,10 @@ impl Default for ReviewCapabilities {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Command conditions are independent flags"
+)]
 pub struct CommandContext {
     pub phase: InteractionPhase,
     pub capabilities: ReviewCapabilities,

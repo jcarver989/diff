@@ -134,10 +134,6 @@ pub use clankerdiff_core::FocusPane as ViewerPane;
 
 /// Shared GPUI diff review view.
 ///
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "independent UI visibility, layout, and pending flags are not one state machine"
-)]
 pub struct DiffViewer {
     session: ReviewSession,
     capabilities: ReviewCapabilities,

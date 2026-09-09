@@ -185,6 +185,7 @@ impl MarkdownReviewState {
         &self.options
     }
 
+    #[must_use]
     pub fn keybindings(&self) -> &[KeyBinding<MarkdownReviewCommand>] {
         &self.keybindings
     }

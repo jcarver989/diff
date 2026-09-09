@@ -57,7 +57,7 @@ fn direct_commands_and_shortcuts_obey_the_same_host_capabilities(cx: &mut TestAp
                     clipboard: false,
                 },
                 cx,
-            )
+            );
         });
         for command in [
             DiffReviewCommand::StageAll,
@@ -149,7 +149,7 @@ fn markdown_keyboard_and_direct_commands_share_draft_state(cx: &mut TestAppConte
         let keyboard = cx.add_window(|_, _| MarkdownReviewer::new(document.clone()));
         cx.update_window(*keyboard, |_, window, cx| window.draw(cx).clear(cx))?;
         keyboard.update(cx, |viewer, window, cx| {
-            viewer.focus_handle(cx).focus(window, cx)
+            viewer.focus_handle(cx).focus(window, cx);
         })?;
         cx.simulate_keystrokes(*keyboard, "c h e l l o enter");
         let direct = cx.add_window(|_, _| MarkdownReviewer::new(document));
@@ -183,7 +183,7 @@ fn markdown_keyboard_and_direct_commands_share_draft_state(cx: &mut TestAppConte
         })??;
         cx.update_window(*direct, |_, window, cx| window.draw(cx).clear(cx))?;
         direct.update(cx, |viewer, window, cx| {
-            viewer.focus_handle(cx).focus(window, cx)
+            viewer.focus_handle(cx).focus(window, cx);
         })?;
         cx.simulate_keystrokes(*direct, "c n e w enter");
         assert_eq!(direct.read_with(cx, |viewer, _| viewer.review().len())?, 1);
@@ -342,7 +342,7 @@ fn markdown_navigation_and_theme_shortcuts_use_shared_commands(cx: &mut TestAppC
         let keyboard = cx.add_window(|_, _| MarkdownReviewer::new(document));
         cx.update_window(*keyboard, |_, window, cx| window.draw(cx).clear(cx))?;
         keyboard.update(cx, |viewer, window, cx| {
-            viewer.focus_handle(cx).focus(window, cx)
+            viewer.focus_handle(cx).focus(window, cx);
         })?;
         cx.simulate_keystrokes(*keyboard, "tab j enter");
         assert_eq!(
@@ -418,7 +418,7 @@ fn theme_preview_cancellation_is_shared_and_does_not_cancel_the_review(cx: &mut 
         assert!(!harness.read(cx, |viewer, _| viewer.theme_picker_open()));
         assert!(harness.dispatch_command(cx, ReviewCommand::OpenThemePicker)?);
         harness.update(cx, |viewer, cx| {
-            viewer.set_theme(ReviewTheme::builder("host override").build(), cx)
+            viewer.set_theme(ReviewTheme::builder("host override").build(), cx);
         });
         assert!(!harness.read(cx, |viewer, _| viewer.theme_picker_open()));
         assert_eq!(

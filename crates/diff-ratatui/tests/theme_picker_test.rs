@@ -5,7 +5,11 @@ use clankerdiff_ratatui::{
     KeyModifiers, MarkdownReviewState, ReviewCommand, ReviewInput, ThemeChoice,
 };
 use clankerdiff_theme::{ReviewTheme, ThemeId};
-use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
+use ratatui::{
+    buffer::{Buffer, Cell},
+    layout::Rect,
+    widgets::StatefulWidget,
+};
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -27,7 +31,7 @@ fn custom_theme_choices_preserve_order_labels_and_commit_explicitly() {
     let area = Rect::new(0, 0, 80, 20);
     let mut buffer = Buffer::empty(area);
     DiffReviewWidget::new().render(area, &mut buffer, &mut state);
-    let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+    let text: String = buffer.content.iter().map(Cell::symbol).collect();
     assert!(text.find("Zebra custom") < text.find("Alpha custom"));
     assert!(text.contains("Zebra custom") && text.contains("Alpha custom"));
     assert!(!text.contains("Ayu"));
