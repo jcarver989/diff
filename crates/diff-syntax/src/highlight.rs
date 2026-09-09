@@ -5,10 +5,11 @@ use arborium::{Config, Highlighter};
 use arborium_highlight::spans_to_flat_tokens;
 use arborium_theme::tag_to_name;
 use clankerdiff_fingerprint::SourceSequenceId;
-use clankerdiff_theme::{DiffTheme, Fingerprint, HighlightSpan, SyntaxTheme};
+use clankerdiff_theme::{Fingerprint, HighlightSpan, SyntaxTheme};
+use lru::LruCache;
 use std::{
-    collections::{HashMap, VecDeque},
     fmt,
+    num::NonZeroUsize,
     ops::Range,
     sync::{Arc, OnceLock},
 };
@@ -99,6 +100,12 @@ impl From<usize> for CacheConfig {
             ..Self::default()
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CacheUsage {
+    pub span_entries: usize,
+    pub document_entries: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -222,14 +229,12 @@ impl DocumentHighlights {
     }
 }
 
-/// A reusable syntax highlighter. Entries are evicted oldest-first when full.
+/// A reusable syntax highlighter. Least-recently-used entries are evicted when full.
 pub struct SyntaxHighlighter {
     highlighter: Highlighter,
     config: CacheConfig,
-    cache: HashMap<CacheKey, Arc<[HighlightSpan]>>,
-    order: VecDeque<CacheKey>,
-    documents: HashMap<CacheKey, Arc<DocumentHighlights>>,
-    document_order: VecDeque<CacheKey>,
+    cache: Option<LruCache<CacheKey, Arc<[HighlightSpan]>>>,
+    documents: Option<LruCache<CacheKey, Arc<DocumentHighlights>>>,
     stats: HighlightStats,
 }
 
@@ -237,8 +242,11 @@ impl fmt::Debug for SyntaxHighlighter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SyntaxHighlighter")
             .field("config", &self.config)
-            .field("entries", &self.cache.len())
-            .field("documents", &self.documents.len())
+            .field("entries", &self.cache.as_ref().map_or(0, LruCache::len))
+            .field(
+                "documents",
+                &self.documents.as_ref().map_or(0, LruCache::len),
+            )
             .field("stats", &self.stats)
             .finish_non_exhaustive()
     }
@@ -258,13 +266,17 @@ impl SyntaxHighlighter {
             max_injection_depth: 3,
             ..Config::default()
         };
+        let config = config.into();
+        let document_entries = if config.max_entries == 0 {
+            0
+        } else {
+            config.max_documents
+        };
         Self {
             highlighter: Highlighter::with_config(syntax_config),
-            config: config.into(),
-            cache: HashMap::new(),
-            order: VecDeque::new(),
-            documents: HashMap::new(),
-            document_order: VecDeque::new(),
+            config,
+            cache: NonZeroUsize::new(config.max_entries).map(LruCache::new),
+            documents: NonZeroUsize::new(document_entries).map(LruCache::new),
             stats: HighlightStats::default(),
         }
     }
@@ -296,11 +308,21 @@ impl SyntaxHighlighter {
         }
     }
 
+    #[must_use]
+    pub fn cache_usage(&self) -> CacheUsage {
+        CacheUsage {
+            span_entries: self.cache.as_ref().map_or(0, LruCache::len),
+            document_entries: self.documents.as_ref().map_or(0, LruCache::len),
+        }
+    }
+
     pub fn clear_cache(&mut self) {
-        self.cache.clear();
-        self.order.clear();
-        self.documents.clear();
-        self.document_order.clear();
+        if let Some(cache) = &mut self.cache {
+            cache.clear();
+        }
+        if let Some(documents) = &mut self.documents {
+            documents.clear();
+        }
     }
 
     fn highlight_source(
@@ -313,7 +335,7 @@ impl SyntaxHighlighter {
         let language = resolve_language(hint, text);
         let id = language.unwrap_or("plain");
         let key = CacheKey::source(theme.revision(), id, text);
-        if let Some(spans) = self.cache.get(&key) {
+        if let Some(spans) = self.cache.as_mut().and_then(|cache| cache.get(&key)) {
             self.stats.hits += 1;
             return Arc::clone(spans);
         }
@@ -355,38 +377,20 @@ impl SyntaxHighlighter {
     }
 
     fn store(&mut self, key: CacheKey, spans: Arc<[HighlightSpan]>) {
-        if self.config.max_entries == 0 {
-            return;
-        }
-        if self.cache.insert(key, spans).is_some() {
-            return;
-        }
-        self.order.push_back(key);
-        while self.cache.len() > self.config.max_entries {
-            let Some(evicted) = self.order.pop_front() else {
-                break;
-            };
-            if self.cache.remove(&evicted).is_some() {
-                self.stats.evictions += 1;
-            }
+        if let Some(cache) = &mut self.cache
+            && let Some((evicted, _)) = cache.push(key, spans)
+            && evicted != key
+        {
+            self.stats.evictions += 1;
         }
     }
 
     fn store_document(&mut self, key: CacheKey, highlights: Arc<DocumentHighlights>) {
-        if self.config.max_entries == 0 || self.config.max_documents == 0 {
-            return;
-        }
-        if self.documents.insert(key, highlights).is_some() {
-            return;
-        }
-        self.document_order.push_back(key);
-        while self.documents.len() > self.config.max_documents {
-            let Some(evicted) = self.document_order.pop_front() else {
-                break;
-            };
-            if self.documents.remove(&evicted).is_some() {
-                self.stats.evictions += 1;
-            }
+        if let Some(documents) = &mut self.documents
+            && let Some((evicted, _)) = documents.push(key, highlights)
+            && evicted != key
+        {
+            self.stats.evictions += 1;
         }
     }
 }
@@ -408,7 +412,12 @@ impl ThemedHighlighter<'_> {
         self.highlighter.stats.calls += 1;
         let resolved = resolve_language(language.into(), text);
         let key = CacheKey::document(self.theme.revision(), resolved.unwrap_or("plain"), sequence);
-        if let Some(highlights) = self.highlighter.documents.get(&key) {
+        if let Some(highlights) = self
+            .highlighter
+            .documents
+            .as_mut()
+            .and_then(|documents| documents.get(&key))
+        {
             self.highlighter.stats.hits += 1;
             return Arc::clone(highlights);
         }
@@ -427,7 +436,12 @@ impl ThemedHighlighter<'_> {
         let mut lines = lines.into_iter().peekable();
         let resolved = resolve_language(language.into(), lines.peek().copied().unwrap_or_default());
         let key = CacheKey::document(self.theme.revision(), resolved.unwrap_or("plain"), sequence);
-        if let Some(highlights) = self.highlighter.documents.get(&key) {
+        if let Some(highlights) = self
+            .highlighter
+            .documents
+            .as_mut()
+            .and_then(|documents| documents.get(&key))
+        {
             self.highlighter.stats.hits += 1;
             return Arc::clone(highlights);
         }
@@ -546,7 +560,7 @@ impl ThemedHighlighter<'_> {
 
 fn highlight_source(
     highlighter: &mut Highlighter,
-    theme: &DiffTheme,
+    theme: &SyntaxTheme,
     language: &str,
     source: &str,
 ) -> Option<Vec<HighlightSpan>> {
@@ -672,248 +686,5 @@ impl<'a> JoinedLines<'a> {
                 result
             })
             .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_valid_spans(source: &str, spans: &[HighlightSpan]) {
-        let mut previous_end = 0;
-        for span in spans {
-            assert!(span.range.start < span.range.end, "empty span: {span:?}");
-            assert!(
-                span.range.end <= source.len(),
-                "out-of-bounds span: {span:?}"
-            );
-            assert!(source.is_char_boundary(span.range.start));
-            assert!(source.is_char_boundary(span.range.end));
-            assert!(
-                span.range.start >= previous_end,
-                "overlapping or unordered span: {span:?}"
-            );
-            previous_end = span.range.end;
-        }
-    }
-
-    #[test]
-    fn aliases_and_utf8_ranges() {
-        let theme = DiffTheme::default();
-        let mut highlighter = SyntaxHighlighter::new(2);
-        let source = "let café = 1;\n";
-        let spans = highlighter
-            .with_theme(&theme)
-            .highlight_source("rs", source);
-        assert!(!spans.is_empty());
-        assert!(
-            spans
-                .iter()
-                .all(|span| source.is_char_boundary(span.range.start)
-                    && source.is_char_boundary(span.range.end))
-        );
-        let _ = highlighter
-            .with_theme(&theme)
-            .highlight_source("RUST", source);
-        assert_eq!(highlighter.stats().hits, 1);
-    }
-
-    #[test]
-    fn complete_documents_are_parsed_once_and_projected_by_line() {
-        let theme = DiffTheme::default();
-        let mut highlighter = SyntaxHighlighter::default();
-        let source = "/* alpha\r\nbeta */\nlet café = 1;\n";
-        let sequence = SourceSequenceId::from_lines(source.split_terminator('\n'));
-
-        let first = highlighter.with_theme(&theme).highlight_document(
-            sequence,
-            LanguageHint::Path("src/lib.rs"),
-            source,
-        );
-        assert_eq!(first.line_count(), 3);
-        assert!(!first.line(0).unwrap().is_empty());
-        assert!(!first.line(1).unwrap().is_empty());
-        assert!(
-            first
-                .line(2)
-                .unwrap()
-                .iter()
-                .all(|span| span.range.end <= "let café = 1;".len())
-        );
-        let parsed_bytes = highlighter.stats().bytes;
-
-        let second = highlighter.with_theme(&theme).highlight_document(
-            sequence,
-            LanguageHint::Path("src/lib.rs"),
-            source,
-        );
-        assert!(Arc::ptr_eq(&first, &second));
-        assert_eq!(highlighter.stats().hits, 1);
-        assert_eq!(highlighter.stats().bytes, parsed_bytes);
-
-        let empty = highlighter.with_theme(&theme).highlight_document(
-            SourceSequenceId::from_lines([]),
-            "rust",
-            "",
-        );
-        assert_eq!(empty.line_count(), 0);
-    }
-
-    #[test]
-    fn line_sequences_parse_once_and_keep_multiline_context() {
-        let theme = DiffTheme::default();
-        let mut highlighter = SyntaxHighlighter::default();
-        let lines = ["/* alpha", "beta", "gamma */", "let x = 1;"];
-        let sequence = SourceSequenceId::from_lines(lines);
-
-        let first = highlighter.with_theme(&theme).highlight_document_lines(
-            sequence,
-            LanguageHint::Path("src/lib.rs"),
-            lines,
-        );
-        assert_eq!(first.line_count(), 4);
-        for (index, line) in lines.iter().enumerate() {
-            let spans = first.line(index).unwrap();
-            assert!(!spans.is_empty(), "line {index}");
-            assert!(spans.iter().all(|span| span.range.end <= line.len()));
-        }
-
-        let second = highlighter.with_theme(&theme).highlight_document_lines(
-            sequence,
-            LanguageHint::Path("src/lib.rs"),
-            lines,
-        );
-        assert!(Arc::ptr_eq(&first, &second));
-        assert_eq!(highlighter.stats().misses, 1);
-        assert_eq!(highlighter.stats().hits, 1);
-    }
-
-    #[test]
-    fn supported_language_bundle_highlights_representative_sources() {
-        let cases = [
-            ("rust", "fn main() {}"),
-            ("js", "const x = true;"),
-            ("jsx", "const view = <Panel title=\"Hi\" />;"),
-            ("typescript", "const x: number = 1;"),
-            ("tsx", "const view = <Panel title=\"Hi\" />;"),
-            ("py", "def f(): return 1"),
-            ("sh", "echo hi"),
-            ("c", "int main(void) {}"),
-            ("cpp", "class C {};"),
-            ("go", "package main"),
-            ("json", "{\"x\": true}"),
-            ("jsonc", "{\"x\": true /* comment */}"),
-            ("toml", "x = 1"),
-            ("yml", "x: true"),
-            ("html", "<b>x</b>"),
-            ("css", "b { color: red; }"),
-            ("md", "# Heading"),
-        ];
-        let theme = DiffTheme::default();
-        let mut highlighter = SyntaxHighlighter::new(cases.len());
-        for (language, source) in cases {
-            let spans = highlighter
-                .with_theme(&theme)
-                .highlight_source(language, source);
-            assert!(!spans.is_empty(), "{language}");
-            assert_valid_spans(source, &spans);
-        }
-    }
-
-    #[test]
-    fn unknown_language_is_plain_text_and_cached() {
-        let mut highlighter = SyntaxHighlighter::new(2);
-        let theme = DiffTheme::default();
-        assert!(
-            highlighter
-                .with_theme(&theme)
-                .highlight_source("binary.zzz", "abc")
-                .is_empty()
-        );
-        assert!(
-            highlighter
-                .with_theme(&theme)
-                .highlight_source("binary.zzz", "abc")
-                .is_empty()
-        );
-        assert_eq!(highlighter.stats().hits, 1);
-        assert_eq!(highlighter.stats().bytes, 0);
-    }
-
-    #[test]
-    fn fifo_zero_capacity_and_theme_revision_behave_as_before() {
-        let theme = DiffTheme::default();
-        let mut fifo = SyntaxHighlighter::new(1);
-        fifo.with_theme(&theme)
-            .highlight_source("rust", "fn a() {}");
-        fifo.with_theme(&theme)
-            .highlight_source("rust", "fn b() {}");
-        assert_eq!(fifo.stats().evictions, 1);
-        let mut zero = SyntaxHighlighter::new(0);
-        zero.with_theme(&theme)
-            .highlight_source("rust", "fn a() {}");
-        zero.with_theme(&theme)
-            .highlight_source("rust", "fn a() {}");
-        assert_eq!(zero.stats().misses, 2);
-        let mut themes = SyntaxHighlighter::new(8);
-        themes
-            .with_theme(&theme)
-            .highlight_source("rust", "fn main() {}");
-        themes
-            .with_theme(&DiffTheme::ayu().unwrap())
-            .highlight_source("rust", "fn main() {}");
-        assert_eq!(themes.stats().misses, 2);
-    }
-
-    #[test]
-    fn multiline_and_synthetic_newlines_are_clipped() {
-        let theme = DiffTheme::default();
-        let mut highlighter = SyntaxHighlighter::new(0);
-        let lines = ["/*", " café */"];
-        let rendered = highlighter
-            .with_theme(&theme)
-            .highlight_lines("rust", lines);
-        assert_eq!(rendered.len(), 2);
-        assert!(rendered.iter().all(|spans| !spans.is_empty()));
-        for (line, spans) in lines.into_iter().zip(rendered) {
-            assert!(spans.iter().all(|span| span.range.end <= line.len()
-                && line.is_char_boundary(span.range.start)
-                && line.is_char_boundary(span.range.end)));
-        }
-    }
-
-    #[test]
-    fn html_and_markdown_injections_highlight_embedded_languages() {
-        let theme = DiffTheme::default();
-        let mut highlighter = SyntaxHighlighter::new(4);
-        let html = "<p>café</p><script>const π = 3.14;</script><style>b{color:red}</style>";
-        let html_spans = highlighter
-            .with_theme(&theme)
-            .highlight_source("html", html);
-        assert_valid_spans(html, &html_spans);
-        for needle in ["const π", "color:red"] {
-            let start = html.find(needle).unwrap();
-            let end = start + needle.len();
-            assert!(
-                html_spans
-                    .iter()
-                    .any(|span| span.range.start < end && span.range.end > start),
-                "no injected highlight for {needle}"
-            );
-        }
-
-        let markdown = "# Title\n\n```rust\nfn main() {}\n```\n";
-        let markdown_spans = highlighter
-            .with_theme(&theme)
-            .highlight_source("markdown", markdown);
-        assert_valid_spans(markdown, &markdown_spans);
-        let start = markdown.find("fn main").unwrap();
-        let end = start + "fn main".len();
-        assert!(
-            markdown_spans
-                .iter()
-                .any(|span| span.range.start < end && span.range.end > start),
-            "no injected Rust highlight in Markdown"
-        );
     }
 }

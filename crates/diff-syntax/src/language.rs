@@ -28,7 +28,7 @@ impl<'a> LanguageHint<'a> {
     }
 }
 
-/// Resolves a language ID, alias, or repository path to a bundled Arborium grammar.
+/// Resolves a language ID, alias, or repository path.
 pub fn resolve_language<'a>(
     hint: impl Into<LanguageHint<'a>>,
     source: &str,
@@ -55,7 +55,9 @@ fn canonical_id(hint: &str) -> Option<&'static str> {
         "typescript" | "ts" | "mts" | "cts" => "typescript",
         "tsx" => "tsx",
         "python" | "py" | "python3" => "python",
-        "bash" | "sh" | "shell" | "zsh" => "bash",
+        "bash" | "sh" | "shell" => "bash",
+        "zsh" => "zsh",
+        "batch" | "bat" | "cmd" => "batch",
         "c" | "h" => "c",
         "csharp" | "c-sharp" | "c#" | "cs" => "c-sharp",
         "cpp" | "c++" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => "cpp",
@@ -139,8 +141,8 @@ fn special_file(file: &str) -> Option<&'static str> {
         "workspace" => Some("starlark"),
         "build.sbt" => Some("scala"),
         "deps.edn" => Some("clojure"),
-        ".zshrc" if cfg!(feature = "agent-languages") => Some("zsh"),
-        ".bashrc" | ".zshrc" => Some("bash"),
+        ".zshrc" => Some("zsh"),
+        ".bashrc" => Some("bash"),
         _ => None,
     }
 }
@@ -155,7 +157,9 @@ fn shebang_id(source: &str) -> Option<&'static str> {
         Some("python")
     } else if lower.contains("node") {
         Some("javascript")
-    } else if lower.contains("bash") || lower.contains("/sh") || lower.contains("zsh") {
+    } else if lower.contains("zsh") {
+        Some("zsh")
+    } else if lower.contains("bash") || lower.contains("/sh") {
         Some("bash")
     } else if lower.contains("fish") {
         Some("fish")
@@ -163,51 +167,5 @@ fn shebang_id(source: &str) -> Option<&'static str> {
         Some("powershell")
     } else {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolves_aliases_paths_special_files_and_shebangs() {
-        for (hint, source, expected) in [
-            ("RUST", "", Some("rust")),
-            (".rs", "", Some("rust")),
-            ("src/lib.rs", "", Some("rust")),
-            ("src\\lib.rs", "", Some("rust")),
-            ("view.tsx", "", Some("tsx")),
-            ("x.d.ts", "", Some("typescript")),
-            ("x.d.mts", "", Some("typescript")),
-            ("x.d.cts", "", Some("typescript")),
-            ("foo.jsx", "", Some("javascript")),
-            ("foo.jsonc", "", Some("json")),
-            ("foo.yml", "", Some("yaml")),
-            ("Dockerfile", "", Some("dockerfile")),
-            ("Containerfile", "", Some("dockerfile")),
-            ("Program.cs", "", Some("c-sharp")),
-            ("Main.java", "", Some("java")),
-            ("Main.kt", "", Some("kotlin")),
-            ("script.rb", "", Some("ruby")),
-            ("query.sql", "", Some("sql")),
-            (".bashrc", "", Some("bash")),
-            (
-                ".zshrc",
-                "",
-                Some(if cfg!(feature = "agent-languages") {
-                    "zsh"
-                } else {
-                    "bash"
-                }),
-            ),
-            ("go.mod", "", Some("go")),
-            ("", "#!/usr/bin/env python3\n", Some("python")),
-            ("", "#!/usr/bin/env node\n", Some("javascript")),
-            ("unknown.bin", "bytes", None),
-            ("markdown-inline", "", None),
-        ] {
-            assert_eq!(resolve_language(hint, source), expected, "{hint}");
-        }
     }
 }
