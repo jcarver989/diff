@@ -9,12 +9,13 @@ repository.workspace = true
 
 [features]
 default = []
-review = []
+review = ["dep:clankerdiff-core"]
 
 [lints]
 workspace = true
 
 [dependencies]
+clankerdiff-core = { version = "0.1.0", path = "../diff-core", optional = true }
 clankerdiff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
 pulldown-cmark.workspace = true
 serde.workspace = true
