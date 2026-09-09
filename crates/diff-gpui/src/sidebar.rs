@@ -459,9 +459,12 @@ impl DiffViewer {
             .child(
                 stage_checkbox(stage)
                     .id(format!("diff-directory-checkbox:{checkbox_path}"))
-                    .on_click(cx.listener(move |viewer, _, _, cx| {
-                        viewer
-                            .toggle_stage_entry(SidebarEntry::Directory(checkbox_path.clone()), cx);
+                    .on_click(cx.listener(move |viewer, _, window, cx| {
+                        viewer.toggle_stage_entry(
+                            SidebarEntry::Directory(checkbox_path.clone()),
+                            window,
+                            cx,
+                        );
                         cx.stop_propagation();
                     })),
             )
@@ -525,8 +528,8 @@ impl DiffViewer {
                 .child(
                     stage_checkbox(stage)
                         .id(("diff-file-checkbox", index))
-                        .on_click(cx.listener(move |viewer, _, _, cx| {
-                            viewer.toggle_stage_entry(SidebarEntry::File(index), cx);
+                        .on_click(cx.listener(move |viewer, _, window, cx| {
+                            viewer.toggle_stage_entry(SidebarEntry::File(index), window, cx);
                             cx.stop_propagation();
                         })),
                 ),

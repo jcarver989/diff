@@ -5,14 +5,14 @@
 //! rendered element bounds. It deliberately does not use image snapshots.
 
 use crate::{DiffViewer, DiffViewerEvent, DiffViewerOptions};
-use clankerdiff_core::{DiffDocument, testing::DocumentBuilder};
+use clankerdiff_core::{DiffDocument, DiffReviewCommand, testing::DocumentBuilder};
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
     AnyWindowHandle, App, Bounds, Context, Entity, InputEvent, ListOffset, Pixels, Point, Render,
     ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
     WindowHandle, WindowOptions, div, prelude::*,
 };
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 
 struct HarnessRoot {
     viewer: Entity<DiffViewer>,
@@ -134,6 +134,15 @@ impl DiffViewerHarness {
         cx.update_window(*self.window, |_, window, cx| window.draw(cx).clear(cx))
             .expect("draw GPUI test window");
         cx.run_until_parked();
+    }
+
+    pub fn dispatch_command(&self, cx: &mut TestAppContext, command: impl Into<DiffReviewCommand>) -> Result<bool, Box<dyn Error>> {
+        let command = command.into();
+        let handled = cx.update_window(*self.window, |_, window, cx| {
+            self.viewer.update(cx, |viewer, cx| viewer.handle_command(command, window, cx))
+        })?;
+        self.draw(cx);
+        Ok(handled)
     }
 
     pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str) {

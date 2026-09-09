@@ -9,7 +9,8 @@ use crate::{
     },
 };
 use clankerdiff_core::{
-    DiffSide, DiffTone, PresentedCell, PresentedRow, RevealAmount, ReviewComment, RowKind,
+    DiffReviewCommand, DiffSide, DiffTone, PresentedCell, PresentedRow, RevealAmount,
+    ReviewCommand, ReviewComment, RowKind,
 };
 use gpui::{
     AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState, MouseButton,
@@ -295,9 +296,18 @@ impl DiffViewer {
                 .when(row.kind == RowKind::ExpandGap, |element| {
                     element.cursor_pointer().on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |viewer, _, _, cx| {
-                            viewer.session_mut().select_row(index);
-                            viewer.expand_selected_gap(RevealAmount::Step, cx);
+                        cx.listener(move |viewer, _, window, cx| {
+                            if viewer.handle_command(
+                                DiffReviewCommand::SelectRow(index),
+                                window,
+                                cx,
+                            ) {
+                                viewer.handle_command(
+                                    DiffReviewCommand::RevealGap(RevealAmount::Step),
+                                    window,
+                                    cx,
+                                );
+                            }
                         }),
                     )
                 })
@@ -626,12 +636,16 @@ impl DiffViewer {
         let theme = self.ui_theme();
         let cancel_button = Button::new(("cancel-comment", index), "Cancel", theme)
             .size(ControlSize::Small)
-            .on_click(cx.listener(|viewer, _, _, cx| viewer.discard_comment(cx)));
+            .on_click(cx.listener(|viewer, _, window, cx| {
+                viewer.handle_command(ReviewCommand::Cancel, window, cx);
+            }));
         let submit_button = Button::new(("submit-comment", index), "Add comment", theme)
             .variant(ButtonVariant::Primary)
             .size(ControlSize::Small)
             .disabled(!can_submit)
-            .on_click(cx.listener(|viewer, _, _, cx| viewer.finish_comment(cx)));
+            .on_click(cx.listener(|viewer, _, window, cx| {
+                viewer.handle_command(ReviewCommand::SubmitComment, window, cx);
+            }));
 
         div()
             .id(("comment-dialog", index))

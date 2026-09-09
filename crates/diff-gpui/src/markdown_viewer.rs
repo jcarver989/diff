@@ -1,5 +1,7 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
+mod commands;
+
 use crate::{
     DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
@@ -11,15 +13,18 @@ use crate::{
         },
     },
 };
+use clankerdiff_core::{ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
-    MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownReview, MarkdownReviewEvent,
-    MarkdownReviewSession, MarkdownTargetId, MarkdownTargetKind,
+    MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownFocusPane, MarkdownReview,
+    MarkdownReviewCommand, MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
+    MarkdownTargetKind,
 };
 use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
+use clankerdiff_theme::ThemeSelection;
 use gpui::{
     App, Context, Entity, EventEmitter, Focusable, HighlightStyle, KeyBinding, KeyContext,
-    SharedString, StyledText, Subscription, Window, actions, div, prelude::*, px,
+    ScrollHandle, SharedString, StyledText, Subscription, Window, actions, div, prelude::*, px,
 };
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
@@ -74,6 +79,11 @@ struct CodeInfo {
 /// Shared GPUI rendered-Markdown review entity used by desktop and web hosts.
 pub struct MarkdownReviewer {
     session: MarkdownReviewSession,
+    capabilities: ReviewCapabilities,
+    pane: MarkdownFocusPane,
+    theme_selection: Option<ThemeSelection>,
+    document_scroll: ScrollHandle,
+    outline_scroll: ScrollHandle,
     theme: ReviewTheme,
     highlighter: RefCell<SyntaxHighlighter>,
     code_infos: HashMap<MarkdownTargetId, CodeInfo>,
@@ -81,7 +91,6 @@ pub struct MarkdownReviewer {
     font_size: f32,
     editor: Option<Entity<CommentEditor>>,
     editor_subscription: Option<Subscription>,
-    theme_picker_open: bool,
     focus_handle: Option<gpui::FocusHandle>,
 }
 
@@ -104,13 +113,17 @@ impl MarkdownReviewer {
         Self {
             code_infos: code_infos(document.blocks()),
             session: MarkdownReviewSession::new(document),
+            capabilities: ReviewCapabilities::default(),
+            pane: MarkdownFocusPane::Document,
+            theme_selection: None,
+            document_scroll: ScrollHandle::new(),
+            outline_scroll: ScrollHandle::new(),
             theme,
             highlighter: RefCell::new(SyntaxHighlighter::default()),
             options,
             font_size: options.font_size,
             editor: None,
             editor_subscription: None,
-            theme_picker_open: false,
             focus_handle: None,
         }
     }
@@ -186,6 +199,11 @@ impl MarkdownReviewer {
     }
 
     pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
+        self.theme_selection = None;
+        self.apply_theme(theme, cx);
+    }
+
+    fn apply_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
         self.theme = theme.clone();
         if let Some(editor) = &self.editor {
             editor.update(cx, |editor, cx| editor.set_theme(theme, cx));
@@ -199,33 +217,37 @@ impl MarkdownReviewer {
         cx.notify();
     }
 
-    fn select(&mut self, target: MarkdownTargetId, cx: &mut Context<Self>) {
-        if self.session.select_target(target) {
-            self.close_editor();
-            cx.notify();
-        }
+    fn open_editor(&mut self, editing: Option<u64>, window: &mut Window, cx: &mut Context<Self>) {
+        let command = if editing.is_some() {
+            ReviewCommand::EditComment
+        } else {
+            ReviewCommand::BeginComment
+        };
+        let _ = self.handle_command(command, window, cx);
     }
 
-    fn open_editor(&mut self, editing: Option<u64>, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.session.begin_draft(editing) {
-            return;
-        }
+    fn mount_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let body = self
             .session
             .draft()
             .map_or_else(String::new, |draft| draft.body().to_owned());
         let editor = cx.new(|cx| CommentEditor::new(body, self.theme.clone(), cx));
-        self.editor_subscription = Some(cx.subscribe(
+        self.editor_subscription = Some(cx.subscribe_in(
             &editor,
-            |reviewer, _, event: &CommentEditorEvent, cx| match event {
+            window,
+            |reviewer, _, event: &CommentEditorEvent, window, cx| match event {
                 CommentEditorEvent::Changed(body) => {
                     if let Some(draft) = reviewer.session.draft_mut() {
                         draft.set_body(body);
                     }
                     cx.notify();
                 }
-                CommentEditorEvent::Submit => reviewer.finish_comment(cx),
-                CommentEditorEvent::Cancel => reviewer.discard_comment(cx),
+                CommentEditorEvent::Submit => {
+                    let _ = reviewer.handle_command(ReviewCommand::SubmitComment, window, cx);
+                }
+                CommentEditorEvent::Cancel => {
+                    let _ = reviewer.handle_command(ReviewCommand::Cancel, window, cx);
+                }
             },
         ));
         self.editor = Some(editor.clone());
@@ -239,13 +261,9 @@ impl MarkdownReviewer {
     }
 
     fn finish_comment(&mut self, cx: &mut Context<Self>) {
-        if let Some(editor) = &self.editor
-            && let Some(draft) = self.session.draft_mut()
-        {
-            draft.set_body(editor.read(cx).body());
-        }
         self.session.submit_draft();
         self.close_editor();
+        self.reveal_selected_target();
         cx.notify();
     }
 
@@ -255,17 +273,12 @@ impl MarkdownReviewer {
         cx.notify();
     }
 
-    fn move_target(&mut self, delta: isize, cx: &mut Context<Self>) {
-        self.session.move_target(delta);
-        self.close_editor();
-        cx.notify();
-    }
-
     fn render_outline(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let palette = &self.theme.diff;
         let headings = self.document().outline().to_vec();
         div()
             .id("markdown-outline-pane")
+            .track_scroll(&self.outline_scroll)
             .w(px(self.options.outline_width))
             .h_full()
             .flex_shrink_0()
@@ -289,7 +302,13 @@ impl MarkdownReviewer {
                     .cursor_pointer()
                     .when(selected, |row| row.bg(style::color(palette.selection)))
                     .child(heading.title)
-                    .on_click(cx.listener(move |reviewer, _, _, cx| reviewer.select(target, cx)))
+                    .on_click(cx.listener(move |reviewer, _, window, cx| {
+                        let _ = reviewer.handle_command(
+                            MarkdownReviewCommand::SelectTarget(target),
+                            window,
+                            cx,
+                        );
+                    }))
             }))
     }
 
@@ -399,7 +418,13 @@ impl MarkdownReviewer {
             }))
             .when(selected, |row| row.bg(style::color(palette.selection)))
             .cursor_pointer()
-            .on_click(cx.listener(move |reviewer, _, _, cx| reviewer.select(target_id, cx)))
+            .on_click(cx.listener(move |reviewer, _, window, cx| {
+                let _ = reviewer.handle_command(
+                    MarkdownReviewCommand::SelectTarget(target_id),
+                    window,
+                    cx,
+                );
+            }))
             .child(
                 div()
                     .text_size(px(self.font_size() - 3.0))
@@ -430,7 +455,9 @@ impl MarkdownReviewer {
                     theme,
                 )
                 .size(ControlSize::Small)
-                .on_click(cx.listener(|reviewer, _, _, cx| reviewer.discard_comment(cx)));
+                .on_click(cx.listener(|reviewer, _, window, cx| {
+                    let _ = reviewer.handle_command(ReviewCommand::Cancel, window, cx);
+                }));
                 let submit = Button::new(
                     ("markdown-submit-comment", target_id.index()),
                     "Save comment",
@@ -439,7 +466,9 @@ impl MarkdownReviewer {
                 .variant(ButtonVariant::Primary)
                 .size(ControlSize::Small)
                 .disabled(!can_submit)
-                .on_click(cx.listener(|reviewer, _, _, cx| reviewer.finish_comment(cx)));
+                .on_click(cx.listener(|reviewer, _, window, cx| {
+                    let _ = reviewer.handle_command(ReviewCommand::SubmitComment, window, cx);
+                }));
                 div().mt_2().child(CommentComposer::new(
                     editor,
                     "Review comment",
@@ -460,68 +489,73 @@ impl MarkdownReviewer {
             .child(div().flex_1())
             .child(
                 Button::new("markdown-theme", "Theme", theme)
+                    .disabled(!self.command_enabled(&ReviewCommand::OpenThemePicker.into()))
                     .size(ControlSize::Small)
                     .on_click(cx.listener(|reviewer, _, window, cx| {
-                        reviewer.show_theme_picker(&MarkdownShowThemePicker, window, cx);
+                        let _ = reviewer.handle_command(ReviewCommand::OpenThemePicker, window, cx);
                     })),
             )
             .child(
                 Button::new("markdown-request-changes", "Request changes", theme)
+                    .disabled(!self.command_enabled(&MarkdownReviewCommand::RequestChanges))
                     .variant(ButtonVariant::Secondary)
                     .size(ControlSize::Small)
-                    .on_click(cx.listener(|reviewer, _, _, cx| reviewer.emit_request_changes(cx))),
+                    .on_click(cx.listener(|reviewer, _, window, cx| {
+                        let _ = reviewer.handle_command(
+                            MarkdownReviewCommand::RequestChanges,
+                            window,
+                            cx,
+                        );
+                    })),
             )
             .child(
                 Button::new("markdown-approve", "Approve", theme)
+                    .disabled(!self.command_enabled(&MarkdownReviewCommand::Approve))
                     .variant(ButtonVariant::Primary)
                     .size(ControlSize::Small)
-                    .on_click(cx.listener(|reviewer, _, _, cx| reviewer.emit_approve(cx))),
+                    .on_click(cx.listener(|reviewer, _, window, cx| {
+                        let _ = reviewer.handle_command(MarkdownReviewCommand::Approve, window, cx);
+                    })),
             )
     }
 
-    fn emit_approve(&mut self, cx: &mut Context<Self>) {
-        if let Ok(event) = self.session.approve() {
-            cx.emit(event);
-        }
-    }
-
-    fn emit_request_changes(&mut self, cx: &mut Context<Self>) {
-        if let Ok(event) = self.session.request_changes() {
-            cx.emit(event);
-        }
-    }
-
-    fn next_target(&mut self, _: &MarkdownNextTarget, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_target(1, cx);
+    fn next_target(&mut self, _: &MarkdownNextTarget, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.handle_command(MarkdownReviewCommand::MoveSelection(1), window, cx);
     }
     fn previous_target(
         &mut self,
         _: &MarkdownPreviousTarget,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_target(-1, cx);
+        let _ = self.handle_command(MarkdownReviewCommand::MoveSelection(-1), window, cx);
     }
-    fn first_target(&mut self, _: &MarkdownFirstTarget, _: &mut Window, cx: &mut Context<Self>) {
-        self.session.select_first_target();
-        cx.notify();
+    fn first_target(
+        &mut self,
+        _: &MarkdownFirstTarget,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.handle_command(MarkdownReviewCommand::First, window, cx);
     }
-    fn last_target(&mut self, _: &MarkdownLastTarget, _: &mut Window, cx: &mut Context<Self>) {
-        self.session.select_last_target();
-        cx.notify();
+    fn last_target(&mut self, _: &MarkdownLastTarget, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.handle_command(MarkdownReviewCommand::Last, window, cx);
     }
-    fn next_heading(&mut self, _: &MarkdownNextHeading, _: &mut Window, cx: &mut Context<Self>) {
-        self.session.next_heading();
-        cx.notify();
+    fn next_heading(
+        &mut self,
+        _: &MarkdownNextHeading,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.handle_command(MarkdownReviewCommand::NextHeading, window, cx);
     }
     fn previous_heading(
         &mut self,
         _: &MarkdownPreviousHeading,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.session.previous_heading();
-        cx.notify();
+        let _ = self.handle_command(MarkdownReviewCommand::PreviousHeading, window, cx);
     }
     fn add_comment(&mut self, _: &MarkdownAddComment, window: &mut Window, cx: &mut Context<Self>) {
         self.open_editor(None, window, cx);
@@ -532,77 +566,80 @@ impl MarkdownReviewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let id = self.session.comment_id_at_selection();
-        self.open_editor(id, window, cx);
+        let _ = self.handle_command(ReviewCommand::EditComment, window, cx);
     }
     fn delete_comment(
         &mut self,
         _: &MarkdownDeleteComment,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.session.delete_comment_at_selection() {
-            cx.notify();
-        }
+        let _ = self.handle_command(ReviewCommand::DeleteComment, window, cx);
     }
-    fn undo_comment(&mut self, _: &MarkdownUndoComment, _: &mut Window, cx: &mut Context<Self>) {
-        if self.session.undo_last_comment() {
-            cx.notify();
-        }
+    fn undo_comment(
+        &mut self,
+        _: &MarkdownUndoComment,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.handle_command(ReviewCommand::UndoComment, window, cx);
     }
     fn submit_comment(
         &mut self,
         _: &MarkdownSubmitComment,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.finish_comment(cx);
+        let _ = self.handle_command(ReviewCommand::SubmitComment, window, cx);
     }
     fn cancel_comment(
         &mut self,
         _: &MarkdownCancelComment,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.discard_comment(cx);
+        let _ = self.handle_command(ReviewCommand::Cancel, window, cx);
     }
-    fn approve(&mut self, _: &MarkdownApprove, _: &mut Window, cx: &mut Context<Self>) {
-        self.emit_approve(cx);
+    fn approve(&mut self, _: &MarkdownApprove, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.handle_command(MarkdownReviewCommand::Approve, window, cx);
     }
     fn request_changes(
         &mut self,
         _: &MarkdownRequestChanges,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.emit_request_changes(cx);
+        let _ = self.handle_command(MarkdownReviewCommand::RequestChanges, window, cx);
     }
 
     fn show_theme_picker(
         &mut self,
         _: &MarkdownShowThemePicker,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.theme_picker_open = true;
-        cx.notify();
+        let _ = self.handle_command(ReviewCommand::OpenThemePicker, window, cx);
     }
 
     fn hide_theme_picker(
         &mut self,
         _: &MarkdownHideThemePicker,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.theme_picker_open = false;
-        cx.notify();
+        let _ = self.handle_command(ReviewCommand::Cancel, window, cx);
     }
 
-    fn select_theme(&mut self, id: &str, cx: &mut Context<Self>) {
-        if let Ok(theme) = ReviewTheme::builtin(id) {
-            self.theme_picker_open = false;
-            self.set_theme(theme, cx);
-            cx.emit(ThemeChanged { id: id.to_owned() });
+    fn select_theme(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let index = self.theme_selection.as_ref().and_then(|selection| {
+            selection
+                .themes()
+                .iter()
+                .position(|choice| choice.theme.id().to_string() == id)
+        });
+        if let Some(index) = index {
+            let _ = self.handle_command(ReviewCommand::SelectTheme(index), window, cx);
+            let _ = self.handle_command(ReviewCommand::CommitTheme, window, cx);
         }
     }
 
@@ -615,7 +652,7 @@ impl MarkdownReviewer {
                 descriptor.name,
                 descriptor.is_dark,
                 descriptor.id == current,
-                cx.listener(move |reviewer, _, _, cx| reviewer.select_theme(&id, cx)),
+                cx.listener(move |reviewer, _, window, cx| reviewer.select_theme(&id, window, cx)),
             )
         });
         let viewport = window.viewport_size();
@@ -628,12 +665,8 @@ impl MarkdownReviewer {
         .items(items)
     }
 
-    #[expect(
-        clippy::unused_self,
-        reason = "GPUI action handlers must take the entity as their receiver"
-    )]
-    fn cancel(&mut self, _: &MarkdownCancel, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(MarkdownReviewEvent::Cancel);
+    fn cancel(&mut self, _: &MarkdownCancel, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.handle_command(ReviewCommand::Cancel, window, cx);
     }
 }
 
@@ -733,7 +766,7 @@ impl Render for MarkdownReviewer {
             .iter()
             .map(|target| target.id)
             .collect::<Vec<_>>();
-        let mode = if self.theme_picker_open {
+        let mode = if self.theme_selection.is_some() {
             "themes"
         } else if self.editor.is_some() {
             "draft"
@@ -782,6 +815,7 @@ impl Render for MarkdownReviewer {
                     .child(
                         div()
                             .id("markdown-document")
+                            .track_scroll(&self.document_scroll)
                             .flex_1()
                             .h_full()
                             .overflow_y_scroll()
@@ -802,7 +836,7 @@ impl Render for MarkdownReviewer {
                     ),
             )
             .child(self.render_bar(cx))
-            .when(self.theme_picker_open, |reviewer| {
+            .when(self.theme_selection.is_some(), |reviewer| {
                 reviewer.child(self.render_theme_picker(window, cx))
             })
     }
