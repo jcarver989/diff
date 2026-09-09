@@ -32,6 +32,7 @@ lto = "thin"
 async-channel = "2.5.0"
 arborium = { version = "=2.18.2", default-features = false }
 arborium-highlight = "=2.18.2"
+arborium-sysroot = "=2.18.2"
 arborium-theme = "=2.18.2"
 bitflags = "2.13.1"
 blake3 = "1.8.7"

@@ -1954,6 +1954,7 @@ dependencies = [
 name = "clankerdiff-markdown"
 version = "0.1.0"
 dependencies = [
+ "clankerdiff-core",
  "clankerdiff-fingerprint",
  "pulldown-cmark",
  "serde",
@@ -1997,6 +1998,7 @@ version = "0.1.0"
 dependencies = [
  "arborium",
  "arborium-highlight",
+ "arborium-sysroot",
  "arborium-theme",
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
