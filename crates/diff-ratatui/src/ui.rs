@@ -22,6 +22,7 @@ pub(crate) struct FrameRegions {
 pub(crate) struct AppFrame<'a> {
     title: &'a str,
     borders: bool,
+    footer: bool,
     theme: &'a RatatuiTheme,
 }
 impl<'a> AppFrame<'a> {
@@ -29,9 +30,15 @@ impl<'a> AppFrame<'a> {
         Self {
             title,
             borders,
+            footer: true,
             theme,
         }
     }
+    pub(crate) const fn footer(mut self, footer: bool) -> Self {
+        self.footer = footer;
+        self
+    }
+
     pub(crate) fn render(self, area: Rect, buffer: &mut Buffer) -> FrameRegions {
         buffer.set_style(
             area,
@@ -50,7 +57,11 @@ impl<'a> AppFrame<'a> {
         };
         let [body, footer] = Layout::vertical([
             Constraint::Min(0),
-            Constraint::Length(ACTION_BAR_HEIGHT.min(inner.height)),
+            Constraint::Length(if self.footer {
+                ACTION_BAR_HEIGHT.min(inner.height)
+            } else {
+                0
+            }),
         ])
         .areas(inner);
         FrameRegions { body, footer }

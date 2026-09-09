@@ -2,7 +2,7 @@ use clankerdiff_core::{DiffReviewEvent, testing::DocumentBuilder};
 use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ratatui::{
     DiffReviewState, DiffReviewWidget, InputOutcome, InteractionPhase, KeyCode, KeyEvent,
-    KeyModifiers, MarkdownReviewState, MouseEvent, MouseEventKind, ReviewInput,
+    KeyModifiers, MarkdownReviewState, MouseEvent, MouseEventKind, ReviewInput, ThemeChoice,
 };
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 use std::{error::Error, sync::Arc};
@@ -69,6 +69,7 @@ fn modals_consume_keys_and_outside_mouse_is_ignored() {
         InputOutcome::Consumed
     ));
     let _ = state.handle_input(key(KeyCode::Esc));
+    state.set_theme_choices(vec![ThemeChoice::new("Current", state.theme().clone())]);
     let _ = state.handle_input(key(KeyCode::Char('t')));
     assert_eq!(state.interaction_phase(), InteractionPhase::ThemePicker);
     let _ = state.handle_input(key(KeyCode::Esc));

@@ -1,11 +1,13 @@
 //! Ratatui reviewer for rendered Markdown documents.
 
+mod component;
 mod input;
 mod layout;
 mod render;
 mod state;
 
 pub use clankerdiff_markdown::MarkdownReviewEvent;
+pub use component::{MarkdownReview, MarkdownReviewBuilder};
 #[cfg(feature = "crossterm-backend")]
 pub use input::handle_crossterm_event;
 pub use render::MarkdownReviewWidget;

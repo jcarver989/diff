@@ -34,6 +34,10 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [[test]]
+name = "markdown_review_component_test"
+path = "tests/markdown_review/component_test.rs"
+
+[[test]]
 name = "markdown_review_render_test"
 path = "tests/markdown_review/render_test.rs"
 required-features = ["test-support"]
@@ -44,6 +48,10 @@ required-features = ["test-support"]
 
 [[example]]
 name = "review"
+required-features = ["crossterm-backend"]
+
+[[example]]
+name = "embedded_review"
 required-features = ["crossterm-backend"]
 
 [[example]]

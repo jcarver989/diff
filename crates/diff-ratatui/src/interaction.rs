@@ -1,8 +1,9 @@
-use crate::theme_picker::{self, ThemePicker};
+use crate::ReviewCommand;
 use bitflags::bitflags;
 use clankerdiff_core::CommentDraft;
+pub use clankerdiff_core::InteractionPhase;
 use clankerdiff_markdown::MarkdownCommentDraft;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_theme::ThemeId;
 use ratatui::layout::Position;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,6 +11,7 @@ pub enum InputOutcome<T> {
     Ignored,
     Consumed,
     Emitted(T),
+    ThemeSelected(ThemeId),
 }
 
 impl<T> InputOutcome<T> {
@@ -24,15 +26,6 @@ impl<T> InputOutcome<T> {
             _ => None,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InteractionPhase {
-    Browse,
-    Draft,
-    Help,
-    ThemePicker,
-    RepositoryPrompt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +50,29 @@ pub enum KeyCode {
     Null,
 }
 
+impl KeyCode {
+    #[must_use]
+    pub fn ctrl(key: impl Into<Self>) -> KeyEvent {
+        KeyEvent::new(key.into(), KeyModifiers::CONTROL)
+    }
+
+    #[must_use]
+    pub fn alt(key: impl Into<Self>) -> KeyEvent {
+        KeyEvent::new(key.into(), KeyModifiers::ALT)
+    }
+
+    #[must_use]
+    pub fn shift(key: impl Into<Self>) -> KeyEvent {
+        KeyEvent::new(key.into(), KeyModifiers::SHIFT)
+    }
+}
+
+impl From<char> for KeyCode {
+    fn from(key: char) -> Self {
+        Self::Char(key)
+    }
+}
+
 bitflags! {
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
     pub struct KeyModifiers: u8 {
@@ -79,6 +95,18 @@ impl KeyEvent {
     #[must_use]
     pub const fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
         Self { code, modifiers }
+    }
+}
+
+impl From<KeyCode> for KeyEvent {
+    fn from(code: KeyCode) -> Self {
+        Self::new(code, KeyModifiers::NONE)
+    }
+}
+
+impl From<char> for KeyEvent {
+    fn from(key: char) -> Self {
+        KeyCode::from(key).into()
     }
 }
 
@@ -113,49 +141,82 @@ pub enum ReviewInput {
     Mouse(MouseEvent),
 }
 
+impl From<KeyEvent> for ReviewInput {
+    fn from(key: KeyEvent) -> Self {
+        Self::Key(key)
+    }
+}
+
+impl From<KeyCode> for ReviewInput {
+    fn from(key: KeyCode) -> Self {
+        Self::Key(key.into())
+    }
+}
+
+impl From<char> for ReviewInput {
+    fn from(key: char) -> Self {
+        Self::Key(key.into())
+    }
+}
+
+impl From<MouseEvent> for ReviewInput {
+    fn from(mouse: MouseEvent) -> Self {
+        Self::Mouse(mouse)
+    }
+}
+
 pub(crate) trait DraftEditor {
     fn insert(&mut self, text: &str);
     fn edit(&mut self, code: KeyCode);
 }
 
-macro_rules! draft_editor {
-    ($t:ty) => {
-        impl DraftEditor for $t {
-            fn insert(&mut self, text: &str) {
-                Self::insert(self, text);
-            }
-            fn edit(&mut self, code: KeyCode) {
-                match code {
-                    KeyCode::Left => self.move_cursor_left(),
-                    KeyCode::Right => self.move_cursor_right(),
-                    KeyCode::Home => self.move_cursor_to_start(),
-                    KeyCode::End => self.move_cursor_to_end(),
-                    KeyCode::Backspace => self.delete_before_cursor(),
-                    KeyCode::Delete => self.delete_at_cursor(),
-                    _ => {}
-                }
-            }
+impl DraftEditor for CommentDraft {
+    fn insert(&mut self, text: &str) {
+        Self::insert(self, text);
+    }
+    fn edit(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Left => self.move_cursor_left(),
+            KeyCode::Right => self.move_cursor_right(),
+            KeyCode::Home => self.move_cursor_to_start(),
+            KeyCode::End => self.move_cursor_to_end(),
+            KeyCode::Backspace => self.delete_before_cursor(),
+            KeyCode::Delete => self.delete_at_cursor(),
+            _ => {}
         }
-    };
+    }
 }
-draft_editor!(CommentDraft);
-draft_editor!(MarkdownCommentDraft);
+
+impl DraftEditor for MarkdownCommentDraft {
+    fn insert(&mut self, text: &str) {
+        Self::insert(self, text);
+    }
+    fn edit(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Left => self.move_cursor_left(),
+            KeyCode::Right => self.move_cursor_right(),
+            KeyCode::Home => self.move_cursor_to_start(),
+            KeyCode::End => self.move_cursor_to_end(),
+            KeyCode::Backspace => self.delete_before_cursor(),
+            KeyCode::Delete => self.delete_at_cursor(),
+            _ => {}
+        }
+    }
+}
 
 pub(crate) trait ReviewWidget {
     type Event;
     type Error;
     type Draft: DraftEditor;
     fn phase(&self) -> InteractionPhase;
+    fn handle_review_command(
+        &mut self,
+        command: ReviewCommand,
+    ) -> Result<InputOutcome<Self::Event>, Self::Error>;
     fn contains(&self, position: Position) -> bool;
     fn mark_dirty(&mut self);
     fn draft_mut(&mut self) -> Option<&mut Self::Draft>;
-    fn cancel_draft(&mut self);
-    fn submit_draft(&mut self);
-    fn draft_changed(&mut self, closed: bool);
-    fn theme_picker(&mut self) -> &mut Option<ThemePicker>;
-    fn set_theme(&mut self, theme: ReviewTheme);
-    fn close_help(&mut self);
-    fn cancel_event() -> Self::Event;
+    fn draft_changed(&mut self);
     fn handle_browse_key(
         &mut self,
         key: KeyEvent,
@@ -164,6 +225,7 @@ pub(crate) trait ReviewWidget {
     fn handle_prompt_key(&mut self, _key: KeyEvent) -> InputOutcome<Self::Event> {
         InputOutcome::Consumed
     }
+    fn paste_prompt(&mut self, _text: &str) {}
 }
 
 pub(crate) fn handle_input<T: ReviewWidget>(
@@ -176,9 +238,14 @@ pub(crate) fn handle_input<T: ReviewWidget>(
         ReviewInput::Paste(text) => {
             if let Some(draft) = state.draft_mut() {
                 draft.insert(&text);
-                state.draft_changed(false);
+                state.draft_changed();
+                state.mark_dirty();
                 InputOutcome::Consumed
             } else if phase != InteractionPhase::Browse {
+                if phase == InteractionPhase::RepositoryPrompt {
+                    state.paste_prompt(&text);
+                    state.mark_dirty();
+                }
                 InputOutcome::Consumed
             } else {
                 InputOutcome::Ignored
@@ -195,13 +262,14 @@ pub(crate) fn handle_input<T: ReviewWidget>(
             {
                 InputOutcome::Ignored
             } else {
-                state.handle_mouse(mouse)
+                let outcome = state.handle_mouse(mouse);
+                if outcome.is_consumed() {
+                    state.mark_dirty();
+                }
+                outcome
             }
         }
     };
-    if outcome.is_consumed() {
-        state.mark_dirty();
-    }
     Ok(outcome)
 }
 
@@ -209,59 +277,72 @@ fn handle_key<T: ReviewWidget>(
     state: &mut T,
     key: KeyEvent,
 ) -> Result<InputOutcome<T::Event>, T::Error> {
-    match state.phase() {
+    let command = match state.phase() {
         InteractionPhase::ThemePicker => {
-            if let Some(theme) = theme_picker::apply_key(state.theme_picker(), key) {
-                state.set_theme(theme);
+            if !is_plain_key(key) {
+                return Ok(InputOutcome::Consumed);
+            }
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => ReviewCommand::Cancel,
+                KeyCode::Enter => ReviewCommand::CommitTheme,
+                KeyCode::Up | KeyCode::Char('k') => ReviewCommand::MoveTheme(-1),
+                KeyCode::Down | KeyCode::Char('j') => ReviewCommand::MoveTheme(1),
+                KeyCode::Home | KeyCode::Char('g') => ReviewCommand::SelectTheme(0),
+                KeyCode::End | KeyCode::Char('G') => ReviewCommand::MoveTheme(isize::MAX),
+                _ => return Ok(InputOutcome::Consumed),
             }
         }
-        InteractionPhase::RepositoryPrompt => return Ok(state.handle_prompt_key(key)),
+        InteractionPhase::RepositoryPrompt => {
+            let outcome = state.handle_prompt_key(key);
+            if outcome.is_consumed() {
+                state.mark_dirty();
+            }
+            return Ok(outcome);
+        }
         InteractionPhase::Help => {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-                state.close_help();
+            if !is_plain_key(key) {
+                return Ok(InputOutcome::Consumed);
+            }
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('?') => ReviewCommand::Cancel,
+                KeyCode::Down | KeyCode::Char('j') => ReviewCommand::ScrollHelp(1),
+                KeyCode::Up | KeyCode::Char('k') => ReviewCommand::ScrollHelp(-1),
+                KeyCode::PageDown => ReviewCommand::ScrollHelp(10),
+                KeyCode::PageUp => ReviewCommand::ScrollHelp(-10),
+                KeyCode::Home => ReviewCommand::ScrollHelp(isize::MIN),
+                KeyCode::End => ReviewCommand::ScrollHelp(isize::MAX),
+                _ => return Ok(InputOutcome::Consumed),
             }
         }
-        InteractionPhase::Draft => handle_draft_key(state, key),
-        InteractionPhase::Browse => {
-            if key.code == KeyCode::Esc
-                || (key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL))
-            {
-                return Ok(InputOutcome::Emitted(T::cancel_event()));
-            }
-            if key.modifiers.intersects(
-                KeyModifiers::ALT
-                    | KeyModifiers::SUPER
-                    | KeyModifiers::CONTROL
-                    | KeyModifiers::HYPER
-                    | KeyModifiers::META,
-            ) {
-                return Ok(InputOutcome::Ignored);
-            }
-            return state.handle_browse_key(key);
-        }
-    }
-    Ok(InputOutcome::Consumed)
+        InteractionPhase::Draft => return handle_draft_key(state, key),
+        InteractionPhase::Browse => return state.handle_browse_key(key),
+    };
+    state.handle_review_command(command)
 }
 
-fn handle_draft_key<T: ReviewWidget>(state: &mut T, key: KeyEvent) {
+pub(crate) fn is_plain_key(key: KeyEvent) -> bool {
+    key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT
+}
+
+fn handle_draft_key<T: ReviewWidget>(
+    state: &mut T,
+    key: KeyEvent,
+) -> Result<InputOutcome<T::Event>, T::Error> {
     if key.code == KeyCode::Esc {
-        state.cancel_draft();
-        state.draft_changed(true);
+        return state.handle_review_command(ReviewCommand::Cancel);
     } else if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
-        state.submit_draft();
-        let closed = state.draft_mut().is_none();
-        state.draft_changed(closed);
+        return state.handle_review_command(ReviewCommand::SubmitComment);
     } else if let Some(draft) = state.draft_mut() {
         match key.code {
             KeyCode::Enter => draft.insert("\n"),
-            KeyCode::Char(character)
-                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
-            {
+            KeyCode::Char(character) if is_plain_key(key) => {
                 let mut buffer = [0; 4];
                 draft.insert(character.encode_utf8(&mut buffer));
             }
             code => draft.edit(code),
         }
-        state.draft_changed(false);
+        state.draft_changed();
+        state.mark_dirty();
     }
+    Ok(InputOutcome::Consumed)
 }

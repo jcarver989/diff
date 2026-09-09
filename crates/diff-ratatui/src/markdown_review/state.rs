@@ -1,5 +1,9 @@
 use super::layout::MarkdownVisualLayout;
-use crate::theme_picker::ThemePicker;
+use clankerdiff_core::ReviewCapabilities;
+use crate::{
+    KeyBinding, MarkdownReviewCommand, NavigationPane, ReviewOptions, ThemeChoice,
+    default_markdown_keybindings, theme_picker::ThemePicker,
+};
 use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId,
 };
@@ -11,15 +15,7 @@ use std::{
     sync::Arc,
 };
 
-/// The pane receiving Markdown review navigation.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum MarkdownFocusPane {
-    /// The rendered document.
-    #[default]
-    Document,
-    /// The heading outline.
-    Outline,
-}
+pub use clankerdiff_markdown::MarkdownFocusPane;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct MarkdownHitRegion {
@@ -39,6 +35,10 @@ struct CachedLayout {
 #[derive(Debug)]
 pub struct MarkdownReviewState {
     pub(crate) session: MarkdownReviewSession,
+    pub(crate) options: ReviewOptions,
+    pub(crate) capabilities: ReviewCapabilities,
+    pub(crate) keybindings: Vec<KeyBinding<MarkdownReviewCommand>>,
+    pub(crate) theme_choices: Arc<[ThemeChoice]>,
     pub(crate) theme: ReviewTheme,
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) focus: MarkdownFocusPane,
@@ -50,6 +50,7 @@ pub struct MarkdownReviewState {
     pub(crate) hit_regions: Vec<MarkdownHitRegion>,
     pub(crate) cursor_position: Option<Position>,
     pub(crate) help: bool,
+    pub(crate) help_scroll: usize,
     pub(crate) theme_picker: Option<ThemePicker>,
     pub(crate) dirty: bool,
     pub(crate) follow_pending: bool,
@@ -67,6 +68,10 @@ impl MarkdownReviewState {
     pub fn with_theme(document: Arc<MarkdownDocument>, theme: ReviewTheme) -> Self {
         Self {
             session: MarkdownReviewSession::new(document),
+            options: ReviewOptions::default(),
+            capabilities: ReviewCapabilities::default(),
+            keybindings: default_markdown_keybindings(),
+            theme_choices: Arc::from([]),
             theme,
             highlighter: SyntaxHighlighter::default(),
             focus: MarkdownFocusPane::Document,
@@ -78,6 +83,7 @@ impl MarkdownReviewState {
             hit_regions: Vec::new(),
             cursor_position: None,
             help: false,
+            help_scroll: 0,
             theme_picker: None,
             dirty: true,
             follow_pending: true,
@@ -164,8 +170,53 @@ impl MarkdownReviewState {
 
     /// Changes the theme and invalidates syntax highlighting.
     pub fn set_theme(&mut self, theme: ReviewTheme) {
+        self.theme_picker = None;
+        self.apply_theme(theme);
+    }
+
+    pub(crate) fn apply_theme(&mut self, theme: ReviewTheme) {
         self.theme = theme;
         self.highlighter.clear_cache();
+        self.mark_dirty();
+    }
+
+    #[must_use]
+    pub const fn options(&self) -> &ReviewOptions {
+        &self.options
+    }
+
+    pub fn keybindings(&self) -> &[KeyBinding<MarkdownReviewCommand>] {
+        &self.keybindings
+    }
+
+    pub fn set_keybindings(&mut self, bindings: impl Into<Vec<KeyBinding<MarkdownReviewCommand>>>) {
+        self.keybindings = bindings.into();
+        self.help_scroll = 0;
+        self.mark_dirty();
+    }
+
+    pub fn set_options(&mut self, options: ReviewOptions) {
+        if matches!(
+            options.navigation,
+            NavigationPane::Hidden | NavigationPane::Width(0)
+        ) {
+            self.focus = MarkdownFocusPane::Document;
+        }
+        self.options = options;
+        self.hit_regions.clear();
+        self.request_follow();
+    }
+
+    #[must_use]
+    pub fn theme_choices(&self) -> &[ThemeChoice] {
+        &self.theme_choices
+    }
+
+    pub fn set_theme_choices(&mut self, themes: impl Into<Arc<[ThemeChoice]>>) {
+        if let Some(picker) = self.theme_picker.take() {
+            self.set_theme(picker.cancel());
+        }
+        self.theme_choices = themes.into();
         self.mark_dirty();
     }
 
@@ -231,13 +282,6 @@ impl MarkdownReviewState {
         } else if row >= self.scroll.saturating_add(height) {
             self.scroll = row.saturating_sub(height - 1);
         }
-    }
-
-    pub(crate) fn selected_outline_target(&self) -> Option<MarkdownTargetId> {
-        self.document()
-            .outline()
-            .get(self.outline_selected)
-            .map(|heading| heading.target_id)
     }
 
     pub(crate) fn clear_hit_regions(&mut self) {

@@ -67,8 +67,11 @@ impl StatefulWidget for MarkdownReviewWidget {
 
     fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
         state.set_cursor(None);
+        state.clear_hit_regions();
         let theme = RatatuiTheme::from(&state.theme);
-        let regions = AppFrame::new(&self.title, self.borders, &theme).render(area, buffer);
+        let regions = AppFrame::new(&self.title, self.borders, &theme)
+            .footer(state.options.footer)
+            .render(area, buffer);
         if regions.body.is_empty() {
             state.dirty = false;
             return;
@@ -78,7 +81,7 @@ impl StatefulWidget for MarkdownReviewWidget {
         render_body(body, buffer, state, &theme);
         render_footer(footer, buffer, state, &theme);
         if state.help {
-            render_help(area, buffer, &theme);
+            render_help(area, buffer, state, &theme);
         }
         if let Some(picker) = &state.theme_picker {
             render_theme_picker(area, buffer, picker, &theme);
@@ -97,10 +100,15 @@ fn render_body(
     if area.is_empty() {
         return;
     }
-    let wide = area.width >= OUTLINE_BREAKPOINT && !state.document().outline().is_empty();
+    let outline_width = state.options.navigation.width(
+        area.width,
+        OUTLINE_BREAKPOINT,
+        OUTLINE_WIDTH.min(area.width / 3),
+    );
+    let wide = outline_width > 0 && !state.document().outline().is_empty();
     let (outline, separator, document) = if wide {
         let [outline, separator, document] = Layout::horizontal([
-            Constraint::Length(OUTLINE_WIDTH.min(area.width / 3)),
+            Constraint::Length(outline_width),
             Constraint::Length(1),
             Constraint::Min(1),
         ])
@@ -152,6 +160,15 @@ fn render_outline(
     let heading_count = state.document().outline().len();
     state.outline_selected = state.outline_selected.min(heading_count.saturating_sub(1));
     let height = usize::from(area.height);
+    if state.follow_pending {
+        if state.outline_selected < state.outline_scroll {
+            state.outline_scroll = state.outline_selected;
+        } else if state.outline_selected >= state.outline_scroll.saturating_add(height) {
+            state.outline_scroll = state
+                .outline_selected
+                .saturating_sub(height.saturating_sub(1));
+        }
+    }
     let max_scroll = heading_count.saturating_sub(height.max(1));
     state.outline_scroll = state.outline_scroll.min(max_scroll);
     let headings = state.document().outline().to_vec();
@@ -291,6 +308,8 @@ fn render_footer(
     if area.is_empty() {
         return;
     }
+    let count = state.review().len();
+    let status = format!("  {count} comment{}", if count == 1 { "" } else { "s" });
     let mut actions = if state.session.draft().is_some() {
         vec![
             ActionLabel::new("Enter", "save", theme)
@@ -300,37 +319,30 @@ fn render_footer(
             ActionLabel::new("Esc", "cancel", theme).into_span(),
         ]
     } else {
-        vec![
-            Span::styled(
-                "[j/k] target  [n/p] heading  ",
-                Style::new().fg(theme.ui.text_muted),
-            ),
-            ActionLabel::new("c", "comment", theme).into_span(),
-            ActionLabel::new("a", "approve", theme)
-                .variant(ButtonVariant::Primary)
-                .into_span(),
-            ActionLabel::new("r", "request changes", theme)
-                .variant(ButtonVariant::Destructive)
-                .into_span(),
-            Span::styled("[t] theme  [?] help", Style::new().fg(theme.ui.text_muted)),
-        ]
+        vec![Span::styled(
+            state.footer_hint(usize::from(area.width).saturating_sub(status.len())),
+            Style::new().fg(theme.ui.text_muted),
+        )]
     };
-    let count = state.review().len();
     actions.push(Span::styled(
-        format!("  {count} comment{}", if count == 1 { "" } else { "s" }),
+        status,
         Style::new().fg(theme.ui.accent),
     ));
     ActionBar::new(Line::from(actions), theme).render(area, buffer);
 }
 
-fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
+fn render_help(area: Rect, buffer: &mut Buffer, state: &MarkdownReviewState, theme: &RatatuiTheme) {
     let content = Modal::new("Markdown shortcuts", ModalSize::Wide, theme)
-        .hint("? / Esc to close")
+        .hint("j/k scroll · ? / Esc close")
         .render(area, buffer);
     render_modal_text(
         content,
         buffer,
-        "Navigation\n  j/k or arrows   move target\n  g/G or Home/End first/last\n  n/p             next/previous heading\n  h/l or Enter    outline/document\n\nReview\n  c/e/x/u         add/edit/delete/undo\n  a/r             approve/request changes\n  t               select theme\n  Esc             cancel draft/review\n  ?               close help",
+        state.help_bindings()
+            .skip(state.help_scroll)
+            .map(|binding| binding.hint())
+            .collect::<Vec<_>>()
+            .join("\n"),
         theme,
     );
 }
