@@ -8,7 +8,7 @@ install:
     cargo install --path crates/clankerdiff --locked --force --profile release
 
 tui:
-    cargo run -p clankerdiff-ratatui --example review
+    cargo run -p clankerdiff-ratatui --features crossterm-backend --example review
 
 desktop:
     cargo run -p clankerdiff-gpui-desktop
@@ -40,25 +40,17 @@ bench:
     cargo bench --workspace --all-features
 
 feature-check:
-    cargo check -p clankerdiff-syntax --no-default-features
-    cargo check -p clankerdiff-syntax --features common-languages
-    cargo check -p clankerdiff-syntax --no-default-features --features agent-languages
     cargo check -p clankerdiff-ratatui --no-default-features
-    cargo check -p clankerdiff-ratatui --no-default-features --features syntax
-    cargo check -p clankerdiff-ratatui --no-default-features --features diff-preview
-    cargo check -p clankerdiff-ratatui --no-default-features --features markdown
-    cargo check -p clankerdiff-ratatui --no-default-features --features diff-review
-    cargo check -p clankerdiff-ratatui --no-default-features --features markdown-review
-    cargo check -p clankerdiff-ratatui --all-features
-    cargo check -p clankerdiff-ratatui --no-default-features --features syntax,diff-preview,markdown --example streaming_markdown
-    cargo check -p clankerdiff-ratatui --no-default-features --features markdown,test-support --tests --benches
-    if cargo tree -i syntect --all-features >/dev/null 2>&1; then echo "syntect unexpectedly remains in the dependency graph" >&2; exit 1; fi
+    cargo check -p clankerdiff-ratatui --no-default-features --features test-support --all-targets
+    cargo check -p clankerdiff-ratatui --all-features --all-targets
+    tree="$(cargo tree -p clankerdiff-ratatui --no-default-features --features test-support -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(crossterm|ratatui-crossterm|syntect|two-face|clankerdiff-(git|watch|gpui[^ ]*)) v'; then echo "unexpected dependency in portable ratatui graph" >&2; exit 1; fi
 
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 wasm-check:
     cargo check -p clankerdiff-core -p clankerdiff-theme -p clankerdiff-syntax -p clankerdiff-markdown -p clankerdiff-gpui -p clankerdiff-gpui-web --target wasm32-unknown-unknown
+    cargo check -p clankerdiff-ratatui --no-default-features --target wasm32-unknown-unknown
 
 # Build the release WASM and execute its smoke test in Chromium.
 web-test:

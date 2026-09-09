@@ -1976,6 +1976,7 @@ dependencies = [
 name = "clankerdiff-ratatui"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.1",
  "clankerdiff-core",
  "clankerdiff-git",
  "clankerdiff-markdown",
@@ -1986,6 +1987,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "tokio",
+ "unicode-segmentation",
  "unicode-width",
 ]
 
@@ -1998,6 +2000,7 @@ dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
+ "lru",
  "thiserror 2.0.20",
 ]
 
