@@ -2,7 +2,7 @@
 
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
 use clankerdiff_ratatui::{
-    MarkdownReviewState, MarkdownReviewWidget, handle_markdown_crossterm_event,
+    MarkdownReviewState, MarkdownReviewWidget, ThemeChoice, handle_markdown_crossterm_event,
 };
 use crossterm::{
     event, execute,
@@ -50,6 +50,7 @@ fn run(
     let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut state = MarkdownReviewState::new(document);
+    state.set_theme_choices(ThemeChoice::catalog());
     loop {
         if state.is_dirty() {
             terminal.draw(|frame| {
@@ -59,7 +60,7 @@ fn run(
                 }
             })?;
         }
-        match handle_markdown_crossterm_event(&mut state, event::read()?)? {
+        match handle_markdown_crossterm_event(&mut state, event::read()?)?.into_event() {
             Some(MarkdownReviewEvent::Submit(submission)) => return Ok(Some(submission)),
             Some(MarkdownReviewEvent::Cancel) => return Ok(None),
             Some(MarkdownReviewEvent::CopyFormatted(_)) | None => {}

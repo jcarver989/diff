@@ -1,9 +1,9 @@
 //! Interactive review of a real Git worktree using `clankerdiff-ratatui`.
 
-use clankerdiff_core::{DiffDocument, DiffScope, ReviewSubmission};
+use clankerdiff_core::{DiffDocument, DiffScope, ReviewCapabilities, ReviewSubmission};
 use clankerdiff_git::GitRepository;
 use clankerdiff_ratatui::{
-    DiffReviewEvent, DiffReviewState, DiffReviewWidget, handle_crossterm_event,
+    DiffReviewEvent, DiffReviewState, DiffReviewWidget, ThemeChoice, handle_crossterm_event,
 };
 use crossterm::{
     event::{self, Event},
@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-const USAGE: &str = "Usage: cargo run -p clankerdiff-ratatui --example review -- [PATH] [--scope SCOPE]\n\nScopes:\n  both       staged and unstaged changes (default)\n  unstaged   worktree changes only\n  staged     index changes only\n\nKeys:\n  j/k        move through files or lines\n  h/l, Tab   switch between file and diff panes\n  c          add a comment to the selected line\n  e/x/u      edit, delete, or undo a comment\n  v          cycle automatic, unified, and split views\n  S          cycle scope (unstaged/staged/both)\n  s          submit the review and print it\n  y          copy event (printed after leaving the TUI)\n  ?          show all shortcuts\n  Esc        exit";
+const USAGE: &str = "Usage: cargo run -p clankerdiff-ratatui --example review -- [PATH] [--scope SCOPE]\n\nScopes:\n  both       staged and unstaged changes (default)\n  unstaged   worktree changes only\n  staged     index changes only\n\nKeys:\n  j/k        move through files or lines\n  h/l, Tab   switch between file and diff panes\n  c          add a comment to the selected line\n  e/x/u      edit, delete, or undo a comment\n  v          cycle automatic, unified, and split views\n  s          submit the review and print it\n  y          copy event (printed after leaving the TUI)\n  ?          show all shortcuts\n  Esc        exit";
 
 #[derive(Debug)]
 struct Options {
@@ -109,6 +109,13 @@ fn run_tui(scope: DiffScope, document: Arc<DiffDocument>) -> io::Result<Outcome>
     let mut terminal = Terminal::new(backend)?;
     let mut state = DiffReviewState::new(document);
     state.set_scope(scope);
+    state.set_theme_choices(ThemeChoice::catalog());
+    state.set_capabilities(ReviewCapabilities {
+        repository: false,
+        refresh: false,
+        scope: false,
+        ..ReviewCapabilities::default()
+    });
 
     loop {
         if state.is_dirty() {
@@ -138,12 +145,12 @@ fn run_tui(scope: DiffScope, document: Arc<DiffDocument>) -> io::Result<Outcome>
 }
 
 fn apply_event(state: &mut DiffReviewState, event: Event) -> Option<Outcome> {
-    match handle_crossterm_event(state, event) {
+    match handle_crossterm_event(state, event).into_event() {
         Some(DiffReviewEvent::SetScope(scope)) => {
             state.set_scope(scope);
             None
         }
-        Some(DiffReviewEvent::RepositoryAction(_)) | None => None,
+        Some(DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::Refresh) | None => None,
         Some(DiffReviewEvent::Cancel) => Some(Outcome::Cancelled),
         Some(DiffReviewEvent::SubmitReview(submission)) => Some(Outcome::Submitted(submission)),
         Some(DiffReviewEvent::CopyFormattedReview(formatted)) => {

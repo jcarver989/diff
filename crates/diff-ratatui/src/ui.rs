@@ -22,6 +22,7 @@ pub(crate) struct FrameRegions {
 pub(crate) struct AppFrame<'a> {
     title: &'a str,
     borders: bool,
+    footer: bool,
     theme: &'a RatatuiTheme,
 }
 impl<'a> AppFrame<'a> {
@@ -29,9 +30,15 @@ impl<'a> AppFrame<'a> {
         Self {
             title,
             borders,
+            footer: true,
             theme,
         }
     }
+    pub(crate) const fn footer(mut self, footer: bool) -> Self {
+        self.footer = footer;
+        self
+    }
+
     pub(crate) fn render(self, area: Rect, buffer: &mut Buffer) -> FrameRegions {
         buffer.set_style(
             area,
@@ -50,7 +57,11 @@ impl<'a> AppFrame<'a> {
         };
         let [body, footer] = Layout::vertical([
             Constraint::Min(0),
-            Constraint::Length(ACTION_BAR_HEIGHT.min(inner.height)),
+            Constraint::Length(if self.footer {
+                ACTION_BAR_HEIGHT.min(inner.height)
+            } else {
+                0
+            }),
         ])
         .areas(inner);
         FrameRegions { body, footer }
@@ -117,28 +128,6 @@ impl Widget for ActionLabel<'_> {
     }
 }
 
-pub(crate) struct SelectableRow<'a> {
-    line: Line<'a>,
-    state: SelectionState,
-    theme: &'a RatatuiTheme,
-}
-impl<'a> SelectableRow<'a> {
-    pub(crate) const fn new(
-        line: Line<'a>,
-        state: SelectionState,
-        theme: &'a RatatuiTheme,
-    ) -> Self {
-        Self { line, state, theme }
-    }
-}
-impl Widget for SelectableRow<'_> {
-    fn render(self, area: Rect, buffer: &mut Buffer) {
-        Paragraph::new(self.line)
-            .style(self.theme.ui.selection_style(self.state))
-            .render(area, buffer);
-    }
-}
-
 pub(crate) struct Modal<'a> {
     title: &'a str,
     hint: Option<&'a str>,
@@ -146,20 +135,16 @@ pub(crate) struct Modal<'a> {
     theme: &'a RatatuiTheme,
 }
 impl<'a> Modal<'a> {
-    pub(crate) const fn new(title: &'a str, theme: &'a RatatuiTheme) -> Self {
+    pub(crate) const fn new(title: &'a str, size: ModalSize, theme: &'a RatatuiTheme) -> Self {
         Self {
             title,
             hint: None,
-            size: ModalSize::Medium,
+            size,
             theme,
         }
     }
     pub(crate) const fn hint(mut self, hint: &'a str) -> Self {
         self.hint = Some(hint);
-        self
-    }
-    pub(crate) const fn size(mut self, size: ModalSize) -> Self {
-        self.size = size;
         self
     }
     pub(crate) fn render(self, area: Rect, buffer: &mut Buffer) -> Rect {
@@ -223,31 +208,4 @@ pub(crate) fn render_modal_text(
     Paragraph::new(text)
         .style(Style::new().fg(theme.ui.text).bg(theme.ui.surface))
         .render(area, buffer);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clankerdiff_theme::DiffTheme;
-
-    #[test]
-    fn component_gallery_renders_shared_states() {
-        let theme = RatatuiTheme::from(&DiffTheme::default());
-        let area = Rect::new(0, 0, 48, 16);
-        let mut buffer = Buffer::empty(area);
-        let regions = AppFrame::new("Components", true, &theme).render(area, &mut buffer);
-        SelectableRow::new(Line::from("Selected row"), SelectionState::Focused, &theme).render(
-            Rect::new(regions.body.x, regions.body.y, regions.body.width, 1),
-            &mut buffer,
-        );
-        ActionLabel::new("a", "Approve", &theme)
-            .variant(ButtonVariant::Primary)
-            .render(regions.footer, &mut buffer);
-        let modal = Modal::new("Dialog", &theme)
-            .hint("Esc close")
-            .render(area, &mut buffer);
-        EmptyState::new("Problem", NoticeTone::Error, &theme).render(modal, &mut buffer);
-        assert!(buffer.content().iter().any(|cell| cell.symbol() == "A"));
-        assert!(buffer.content().iter().any(|cell| cell.symbol() == "P"));
-    }
 }

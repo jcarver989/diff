@@ -5,8 +5,8 @@ use clankerdiff_core::{
 use clankerdiff_git::{GitError, GitRepository};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use clankerdiff_ratatui::{
-    DiffReviewState, DiffReviewWidget, MarkdownReviewEvent, MarkdownReviewState,
-    MarkdownReviewWidget, handle_crossterm_event, handle_markdown_crossterm_event,
+    DiffReviewState, DiffReviewWidget, InputOutcome, MarkdownReviewEvent, MarkdownReviewState,
+    MarkdownReviewWidget, ThemeChoice, handle_crossterm_event, handle_markdown_crossterm_event,
 };
 use clankerdiff_watch::RepositoryWatcher;
 use crossterm::{
@@ -95,6 +95,7 @@ pub fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
     let mut state = DiffReviewState::new(updates.latest.borrow().document.clone());
     state.set_scope(updates.latest.borrow().scope);
     state.set_theme(crate::preferences::load_theme());
+    state.set_theme_choices(ThemeChoice::catalog());
     let outcome = run_diff_review(state, &mut backend, &mut updates)?;
     backend.complete(outcome)?;
     Ok(())
@@ -116,6 +117,7 @@ pub fn run_local(
     let mut state = DiffReviewState::new(document.clone());
     state.set_scope(installed.scope);
     state.set_theme(crate::preferences::load_theme());
+    state.set_theme_choices(ThemeChoice::catalog());
     let initial = HostState {
         revision,
         document,
@@ -286,6 +288,7 @@ pub fn run_markdown(
     let mut terminal = Terminal::new(backend)?;
     let mut terminal_size = terminal.size()?;
     let mut state = MarkdownReviewState::with_theme(document, crate::preferences::load_theme());
+    state.set_theme_choices(ThemeChoice::catalog());
     loop {
         terminal.autoresize()?;
         let current_size = terminal.size()?;
@@ -316,18 +319,17 @@ fn apply_markdown_event(
     state: &mut MarkdownReviewState,
     event: Event,
 ) -> Result<MarkdownEventOutcome, TuiError> {
-    let previous_theme = state.theme().id().to_string();
-    let outcome = match handle_markdown_crossterm_event(state, event)? {
+    let input = handle_markdown_crossterm_event(state, event)?;
+    if let InputOutcome::ThemeSelected(id) = &input {
+        let _ = crate::preferences::save_theme(&id.to_string());
+    }
+    let outcome = match input.into_event() {
         Some(MarkdownReviewEvent::Submit(submission)) => {
             MarkdownEventOutcome::Submitted(submission)
         }
         Some(MarkdownReviewEvent::Cancel) => MarkdownEventOutcome::Cancelled,
         Some(MarkdownReviewEvent::CopyFormatted(_)) | None => MarkdownEventOutcome::Continue,
     };
-    let current_theme = state.theme().id().to_string();
-    if current_theme != previous_theme {
-        let _ = crate::preferences::save_theme(&current_theme);
-    }
     Ok(outcome)
 }
 
@@ -594,8 +596,16 @@ fn apply_event(
     event: Event,
     backend: &mut dyn DiffReviewBackend,
 ) -> EventOutcome {
-    let previous_theme = state.theme().id().to_string();
-    let outcome = match handle_crossterm_event(state, event) {
+    let input = handle_crossterm_event(state, event);
+    if let InputOutcome::ThemeSelected(id) = &input {
+        let _ = crate::preferences::save_theme(&id.to_string());
+    }
+    match input.into_event() {
+        Some(DiffReviewEvent::Refresh) => {
+            state.set_repository_pending();
+            backend.apply_scope(state.scope());
+            EventOutcome::Continue
+        }
         Some(DiffReviewEvent::RepositoryAction(action)) => {
             if state.repository_pending() {
                 return EventOutcome::Continue;
@@ -615,12 +625,7 @@ fn apply_event(
         Some(DiffReviewEvent::Cancel) => EventOutcome::Cancelled,
         Some(DiffReviewEvent::SubmitReview(submission)) => EventOutcome::Submitted(submission),
         Some(DiffReviewEvent::CopyFormattedReview(_)) | None => EventOutcome::Continue,
-    };
-    let current_theme = state.theme().id().to_string();
-    if current_theme != previous_theme {
-        let _ = crate::preferences::save_theme(&current_theme);
     }
-    outcome
 }
 
 enum EventOutcome {

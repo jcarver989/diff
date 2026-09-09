@@ -358,7 +358,8 @@ impl MarkdownReviewSession {
     }
 
     pub fn edit_comment_at_selection(&mut self) -> bool {
-        self.begin_draft(self.comment_id_at_selection())
+        self.comment_id_at_selection()
+            .is_some_and(|id| self.begin_draft(Some(id)))
     }
 
     pub fn delete_comment_at_selection(&mut self) -> bool {

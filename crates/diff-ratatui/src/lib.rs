@@ -2,59 +2,68 @@
 //! Hosts provide [`clankerdiff_core::DiffDocument`] snapshots and route emitted
 //! [`clankerdiff_core::DiffReviewEvent`] values. This crate never executes Git.
 
-#[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 mod annotation;
-#[cfg(feature = "diff-preview")]
+mod annotation_layout;
+mod color;
+mod commands;
+#[cfg(feature = "crossterm-backend")]
+mod crossterm_adapter;
+mod diff_commands;
 mod diff_preview;
-#[cfg(feature = "diff-review")]
 mod drawer;
-#[cfg(feature = "diff-review")]
 mod input;
-#[cfg(feature = "markdown")]
+mod interaction;
+mod keybindings;
 mod markdown;
-#[cfg(feature = "markdown-review")]
+mod markdown_layout;
 mod markdown_review;
-#[cfg(feature = "diff-review")]
+mod options;
 mod patch_layout;
-#[cfg(feature = "diff-review")]
 mod render;
-#[cfg(feature = "diff-review")]
 mod state;
-#[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 mod style;
-#[cfg(feature = "syntax")]
 mod syntax;
 #[cfg(feature = "test-support")]
 pub mod testing;
-#[cfg(any(feature = "diff-review", feature = "markdown-review"))]
+mod text;
 mod theme_picker;
-#[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 pub mod ui;
-#[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 mod widgets;
 
-#[cfg(feature = "diff-preview")]
-pub use diff_preview::{DiffPreviewOptions, render_diff_preview};
-#[cfg(feature = "diff-review")]
-pub use input::{DiffReviewInput, handle_crossterm_event};
-#[cfg(feature = "markdown")]
-pub use markdown::{
-    MarkdownRenderOptions, MarkdownRenderStats, MarkdownRenderer, StreamingMarkdownState,
+pub use clankerdiff_core::ReviewCapabilities;
+pub use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewError};
+pub use clankerdiff_theme::ReviewTheme;
+pub use color::{composite_color, layered_style, page_color};
+pub use commands::{DiffReviewCommand, MarkdownReviewCommand, ReviewCommand};
+pub use diff_preview::{
+    DiffPreviewOptions, DiffPreviewState, DiffPreviewStats, render_diff_preview,
 };
-#[cfg(feature = "markdown-review")]
+#[cfg(feature = "crossterm-backend")]
+pub use input::handle_crossterm_event;
+pub use interaction::{
+    InputOutcome, InteractionPhase, KeyCode, KeyCode as Key, KeyEvent, KeyModifiers, MouseButton,
+    MouseEvent, MouseEventKind, ReviewInput,
+};
+pub use keybindings::{
+    BindingScope, KeyBinding, default_diff_keybindings, default_markdown_keybindings,
+};
+pub use markdown::{MarkdownRenderStats, MarkdownRenderer, StreamingMarkdownState};
+pub use markdown_layout::{
+    MarkdownLayout, MarkdownLayoutOptions, MarkdownPresentation, MarkdownRow, MarkdownRowUpdate,
+    MarkdownRows,
+};
+#[cfg(feature = "crossterm-backend")]
+pub use markdown_review::handle_crossterm_event as handle_markdown_crossterm_event;
 pub use markdown_review::{
-    MarkdownFocusPane, MarkdownReviewEvent, MarkdownReviewInput, MarkdownReviewState,
-    MarkdownReviewWidget, handle_crossterm_event as handle_markdown_crossterm_event,
+    MarkdownFocusPane, MarkdownReview, MarkdownReviewBuilder, MarkdownReviewEvent,
+    MarkdownReviewState, MarkdownReviewWidget,
 };
-#[cfg(feature = "diff-review")]
+pub use options::{NavigationPane, ReviewOptions};
 pub use render::DiffReviewWidget;
-#[cfg(feature = "diff-review")]
 pub use state::{DiffReviewState, DiffReviewStatus, FocusPane, RepositoryOperationStatus};
-#[cfg(any(feature = "diff-review", feature = "markdown-review"))]
 pub use style::{RatatuiTheme, RatatuiUiTheme};
-#[cfg(feature = "syntax")]
 pub use syntax::highlighted_line;
+pub use theme_picker::ThemeChoice;
 
 /// Review event emitted to the embedding host.
-#[cfg(feature = "diff-review")]
 pub type DiffReviewEvent = clankerdiff_core::DiffReviewEvent;

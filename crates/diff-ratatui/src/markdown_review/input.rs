@@ -1,221 +1,306 @@
 use super::{MarkdownFocusPane, MarkdownReviewEvent, MarkdownReviewState};
-use crate::theme_picker::{ThemePicker, ThemePickerAction};
-use clankerdiff_markdown::MarkdownReviewError;
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+use crate::{
+    InputOutcome, InteractionPhase, KeyBinding, KeyEvent, MarkdownReviewCommand, MouseEvent,
+    MouseEventKind, NavigationPane, ReviewCommand, ReviewInput,
+    interaction::{self, ReviewWidget},
+    keybindings,
+    theme_picker::ThemePicker,
 };
+use clankerdiff_core::{CommandContext, ReviewCapabilities};
+use clankerdiff_markdown::{MarkdownCommentDraft, MarkdownReviewError};
+#[cfg(feature = "crossterm-backend")]
+use crossterm::event::Event;
 use ratatui::layout::Position;
+use std::sync::Arc;
 
-/// Framework-neutral input accepted by [`MarkdownReviewState::handle_input`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MarkdownReviewInput {
-    /// A Crossterm key event.
-    Key(KeyEvent),
-    /// Text pasted into the active draft.
-    Paste(String),
-    /// A Crossterm mouse event.
-    Mouse(MouseEvent),
-}
-
-/// Converts one Crossterm event and applies it to Markdown review state.
-///
-/// Key releases and unrelated terminal events are ignored. Submissions can
-/// fail when a draft/comment body is blank, so validation is returned to the
-/// host instead of being silently discarded.
-///
-/// # Errors
-///
-/// Returns [`MarkdownReviewError::BlankComment`] when an approval or
-/// request-changes action encounters a blank comment body.
+#[cfg(feature = "crossterm-backend")]
 pub fn handle_crossterm_event(
     state: &mut MarkdownReviewState,
     event: Event,
-) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
-    match event {
-        Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
-            state.handle_input(MarkdownReviewInput::Key(key))
-        }
-        Event::Paste(text) => state.handle_input(MarkdownReviewInput::Paste(text)),
-        Event::Mouse(mouse) => state.handle_input(MarkdownReviewInput::Mouse(mouse)),
-        Event::Resize(..) => {
-            state.mark_dirty();
-            Ok(None)
-        }
-        _ => Ok(None),
-    }
+) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+    crate::crossterm_adapter::handle_event(state, event)
 }
 
 impl MarkdownReviewState {
-    /// Applies one input event.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MarkdownReviewError::BlankComment`] when an approval or
-    /// request-changes action encounters a blank comment body.
+    #[must_use]
+    pub fn interaction_phase(&self) -> InteractionPhase {
+        if self.theme_picker.is_some() {
+            InteractionPhase::ThemePicker
+        } else if self.help {
+            InteractionPhase::Help
+        } else if self.session.draft().is_some() {
+            InteractionPhase::Draft
+        } else {
+            InteractionPhase::Browse
+        }
+    }
+
     pub fn handle_input(
         &mut self,
-        input: MarkdownReviewInput,
-    ) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
-        match input {
-            MarkdownReviewInput::Key(key) => {
-                self.mark_dirty();
-                self.handle_key(key)
-            }
-            MarkdownReviewInput::Paste(text) => {
-                if let Some(draft) = self.session.draft_mut() {
-                    draft.insert(&text);
-                    self.request_follow();
-                }
-                Ok(None)
-            }
-            MarkdownReviewInput::Mouse(mouse) => {
-                self.handle_mouse(mouse);
-                Ok(None)
-            }
+        input: ReviewInput,
+    ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+        interaction::handle_input(self, input)
+    }
+
+    #[must_use]
+    pub fn command_for_key(&self, key: KeyEvent) -> Option<MarkdownReviewCommand> {
+        if self.interaction_phase() != InteractionPhase::Browse {
+            return None;
+        }
+        keybindings::binding_for_key(
+            &self.keybindings,
+            key,
+            self.focus == MarkdownFocusPane::Document,
+            false,
+        )
+        .map(|binding| binding.command)
+    }
+
+    pub(crate) fn help_bindings(&self) -> impl Iterator<Item = &KeyBinding<MarkdownReviewCommand>> {
+        let context = CommandContext {
+            phase: InteractionPhase::Browse,
+            ..self.command_context()
+        };
+        keybindings::help_bindings(
+            &self.keybindings,
+            context.navigation_available,
+            move |command| command.enabled(&context),
+        )
+    }
+
+    pub(crate) fn footer_hint(&self, width: usize) -> String {
+        keybindings::footer_hint(
+            &self.keybindings,
+            self.focus == MarkdownFocusPane::Document,
+            false,
+            |command| self.command_enabled(command),
+            &ReviewCommand::ShowHelp.into(),
+            width,
+        )
+    }
+
+    #[must_use]
+    pub fn command_context(&self) -> CommandContext {
+        CommandContext {
+            phase: self.interaction_phase(),
+            capabilities: self.capabilities,
+            navigation_available: !matches!(
+                self.options.navigation,
+                NavigationPane::Hidden | NavigationPane::Width(0)
+            ),
+            themes_available: !self.theme_choices.is_empty(),
+            ..CommandContext::default()
         }
     }
 
-    fn handle_key(
-        &mut self,
-        key: KeyEvent,
-    ) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
-        if let Some(picker) = self.theme_picker.as_mut() {
-            let action = picker.handle_key(key);
-            match action {
-                ThemePickerAction::Preview(theme) => self.set_theme(theme),
-                ThemePickerAction::Restore(theme) => {
-                    self.set_theme(theme);
-                    self.theme_picker = None;
-                }
-                ThemePickerAction::Commit => self.theme_picker = None,
-                ThemePickerAction::None => {}
-            }
-            return Ok(None);
-        }
-        if self.help {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-                self.help = false;
-            }
-            return Ok(None);
-        }
-        if self.session.draft().is_some() {
-            return Ok(self.handle_draft_key(key));
-        }
-        if key.code == KeyCode::Esc
-            || (key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL))
-        {
-            return Ok(Some(MarkdownReviewEvent::Cancel));
-        }
-        if key
-            .modifiers
-            .intersects(KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::CONTROL)
-        {
-            return Ok(None);
-        }
-        self.handle_browse_key(key)
+    pub fn set_capabilities(&mut self, capabilities: ReviewCapabilities) {
+        self.capabilities = capabilities;
+        self.mark_dirty();
     }
 
-    fn handle_browse_key(
+    #[must_use]
+    pub fn command_enabled(&self, command: &MarkdownReviewCommand) -> bool {
+        command.enabled(&self.command_context())
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive command dispatch keeps routing in one place"
+    )]
+    pub fn handle_command(
         &mut self,
-        key: KeyEvent,
-    ) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
-        match key.code {
-            KeyCode::Tab => {
+        command: impl Into<MarkdownReviewCommand>,
+    ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+        use MarkdownReviewCommand as C;
+        use ReviewCommand as R;
+        let command = command.into();
+        if !self.command_enabled(&command) {
+            return Ok(InputOutcome::Ignored);
+        }
+        let previous = (self.focus, self.session.selected_target());
+        match command {
+            C::Focus(pane) => self.focus = pane,
+            C::ToggleFocus => {
                 self.focus = match self.focus {
                     MarkdownFocusPane::Document => MarkdownFocusPane::Outline,
                     MarkdownFocusPane::Outline => MarkdownFocusPane::Document,
                 }
             }
-            KeyCode::Up | KeyCode::Char('k') => self.move_target(-1),
-            KeyCode::Down | KeyCode::Char('j') => self.move_target(1),
-            KeyCode::Home | KeyCode::Char('g') => {
-                self.session.select_first_target();
-            }
-            KeyCode::End | KeyCode::Char('G') => {
-                self.session.select_last_target();
-            }
-            KeyCode::Char('n') => {
-                self.session.next_heading();
-            }
-            KeyCode::Char('p') => {
-                self.session.previous_heading();
-            }
-            KeyCode::Left | KeyCode::Char('h') => self.focus = MarkdownFocusPane::Outline,
-            KeyCode::Right | KeyCode::Char('l') => self.focus = MarkdownFocusPane::Document,
-            KeyCode::Enter => {
+            C::MoveSelection(delta) => self.move_selection(delta),
+            C::Page(delta) => self
+                .move_selection(delta.saturating_mul(
+                    isize::try_from(self.last_height.max(1)).unwrap_or(isize::MAX),
+                )),
+            C::First | C::Last => {
+                let last = command == C::Last;
                 if self.focus == MarkdownFocusPane::Outline {
-                    if let Some(target) = self.selected_outline_target() {
-                        self.session.select_target(target);
-                    }
+                    self.select_heading(if last {
+                        self.document().outline().len().saturating_sub(1)
+                    } else {
+                        0
+                    });
+                } else {
+                    self.session.select_boundary(last);
+                }
+            }
+            C::OpenSelected => {
+                if self.focus == MarkdownFocusPane::Outline {
+                    self.select_heading(self.outline_selected);
                     self.focus = MarkdownFocusPane::Document;
                 }
             }
-            KeyCode::Char('c') => {
-                self.session.begin_draft(None);
-                self.request_follow();
+            C::Scroll { pane, lines } => {
+                match pane {
+                    MarkdownFocusPane::Document => {
+                        self.scroll = self.scroll.saturating_add_signed(lines);
+                        self.follow_pending = false;
+                    }
+                    MarkdownFocusPane::Outline => {
+                        self.outline_scroll = self
+                            .outline_scroll
+                            .saturating_add_signed(lines)
+                            .min(self.document().outline().len().saturating_sub(1));
+                    }
+                }
+                self.mark_dirty();
+                return Ok(InputOutcome::Consumed);
             }
-            KeyCode::Char('e') => {
-                if self.session.comment_id_at_selection().is_some() {
-                    self.session.edit_comment_at_selection();
-                    self.request_follow();
+            C::SelectTarget(target) => {
+                if !self.session.select_target(target) {
+                    return Ok(InputOutcome::Ignored);
                 }
             }
-            KeyCode::Char('x') => {
-                self.session.delete_comment_at_selection();
+            C::SelectHeading(index) => {
+                if !self.select_heading(index) {
+                    return Ok(InputOutcome::Ignored);
+                }
+            }
+            C::NextHeading => {
+                self.session.next_heading();
+            }
+            C::PreviousHeading => {
+                self.session.previous_heading();
+            }
+            C::Approve => return self.session.approve().map(InputOutcome::Emitted),
+            C::RequestChanges => return self.session.request_changes().map(InputOutcome::Emitted),
+            C::CopyReview(decision) => {
+                return Ok(InputOutcome::Emitted(self.session.copy_formatted(decision)));
+            }
+            C::Review(R::BeginComment | R::EditComment) => {
+                let started = if command == C::Review(R::BeginComment) {
+                    self.session.begin_draft(None)
+                } else {
+                    self.session.edit_comment_at_selection()
+                };
+                if !started {
+                    return Ok(InputOutcome::Ignored);
+                }
                 self.request_follow();
             }
-            KeyCode::Char('u') => {
-                self.session.undo_last_comment();
+            C::Review(R::DeleteComment | R::UndoComment) => {
+                let changed = if command == C::Review(R::DeleteComment) {
+                    self.session.delete_comment_at_selection()
+                } else {
+                    self.session.undo_last_comment()
+                };
+                if !changed {
+                    return Ok(InputOutcome::Ignored);
+                }
                 self.request_follow();
             }
-            KeyCode::Char('a') => return self.session.approve().map(Some),
-            KeyCode::Char('r') => return self.session.request_changes().map(Some),
-            KeyCode::Char('t') => {
-                self.theme_picker = Some(ThemePicker::new(&self.theme));
+            C::Review(R::SubmitComment) => {
+                self.session.submit_draft();
+                self.cursor_position = None;
+                self.request_follow();
             }
-            KeyCode::Char('?') => self.help = true,
-            _ => {}
+            C::Review(R::Cancel) => {
+                match self.interaction_phase() {
+                    InteractionPhase::Browse => {
+                        return Ok(InputOutcome::Emitted(MarkdownReviewEvent::Cancel));
+                    }
+                    InteractionPhase::Draft => {
+                        self.session.cancel_draft();
+                        self.cursor_position = None;
+                        self.request_follow();
+                    }
+                    InteractionPhase::Help => self.help = false,
+                    InteractionPhase::ThemePicker => {
+                        if let Some(picker) = self.theme_picker.take() {
+                            self.apply_theme(picker.cancel());
+                        }
+                    }
+                    InteractionPhase::RepositoryPrompt => return Ok(InputOutcome::Ignored),
+                }
+                self.mark_dirty();
+            }
+            C::Review(R::ShowHelp) => {
+                self.help = true;
+                self.help_scroll = 0;
+                self.mark_dirty();
+            }
+            C::Review(R::ScrollHelp(lines)) => {
+                self.help_scroll = self
+                    .help_scroll
+                    .saturating_add_signed(lines)
+                    .min(self.help_bindings().count().saturating_sub(1));
+                self.mark_dirty();
+            }
+            C::Review(R::OpenThemePicker) => {
+                self.theme_picker = ThemePicker::new(&self.theme, Arc::clone(&self.theme_choices));
+                self.mark_dirty();
+            }
+            C::Review(R::SelectTheme(index)) => {
+                let Some(theme) = self
+                    .theme_picker
+                    .as_mut()
+                    .and_then(|picker| picker.select(index))
+                else {
+                    return Ok(InputOutcome::Ignored);
+                };
+                self.apply_theme(theme);
+            }
+            C::Review(R::MoveTheme(delta)) => {
+                if let Some(picker) = self.theme_picker.as_mut() {
+                    let theme = picker.select_relative(delta);
+                    self.apply_theme(theme);
+                }
+            }
+            C::Review(R::CommitTheme) => {
+                let Some(picker) = self.theme_picker.take() else {
+                    return Ok(InputOutcome::Ignored);
+                };
+                let theme = picker.commit();
+                let id = theme.id().clone();
+                self.apply_theme(theme);
+                return Ok(InputOutcome::ThemeSelected(id));
+            }
         }
-        self.sync_outline_selection();
-        self.request_follow();
-        Ok(None)
+        if previous != (self.focus, self.session.selected_target()) {
+            self.sync_outline_selection();
+            self.request_follow();
+        }
+        Ok(InputOutcome::Consumed)
     }
 
-    fn handle_draft_key(&mut self, key: KeyEvent) -> Option<MarkdownReviewEvent> {
-        if key.code == KeyCode::Esc {
-            self.session.cancel_draft();
-            self.request_follow();
-            return None;
-        }
-        if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
-            self.session.submit_draft();
-            self.request_follow();
-            return None;
-        }
-        let draft = self.session.draft_mut()?;
-        match key.code {
-            KeyCode::Enter => draft.insert("\n"),
-            KeyCode::Left => draft.move_cursor_left(),
-            KeyCode::Right => draft.move_cursor_right(),
-            KeyCode::Home => draft.move_cursor_to_start(),
-            KeyCode::End => draft.move_cursor_to_end(),
-            KeyCode::Backspace => draft.delete_before_cursor(),
-            KeyCode::Delete => draft.delete_at_cursor(),
-            KeyCode::Char(character)
-                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
-            {
-                let mut buffer = [0_u8; 4];
-                draft.insert(character.encode_utf8(&mut buffer));
-            }
-            _ => {}
-        }
-        self.request_follow();
-        None
+    fn select_heading(&mut self, index: usize) -> bool {
+        let Some(heading) = self.document().outline().get(index) else {
+            return false;
+        };
+        let target = heading.target_id;
+        self.outline_selected = index;
+        self.session.select_target(target)
     }
 
-    fn move_target(&mut self, delta: isize) {
-        self.session.move_target(delta);
-        self.sync_outline_selection();
+    fn move_selection(&mut self, delta: isize) {
+        if self.focus == MarkdownFocusPane::Outline {
+            self.select_heading(
+                self.outline_selected
+                    .saturating_add_signed(delta)
+                    .min(self.document().outline().len().saturating_sub(1)),
+            );
+        } else {
+            self.session.move_target(delta);
+        }
     }
 
     fn sync_outline_selection(&mut self) {
@@ -224,17 +309,23 @@ impl MarkdownReviewState {
                 .document()
                 .outline()
                 .iter()
-                .position(|heading| heading.target_id == selected)
+                .rposition(|heading| heading.target_id.index() <= selected.index())
         {
             self.outline_selected = index;
         }
     }
 
-    fn handle_mouse(&mut self, mouse: MouseEvent) {
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<MarkdownReviewEvent> {
         let position = Position::new(mouse.column, mouse.row);
         match mouse.kind {
-            MouseEventKind::ScrollUp => self.move_target_with_follow(-1),
-            MouseEventKind::ScrollDown => self.move_target_with_follow(1),
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                self.session
+                    .move_target(if mouse.kind == MouseEventKind::ScrollUp {
+                        -1
+                    } else {
+                        1
+                    });
+            }
             MouseEventKind::Down(_) => {
                 if let Some(region) = self
                     .hit_regions
@@ -243,34 +334,62 @@ impl MarkdownReviewState {
                     .find(|region| region.area.contains(position))
                     .copied()
                 {
-                    if region.outline {
-                        self.focus = MarkdownFocusPane::Outline;
-                        if let Some(index) = self
-                            .document()
-                            .outline()
-                            .iter()
-                            .position(|heading| Some(heading.target_id) == region.target)
-                        {
-                            self.outline_selected = index;
-                            let target = self.document().outline()[index].target_id;
-                            self.session.select_target(target);
-                        }
-                    } else if let Some(target) = region.target {
-                        self.focus = MarkdownFocusPane::Document;
+                    self.focus = if region.outline {
+                        MarkdownFocusPane::Outline
+                    } else {
+                        MarkdownFocusPane::Document
+                    };
+                    if let Some(target) = region.target {
                         self.session.select_target(target);
                     }
-                    self.request_follow();
                 }
             }
-            _ => {}
+            _ => return InputOutcome::Ignored,
+        }
+        self.sync_outline_selection();
+        self.request_follow();
+        InputOutcome::Consumed
+    }
+}
+
+impl ReviewWidget for MarkdownReviewState {
+    type Event = MarkdownReviewEvent;
+    type Error = MarkdownReviewError;
+    type Draft = MarkdownCommentDraft;
+
+    fn phase(&self) -> InteractionPhase {
+        self.interaction_phase()
+    }
+    fn handle_review_command(
+        &mut self,
+        command: ReviewCommand,
+    ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+        self.handle_command(command)
+    }
+    fn contains(&self, position: Position) -> bool {
+        self.hit_regions
+            .iter()
+            .any(|region| region.area.contains(position))
+    }
+    fn mark_dirty(&mut self) {
+        Self::mark_dirty(self);
+    }
+    fn draft_mut(&mut self) -> Option<&mut MarkdownCommentDraft> {
+        self.session.draft_mut()
+    }
+    fn draft_changed(&mut self) {
+        self.request_follow();
+    }
+    fn handle_browse_key(
+        &mut self,
+        key: KeyEvent,
+    ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+        match self.command_for_key(key) {
+            Some(command) => self.handle_command(command),
+            None => Ok(InputOutcome::Ignored),
         }
     }
-
-    fn move_target_with_follow(&mut self, delta: isize) {
-        let previous = self.selected_target();
-        self.move_target(delta);
-        if self.selected_target() != previous {
-            self.request_follow();
-        }
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<MarkdownReviewEvent> {
+        self.handle_mouse(mouse)
     }
 }

@@ -8,25 +8,23 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["diff-review", "markdown-review"]
-syntax = ["dep:clankerdiff-syntax", "dep:clankerdiff-theme"]
-diff-preview = ["syntax", "dep:clankerdiff-core"]
-diff-review = ["diff-preview", "dep:crossterm"]
-markdown = ["syntax", "dep:clankerdiff-markdown"]
-markdown-review = ["markdown", "clankerdiff-markdown/review", "dep:clankerdiff-core", "dep:crossterm"]
+default = []
 test-support = []
+crossterm-backend = ["ratatui/crossterm", "dep:crossterm"]
 
 [lints]
 workspace = true
 
 [dependencies]
+bitflags.workspace = true
 crossterm = { workspace = true, optional = true }
-clankerdiff-core = { version = "0.1.0", path = "../diff-core", optional = true }
-clankerdiff-markdown = { version = "0.1.0", path = "../diff-markdown", optional = true }
-clankerdiff-syntax = { version = "0.1.0", path = "../diff-syntax", optional = true }
-clankerdiff-theme = { version = "0.1.0", path = "../diff-theme", optional = true }
+clankerdiff-core = { version = "0.1.0", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.1.0", path = "../diff-markdown", features = ["review"] }
+clankerdiff-syntax = { version = "0.1.0", path = "../diff-syntax" }
+clankerdiff-theme = { version = "0.1.0", path = "../diff-theme" }
 ratatui.workspace = true
 unicode-width.workspace = true
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
@@ -36,27 +34,39 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [[test]]
-name = "widget"
-required-features = ["diff-review", "test-support"]
+name = "markdown_review_component_test"
+path = "tests/markdown_review/component_test.rs"
 
 [[test]]
-name = "markdown_widget"
-required-features = ["diff-review", "markdown-review", "test-support"]
+name = "markdown_review_render_test"
+path = "tests/markdown_review/render_test.rs"
+required-features = ["test-support"]
 
 [[test]]
 name = "performance_contract"
-required-features = ["diff-review", "test-support"]
+required-features = ["test-support"]
 
-[[test]]
-name = "streaming_contract"
-required-features = ["markdown", "test-support"]
+[[example]]
+name = "review"
+required-features = ["crossterm-backend"]
+
+[[example]]
+name = "embedded_review"
+required-features = ["crossterm-backend"]
+
+[[example]]
+name = "markdown_review"
+required-features = ["crossterm-backend"]
+
+[[example]]
+name = "streaming_markdown"
 
 [[bench]]
 name = "markdown"
 harness = false
-required-features = ["markdown", "test-support"]
+required-features = ["test-support"]
 
 [[bench]]
 name = "rendering"
 harness = false
-required-features = ["diff-review", "test-support"]
+required-features = ["test-support"]

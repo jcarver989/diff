@@ -1,5 +1,5 @@
 use crate::{DiffViewer, ViewerPane, style::color};
-use clankerdiff_core::{DiffDocument, FileStatus, RepoPath, StageState};
+use clankerdiff_core::{DiffDocument, DiffReviewCommand, FileStatus, RepoPath, StageState};
 use gpui::{ClickEvent, Context, Div, Empty, Role, Stateful, div, prelude::*, px};
 use std::collections::{BTreeMap, HashSet};
 
@@ -336,7 +336,7 @@ fn stage_checkbox(stage: &'static str) -> Div {
 
 impl DiffViewer {
     pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let mut rows = div()
             .id("diff-files")
             .debug_selector(|| "diff-files".to_owned())
@@ -388,7 +388,7 @@ impl DiffViewer {
     }
 
     pub(crate) fn render_sidebar_resize_handle(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         div()
             .id("sidebar-resize-container")
             .relative()
@@ -423,7 +423,7 @@ impl DiffViewer {
         expanded: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let path = directory.path.clone();
         let selected = self.sidebar_selection == SidebarEntry::Directory(path.clone());
         let entry = SidebarEntry::Directory(path.clone());
@@ -439,8 +439,8 @@ impl DiffViewer {
             .when(selected, |row| row.bg(color(palette.selection)))
             .text_color(color(palette.muted))
             .hover(|row| row.bg(color(palette.selection)))
-            .on_click(cx.listener(move |viewer, _, _, cx| {
-                viewer.toggle_directory(&path, cx);
+            .on_click(cx.listener(move |viewer, _, window, cx| {
+                viewer.toggle_directory(&path, window, cx);
             }))
             .child(
                 div()
@@ -459,9 +459,12 @@ impl DiffViewer {
             .child(
                 stage_checkbox(stage)
                     .id(format!("diff-directory-checkbox:{checkbox_path}"))
-                    .on_click(cx.listener(move |viewer, _, _, cx| {
-                        viewer
-                            .toggle_stage_entry(SidebarEntry::Directory(checkbox_path.clone()), cx);
+                    .on_click(cx.listener(move |viewer, _, window, cx| {
+                        viewer.toggle_stage_entry(
+                            SidebarEntry::Directory(checkbox_path.clone()),
+                            window,
+                            cx,
+                        );
                         cx.stop_propagation();
                     })),
             )
@@ -473,7 +476,7 @@ impl DiffViewer {
         depth: u16,
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let index = file.index;
         let diff = self.document().files.get(index)?;
         let status_color = match diff.status {
@@ -496,9 +499,14 @@ impl DiffViewer {
                     row.border_l_2().border_color(color(palette.accent))
                 })
                 .hover(|row| row.bg(color(palette.selection)))
-                .on_click(cx.listener(move |viewer, _, _, cx| {
-                    viewer.pane = ViewerPane::Files;
-                    viewer.select_file(index, cx);
+                .on_click(cx.listener(move |viewer, _, window, cx| {
+                    if viewer.handle_command(
+                        DiffReviewCommand::Focus(ViewerPane::Files),
+                        window,
+                        cx,
+                    ) {
+                        viewer.handle_command(DiffReviewCommand::SelectFile(index), window, cx);
+                    }
                 }))
                 .child(div().w(px(DISCLOSURE_WIDTH)).flex_shrink_0())
                 .child(
@@ -525,8 +533,8 @@ impl DiffViewer {
                 .child(
                     stage_checkbox(stage)
                         .id(("diff-file-checkbox", index))
-                        .on_click(cx.listener(move |viewer, _, _, cx| {
-                            viewer.toggle_stage_entry(SidebarEntry::File(index), cx);
+                        .on_click(cx.listener(move |viewer, _, window, cx| {
+                            viewer.toggle_stage_entry(SidebarEntry::File(index), window, cx);
                             cx.stop_propagation();
                         })),
                 ),

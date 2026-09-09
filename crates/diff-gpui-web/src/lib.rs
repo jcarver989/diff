@@ -1,8 +1,12 @@
+pub mod commands;
+
 use clankerdiff_core::{DiffDocument, DiffScope};
 use clankerdiff_markdown::MarkdownDocument;
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+
+pub const REFRESH_REQUEST_EVENT: &str = "diff-review-refresh";
 
 /// Errors returned while validating commands from JavaScript.
 #[derive(Debug, thiserror::Error)]
@@ -208,12 +212,16 @@ pub fn demo_document() -> DiffDocument {
 ///
 /// # Errors
 /// Returns an error when the name is unknown or its theme cannot be parsed.
-pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
-    DiffTheme::builtin(name).map_err(|_| WebError::UnknownTheme(name.into()))
+pub fn decode_theme(name: &str) -> Result<ReviewTheme, WebError> {
+    ReviewTheme::builtin(name).map_err(|_| WebError::UnknownTheme(name.into()))
 }
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
+    use super::commands::{
+        CAPABILITIES_EVENT, COMMAND_EVENT, COMMAND_RESULT_EVENT, CommandError, CommandRequest,
+        CommandResult, ViewerCommand, decode_capabilities, decode_command,
+    };
     use super::{
         DOCUMENT_APPLIED_EVENT, MARKDOWN_CANCEL_EVENT, MARKDOWN_CLEAR_EVENT, MARKDOWN_COPY_EVENT,
         MARKDOWN_SET_DOCUMENT_EVENT, MARKDOWN_SUBMIT_EVENT, RepositoryReply, RepositoryRequests,
@@ -221,13 +229,15 @@ mod wasm {
         demo_document, document_update_decision,
     };
     use async_channel::{Receiver, Sender};
-    use clankerdiff_core::{DiffDocument, DiffReviewEvent, DiffScope, ReviewSubmission};
+    use clankerdiff_core::{
+        DiffDocument, DiffReviewEvent, DiffScope, ReviewCapabilities, ReviewSubmission,
+    };
     use clankerdiff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
         load_default_fonts,
     };
     use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
-    use clankerdiff_theme::DiffTheme;
+    use clankerdiff_theme::ReviewTheme;
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
         Window, WindowBounds, WindowOptions, prelude::*, px, size,
@@ -248,13 +258,16 @@ mod wasm {
             request_id: Option<u64>,
             scope: Option<DiffScope>,
         },
-        SetTheme(DiffTheme),
+        SetTheme(ReviewTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
         RepositoryFinished(RepositoryReply),
+        Dispatch(CommandRequest),
+        SetCapabilities(ReviewCapabilities),
         ClearReview,
     }
 
     struct WebRoot {
+        capabilities: ReviewCapabilities,
         applied_revision: Option<u64>,
         current_scope: Option<DiffScope>,
         requests: RepositoryRequests,
@@ -268,14 +281,21 @@ mod wasm {
     }
 
     impl WebRoot {
-        fn new(receiver: Receiver<WebCommand>, cx: &mut Context<Self>) -> Self {
+        fn new(
+            receiver: Receiver<WebCommand>,
+            window: &mut Window,
+            cx: &mut Context<Self>,
+        ) -> Self {
             let theme = stored_theme();
-            let viewer = cx.new(|_| {
-                DiffViewer::with_options(
+            let capabilities = ReviewCapabilities::default();
+            let viewer = cx.new(|cx| {
+                let mut viewer = DiffViewer::with_options(
                     Arc::new(demo_document()),
                     theme,
                     DiffViewerOptions::default(),
-                )
+                );
+                viewer.set_capabilities(capabilities, cx);
+                viewer
             });
             let viewer_subscription = cx.subscribe(
                 &viewer,
@@ -285,8 +305,12 @@ mod wasm {
                             dispatch_repository_action(request_id, action)
                         }),
                     DiffReviewEvent::SetScope(scope) => {
-                        this.request_repository(cx, |_| dispatch_scope_request(*scope))
+                        this.request_repository(cx, |_| dispatch_scope_request(*scope));
                     }
+                    DiffReviewEvent::Refresh => this.request_repository(cx, |request_id| {
+                        let detail = serde_json::json!({ "request_id": request_id }).to_string();
+                        dispatch_custom_event(super::REFRESH_REQUEST_EVENT, Some(&detail))
+                    }),
                     _ => dispatch_viewer_event(event),
                 },
             );
@@ -294,10 +318,12 @@ mod wasm {
                 cx.subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
                     store_theme(&event.id);
                 });
-            let command_task = cx.spawn(async move |this, cx| {
+            let command_task = cx.spawn_in(window, async move |this, cx| {
                 while let Ok(command) = receiver.recv().await {
                     if this
-                        .update(cx, |root, cx| root.apply_command(command, cx))
+                        .update_in(cx, |root, window, cx| {
+                            root.apply_command(command, window, cx);
+                        })
                         .is_err()
                     {
                         break;
@@ -306,6 +332,7 @@ mod wasm {
             });
 
             Self {
+                capabilities,
                 applied_revision: None,
                 current_scope: None,
                 requests: RepositoryRequests::default(),
@@ -349,7 +376,59 @@ mod wasm {
             }
         }
 
-        fn apply_command(&mut self, command: WebCommand, cx: &mut Context<Self>) {
+        fn dispatch_command(
+            &mut self,
+            request: CommandRequest,
+            window: &mut Window,
+            cx: &mut Context<Self>,
+        ) {
+            let result = match request.command {
+                ViewerCommand::Diff(command) if self.markdown.is_none() => Ok(self
+                    .viewer
+                    .update(cx, |viewer, cx| viewer.handle_command(command, window, cx))),
+                ViewerCommand::Markdown(command) => {
+                    if let Some(markdown) = &self.markdown {
+                        markdown
+                            .update(cx, |reviewer, cx| {
+                                reviewer.handle_command(command, window, cx)
+                            })
+                            .map_err(|error| error.to_string())
+                    } else {
+                        Err(CommandError::InactiveReviewer.to_string())
+                    }
+                }
+                ViewerCommand::Diff(_) => Err(CommandError::InactiveReviewer.to_string()),
+            };
+            let result = CommandResult {
+                request_id: request.request_id,
+                handled: result.as_ref().copied().unwrap_or(false),
+                error: result.err(),
+            };
+            let dispatched = serde_json::to_string(&result)
+                .map_err(|error| JsValue::from_str(&error.to_string()))
+                .and_then(|detail| dispatch_custom_event(COMMAND_RESULT_EVENT, Some(&detail)));
+            if let Err(error) = dispatched {
+                web_sys::console::error_1(&error);
+            }
+        }
+
+        fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>) {
+            self.capabilities = capabilities;
+            self.viewer
+                .update(cx, |viewer, cx| viewer.set_capabilities(capabilities, cx));
+            if let Some(markdown) = &self.markdown {
+                markdown.update(cx, |reviewer, cx| {
+                    reviewer.set_capabilities(capabilities, cx);
+                });
+            }
+        }
+
+        fn apply_command(
+            &mut self,
+            command: WebCommand,
+            window: &mut Window,
+            cx: &mut Context<Self>,
+        ) {
             match command {
                 WebCommand::SetDocument {
                     document,
@@ -401,12 +480,14 @@ mod wasm {
                         markdown.update(cx, |reviewer, cx| reviewer.set_document(document, cx));
                     } else {
                         let theme = stored_theme();
-                        let markdown = cx.new(|_| {
-                            MarkdownReviewer::with_options(
+                        let markdown = cx.new(|cx| {
+                            let mut reviewer = MarkdownReviewer::with_options(
                                 document,
                                 theme,
                                 MarkdownReviewerOptions::default(),
-                            )
+                            );
+                            reviewer.set_capabilities(self.capabilities, cx);
+                            reviewer
                         });
                         self.markdown_subscription = Some(cx.subscribe(
                             &markdown,
@@ -430,6 +511,10 @@ mod wasm {
                     }
                 }
                 WebCommand::RepositoryFinished(reply) => self.finish_repository(reply, cx),
+                WebCommand::Dispatch(request) => self.dispatch_command(request, window, cx),
+                WebCommand::SetCapabilities(capabilities) => {
+                    self.set_capabilities(capabilities, cx);
+                }
                 WebCommand::ClearReview => {
                     if let Some(markdown) = &self.markdown {
                         markdown.update(cx, MarkdownReviewer::clear_review);
@@ -453,7 +538,9 @@ mod wasm {
 
     fn dispatch_viewer_event(event: &DiffReviewEvent) {
         let result = match event {
-            DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetScope(_) => return, // handled by the root
+            DiffReviewEvent::RepositoryAction(_)
+            | DiffReviewEvent::SetScope(_)
+            | DiffReviewEvent::Refresh => return,
             DiffReviewEvent::SubmitReview(submission) => dispatch_submission(submission),
             DiffReviewEvent::CopyFormattedReview(text) => {
                 dispatch_custom_event("diff-review-copy", Some(text))
@@ -542,7 +629,7 @@ mod wasm {
 
     const THEME_STORAGE_KEY: &str = "clankerdiff.theme.v1";
 
-    fn stored_theme() -> DiffTheme {
+    fn stored_theme() -> ReviewTheme {
         web_sys::window()
             .and_then(|window| window.local_storage().ok().flatten())
             .and_then(|storage| storage.get_item(THEME_STORAGE_KEY).ok().flatten())
@@ -582,6 +669,8 @@ mod wasm {
             set_markdown_document_json,
         )?;
         install_string_command(&document, "diff-review-set-theme", set_theme)?;
+        install_string_command(&document, COMMAND_EVENT, dispatch_command_json)?;
+        install_string_command(&document, CAPABILITIES_EVENT, set_capabilities_json)?;
         install_string_command(
             &document,
             "diff-review-repository-completed",
@@ -665,7 +754,7 @@ mod wasm {
                     focus: true,
                     ..Default::default()
                 },
-                |_window, cx| cx.new(|cx| WebRoot::new(receiver, cx)),
+                |window, cx| cx.new(|cx| WebRoot::new(receiver, window, cx)),
             )
             .expect("GPUI web must be able to open its document-owned canvas");
             cx.activate(true);
@@ -733,12 +822,26 @@ mod wasm {
     pub fn clear_review() -> Result<(), JsValue> {
         send(WebCommand::ClearReview).map_err(js_error)
     }
+
+    #[wasm_bindgen]
+    pub fn dispatch_command_json(json: &str) -> Result<(), JsValue> {
+        let request =
+            decode_command(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
+        send(WebCommand::Dispatch(request)).map_err(js_error)
+    }
+
+    #[wasm_bindgen]
+    pub fn set_capabilities_json(json: &str) -> Result<(), JsValue> {
+        let capabilities =
+            decode_capabilities(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
+        send(WebCommand::SetCapabilities(capabilities)).map_err(js_error)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm::{
-    clear_review, complete_repository_json, set_document_json, set_markdown_document_json,
-    set_theme, start,
+    clear_review, complete_repository_json, dispatch_command_json, set_capabilities_json,
+    set_document_json, set_markdown_document_json, set_theme, start,
 };
 
 #[cfg(test)]

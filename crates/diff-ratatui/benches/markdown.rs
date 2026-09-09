@@ -1,6 +1,6 @@
 use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ratatui::{
-    MarkdownRenderOptions, MarkdownRenderer, testing::MarkdownStreamFixture,
+    MarkdownLayoutOptions, MarkdownPresentation, MarkdownRenderer, testing::MarkdownStreamFixture,
 };
 use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_theme::{ReviewTheme, Rgba};
@@ -37,13 +37,13 @@ fn markdown(criterion: &mut Criterion) {
             bencher.iter(|| black_box(MarkdownDocument::parse(black_box(&source))));
         });
         let document = MarkdownDocument::parse(&source);
-        group.bench_function("static_layout", |bencher| {
+        group.bench_function("static_flat_snapshot", |bencher| {
             let mut highlighter = SyntaxHighlighter::default();
             let theme = ReviewTheme::default();
             bencher.iter(|| {
                 black_box(MarkdownRenderer::new().render_lines(
                     &document,
-                    MarkdownRenderOptions::default(),
+                    MarkdownLayoutOptions::default(),
                     &theme,
                     &mut highlighter,
                 ))
@@ -66,7 +66,87 @@ fn markdown(criterion: &mut Criterion) {
             });
         }
         group.finish();
+        layout_work(criterion, name, &source, tail);
     }
+}
+
+fn layout_work(criterion: &mut Criterion, name: &str, source: &str, tail: &str) {
+    let mut group = criterion.benchmark_group(format!("markdown/{name}/shared"));
+    let document = MarkdownDocument::parse(source);
+    let theme = ReviewTheme::default();
+    let options = MarkdownLayoutOptions::default();
+    let renderer = MarkdownRenderer::new();
+    for (mode, presentation) in [
+        ("rendered", MarkdownPresentation::Rendered),
+        ("source_lines", MarkdownPresentation::SourceLines),
+    ] {
+        group.bench_function(mode, |bencher| {
+            let mut highlighter = SyntaxHighlighter::default();
+            bencher.iter(|| {
+                black_box(renderer.render_layout(
+                    &document,
+                    MarkdownLayoutOptions {
+                        presentation,
+                        ..options
+                    },
+                    &theme,
+                    &mut highlighter,
+                ))
+            });
+        });
+    }
+    group.bench_function("flat_materialization", |bencher| {
+        let mut highlighter = SyntaxHighlighter::default();
+        bencher.iter_batched(
+            || renderer.render_layout(&document, options, &theme, &mut highlighter),
+            |layout| black_box(layout.materialize()),
+            BatchSize::SmallInput,
+        );
+    });
+    group.bench_function("append_layout_and_update", |bencher| {
+        bencher.iter_batched(
+            || warmed(source),
+            |mut fixture| {
+                let revision = fixture.state.revision();
+                fixture.stream.push(tail);
+                fixture.options = options;
+                black_box(fixture.layout());
+                black_box(fixture.state.update_since(revision))
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    let mut fixture = warmed(source);
+    let revision = fixture.state.revision();
+    fixture.stream.push(tail);
+    fixture.options = options;
+    fixture.layout();
+    group.bench_function("cached_update_access", |bencher| {
+        bencher.iter(|| black_box(fixture.state.update_since(revision)));
+    });
+    group.bench_function("missed_revision_update", |bencher| {
+        bencher.iter(|| black_box(fixture.state.update_since(u64::MAX)));
+    });
+    let source_options = MarkdownLayoutOptions {
+        presentation: MarkdownPresentation::SourceLines,
+        ..options
+    };
+    group.bench_function("source_line_append", |bencher| {
+        bencher.iter_batched(
+            || {
+                let mut fixture = warmed(source);
+                fixture.options = source_options;
+                fixture.layout();
+                fixture
+            },
+            |mut fixture| {
+                fixture.stream.push(tail);
+                black_box(fixture.layout())
+            },
+            BatchSize::SmallInput,
+        );
+    });
+    group.finish();
 }
 
 fn warmed(source: &str) -> MarkdownStreamFixture {

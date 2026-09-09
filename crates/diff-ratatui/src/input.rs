@@ -1,316 +1,149 @@
-//! Crossterm keyboard, mouse, and paste input helpers.
-
 use crate::{
-    DiffReviewState, FocusPane,
+    DiffReviewCommand, DiffReviewState, FocusPane, InputOutcome, InteractionPhase, KeyCode,
+    KeyEvent, MouseEvent, MouseEventKind, ReviewCommand, ReviewInput,
+    interaction::{self, ReviewWidget},
     state::{RepositoryOperationStatus, RepositoryPrompt},
-    theme_picker::{ThemePicker, ThemePickerAction},
 };
-use clankerdiff_core::{DiffReviewEvent, DiffSide, RepositoryAction, RevealAmount};
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
-};
+use clankerdiff_core::{CommentDraft, DiffReviewEvent, RepositoryAction};
+#[cfg(feature = "crossterm-backend")]
+use crossterm::event::Event;
 use ratatui::layout::Position;
+use std::convert::Infallible;
 
-/// Files one wheel notch scrolls the drawer. A notch is a line, not a file, so
-/// the drawer moves one entry at a time.
-const DRAWER_WHEEL_ROWS: isize = 1;
-
-/// Framework-neutral input accepted by [`DiffReviewState::handle_input`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DiffReviewInput {
-    /// A Crossterm key event.
-    Key(KeyEvent),
-    /// Pasted text.
-    Paste(String),
-    /// A Crossterm mouse event.
-    Mouse(MouseEvent),
-}
-
-/// Converts one Crossterm event and applies it to state.
-///
-/// Non-input events and key releases are ignored.
+#[cfg(feature = "crossterm-backend")]
 #[must_use]
 pub fn handle_crossterm_event(
     state: &mut DiffReviewState,
     event: Event,
-) -> Option<DiffReviewEvent> {
-    match event {
-        Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
-            state.handle_input(DiffReviewInput::Key(key))
-        }
-        Event::Paste(text) => state.handle_input(DiffReviewInput::Paste(text)),
-        Event::Mouse(mouse) => state.handle_input(DiffReviewInput::Mouse(mouse)),
-        Event::Resize(..) => {
-            state.mark_dirty();
-            None
-        }
-        _ => None,
-    }
+) -> InputOutcome<DiffReviewEvent> {
+    let Ok(outcome) = crate::crossterm_adapter::handle_event(state, event);
+    outcome
 }
 
 impl DiffReviewState {
     #[must_use]
-    pub fn handle_input(&mut self, input: DiffReviewInput) -> Option<DiffReviewEvent> {
-        match input {
-            DiffReviewInput::Key(key) => {
-                self.mark_dirty();
-                self.handle_key(key)
-            }
-            DiffReviewInput::Paste(text) => {
-                if let Some(draft) = self.session.draft_mut() {
-                    draft.insert(&text);
-                    self.request_follow();
-                }
-                None
-            }
-            DiffReviewInput::Mouse(mouse) => self.handle_mouse(mouse),
+    pub fn interaction_phase(&self) -> InteractionPhase {
+        if self.theme_picker.is_some() {
+            InteractionPhase::ThemePicker
+        } else if self.repository_prompt.is_some() {
+            InteractionPhase::RepositoryPrompt
+        } else if self.help {
+            InteractionPhase::Help
+        } else if self.session.draft().is_some() {
+            InteractionPhase::Draft
+        } else {
+            InteractionPhase::Browse
         }
     }
 
-    fn handle_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
-        if let Some(picker) = self.theme_picker.as_mut() {
-            let action = picker.handle_key(key);
-            match action {
-                ThemePickerAction::Preview(theme) => self.set_theme(theme),
-                ThemePickerAction::Restore(theme) => {
-                    self.set_theme(theme);
-                    self.theme_picker = None;
-                }
-                ThemePickerAction::Commit => self.theme_picker = None,
-                ThemePickerAction::None => {}
-            }
-            return None;
-        }
-        if self.repository_prompt.is_some() {
-            return self.handle_repository_prompt_key(key);
-        }
-        if self.help {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-                self.help = false;
-            }
-            return None;
-        }
-        if self.session.draft().is_some() {
-            self.handle_draft_key(key);
-            return None;
-        }
-        let cancels = key.code == KeyCode::Esc
-            || (key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL));
-        if cancels {
-            return Some(DiffReviewEvent::Cancel);
-        }
-        if key
-            .modifiers
-            .intersects(KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::CONTROL)
-        {
-            return None;
-        }
-        self.handle_browse_key(key)
+    #[must_use]
+    pub fn handle_input(&mut self, input: ReviewInput) -> InputOutcome<DiffReviewEvent> {
+        let Ok(outcome) = interaction::handle_input(self, input);
+        outcome
     }
+}
 
-    #[allow(clippy::too_many_lines)]
-    fn handle_browse_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
-        if matches!(self.repository_status, RepositoryOperationStatus::Pending)
-            && matches!(
-                key.code,
-                KeyCode::Char(' ' | 'a' | 'A' | 'C' | 'S' | 'd' | 'r')
-            )
-        {
-            return None;
-        }
-        let in_diff = self.focus == FocusPane::Diff;
-        match key.code {
-            KeyCode::Tab => {
-                self.focus = match self.focus {
-                    FocusPane::Files => FocusPane::Diff,
-                    FocusPane::Diff => FocusPane::Files,
-                };
-            }
-            KeyCode::Left if in_diff && self.layout().is_split() => {
-                self.session.set_selected_side(DiffSide::Old);
-            }
-            KeyCode::Right if in_diff && self.layout().is_split() => {
-                self.session.set_selected_side(DiffSide::New);
-            }
-            KeyCode::Left | KeyCode::Char('h') => {
-                if in_diff {
-                    self.focus = FocusPane::Files;
-                } else {
-                    self.collapse_drawer_entry();
-                }
-            }
-            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter if !in_diff => {
-                if !self.expand_or_open_drawer_entry() {
-                    self.focus = FocusPane::Diff;
-                }
-            }
-            KeyCode::Up | KeyCode::Char('k') => self.move_focused(-1),
-            KeyCode::Down | KeyCode::Char('j') => self.move_focused(1),
-            KeyCode::PageUp => self.page(-1),
-            KeyCode::PageDown => self.page(1),
-            KeyCode::Home => self.select_boundary(false),
-            KeyCode::End => self.select_boundary(true),
-            KeyCode::Char('c') if in_diff => {
-                self.session.begin_draft(None);
-                self.request_follow();
-            }
-            KeyCode::Char('e') if in_diff => {
-                let editing = self.session.comment_id_at_selection();
-                if editing.is_some() {
-                    self.session.begin_draft(editing);
-                    self.request_follow();
-                }
-            }
-            KeyCode::Char('x') if in_diff => {
-                self.session.delete_comment_at_selection();
-            }
-            KeyCode::Char('u') if in_diff => {
-                if let Some(id) = self.session.last_comment_id() {
-                    self.session.review_mut().remove_comment(id);
-                }
-            }
-            KeyCode::Char('s') if in_diff => {
-                return Some(DiffReviewEvent::SubmitReview(self.session.submission()));
-            }
-            KeyCode::Char('y') if in_diff => {
-                return Some(DiffReviewEvent::CopyFormattedReview(
-                    self.session.submission().formatted,
-                ));
-            }
-            KeyCode::Char(' ') if self.focus == FocusPane::Files => {
-                if let Some(action) = self.toggle_stage_action() {
-                    return Some(DiffReviewEvent::RepositoryAction(action));
-                }
-            }
-            KeyCode::Char('a') if self.focus == FocusPane::Files => {
-                return Some(DiffReviewEvent::RepositoryAction(
-                    RepositoryAction::StageAll,
-                ));
-            }
-            KeyCode::Char('A') if self.focus == FocusPane::Files => {
-                return Some(DiffReviewEvent::RepositoryAction(
-                    RepositoryAction::UnstageAll,
-                ));
-            }
-            KeyCode::Char('C') => self.begin_commit(),
-            KeyCode::Char('d') => self.begin_discard(),
-            KeyCode::Char('t') => {
-                self.theme_picker = Some(ThemePicker::new(&self.theme));
-            }
-            KeyCode::Enter
-                if in_diff
-                    && self
-                        .session
-                        .selected_row()
-                        .is_some_and(|row| self.presentation().gap_info(row).is_some()) =>
-            {
-                self.reveal_selected_gap(RevealAmount::Step);
-            }
-            KeyCode::Char('o') if in_diff => {
-                self.reveal_selected_gap(RevealAmount::Step);
-            }
-            KeyCode::Char('O') if in_diff => {
-                self.reveal_selected_gap(RevealAmount::All);
-            }
-            KeyCode::Char('f') if in_diff => {
-                self.toggle_full_file();
-            }
-            KeyCode::Char('v') => {
-                if self.session.cycle_view_mode() {
-                    self.scroll_to_selected_file();
-                }
-            }
-            KeyCode::Char('S') => {
-                return Some(DiffReviewEvent::SetScope(self.scope.next()));
-            }
-            KeyCode::Char('?') => self.help = true,
-            _ => {}
-        }
-        None
+impl ReviewWidget for DiffReviewState {
+    type Event = DiffReviewEvent;
+    type Error = Infallible;
+    type Draft = CommentDraft;
+
+    fn phase(&self) -> InteractionPhase {
+        self.interaction_phase()
     }
-
-    fn move_focused(&mut self, delta: isize) {
-        match self.focus {
-            FocusPane::Files => self.move_drawer_entry(delta),
-            FocusPane::Diff => self.move_row(delta),
+    fn handle_review_command(
+        &mut self,
+        command: ReviewCommand,
+    ) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
+        Ok(self.handle_command(command))
+    }
+    fn contains(&self, position: Position) -> bool {
+        self.hit_layout.drawer.contains(position) || self.hit_layout.patch.contains(position)
+    }
+    fn mark_dirty(&mut self) {
+        Self::mark_dirty(self);
+    }
+    fn draft_mut(&mut self) -> Option<&mut CommentDraft> {
+        self.session.draft_mut()
+    }
+    fn draft_changed(&mut self) {
+        self.request_follow();
+    }
+    fn paste_prompt(&mut self, text: &str) {
+        if let Some(RepositoryPrompt::Commit { message }) = &mut self.repository_prompt {
+            message.push_str(text);
         }
     }
+    fn handle_browse_key(
+        &mut self,
+        key: KeyEvent,
+    ) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
+        Ok(self
+            .command_for_key(key)
+            .map_or(InputOutcome::Ignored, |command| {
+                self.handle_command(command)
+            }))
+    }
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
+        self.handle_mouse(mouse)
+    }
+    fn handle_prompt_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
+        self.handle_repository_prompt_key(key)
+    }
+}
 
-    fn handle_repository_prompt_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
-        match self.repository_prompt.as_mut()? {
+impl DiffReviewState {
+    fn handle_repository_prompt_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
+        if key.code == KeyCode::Esc {
+            return self.handle_command(ReviewCommand::Cancel);
+        }
+        if !interaction::is_plain_key(key) {
+            return InputOutcome::Consumed;
+        }
+        let Some(prompt) = self.repository_prompt.as_mut() else {
+            return InputOutcome::Consumed;
+        };
+        let action = match prompt {
             RepositoryPrompt::Commit { message } => match key.code {
-                KeyCode::Esc => self.repository_prompt = None,
                 KeyCode::Enter => {
                     let message = message.trim().to_owned();
                     if message.is_empty() {
                         self.set_repository_error("Commit message cannot be empty");
+                        None
                     } else {
-                        self.repository_prompt = None;
-                        return Some(DiffReviewEvent::RepositoryAction(
-                            RepositoryAction::Commit { message },
-                        ));
+                        Some(RepositoryAction::Commit { message })
                     }
                 }
                 KeyCode::Backspace => {
                     message.pop();
+                    None
                 }
-                KeyCode::Char(character)
-                    if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
-                {
+                KeyCode::Char(character) => {
                     message.push(character);
+                    None
                 }
-                _ => {}
+                _ => None,
             },
             RepositoryPrompt::Discard { path, status } => match key.code {
-                KeyCode::Char('y' | 'Y') => {
-                    let action = RepositoryAction::Discard {
-                        path: path.clone(),
-                        status: *status,
-                    };
+                KeyCode::Char('y' | 'Y') => Some(RepositoryAction::Discard {
+                    path: path.clone(),
+                    status: *status,
+                }),
+                KeyCode::Char('n' | 'N') => {
                     self.repository_prompt = None;
-                    return Some(DiffReviewEvent::RepositoryAction(action));
+                    None
                 }
-                KeyCode::Char('n' | 'N') | KeyCode::Esc => self.repository_prompt = None,
-                _ => {}
+                _ => None,
             },
-        }
-        None
-    }
-
-    fn handle_draft_key(&mut self, key: KeyEvent) {
-        if key.code == KeyCode::Esc {
-            self.session.cancel_draft();
-            self.cursor_position = None;
-            return;
-        }
-        if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
-            self.session.submit_draft();
-            self.cursor_position = None;
-            return;
-        }
-        let Some(draft) = self.session.draft_mut() else {
-            return;
         };
-        match key.code {
-            KeyCode::Enter => draft.insert("\n"),
-            KeyCode::Left => draft.move_cursor_left(),
-            KeyCode::Right => draft.move_cursor_right(),
-            KeyCode::Home => draft.move_cursor_to_start(),
-            KeyCode::End => draft.move_cursor_to_end(),
-            KeyCode::Backspace => draft.delete_before_cursor(),
-            KeyCode::Delete => draft.delete_at_cursor(),
-            KeyCode::Char(character)
-                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
-            {
-                let mut buffer = [0_u8; 4];
-                draft.insert(character.encode_utf8(&mut buffer));
-            }
-            _ => {}
+        if let Some(action) = action {
+            self.repository_prompt = None;
+            return self.handle_command(DiffReviewCommand::RepositoryAction(action));
         }
-        self.request_follow();
+        InputOutcome::Consumed
     }
 
-    fn handle_mouse(&mut self, mouse: MouseEvent) -> Option<DiffReviewEvent> {
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
         let position = Position::new(mouse.column, mouse.row);
         match mouse.kind {
             MouseEventKind::ScrollUp => self.scroll_at(position, -1),
@@ -320,29 +153,21 @@ impl DiffReviewState {
                     self.focus = FocusPane::Files;
                     let relative = usize::from(mouse.row.saturating_sub(self.hit_layout.drawer.y));
                     self.select_drawer_entry(self.drawer_scroll.saturating_add(relative));
-                    self.mark_dirty();
                     if self.hit_layout.drawer_stage_column == Some(mouse.column)
                         && !matches!(self.repository_status, RepositoryOperationStatus::Pending)
-                        && let Some(action) = self.toggle_stage_action()
                     {
-                        return Some(DiffReviewEvent::RepositoryAction(action));
+                        return self.handle_command(DiffReviewCommand::ToggleStage);
                     }
                 } else if self.hit_layout.patch.contains(position) {
                     self.focus = FocusPane::Diff;
                     self.select_clicked_row(mouse.row);
-                    self.mark_dirty();
                 }
             }
-            // Motion, drag, and button releases change nothing that is drawn,
-            // and a terminal in all-motion mode reports one per pointer step.
             _ => {}
         }
-        None
+        InputOutcome::Consumed
     }
 
-    /// Navigates the pane under the pointer, falling back to the focused pane
-    /// when the pointer is over neither. The wheel moves one diff selection or
-    /// one drawer entry per notch without changing which pane has focus.
     fn scroll_at(&mut self, position: Position, direction: isize) {
         let pane = if self.hit_layout.patch.contains(position) {
             FocusPane::Diff
@@ -353,7 +178,7 @@ impl DiffReviewState {
         };
         match pane {
             FocusPane::Diff => self.move_row(direction),
-            FocusPane::Files => self.scroll_drawer(direction * DRAWER_WHEEL_ROWS),
+            FocusPane::Files => self.scroll_drawer(direction),
         }
     }
 }

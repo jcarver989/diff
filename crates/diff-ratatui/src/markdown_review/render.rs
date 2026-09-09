@@ -1,23 +1,21 @@
 use super::{
-    layout::{MarkdownSpan, MarkdownTextStyle, MarkdownVisualLayout},
-    state::{MarkdownFocusPane, MarkdownReviewState},
+    layout::{MarkdownVisualLayout, MarkdownVisualRow},
+    state::{MarkdownFocusPane, MarkdownHitRegion, MarkdownReviewState},
 };
 use crate::{
-    RatatuiTheme,
+    KeyBinding, RatatuiTheme,
     annotation::render_annotation_line,
-    style::syntax_style,
     theme_picker::render_theme_picker,
     ui::{
         ActionBar, ActionLabel, AppFrame, ButtonVariant, EmptyState, Modal, ModalSize, NoticeTone,
-        SelectableRow, SelectionState, render_modal_text,
+        SelectionState, render_modal_text,
     },
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use clankerdiff_syntax::HighlightSpan;
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
-    style::{Modifier, Style},
+    layout::{Constraint, Layout, Position, Rect},
+    style::Style,
     text::{Line, Span},
     widgets::{Paragraph, StatefulWidget, Widget},
 };
@@ -69,8 +67,11 @@ impl StatefulWidget for MarkdownReviewWidget {
 
     fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
         state.set_cursor(None);
+        state.clear_hit_regions();
         let theme = RatatuiTheme::from(&state.theme);
-        let regions = AppFrame::new(&self.title, self.borders, &theme).render(area, buffer);
+        let regions = AppFrame::new(&self.title, self.borders, &theme)
+            .footer(state.options.footer)
+            .render(area, buffer);
         if regions.body.is_empty() {
             state.dirty = false;
             return;
@@ -80,7 +81,7 @@ impl StatefulWidget for MarkdownReviewWidget {
         render_body(body, buffer, state, &theme);
         render_footer(footer, buffer, state, &theme);
         if state.help {
-            render_help(area, buffer, &theme);
+            render_help(area, buffer, state, &theme);
         }
         if let Some(picker) = &state.theme_picker {
             render_theme_picker(area, buffer, picker, &theme);
@@ -99,10 +100,15 @@ fn render_body(
     if area.is_empty() {
         return;
     }
-    let wide = area.width >= OUTLINE_BREAKPOINT && !state.document().outline().is_empty();
+    let outline_width = state.options.navigation.width(
+        area.width,
+        OUTLINE_BREAKPOINT,
+        OUTLINE_WIDTH.min(area.width / 3),
+    );
+    let wide = outline_width > 0 && !state.document().outline().is_empty();
     let (outline, separator, document) = if wide {
         let [outline, separator, document] = Layout::horizontal([
-            Constraint::Length(OUTLINE_WIDTH.min(area.width / 3)),
+            Constraint::Length(outline_width),
             Constraint::Length(1),
             Constraint::Min(1),
         ])
@@ -124,9 +130,9 @@ fn render_body(
     let content_width = rows.width.saturating_sub(gutter_width).max(1);
     let layout = state.ensure_layout(content_width);
     state.follow_selection(&layout);
-    let last = layout.rows.len().saturating_sub(state.last_height);
+    let last = layout.len().saturating_sub(state.last_height);
     state.scroll = state.scroll.min(last);
-    if layout.rows.is_empty() {
+    if layout.is_empty() {
         EmptyState::new("No Markdown content to review", NoticeTone::Info, theme)
             .render(rows, buffer);
     } else {
@@ -154,6 +160,15 @@ fn render_outline(
     let heading_count = state.document().outline().len();
     state.outline_selected = state.outline_selected.min(heading_count.saturating_sub(1));
     let height = usize::from(area.height);
+    if state.follow_pending {
+        if state.outline_selected < state.outline_scroll {
+            state.outline_scroll = state.outline_selected;
+        } else if state.outline_selected >= state.outline_scroll.saturating_add(height) {
+            state.outline_scroll = state
+                .outline_selected
+                .saturating_sub(height.saturating_sub(1));
+        }
+    }
     let max_scroll = heading_count.saturating_sub(height.max(1));
     state.outline_scroll = state.outline_scroll.min(max_scroll);
     let headings = state.document().outline().to_vec();
@@ -172,17 +187,15 @@ fn render_outline(
         let index = state.outline_scroll + offset;
         let selected = state.focus == MarkdownFocusPane::Outline && index == state.outline_selected;
         let indent = "  ".repeat(usize::from(heading.level.saturating_sub(1)));
-        SelectableRow::new(
-            Line::from(format!("{indent}{}", heading.title)),
-            if selected {
-                SelectionState::Focused
-            } else {
-                SelectionState::None
-            },
-            theme,
-        )
-        .render(row, buffer);
-        state.hit_regions.push(super::state::MarkdownHitRegion {
+        let selection = if selected {
+            SelectionState::Focused
+        } else {
+            SelectionState::None
+        };
+        Paragraph::new(Line::from(format!("{indent}{}", heading.title)))
+            .style(theme.ui.selection_style(selection))
+            .render(row, buffer);
+        state.hit_regions.push(MarkdownHitRegion {
             area: row,
             target: Some(heading.target_id),
             outline: true,
@@ -201,7 +214,7 @@ fn render_rows(
 ) {
     let selected = state.selected_target();
     let focused = state.focus == MarkdownFocusPane::Document;
-    for (drawn, index) in (state.scroll..layout.rows.len()).enumerate() {
+    for (drawn, index) in (state.scroll..layout.len()).enumerate() {
         let y = area
             .y
             .saturating_add(u16::try_from(drawn).unwrap_or(u16::MAX));
@@ -213,11 +226,18 @@ fn render_rows(
         let [gutter_area, content_area] =
             Layout::horizontal([Constraint::Length(row_gutter_width), Constraint::Min(1)])
                 .areas(row_area);
-        let row = &layout.rows[index];
-        if let Some((annotation, line)) = &row.annotation {
-            render_annotation_line(content_area, buffer, theme, annotation, *line);
-            if let Some(column) = annotation.cursor_column(*line) {
-                state.set_cursor(Some(ratatui::layout::Position::new(
+        let Some(row) = layout.row(index) else {
+            break;
+        };
+        if let MarkdownVisualRow::Annotation {
+            annotation,
+            line,
+            target,
+        } = row
+        {
+            render_annotation_line(content_area, buffer, theme, annotation, line);
+            if let Some(column) = annotation.cursor_column(line) {
+                state.set_cursor(Some(Position::new(
                     content_area
                         .x
                         .saturating_add(column)
@@ -225,16 +245,23 @@ fn render_rows(
                     y,
                 )));
             }
+            if target.is_some() {
+                state.hit_regions.push(MarkdownHitRegion {
+                    area: row_area,
+                    target,
+                    outline: false,
+                });
+            }
             continue;
         }
-        let is_selected = focused && row.target.is_some() && row.target == selected;
+        let is_selected = focused && row.target().is_some_and(|target| Some(target) == selected);
         let background = if is_selected {
             theme.ui.surface_selected
         } else {
             theme.ui.canvas
         };
         buffer.set_style(row_area, Style::new().fg(theme.ui.text).bg(background));
-        let gutter = row.source_line.map_or_else(
+        let gutter = row.source_line().map_or_else(
             || " ".repeat(usize::from(row_gutter_width)),
             |line| {
                 let number_width =
@@ -245,36 +272,20 @@ fn render_rows(
         Paragraph::new(gutter)
             .style(Style::new().fg(theme.gutter).bg(background))
             .render(gutter_area, buffer);
-        let mut spans = Vec::new();
-        spans.push(Span::styled(
-            row.prefix.clone(),
-            Style::new()
-                .fg(if row.code.is_some() {
-                    theme.gutter
-                } else {
-                    theme.ui.text_muted
-                })
-                .bg(background),
-        ));
-        if let Some(code) = &row.code {
-            let source = row
-                .spans
-                .iter()
-                .map(|span| span.text.as_str())
-                .collect::<String>();
-            spans.extend(highlighted_spans(&source, &code.highlights, background));
-        } else {
-            spans.extend(
-                row.spans
-                    .iter()
-                    .map(|span| styled_span(span, theme, background)),
-            );
+        if let MarkdownVisualRow::Content(content) = row {
+            let mut line = content.line.clone();
+            if is_selected {
+                line.style = line.style.bg(background);
+                for span in &mut line.spans {
+                    span.style = span.style.bg(background);
+                }
+            }
+            Paragraph::new(line).render(content_area, buffer);
         }
-        Paragraph::new(Line::from(spans)).render(content_area, buffer);
-        if row.selectable {
-            state.hit_regions.push(super::state::MarkdownHitRegion {
+        if let Some(target) = row.target() {
+            state.hit_regions.push(MarkdownHitRegion {
                 area: row_area,
-                target: row.target,
+                target: Some(target),
                 outline: false,
             });
         }
@@ -282,73 +293,10 @@ fn render_rows(
     render_vertical_scrollbar(
         track,
         buffer,
-        layout.rows.len(),
+        layout.len(),
         usize::from(area.height),
         state.scroll,
     );
-}
-
-fn styled_span(
-    span: &MarkdownSpan,
-    theme: &RatatuiTheme,
-    background: ratatui::style::Color,
-) -> Span<'static> {
-    let mut style = Style::new()
-        .fg(match span.style {
-            MarkdownTextStyle::Heading | MarkdownTextStyle::Link | MarkdownTextStyle::Image => {
-                theme.ui.accent
-            }
-            MarkdownTextStyle::Muted => theme.ui.text_muted,
-            _ => theme.ui.text,
-        })
-        .bg(background);
-    match span.style {
-        MarkdownTextStyle::Heading | MarkdownTextStyle::Strong => {
-            style = style.add_modifier(Modifier::BOLD);
-        }
-        MarkdownTextStyle::Emphasis => style = style.add_modifier(Modifier::ITALIC),
-        MarkdownTextStyle::Strikethrough => style = style.add_modifier(Modifier::CROSSED_OUT),
-        MarkdownTextStyle::Link => style = style.add_modifier(Modifier::UNDERLINED),
-        MarkdownTextStyle::InlineCode => style = style.bg(theme.ui.border),
-        _ => {}
-    }
-    Span::styled(span.text.clone(), style)
-}
-
-fn highlighted_spans(
-    source: &str,
-    highlights: &[HighlightSpan],
-    background: ratatui::style::Color,
-) -> Vec<Span<'static>> {
-    if highlights.is_empty() {
-        return vec![Span::styled(source.to_owned(), Style::new().bg(background))];
-    }
-    let mut output = Vec::new();
-    let mut offset = 0;
-    for highlight in highlights {
-        let start = highlight.range.start.min(source.len());
-        let end = highlight.range.end.min(source.len());
-        if start > offset && source.is_char_boundary(start) {
-            output.push(Span::styled(
-                source[offset..start].to_owned(),
-                Style::new().bg(background),
-            ));
-        }
-        if end > start && source.is_char_boundary(start) && source.is_char_boundary(end) {
-            output.push(Span::styled(
-                source[start..end].to_owned(),
-                syntax_style(highlight.foreground, highlight.font_style, background),
-            ));
-            offset = end;
-        }
-    }
-    if offset < source.len() && source.is_char_boundary(offset) {
-        output.push(Span::styled(
-            source[offset..].to_owned(),
-            Style::new().bg(background),
-        ));
-    }
-    output
 }
 
 fn render_footer(
@@ -360,6 +308,8 @@ fn render_footer(
     if area.is_empty() {
         return;
     }
+    let count = state.review().len();
+    let status = format!("  {count} comment{}", if count == 1 { "" } else { "s" });
     let mut actions = if state.session.draft().is_some() {
         vec![
             ActionLabel::new("Enter", "save", theme)
@@ -369,38 +319,28 @@ fn render_footer(
             ActionLabel::new("Esc", "cancel", theme).into_span(),
         ]
     } else {
-        vec![
-            Span::styled(
-                "[j/k] target  [n/p] heading  ",
-                Style::new().fg(theme.ui.text_muted),
-            ),
-            ActionLabel::new("c", "comment", theme).into_span(),
-            ActionLabel::new("a", "approve", theme)
-                .variant(ButtonVariant::Primary)
-                .into_span(),
-            ActionLabel::new("r", "request changes", theme)
-                .variant(ButtonVariant::Destructive)
-                .into_span(),
-            Span::styled("[t] theme  [?] help", Style::new().fg(theme.ui.text_muted)),
-        ]
+        vec![Span::styled(
+            state.footer_hint(usize::from(area.width).saturating_sub(status.len())),
+            Style::new().fg(theme.ui.text_muted),
+        )]
     };
-    let count = state.review().len();
-    actions.push(Span::styled(
-        format!("  {count} comment{}", if count == 1 { "" } else { "s" }),
-        Style::new().fg(theme.ui.accent),
-    ));
+    actions.push(Span::styled(status, Style::new().fg(theme.ui.accent)));
     ActionBar::new(Line::from(actions), theme).render(area, buffer);
 }
 
-fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
-    let content = Modal::new("Markdown shortcuts", theme)
-        .hint("? / Esc to close")
-        .size(ModalSize::Wide)
+fn render_help(area: Rect, buffer: &mut Buffer, state: &MarkdownReviewState, theme: &RatatuiTheme) {
+    let content = Modal::new("Markdown shortcuts", ModalSize::Wide, theme)
+        .hint("j/k scroll · ? / Esc close")
         .render(area, buffer);
     render_modal_text(
         content,
         buffer,
-        "Navigation\n  j/k or arrows   move target\n  g/G or Home/End first/last\n  n/p             next/previous heading\n  h/l or Enter    outline/document\n\nReview\n  c/e/x/u         add/edit/delete/undo\n  a/r             approve/request changes\n  t               select theme\n  Esc             cancel draft/review\n  ?               close help",
+        state
+            .help_bindings()
+            .skip(state.help_scroll)
+            .map(KeyBinding::hint)
+            .collect::<Vec<_>>()
+            .join("\n"),
         theme,
     );
 }

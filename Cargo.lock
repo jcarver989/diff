@@ -1954,6 +1954,7 @@ dependencies = [
 name = "clankerdiff-markdown"
 version = "0.1.0"
 dependencies = [
+ "clankerdiff-core",
  "clankerdiff-fingerprint",
  "pulldown-cmark",
  "serde",
@@ -1976,6 +1977,7 @@ dependencies = [
 name = "clankerdiff-ratatui"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.1",
  "clankerdiff-core",
  "clankerdiff-git",
  "clankerdiff-markdown",
@@ -1986,6 +1988,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "tokio",
+ "unicode-segmentation",
  "unicode-width",
 ]
 
@@ -1995,9 +1998,11 @@ version = "0.1.0"
 dependencies = [
  "arborium",
  "arborium-highlight",
+ "arborium-sysroot",
  "arborium-theme",
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
+ "lru",
  "thiserror 2.0.20",
 ]
 

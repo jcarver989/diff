@@ -21,12 +21,14 @@ const GIT: &[(&str, &str)] = &[
     ("C", "commit staged changes"),
     ("d", "discard selected file"),
     ("S", "cycle scope (unstaged/staged/both)"),
+    ("⌘/Ctrl-R", "refresh repository"),
 ];
 const REVIEW: &[(&str, &str)] = &[
     ("c / e / x", "add / edit / delete comment"),
     ("u", "undo last comment"),
     ("s / y", "submit / copy review"),
     ("v", "cycle layout"),
+    ("t", "choose theme (↑ / ↓, Enter, Esc)"),
     ("Esc / Ctrl-G", "cancel review"),
 ];
 const DRAFT: &[(&str, &str)] = &[
@@ -37,7 +39,7 @@ const DRAFT: &[(&str, &str)] = &[
 
 impl DiffViewer {
     pub(crate) fn render_shortcuts(&self) -> impl IntoElement {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let section = |title: &'static str, rows: &'static [(&'static str, &'static str)]| {
             let mut content = div().flex_1().flex().flex_col().gap_1().child(
                 div()

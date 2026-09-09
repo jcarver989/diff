@@ -28,18 +28,20 @@ pub struct ThemeChanged {
 }
 pub use markdown_viewer::{
     MarkdownAddComment, MarkdownApprove, MarkdownCancel, MarkdownCancelComment,
-    MarkdownDeleteComment, MarkdownEditComment, MarkdownFirstTarget, MarkdownHideThemePicker,
-    MarkdownLastTarget, MarkdownNextHeading, MarkdownNextTarget, MarkdownPreviousHeading,
-    MarkdownPreviousTarget, MarkdownRequestChanges, MarkdownReviewer, MarkdownReviewerOptions,
-    MarkdownShowThemePicker, MarkdownSubmitComment, MarkdownUndoComment,
+    MarkdownCommitTheme, MarkdownCopyReview, MarkdownDeleteComment, MarkdownEditComment,
+    MarkdownFirstTarget, MarkdownHideThemePicker, MarkdownLastTarget, MarkdownNextHeading,
+    MarkdownNextTarget, MarkdownNextTheme, MarkdownOpenSelected, MarkdownPageDown, MarkdownPageUp,
+    MarkdownPreviousHeading, MarkdownPreviousTarget, MarkdownPreviousTheme, MarkdownRequestChanges,
+    MarkdownReviewer, MarkdownReviewerOptions, MarkdownShowThemePicker, MarkdownSubmitComment,
+    MarkdownToggleFocus, MarkdownUndoComment,
 };
 pub use viewer::{
     ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse,
-    CommitChanges, ConfirmDiscard, CopyReview, CycleScope, CycleViewMode, DecreaseFontSize,
-    DeleteComment, DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap,
-    ExpandGapAll, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, HideThemePicker,
-    IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, PageDown, PageUp, PreviousFile,
-    PreviousHunk, PreviousItem, ResetFontSize, SelectNewSide, SelectOldSide, ShowShortcuts,
-    ShowThemePicker, StageAll, SubmitComment, SubmitReview, ToggleFullFile, TogglePane,
-    ToggleStage, UndoComment, UnstageAll, ViewerPane,
+    CommitChanges, CommitTheme, ConfirmDiscard, CopyReview, CycleScope, CycleViewMode,
+    DecreaseFontSize, DeleteComment, DiffViewer, DiffViewerOptions, DiscardChanges, EditComment,
+    ExpandGap, ExpandGapAll, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts,
+    HideThemePicker, IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, NextTheme, PageDown,
+    PageUp, PreviousFile, PreviousHunk, PreviousItem, PreviousTheme, Refresh, ResetFontSize,
+    SelectNewSide, SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment,
+    SubmitReview, ToggleFullFile, TogglePane, ToggleStage, UndoComment, UnstageAll, ViewerPane,
 };

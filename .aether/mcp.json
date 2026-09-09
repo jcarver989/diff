@@ -5,7 +5,10 @@
     },
     "skills": {
       "type": "in-memory",
-      "args": ["--dir", "./.aether/skills"]
+      "args": [
+         "--dir", "${AETHER_HOME}/skills", 
+         "--dir", "./.aether/skills"
+     ]
     },
     "tasks": {
       "type": "in-memory"

@@ -1,14 +1,16 @@
 use crate::{
+    DiffReviewCommand, KeyBinding, NavigationPane, ReviewOptions, ThemeChoice,
+    default_diff_keybindings,
     drawer::{DrawerEntry, DrawerTree},
     patch_layout::PatchVisualLayout,
     theme_picker::ThemePicker,
 };
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, Layout, RepositoryAction,
-    RevealAmount, Review, ReviewSession, StageState, ViewMode,
+    RevealAmount, Review, ReviewCapabilities, ReviewSession, StageState, ViewMode,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use ratatui::layout::{Position, Rect};
 use std::{
     collections::hash_map::DefaultHasher,
@@ -18,15 +20,7 @@ use std::{
 
 pub(crate) const SPLIT_BREAKPOINT: u16 = 96;
 
-/// Which pane receives navigation input.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum FocusPane {
-    /// File navigation drawer.
-    #[default]
-    Files,
-    /// Diff document.
-    Diff,
-}
+pub use clankerdiff_core::FocusPane;
 
 /// Current host-provided document state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +78,11 @@ struct CachedPatchLayout {
 pub struct DiffReviewState {
     pub(crate) session: ReviewSession,
     pub(crate) scope: DiffScope,
-    pub(crate) theme: DiffTheme,
+    pub(crate) options: ReviewOptions,
+    pub(crate) capabilities: ReviewCapabilities,
+    pub(crate) keybindings: Vec<KeyBinding<DiffReviewCommand>>,
+    pub(crate) theme_choices: Arc<[ThemeChoice]>,
+    pub(crate) theme: ReviewTheme,
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) status: DiffReviewStatus,
     pub(crate) focus: FocusPane,
@@ -98,6 +96,7 @@ pub struct DiffReviewState {
     pub(crate) presentation_width: u16,
     patch_layout: Option<CachedPatchLayout>,
     pub(crate) help: bool,
+    pub(crate) help_scroll: usize,
     pub(crate) theme_picker: Option<ThemePicker>,
     pub(crate) repository_prompt: Option<RepositoryPrompt>,
     pub(crate) repository_status: RepositoryOperationStatus,
@@ -113,17 +112,21 @@ impl DiffReviewState {
     /// Creates ready state from an immutable document snapshot.
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
-        Self::with_theme(document, DiffTheme::default())
+        Self::with_theme(document, ReviewTheme::default())
     }
 
     /// Creates ready state with a shared neutral theme.
     #[must_use]
-    pub fn with_theme(document: Arc<DiffDocument>, theme: DiffTheme) -> Self {
+    pub fn with_theme(document: Arc<DiffDocument>, theme: ReviewTheme) -> Self {
         let drawer = DrawerTree::new(&document);
         let drawer_selected = drawer.position_of_file(0).unwrap_or(0);
         let mut state = Self {
             session: ReviewSession::new(document),
             scope: DiffScope::Both,
+            options: ReviewOptions::default(),
+            capabilities: ReviewCapabilities::default(),
+            keybindings: default_diff_keybindings(),
+            theme_choices: Arc::from([]),
             theme,
             highlighter: SyntaxHighlighter::default(),
             status: DiffReviewStatus::Ready,
@@ -138,6 +141,7 @@ impl DiffReviewState {
             presentation_width: 0,
             patch_layout: None,
             help: false,
+            help_scroll: 0,
             theme_picker: None,
             repository_prompt: None,
             repository_status: RepositoryOperationStatus::Idle,
@@ -232,7 +236,7 @@ impl DiffReviewState {
 
     /// Returns the active renderer-neutral theme.
     #[must_use]
-    pub const fn theme(&self) -> &DiffTheme {
+    pub const fn theme(&self) -> &ReviewTheme {
         &self.theme
     }
 
@@ -396,10 +400,67 @@ impl DiffReviewState {
     }
 
     /// Changes the neutral theme and clears cached syntax spans.
-    pub fn set_theme(&mut self, theme: DiffTheme) {
+    pub fn set_theme(&mut self, theme: ReviewTheme) {
+        self.theme_picker = None;
+        self.apply_theme(theme);
+    }
+
+    pub(crate) fn apply_theme(&mut self, theme: ReviewTheme) {
         self.theme = theme;
         self.highlighter.clear_cache();
         self.mark_dirty();
+    }
+
+    #[must_use]
+    pub const fn options(&self) -> &ReviewOptions {
+        &self.options
+    }
+
+    #[must_use]
+    pub fn keybindings(&self) -> &[KeyBinding<DiffReviewCommand>] {
+        &self.keybindings
+    }
+
+    pub fn set_keybindings(&mut self, bindings: impl Into<Vec<KeyBinding<DiffReviewCommand>>>) {
+        self.keybindings = bindings.into();
+        self.help_scroll = 0;
+        self.mark_dirty();
+    }
+
+    pub fn set_options(&mut self, options: ReviewOptions) {
+        if matches!(
+            options.navigation,
+            NavigationPane::Hidden | NavigationPane::Width(0)
+        ) {
+            self.focus = FocusPane::Diff;
+        }
+        self.options = options;
+        self.hit_layout = HitLayout::default();
+        self.request_follow();
+    }
+
+    #[must_use]
+    pub fn theme_choices(&self) -> &[ThemeChoice] {
+        &self.theme_choices
+    }
+
+    pub fn set_theme_choices(&mut self, themes: impl Into<Arc<[ThemeChoice]>>) {
+        if let Some(picker) = self.theme_picker.take() {
+            self.set_theme(picker.cancel());
+        }
+        self.theme_choices = themes.into();
+        self.mark_dirty();
+    }
+
+    pub(crate) fn select_file(&mut self, index: usize) -> bool {
+        if !self.session.select_file(index) {
+            return false;
+        }
+        self.drawer.expand_file(self.session.document(), index);
+        self.drawer_selected = self.drawer.position_of_file(index).unwrap_or(0);
+        self.follow_drawer_selection();
+        self.scroll_to_selected_file();
+        true
     }
 
     fn finish_projection_change(&mut self, changed: bool) -> bool {
@@ -410,7 +471,18 @@ impl DiffReviewState {
     }
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
-        let changed = self.session.reveal_selected_gap(amount);
+        let previous = (
+            self.session.selected_file_range(),
+            self.session.selected_row(),
+            self.session.selected_side(),
+        );
+        self.session.reveal_selected_gap(amount);
+        let changed = previous
+            != (
+                self.session.selected_file_range(),
+                self.session.selected_row(),
+                self.session.selected_side(),
+            );
         self.finish_projection_change(changed)
     }
 
@@ -421,7 +493,6 @@ impl DiffReviewState {
 
     /// Selects automatic, unified, or split presentation.
     pub fn set_view_mode(&mut self, mode: ViewMode) {
-        self.mark_dirty();
         if self.session.set_view_mode(mode) {
             self.scroll_to_selected_file();
         }
@@ -556,6 +627,7 @@ impl DiffReviewState {
         };
         let last = layout.len().saturating_sub(self.last_height.max(1));
         let clamped = target.min(last);
+        self.follow_pending = false;
         if clamped != self.scroll {
             self.scroll = clamped;
             self.mark_dirty();
@@ -575,6 +647,7 @@ impl DiffReviewState {
             self.drawer_scroll.saturating_add(delta.unsigned_abs())
         };
         let clamped = target.min(last);
+        self.drawer_follow = DrawerFollow::Settled;
         if clamped != self.drawer_scroll {
             self.drawer_scroll = clamped;
             self.mark_dirty();

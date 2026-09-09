@@ -4,9 +4,13 @@ use clankerdiff_core::{
     ContentProjection, DiffDocument, DiffPresentation, PresentationOptions,
     testing::DocumentBuilder,
 };
-use clankerdiff_ratatui::DiffReviewState;
+use clankerdiff_ratatui::KeyCode;
+use clankerdiff_ratatui::{
+    DiffPreviewOptions, DiffPreviewState, DiffReviewState, render_diff_preview,
+};
+use clankerdiff_syntax::SyntaxHighlighter;
+use clankerdiff_theme::ReviewTheme;
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use crossterm::event::KeyCode;
 use std::{hint::black_box, sync::Arc};
 
 #[path = "../tests/support/mod.rs"]
@@ -34,7 +38,7 @@ const FILE_SWITCHES: u64 = 50;
 fn presentation_creation(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("presentation_creation");
     group.sample_size(20);
-    let theme = clankerdiff_theme::DiffTheme::default();
+    let theme = clankerdiff_theme::ReviewTheme::default();
     for rows in [1_000, 10_000, 100_000] {
         let document = large_document(rows);
         group.bench_with_input(BenchmarkId::from_parameter(rows), &rows, |bencher, _| {
@@ -177,5 +181,34 @@ fn patch_harness(document: Arc<DiffDocument>, width: u16, height: u16) -> Review
     harness
 }
 
-criterion_group!(benches, presentation_creation, rendering);
+fn preview_ownership(criterion: &mut Criterion) {
+    let document = large_document(10_000);
+    let file = &document.files[0];
+    let theme = ReviewTheme::default();
+    let mut highlighter = SyntaxHighlighter::default();
+    let options = DiffPreviewOptions::default();
+    let mut group = criterion.benchmark_group("preview_10k");
+    group.bench_function("input_clone", |bencher| {
+        bencher.iter(|| black_box(file.clone()));
+    });
+    group.bench_function("unchanged_owned_render", |bencher| {
+        bencher.iter(|| {
+            black_box(render_diff_preview(
+                file.clone(),
+                80,
+                &theme,
+                &mut highlighter,
+                options,
+            ))
+        });
+    });
+    let mut state = DiffPreviewState::new(file.clone());
+    state.render(80, &theme, &mut highlighter, options);
+    group.bench_function("unchanged_shared_render", |bencher| {
+        bencher.iter(|| black_box(state.render(80, &theme, &mut highlighter, options)));
+    });
+    group.finish();
+}
+
+criterion_group!(benches, presentation_creation, rendering, preview_ownership);
 criterion_main!(benches);

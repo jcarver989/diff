@@ -259,6 +259,23 @@ pub struct MarkdownTarget {
     pub display_label: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MarkdownSourceRole {
+    Heading,
+    Link,
+    Quote,
+    Code,
+    Strong,
+    Emphasis,
+    Strikethrough,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkdownSourceStyle {
+    pub source: SourceRange,
+    pub role: MarkdownSourceRole,
+}
+
 /// A parsed Markdown document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MarkdownDocument {
@@ -268,6 +285,7 @@ pub struct MarkdownDocument {
     blocks: Vec<MarkdownBlock>,
     outline: Vec<MarkdownHeading>,
     targets: Vec<MarkdownTarget>,
+    source_styles: Vec<MarkdownSourceStyle>,
 }
 
 impl MarkdownDocument {
@@ -309,6 +327,8 @@ impl MarkdownDocument {
             .map(|(event, range)| (event.into_static(), range))
             .collect::<Vec<_>>();
         let roots = event_tree(&events);
+        let mut source_styles = Vec::new();
+        collect_source_styles(&roots, &line_starts, &mut source_styles);
         let mut blocks = roots
             .iter()
             .filter_map(|node| parse_block(node, 0, &source, &line_starts))
@@ -323,7 +343,13 @@ impl MarkdownDocument {
             blocks,
             outline,
             targets,
+            source_styles,
         }
+    }
+
+    #[must_use]
+    pub fn source_styles(&self) -> &[MarkdownSourceStyle] {
+        &self.source_styles
     }
 
     /// Returns the original source, including its original line endings.
@@ -366,6 +392,27 @@ impl MarkdownDocument {
     #[must_use]
     pub fn target(&self, id: MarkdownTargetId) -> Option<&MarkdownTarget> {
         self.targets.get(id.0)
+    }
+
+    #[must_use]
+    pub fn code_blocks(&self) -> Vec<&MarkdownCodeBlock> {
+        fn collect<'a>(blocks: &'a [MarkdownBlock], output: &mut Vec<&'a MarkdownCodeBlock>) {
+            for block in blocks {
+                match &block.kind {
+                    MarkdownBlockKind::CodeBlock(code) => output.push(code),
+                    MarkdownBlockKind::List { items, .. } => {
+                        for item in items {
+                            collect(&item.blocks, output);
+                        }
+                    }
+                    MarkdownBlockKind::BlockQuote { blocks } => collect(blocks, output),
+                    _ => {}
+                }
+            }
+        }
+        let mut output = Vec::new();
+        collect(&self.blocks, &mut output);
+        output
     }
 }
 
@@ -424,6 +471,28 @@ fn event_tree(events: &[(Event<'static>, Range<usize>)]) -> Vec<Node> {
         }
     }
     stack.pop().map_or_else(Vec::new, |root| root.children)
+}
+
+fn collect_source_styles(nodes: &[Node], index: &LineIndex, output: &mut Vec<MarkdownSourceStyle>) {
+    for node in nodes {
+        let role = match node.event.as_ref() {
+            Some(Event::Start(Tag::Heading { .. })) => Some(MarkdownSourceRole::Heading),
+            Some(Event::Start(Tag::Link { .. })) => Some(MarkdownSourceRole::Link),
+            Some(Event::Start(Tag::BlockQuote(_))) => Some(MarkdownSourceRole::Quote),
+            Some(Event::Start(Tag::Strong)) => Some(MarkdownSourceRole::Strong),
+            Some(Event::Start(Tag::Emphasis)) => Some(MarkdownSourceRole::Emphasis),
+            Some(Event::Start(Tag::Strikethrough)) => Some(MarkdownSourceRole::Strikethrough),
+            Some(Event::Code(_)) => Some(MarkdownSourceRole::Code),
+            _ => None,
+        };
+        if let Some(role) = role {
+            output.push(MarkdownSourceStyle {
+                source: source_range(node.range.clone(), index),
+                role,
+            });
+        }
+        collect_source_styles(&node.children, index, output);
+    }
 }
 
 fn source_range(range: Range<usize>, index: &LineIndex) -> SourceRange {

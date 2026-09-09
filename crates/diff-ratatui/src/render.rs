@@ -5,15 +5,15 @@ use crate::{
     annotation::render_annotation_line,
     drawer::{DrawerEntry, DrawerTree},
     patch_layout::PatchVisualRow,
-    state::RepositoryPrompt,
+    state::{HitLayout, RepositoryPrompt},
     style::syntax_style,
     theme_picker::render_theme_picker,
-    ui::{ActionBar, AppFrame, EmptyState, Modal, NoticeTone, render_modal_text},
+    ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
 use clankerdiff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
 use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Position, Rect},
@@ -70,14 +70,18 @@ impl StatefulWidget for DiffReviewWidget {
 
     fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
         state.cursor_position = None;
+        state.hit_layout = HitLayout::default();
+        state.visible_rows.clear();
         let theme = RatatuiTheme::from(&state.theme);
-        let regions = AppFrame::new(&self.title, self.borders, &theme).render(area, buffer);
+        let regions = AppFrame::new(&self.title, self.borders, &theme)
+            .footer(state.options.footer || state.repository_prompt.is_some())
+            .render(area, buffer);
         let body = regions.body;
         let footer = regions.footer;
         render_body(body, buffer, state, &theme);
         render_footer(footer, buffer, state, &theme);
         if state.help {
-            render_help(area, buffer, &theme);
+            render_help(area, buffer, state, &theme);
         }
         if let Some(picker) = &state.theme_picker {
             render_theme_picker(area, buffer, picker, &theme);
@@ -110,8 +114,12 @@ fn render_document(
     state: &mut DiffReviewState,
     theme: &RatatuiTheme,
 ) {
-    let (drawer, patch) = if area.width >= DRAWER_BREAKPOINT {
-        let drawer_width = (area.width / 3).clamp(DRAWER_MIN_WIDTH, DRAWER_MAX_WIDTH);
+    let drawer_width = state.options.navigation.width(
+        area.width,
+        DRAWER_BREAKPOINT,
+        (area.width / 3).clamp(DRAWER_MIN_WIDTH, DRAWER_MAX_WIDTH),
+    );
+    let (drawer, patch) = if drawer_width > 0 {
         let [drawer, separator, patch] = Layout::horizontal([
             Constraint::Length(drawer_width),
             Constraint::Length(1),
@@ -391,7 +399,7 @@ struct RowStyle {
 
 struct CellContext<'a> {
     theme: &'a RatatuiTheme,
-    diff_theme: &'a DiffTheme,
+    diff_theme: &'a ReviewTheme,
     highlighter: &'a mut SyntaxHighlighter,
     presentation: &'a clankerdiff_core::DiffPresentation,
     row: &'a PresentedRow,
@@ -519,7 +527,7 @@ fn render_cell(
     );
     let highlights = crate::diff_preview::cell_highlights(
         context.highlighter,
-        context.diff_theme,
+        &context.diff_theme.syntax,
         context.presentation,
         context.row,
         cell,
@@ -604,17 +612,6 @@ fn render_footer(
         EmptyState::new(message, NoticeTone::Error, theme).render(area, buffer);
         return;
     }
-    let hint = if matches!(state.repository_status, RepositoryOperationStatus::Pending) {
-        "Git operation in progress…"
-    } else if state.session.draft().is_some() {
-        "[Enter] save  [Shift-Enter] newline  [Esc] cancel"
-    } else if state.focus == FocusPane::Files {
-        "[j/k] entry  [h/l] fold/open  [S] scope  [t] theme  [?] help"
-    } else if state.layout().is_split() {
-        "[j/k] line  [←/→] side  [o/O] context  [f] full file  [c] comment  [S] scope  [?] help"
-    } else {
-        "[j/k] line  [o/O] context  [f] full file  [c] comment  [s] submit  [S] scope  [h] files"
-    };
     let review = state.review();
     let outdated = review.outdated_count();
     let status = format!(
@@ -627,6 +624,13 @@ fn render_footer(
             format!(" ({outdated} outdated)")
         }
     );
+    let hint = if matches!(state.repository_status, RepositoryOperationStatus::Pending) {
+        "Git operation in progress…".to_owned()
+    } else if state.session.draft().is_some() {
+        "[Enter] save  [Shift-Enter] newline  [Esc] cancel".to_owned()
+    } else {
+        state.footer_hint(usize::from(area.width).saturating_sub(status.len()))
+    };
     ActionBar::new(
         Line::from(vec![
             Span::styled(hint, Style::new().fg(theme.ui.text_muted)),
@@ -637,14 +641,19 @@ fn render_footer(
     .render(area, buffer);
 }
 
-fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
-    let content = Modal::new("Review shortcuts", theme)
-        .hint("? / Esc to close")
+fn render_help(area: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme: &RatatuiTheme) {
+    let content = Modal::new("Review shortcuts", ModalSize::Medium, theme)
+        .hint("j/k scroll · ? / Esc close")
         .render(area, buffer);
     render_modal_text(
         content,
         buffer,
-        "Navigation\n  j/k or arrows   move selection\n  h/l             pane or fold/open\n  Tab             change pane\n  ←/→ in split    change column\n  PgUp/PgDn       move a page\n  o/Enter          expand context\n  O                expand all context\n  f                toggle full-file view\n\nGit\n  Space            stage/unstage file or directory\n  a/A              stage/unstage all\n  C/d              commit/discard file\n  S                cycle scope (unstaged/staged/both)\n\nReview\n  c/e/x            add/edit/delete comment\n  s/y              submit/copy review\n  t                select theme\n  Esc              cancel or close",
+        state
+            .help_bindings()
+            .skip(state.help_scroll)
+            .map(|binding| format!("{} ({:?})", binding.hint(), binding.scope))
+            .collect::<Vec<_>>()
+            .join("\n"),
         theme,
     );
 }

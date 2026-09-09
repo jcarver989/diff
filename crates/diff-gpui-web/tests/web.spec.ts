@@ -104,6 +104,75 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
   await expect.poll(() => requests.length).toBe(3);
   await complete(requests[2].request_id);
 
+  const results: { request_id: number; handled: boolean; error: string | null }[] = [];
+  frame.contentDocument?.addEventListener("diff-review-command-result", (event) => {
+    results.push(JSON.parse((event as CustomEvent).detail as string));
+  });
+  const command = async (target: "diff" | "markdown", command: unknown) => {
+    const request_id = results.length + 1;
+    frame.contentDocument?.dispatchEvent(new CustomEvent("diff-review-command", {
+      detail: JSON.stringify({ request_id, target, command }),
+    }));
+    await expect.poll(() => results.length).toBe(request_id);
+    expect(results[request_id - 1].request_id).toBe(request_id);
+    return results[request_id - 1];
+  };
+  const capabilities = (enabled: boolean) => {
+    frame.contentDocument?.dispatchEvent(new CustomEvent("diff-review-set-capabilities", {
+      detail: JSON.stringify({ repository: enabled, refresh: enabled, scope: enabled, submit: enabled, clipboard: enabled }),
+    }));
+  };
+
+  expect((await command("diff", "stage_all")).handled).toBe(true);
+  await expect.poll(() => requests.length).toBe(4);
+  expect((await command("diff", "stage_all")).handled).toBe(false);
+  await complete(requests[3].request_id);
+  capabilities(false);
+  expect((await command("diff", "stage_all")).handled).toBe(false);
+  await key("a");
+  expect(requests).toHaveLength(4);
+  expect((await command("diff", "refresh")).handled).toBe(false);
+  capabilities(true);
+
+  const refreshes: { request_id: number }[] = [];
+  frame.contentDocument?.addEventListener("diff-review-refresh", (event) => {
+    refreshes.push(JSON.parse((event as CustomEvent).detail as string));
+  });
+  expect((await command("diff", "refresh")).handled).toBe(true);
+  await expect.poll(() => refreshes.length).toBe(1);
+  await complete(refreshes[0].request_id);
+  expect((await command("diff", { review: "show_help" })).handled).toBe(true);
+  expect((await command("diff", "stage_all")).handled).toBe(false);
+  expect((await command("diff", { review: "cancel" })).handled).toBe(true);
+  expect((await command("markdown", "approve")).error).toContain("not active");
+
+  capabilities(false);
+  frame.contentDocument?.dispatchEvent(new CustomEvent("markdown-review-set-document", {
+    detail: JSON.stringify({ source: "# Heading\n\n```just\ngreet name:\n\techo {{ name }}\n```" }),
+  }));
+  expect((await command("markdown", "approve")).handled).toBe(false);
+  expect((await command("diff", "stage_all")).error).toContain("not active");
+  expect((await command("markdown", { review: "begin_comment" })).handled).toBe(true);
+  expect((await command("markdown", "next_heading")).handled).toBe(false);
+  expect((await command("markdown", { review: "cancel" })).handled).toBe(true);
+  expect((await command("markdown", "request_changes")).handled).toBe(false);
+  capabilities(true);
+  const markdownSubmissions: unknown[] = [];
+  frame.contentDocument?.addEventListener("markdown-review-submit", (event) => {
+    markdownSubmissions.push(JSON.parse((event as CustomEvent).detail as string));
+  });
+  expect(await command("markdown", "request_changes")).toMatchObject({ handled: true, error: null });
+  expect(await command("markdown", "approve")).toMatchObject({ handled: true, error: null });
+  await expect.poll(() => markdownSubmissions.length).toBe(2);
+  expect(markdownSubmissions).toMatchObject([
+    { decision: "ChangesRequested" },
+    { decision: "Approved" },
+  ]);
+  push({ revision: 5, document: changedFixture });
+  expect((await command("diff", "refresh")).handled).toBe(true);
+  await expect.poll(() => refreshes.length).toBe(2);
+  await complete(refreshes[1].request_id);
+
   for (const theme of ["ayu-dark", "sage"]) {
     frame.contentDocument?.dispatchEvent(
       new CustomEvent("diff-review-set-theme", { detail: theme }),

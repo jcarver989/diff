@@ -1,8 +1,11 @@
 //! Ratatui conversions for renderer-neutral diff themes.
 
+use crate::color::native_color;
+use crate::color::{composite_color, layered_style};
 use clankerdiff_core::DiffTone;
+use clankerdiff_theme::FontStyle;
 use clankerdiff_theme::{
-    ButtonVariant, ControlState, DiffTheme, FontStyle, ModalSize, NoticeTone, Rgba, SelectionState,
+    ButtonVariant, ControlState, ModalSize, NoticeTone, ReviewTheme, Rgba, SelectionState,
     SemanticStyle, UiPalette,
 };
 use ratatui::style::{Color, Modifier, Style};
@@ -27,17 +30,20 @@ pub struct RatatuiUiTheme {
 impl RatatuiUiTheme {
     #[must_use]
     pub fn control_style(self, variant: ButtonVariant, state: ControlState) -> Style {
-        semantic_style(self.palette.control_style(variant, state))
+        semantic_style(
+            self.palette.control_style(variant, state),
+            self.palette.canvas,
+        )
     }
 
     #[must_use]
     pub fn selection_style(self, state: SelectionState) -> Style {
-        semantic_style(self.palette.selection_style(state))
+        semantic_style(self.palette.selection_style(state), self.palette.canvas)
     }
 
     #[must_use]
     pub fn notice_style(self, tone: NoticeTone) -> Style {
-        semantic_style(self.palette.notice_style(tone))
+        semantic_style(self.palette.notice_style(tone), self.palette.canvas)
     }
 
     #[must_use]
@@ -52,6 +58,7 @@ impl RatatuiUiTheme {
 
 impl From<&UiPalette> for RatatuiUiTheme {
     fn from(palette: &UiPalette) -> Self {
+        let color = |value| composite_color(value, palette.canvas);
         Self {
             palette: *palette,
             canvas: color(palette.canvas),
@@ -69,18 +76,18 @@ impl From<&UiPalette> for RatatuiUiTheme {
     }
 }
 
-fn semantic_style(style: SemanticStyle) -> Style {
-    let mut native = Style::new().fg(color(style.foreground));
-    if let Some(background) = style.background {
-        native = native.bg(color(background));
-    }
+fn semantic_style(style: SemanticStyle, canvas: Rgba) -> Style {
+    let mut native = match style.background {
+        Some(background) => layered_style(style.foreground, background, canvas),
+        None => Style::new().fg(composite_color(style.foreground, canvas)),
+    };
     if style.emphasized {
         native = native.add_modifier(Modifier::BOLD);
     }
     native
 }
 
-/// Ratatui colors derived from a shared [`DiffTheme`]. Application colors live
+/// Ratatui colors derived from a shared [`ReviewTheme`]. Application colors live
 /// in [`RatatuiUiTheme`]; only diff-specific colors are kept here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RatatuiTheme {
@@ -109,9 +116,10 @@ impl RatatuiTheme {
     }
 }
 
-impl From<&DiffTheme> for RatatuiTheme {
-    fn from(theme: &DiffTheme) -> Self {
-        let palette = theme.palette();
+impl From<&ReviewTheme> for RatatuiTheme {
+    fn from(theme: &ReviewTheme) -> Self {
+        let palette = &theme.diff;
+        let color = |value| composite_color(value, palette.background);
         Self {
             ui: RatatuiUiTheme::from(&UiPalette::from(palette)),
             gutter: color(palette.gutter),
@@ -123,17 +131,13 @@ impl From<&DiffTheme> for RatatuiTheme {
     }
 }
 
-pub(crate) const fn color(value: Rgba) -> Color {
-    Color::Rgb(value.r, value.g, value.b)
-}
-
 pub(crate) fn syntax_style(foreground: Rgba, font: FontStyle, background: Color) -> Style {
     let mut modifiers = Modifier::empty();
     modifiers.set(Modifier::BOLD, font.bold);
     modifiers.set(Modifier::ITALIC, font.italic);
     modifiers.set(Modifier::UNDERLINED, font.underline);
     Style::new()
-        .fg(color(foreground))
+        .fg(native_color(foreground, background))
         .bg(background)
         .add_modifier(modifiers)
 }

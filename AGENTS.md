@@ -9,6 +9,7 @@ This is a repository for Diff, a performant diff tool with comment support. The 
 1. Prefer using `Foo` over `std::biz::baz::boo::Foo` in code by importing types at the top of the file, e.g. `use std::biz::baz::boo::Foo`.
 2. Prefer using `T`, `U`, `V` etc for generic type param names, always start with `T`.
 3. Use `thiserror` crate for errors.
+4. Avoid `Mutex`, `Arc<Mutex>`, `Semaphore` and other forms of locking where possible. Instead give each task (or thread) ownership of its own resources, or if you must share resources use either structured concurrency or tokio channels via an actor pattern.
 
 ### Rust docs
 
@@ -22,3 +23,4 @@ This is a repository for Diff, a performant diff tool with comment support. The 
 4. Tests may only test _public_ APIs; never private. Thus, prefer integration tests in `tests/` over unit tests.
 5. Put non-shared test helpers at the _bottom_ of files, below the tests.
 6. Prefer using `?` in tests by making the test return a `Result` vs using `unwrap`, which is an anti-pattern. 
+7. Prefer integration tests in the crate's `tests/`dir over unit tests. Integration test files should match the name and directory structure of the file they test, e.g `src/foo/boo.rs` and `test/foo/boo_test.rs`.

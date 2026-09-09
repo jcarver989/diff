@@ -1,11 +1,11 @@
 use clankerdiff_markdown::{MarkdownDocument, MarkdownStream};
-use clankerdiff_ratatui::{MarkdownRenderOptions, MarkdownRenderer, StreamingMarkdownState};
+use clankerdiff_ratatui::{MarkdownLayoutOptions, MarkdownRenderer, StreamingMarkdownState};
 use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_theme::ReviewTheme;
 
 fn main() {
     let renderer = MarkdownRenderer::new();
-    let options = MarkdownRenderOptions::default();
+    let options = MarkdownLayoutOptions::default();
     let theme = ReviewTheme::default();
     let mut highlighter = SyntaxHighlighter::default();
     let mut stream = MarkdownStream::new();
