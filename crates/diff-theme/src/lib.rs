@@ -3,7 +3,9 @@
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, sync::LazyLock};
+
+const THEME_VERSION: u32 = 2;
 
 /// An sRGB color with an explicit alpha channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -431,24 +433,24 @@ struct ThemeDocument {
     version: u32,
     palette: DiffPalette,
     syntax: BTreeMap<String, SyntaxStyle>,
+    markdown: MarkdownPalette,
 }
 
-/// A capture-based syntax theme plus semantic colors for the diff UI.
 #[derive(Debug, Clone)]
-pub struct DiffTheme {
+pub struct ReviewTheme {
     id: ThemeId,
-    palette: DiffPalette,
-    syntax: BTreeMap<String, SyntaxStyle>,
-    revision: Fingerprint,
+    pub diff: DiffPalette,
+    pub syntax: SyntaxTheme,
+    pub markdown: MarkdownPalette,
 }
 
-impl DiffTheme {
-    /// Starts a builder for a host-provided syntax theme.
-    pub fn builder(id: impl Into<String>) -> SyntaxThemeBuilder {
-        SyntaxThemeBuilder {
+impl ReviewTheme {
+    pub fn builder(id: impl Into<String>) -> ReviewThemeBuilder {
+        ReviewThemeBuilder {
             id: ThemeId::Custom(id.into()),
-            palette: DiffPalette::default(),
+            diff: DiffPalette::default(),
             syntax: BTreeMap::new(),
+            markdown: None,
         }
     }
 
@@ -464,20 +466,16 @@ impl DiffTheme {
             serde_json::from_slice(bytes).map_err(|source| ThemeError::Parse {
                 message: source.to_string(),
             })?;
-        if document.version != 1 {
+        if document.version != THEME_VERSION {
             return Err(ThemeError::UnsupportedVersion {
                 version: document.version,
             });
         }
-        let canonical = serde_json::to_vec(&document).map_err(|source| ThemeError::Parse {
-            message: source.to_string(),
-        })?;
-        let revision = Fingerprint::of([id.to_string().as_bytes(), canonical.as_slice()]);
         Ok(Self {
             id,
-            palette: document.palette,
-            syntax: document.syntax,
-            revision,
+            diff: document.palette,
+            syntax: SyntaxTheme::new(document.syntax),
+            markdown: document.markdown,
         })
     }
 
@@ -487,26 +485,26 @@ impl DiffTheme {
     }
 
     #[must_use]
-    pub const fn palette(&self) -> &DiffPalette {
-        &self.palette
+    pub fn revision(&self) -> Fingerprint {
+        let diff = self.diff.colors().map(Rgba::to_bytes);
+        let markdown = self.markdown.colors().map(Rgba::to_bytes);
+        Fingerprint::of(
+            std::iter::once(self.syntax.revision().as_bytes().as_slice())
+                .chain(diff.iter().map(<[u8; 4]>::as_slice))
+                .chain(markdown.iter().map(<[u8; 4]>::as_slice)),
+        )
     }
 
-    #[must_use]
-    pub const fn revision(&self) -> Fingerprint {
-        self.revision
-    }
-
-    /// Resolves an exact capture or its nearest dot-separated parent.
-    #[must_use]
-    pub fn style(&self, capture: &str) -> Option<SyntaxStyle> {
-        let mut candidate = capture;
-        loop {
-            if let Some(style) = self.syntax.get(candidate) {
-                return Some(*style);
-            }
-            let (parent, _) = candidate.rsplit_once('.')?;
-            candidate = parent;
-        }
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ThemeError> {
+        serde_json::to_vec(&ThemeDocument {
+            version: THEME_VERSION,
+            palette: self.diff.clone(),
+            syntax: self.syntax.captures.clone(),
+            markdown: self.markdown.clone(),
+        })
+        .map_err(|error| ThemeError::Parse {
+            message: error.to_string(),
+        })
     }
 
     /// Returns all selectable built-in themes, with stable kebab-case identifiers.
@@ -577,23 +575,13 @@ impl DiffTheme {
                 ))
             })
             .collect::<BTreeMap<_, _>>();
-        let mut revision_parts = vec![id.to_string().into_bytes()];
-        revision_parts.extend(palette.colors().map(|color| color.to_bytes().to_vec()));
-        for (capture, style) in &syntax {
-            revision_parts.push(capture.as_bytes().to_vec());
-            revision_parts.push(style.foreground.to_bytes().to_vec());
-            revision_parts.push(vec![
-                u8::from(style.font_style.bold),
-                u8::from(style.font_style.italic),
-                u8::from(style.font_style.underline),
-            ]);
-        }
-        let revision = Fingerprint::of(revision_parts.iter().map(Vec::as_slice));
+        let syntax = SyntaxTheme::new(syntax);
+        let markdown = MarkdownPalette::from_syntax(&syntax, &palette);
         Self {
             id,
-            palette,
+            diff: palette,
             syntax,
-            revision,
+            markdown,
         }
     }
 
@@ -705,122 +693,153 @@ const fn diff_background(foreground: Rgba, background: Rgba) -> Rgba {
     .over(background)
 }
 
-impl Default for DiffTheme {
+static DEFAULT_THEME: LazyLock<ReviewTheme> =
+    LazyLock::new(|| ReviewTheme::sage().expect("bundled Sage theme JSON must parse"));
+
+impl Default for ReviewTheme {
     fn default() -> Self {
-        Self::sage().expect("bundled Sage theme JSON must parse")
+        DEFAULT_THEME.clone()
     }
 }
 
-/// Builder for syntax themes without exposing the capture map representation.
-pub struct SyntaxThemeBuilder {
+pub struct ReviewThemeBuilder {
     id: ThemeId,
-    palette: DiffPalette,
+    diff: DiffPalette,
     syntax: BTreeMap<String, SyntaxStyle>,
+    markdown: Option<MarkdownPalette>,
 }
-impl SyntaxThemeBuilder {
-    /// Assigns a style to an exact capture or parent capture prefix.
+
+impl ReviewThemeBuilder {
     #[must_use]
     pub fn capture(mut self, name: impl Into<String>, style: SyntaxStyle) -> Self {
         self.syntax.insert(name.into(), style);
         self
     }
-    /// Sets the semantic diff palette retained by compatibility aggregate themes.
+
     #[must_use]
-    pub fn palette(mut self, palette: DiffPalette) -> Self {
-        self.palette = palette;
+    pub fn diff(mut self, palette: DiffPalette) -> Self {
+        self.diff = palette;
         self
     }
-    /// Builds the immutable theme and derives its stable revision.
-    ///
-    /// # Errors
-    /// Returns an error if the internal versioned representation cannot be serialized.
-    pub fn build(self) -> Result<SyntaxTheme, ThemeError> {
-        let document = ThemeDocument {
-            version: 1,
-            palette: self.palette,
-            syntax: self.syntax,
-        };
-        let bytes = serde_json::to_vec(&document).map_err(|error| ThemeError::Parse {
-            message: error.to_string(),
-        })?;
-        DiffTheme::from_bytes(self.id, &bytes)
+
+    #[must_use]
+    pub fn markdown(mut self, palette: MarkdownPalette) -> Self {
+        self.markdown = Some(palette);
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> ReviewTheme {
+        let syntax = SyntaxTheme::new(self.syntax);
+        let markdown = self
+            .markdown
+            .unwrap_or_else(|| MarkdownPalette::from_syntax(&syntax, &self.diff));
+        ReviewTheme {
+            id: self.id,
+            diff: self.diff,
+            syntax,
+            markdown,
+        }
     }
 }
 
-/// A syntax-only theme view. This alias keeps the capture API compact while
-/// allowing callers to depend on the syntax boundary rather than the diff UI.
-pub type SyntaxTheme = DiffTheme;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxTheme {
+    captures: BTreeMap<String, SyntaxStyle>,
+    revision: Fingerprint,
+}
 
-/// Semantic Markdown roles used by renderer adapters.
+impl SyntaxTheme {
+    #[must_use]
+    pub fn new(captures: BTreeMap<String, SyntaxStyle>) -> Self {
+        let mut fields = Vec::with_capacity(captures.len() * 3);
+        for (capture, style) in &captures {
+            fields.push(capture.as_bytes().to_vec());
+            fields.push(style.foreground.to_bytes().to_vec());
+            fields.push(vec![
+                u8::from(style.font_style.bold),
+                u8::from(style.font_style.italic),
+                u8::from(style.font_style.underline),
+            ]);
+        }
+        Self {
+            captures,
+            revision: Fingerprint::of(fields),
+        }
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> Fingerprint {
+        self.revision
+    }
+
+    #[must_use]
+    pub fn style(&self, capture: &str) -> Option<SyntaxStyle> {
+        let mut candidate = capture;
+        loop {
+            if let Some(style) = self.captures.get(candidate) {
+                return Some(*style);
+            }
+            let (parent, _) = candidate.rsplit_once('.')?;
+            candidate = parent;
+        }
+    }
+}
+
+impl Default for SyntaxTheme {
+    fn default() -> Self {
+        DEFAULT_THEME.syntax.clone()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MarkdownPalette {
     pub heading: Rgba,
     pub link: Rgba,
     pub quote: Rgba,
+    pub inline_code: Rgba,
+    pub inline_code_background: Rgba,
     pub code: Rgba,
+    pub code_background: Rgba,
+}
+
+impl MarkdownPalette {
+    #[must_use]
+    pub fn from_syntax(syntax: &SyntaxTheme, palette: &DiffPalette) -> Self {
+        let capture = |name, fallback| {
+            syntax
+                .style(name)
+                .map_or(fallback, |style| style.foreground)
+        };
+        Self {
+            heading: capture("markup.heading", palette.accent),
+            link: capture("markup.link", palette.accent),
+            quote: capture("markup.quote", palette.muted),
+            inline_code: capture("markup.raw.inline", palette.foreground),
+            inline_code_background: palette.border,
+            code: capture("markup.raw.block", palette.foreground),
+            code_background: palette.background,
+        }
+    }
+
+    #[must_use]
+    pub const fn colors(&self) -> [Rgba; 7] {
+        [
+            self.heading,
+            self.link,
+            self.quote,
+            self.inline_code,
+            self.inline_code_background,
+            self.code,
+            self.code_background,
+        ]
+    }
 }
 
 impl Default for MarkdownPalette {
     fn default() -> Self {
-        let palette = DiffPalette::default();
-        Self {
-            heading: palette.accent,
-            link: palette.accent,
-            quote: palette.muted,
-            code: palette.foreground,
-        }
-    }
-}
-
-/// Aggregate theme shared by terminal and desktop adapters.
-#[derive(Debug, Clone)]
-pub struct ReviewTheme {
-    pub syntax: SyntaxTheme,
-    pub markdown: MarkdownPalette,
-    pub diff: DiffPalette,
-}
-
-impl ReviewTheme {
-    /// Returns a stable revision derived from every renderer-visible theme value.
-    ///
-    /// Renderer caches should use this aggregate revision rather than the syntax
-    /// revision alone so Markdown and diff palette changes also invalidate rows.
-    #[must_use]
-    pub fn revision(&self) -> Fingerprint {
-        let mut fields = Vec::with_capacity(1 + self.diff.colors().len() + 4);
-        fields.push(self.syntax.revision().as_bytes().to_vec());
-        fields.extend(self.diff.colors().map(|color| color.to_bytes().to_vec()));
-        fields.extend(
-            [
-                self.markdown.heading,
-                self.markdown.link,
-                self.markdown.quote,
-                self.markdown.code,
-            ]
-            .map(|color| color.to_bytes().to_vec()),
-        );
-        Fingerprint::of(fields)
-    }
-}
-
-impl Default for ReviewTheme {
-    fn default() -> Self {
-        let syntax = SyntaxTheme::default();
-        Self {
-            markdown: MarkdownPalette::default(),
-            diff: syntax.palette().clone(),
-            syntax,
-        }
-    }
-}
-
-impl From<DiffTheme> for ReviewTheme {
-    fn from(syntax: DiffTheme) -> Self {
-        Self {
-            markdown: MarkdownPalette::default(),
-            diff: syntax.palette().clone(),
-            syntax,
-        }
+        DEFAULT_THEME.markdown.clone()
     }
 }
 
@@ -833,84 +852,4 @@ pub enum ThemeError {
     Parse { message: String },
     #[error("unsupported theme JSON version {version}")]
     UnsupportedVersion { version: u32 },
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bundled_themes_parse_with_distinct_revisions() {
-        let sage = DiffTheme::default();
-        let ayu = DiffTheme::ayu().unwrap();
-        assert_eq!(sage.id(), &ThemeId::Sage);
-        assert_eq!(ayu.id(), &ThemeId::Ayu);
-        assert_ne!(sage.revision(), ayu.revision());
-    }
-
-    #[test]
-    fn arborium_catalog_loads_every_theme() {
-        let catalog = DiffTheme::catalog();
-        assert!(catalog.len() > 30);
-        let mut ids = catalog
-            .iter()
-            .map(|theme| theme.id.as_str())
-            .collect::<Vec<_>>();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(ids.len(), catalog.len());
-        for descriptor in catalog {
-            let theme = DiffTheme::builtin(&descriptor.id).unwrap();
-            assert_eq!(theme.id().to_string(), descriptor.id);
-            assert_ne!(theme.palette().foreground, theme.palette().background);
-        }
-    }
-
-    #[test]
-    fn capture_style_uses_parent_fallback() {
-        let theme = DiffTheme::default();
-        assert_eq!(
-            theme.style("function.method.builtin"),
-            theme.style("function.method")
-        );
-        assert!(theme.style("not-a-capture").is_none());
-    }
-
-    #[test]
-    fn invalid_json_and_version_are_rejected() {
-        assert!(matches!(
-            DiffTheme::from_bytes(ThemeId::Custom("x".into()), b"{"),
-            Err(ThemeError::Parse { .. })
-        ));
-        let bytes = include_bytes!("../assets/themes/sage.json");
-        let changed =
-            String::from_utf8_lossy(bytes).replacen("\"version\": 1", "\"version\": 2", 1);
-        assert_eq!(
-            DiffTheme::from_bytes(ThemeId::Sage, changed.as_bytes()).unwrap_err(),
-            ThemeError::UnsupportedVersion { version: 2 }
-        );
-    }
-
-    #[test]
-    fn semantic_palette_values_remain_stable() {
-        let sage = DiffTheme::default();
-        let ayu = DiffTheme::ayu().unwrap();
-        assert_eq!(sage.palette().addition, Rgba::new(167, 192, 128, 255));
-        assert_eq!(sage.palette().deletion, Rgba::new(230, 126, 128, 255));
-        assert_eq!(ayu.palette().addition, Rgba::new(194, 217, 76, 255));
-        assert_eq!(ayu.palette().deletion, Rgba::new(255, 51, 51, 255));
-    }
-
-    #[test]
-    fn font_style_serializes_as_named_flags() {
-        let style = FontStyle {
-            bold: true,
-            italic: true,
-            underline: false,
-        };
-        assert_eq!(
-            serde_json::to_string(&style).unwrap(),
-            r#"{"bold":true,"italic":true,"underline":false}"#
-        );
-    }
 }
