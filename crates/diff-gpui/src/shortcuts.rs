@@ -21,12 +21,14 @@ const GIT: &[(&str, &str)] = &[
     ("C", "commit staged changes"),
     ("d", "discard selected file"),
     ("S", "cycle scope (unstaged/staged/both)"),
+    ("⌘/Ctrl-R", "refresh repository"),
 ];
 const REVIEW: &[(&str, &str)] = &[
     ("c / e / x", "add / edit / delete comment"),
     ("u", "undo last comment"),
     ("s / y", "submit / copy review"),
     ("v", "cycle layout"),
+    ("t", "choose theme (↑ / ↓, Enter, Esc)"),
     ("Esc / Ctrl-G", "cancel review"),
 ];
 const DRAFT: &[(&str, &str)] = &[

@@ -8,8 +8,8 @@ use crate::{DiffViewer, DiffViewerEvent, DiffViewerOptions};
 use clankerdiff_core::{DiffDocument, DiffReviewCommand, testing::DocumentBuilder};
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    AnyWindowHandle, App, Bounds, Context, Entity, InputEvent, ListOffset, Pixels, Point, Render,
-    ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
+    Action, AnyWindowHandle, App, Bounds, Context, Entity, InputEvent, ListOffset, Pixels, Point,
+    Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
     WindowHandle, WindowOptions, div, prelude::*,
 };
 use std::{error::Error, sync::Arc};
@@ -136,13 +136,30 @@ impl DiffViewerHarness {
         cx.run_until_parked();
     }
 
-    pub fn dispatch_command(&self, cx: &mut TestAppContext, command: impl Into<DiffReviewCommand>) -> Result<bool, Box<dyn Error>> {
+    pub fn dispatch_command(
+        &self,
+        cx: &mut TestAppContext,
+        command: impl Into<DiffReviewCommand>,
+    ) -> Result<bool, Box<dyn Error>> {
         let command = command.into();
         let handled = cx.update_window(*self.window, |_, window, cx| {
-            self.viewer.update(cx, |viewer, cx| viewer.handle_command(command, window, cx))
+            self.viewer
+                .update(cx, |viewer, cx| viewer.handle_command(command, window, cx))
         })?;
         self.draw(cx);
         Ok(handled)
+    }
+
+    pub fn dispatch_action(
+        &self,
+        cx: &mut TestAppContext,
+        action: &dyn Action,
+    ) -> Result<(), Box<dyn Error>> {
+        cx.update_window(*self.window, |_, window, cx| {
+            window.dispatch_action(action.boxed_clone(), cx);
+        })?;
+        self.draw(cx);
+        Ok(())
     }
 
     pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str) {

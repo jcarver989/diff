@@ -1,11 +1,12 @@
 #![cfg(feature = "test-support")]
 
+use clankerdiff_core::testing::DocumentBuilder;
 use clankerdiff_core::{
     DiffReviewCommand, DiffReviewEvent, InteractionPhase, ReviewCapabilities, ReviewCommand,
 };
-use clankerdiff_gpui::MarkdownReviewer;
 use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
-use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewCommand};
+use clankerdiff_gpui::{MarkdownReviewer, NextFile, NextHunk, Refresh, StageAll};
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewCommand, MarkdownReviewEvent};
 use clankerdiff_theme::ReviewTheme;
 use gpui::{AppContext, Focusable, TestAppContext};
 use std::{error::Error, sync::Arc};
@@ -220,6 +221,172 @@ fn help_and_repository_modals_block_commands_and_cancel_locally(cx: &mut TestApp
         }
         assert!(harness.dispatch_command(cx, ReviewCommand::Cancel)?);
         assert_eq!(harness.events(cx), vec![DiffReviewEvent::Cancel]);
+        Ok(())
+    })();
+    if let Err(error) = result {
+        panic!("{error}");
+    }
+}
+
+#[gpui::test]
+fn refresh_shortcuts_obey_pending_and_modal_state(cx: &mut TestAppContext) {
+    let result = (|| -> Result<(), Box<dyn Error>> {
+        let harness = DiffViewerHarnessBuilder::default().build(cx);
+        harness.simulate_keystrokes(cx, "cmd-r");
+        assert_eq!(harness.events(cx), vec![DiffReviewEvent::Refresh]);
+        harness.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+        harness.simulate_keystrokes(cx, "ctrl-r");
+        assert!(!harness.dispatch_command(cx, DiffReviewCommand::Refresh)?);
+        harness.update(cx, |viewer, cx| viewer.set_repository_pending(false, cx));
+        harness.dispatch_command(cx, ReviewCommand::BeginComment)?;
+        harness.dispatch_action(cx, &Refresh)?;
+        assert_eq!(harness.events(cx), vec![DiffReviewEvent::Refresh]);
+        harness.dispatch_command(cx, ReviewCommand::Cancel)?;
+        harness.simulate_keystrokes(cx, "ctrl-r");
+        assert_eq!(
+            harness.events(cx),
+            vec![DiffReviewEvent::Refresh, DiffReviewEvent::Refresh]
+        );
+        Ok(())
+    })();
+    if let Err(error) = result {
+        panic!("{error}");
+    }
+}
+
+#[gpui::test]
+fn menu_navigation_actions_cannot_bypass_a_draft(cx: &mut TestAppContext) {
+    let result = (|| -> Result<(), Box<dyn Error>> {
+        let harness = DiffViewerHarnessBuilder {
+            document: DocumentBuilder::new()
+                .changed("a.rs", "old\n", "new\n")
+                .changed("b.rs", "before\n", "after\n")
+                .build(),
+            ..DiffViewerHarnessBuilder::default()
+        }
+        .build(cx);
+        let selected = harness.read(cx, |viewer, _| {
+            (viewer.selected_file(), viewer.session().selected_row())
+        });
+        harness.dispatch_command(cx, ReviewCommand::BeginComment)?;
+        harness.dispatch_action(cx, &NextFile)?;
+        harness.dispatch_action(cx, &NextHunk)?;
+        harness.dispatch_action(cx, &StageAll)?;
+        assert_eq!(
+            harness.read(cx, |viewer, _| (
+                viewer.selected_file(),
+                viewer.session().selected_row()
+            )),
+            selected
+        );
+        assert_eq!(
+            harness.read(cx, |viewer, _| viewer.command_context().phase),
+            InteractionPhase::Draft
+        );
+        assert!(harness.events(cx).is_empty());
+        harness.dispatch_command(cx, ReviewCommand::Cancel)?;
+        harness.dispatch_action(cx, &NextFile)?;
+        assert_ne!(
+            harness.read(cx, |viewer, _| viewer.selected_file()),
+            selected.0
+        );
+        Ok(())
+    })();
+    if let Err(error) = result {
+        panic!("{error}");
+    }
+}
+
+#[gpui::test]
+fn theme_keyboard_preview_and_commit_match_shared_commands(cx: &mut TestAppContext) {
+    let result = (|| -> Result<(), Box<dyn Error>> {
+        let direct = DiffViewerHarnessBuilder::default().build(cx);
+        direct.dispatch_command(cx, ReviewCommand::OpenThemePicker)?;
+        direct.dispatch_command(cx, ReviewCommand::MoveTheme(1))?;
+        let preview = direct.read(cx, |viewer, _| viewer.theme().id().clone());
+        let keyboard = DiffViewerHarnessBuilder::default().build(cx);
+        let original = keyboard.read(cx, |viewer, _| viewer.theme().id().clone());
+        keyboard.simulate_keystrokes(cx, "t down");
+        assert_eq!(
+            keyboard.read(cx, |viewer, _| viewer.theme().id().clone()),
+            preview
+        );
+        keyboard.simulate_keystrokes(cx, "escape");
+        assert_eq!(
+            keyboard.read(cx, |viewer, _| viewer.theme().id().clone()),
+            original
+        );
+        keyboard.simulate_keystrokes(cx, "t j enter");
+        assert_eq!(
+            keyboard.read(cx, |viewer, _| viewer.theme().id().clone()),
+            preview
+        );
+        assert_eq!(
+            keyboard.read(cx, |viewer, _| viewer.command_context().phase),
+            InteractionPhase::Browse
+        );
+        assert!(keyboard.events(cx).is_empty());
+        Ok(())
+    })();
+    if let Err(error) = result {
+        panic!("{error}");
+    }
+}
+
+#[gpui::test]
+fn markdown_navigation_and_theme_shortcuts_use_shared_commands(cx: &mut TestAppContext) {
+    let result = (|| -> Result<(), Box<dyn Error>> {
+        cx.update(MarkdownReviewer::bind_keys);
+        let document = Arc::new(MarkdownDocument::parse("# One\n\nText\n\n# Two\n\nMore"));
+        let second_heading = document.outline()[1].target_id;
+        let keyboard = cx.add_window(|_, _| MarkdownReviewer::new(document));
+        cx.update_window(*keyboard, |_, window, cx| window.draw(cx).clear(cx))?;
+        keyboard.update(cx, |viewer, window, cx| {
+            viewer.focus_handle(cx).focus(window, cx)
+        })?;
+        cx.simulate_keystrokes(*keyboard, "tab j enter");
+        assert_eq!(
+            keyboard.read_with(cx, |viewer, _| viewer.session().selected_target())?,
+            Some(second_heading)
+        );
+        let events = cx.new(|_| Vec::<MarkdownReviewEvent>::new());
+        keyboard.update(cx, |_, _, cx| {
+            let recorded = events.clone();
+            cx.subscribe(
+                &cx.entity(),
+                move |_, _, event: &MarkdownReviewEvent, cx| {
+                    recorded.update(cx, |events, _| events.push(event.clone()));
+                },
+            )
+            .detach();
+        })?;
+        cx.simulate_keystrokes(*keyboard, "y");
+        assert!(events.read_with(cx, |events, _| matches!(
+            events.last(),
+            Some(MarkdownReviewEvent::CopyFormatted(_))
+        )));
+        keyboard.update(cx, |viewer, _, cx| {
+            viewer.set_capabilities(
+                ReviewCapabilities {
+                    clipboard: false,
+                    ..ReviewCapabilities::default()
+                },
+                cx,
+            );
+        })?;
+        cx.simulate_keystrokes(*keyboard, "y");
+        assert_eq!(events.read_with(cx, |events, _| events.len()), 1);
+        let before = keyboard.read_with(cx, |viewer, _| viewer.session().selected_target())?;
+        cx.simulate_keystrokes(*keyboard, "pagedown");
+        assert_ne!(
+            keyboard.read_with(cx, |viewer, _| viewer.session().selected_target())?,
+            before
+        );
+        cx.simulate_keystrokes(*keyboard, "t down enter");
+        assert_eq!(
+            keyboard.read_with(cx, |viewer, _| viewer.command_context().phase)?,
+            InteractionPhase::Browse
+        );
         Ok(())
     })();
     if let Err(error) = result {

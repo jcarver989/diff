@@ -72,6 +72,10 @@ actions!(
         HideShortcuts,
         ShowThemePicker,
         HideThemePicker,
+        NextTheme,
+        PreviousTheme,
+        CommitTheme,
+        Refresh,
         IncreaseFontSize,
         DecreaseFontSize,
         ResetFontSize,
@@ -298,6 +302,13 @@ impl DiffViewer {
                 HideThemePicker,
                 Some("DiffViewer && mode == themes"),
             ),
+            KeyBinding::new("down", NextTheme, Some("DiffViewer && mode == themes")),
+            KeyBinding::new("j", NextTheme, Some("DiffViewer && mode == themes")),
+            KeyBinding::new("up", PreviousTheme, Some("DiffViewer && mode == themes")),
+            KeyBinding::new("k", PreviousTheme, Some("DiffViewer && mode == themes")),
+            KeyBinding::new("enter", CommitTheme, Some("DiffViewer && mode == themes")),
+            KeyBinding::new("cmd-r", Refresh, Some(BROWSE)),
+            KeyBinding::new("ctrl-r", Refresh, Some(BROWSE)),
             KeyBinding::new("escape", Cancel, Some(BROWSE)),
             KeyBinding::new("ctrl-g", Cancel, Some(BROWSE)),
             KeyBinding::new("cmd-]", NextFile, Some(BROWSE)),
@@ -728,8 +739,15 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::RepositoryAction(action), window, cx);
     }
 
-    pub(crate) fn toggle_directory(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.pane = ViewerPane::Files;
+    pub(crate) fn toggle_directory(
+        &mut self,
+        path: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx) {
+            return;
+        }
         self.sidebar_selection = crate::sidebar::SidebarEntry::Directory(path.to_owned());
         self.sidebar_tree.toggle(path);
         cx.notify();
@@ -739,11 +757,12 @@ impl DiffViewer {
         &mut self,
         row_index: usize,
         side: DiffSide,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.session.select_row(row_index) && self.session.set_selected_side(side) {
-            self.pane = ViewerPane::Diff;
-            cx.notify();
+        if self.handle_command(DiffReviewCommand::SelectRow(row_index), window, cx) {
+            self.handle_command(DiffReviewCommand::SelectSide(side), window, cx);
+            self.handle_command(DiffReviewCommand::Focus(ViewerPane::Diff), window, cx);
         }
     }
 
@@ -773,9 +792,10 @@ impl DiffViewer {
         if !self.command_enabled(&command.into()) {
             return;
         }
-        if !self.session.select_row(row_index) || !self.session.set_selected_side(side) {
+        if !self.handle_command(DiffReviewCommand::SelectRow(row_index), window, cx) {
             return;
         }
+        self.handle_command(DiffReviewCommand::SelectSide(side), window, cx);
         self.handle_command(command, window, cx);
     }
 
@@ -929,19 +949,18 @@ impl DiffViewer {
         syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
     }
 
-    fn move_file(&mut self, delta: isize, cx: &mut Context<Self>) {
+    fn move_file(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(current) = self.selected_file() else {
             return;
         };
         if let Some(index) = self.sidebar_tree.offset_file(current, delta) {
-            self.select_file(index, cx);
+            self.handle_command(DiffReviewCommand::SelectFile(index), window, cx);
         }
     }
 
-    fn move_hunk(&mut self, delta: isize, cx: &mut Context<Self>) {
-        if self.session.move_hunk(delta) {
-            self.reveal_selected_row();
-            cx.notify();
+    fn move_hunk(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(index) = self.session.hunk_target(delta) {
+            self.handle_command(DiffReviewCommand::SelectRow(index), window, cx);
         }
     }
 
@@ -1051,20 +1070,20 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::Page(1), window, cx);
     }
 
-    fn next_file(&mut self, _: &NextFile, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_file(1, cx);
+    fn next_file(&mut self, _: &NextFile, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_file(1, window, cx);
     }
 
-    fn previous_file(&mut self, _: &PreviousFile, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_file(-1, cx);
+    fn previous_file(&mut self, _: &PreviousFile, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_file(-1, window, cx);
     }
 
-    fn next_hunk(&mut self, _: &NextHunk, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_hunk(1, cx);
+    fn next_hunk(&mut self, _: &NextHunk, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_hunk(1, window, cx);
     }
 
-    fn previous_hunk(&mut self, _: &PreviousHunk, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_hunk(-1, cx);
+    fn previous_hunk(&mut self, _: &PreviousHunk, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_hunk(-1, window, cx);
     }
 
     fn toggle_pane(&mut self, _: &TogglePane, window: &mut Window, cx: &mut Context<Self>) {
@@ -1336,6 +1355,22 @@ impl DiffViewer {
         self.handle_command(ReviewCommand::Cancel, window, cx);
     }
 
+    fn next_theme(&mut self, _: &NextTheme, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(ReviewCommand::MoveTheme(1), window, cx);
+    }
+
+    fn previous_theme(&mut self, _: &PreviousTheme, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(ReviewCommand::MoveTheme(-1), window, cx);
+    }
+
+    fn commit_theme(&mut self, _: &CommitTheme, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(ReviewCommand::CommitTheme, window, cx);
+    }
+
+    fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::Refresh, window, cx);
+    }
+
     fn select_theme(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let index = self.theme_selection.as_ref().and_then(|selection| {
             selection
@@ -1554,6 +1589,10 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::hide_shortcuts))
             .on_action(cx.listener(Self::show_theme_picker))
             .on_action(cx.listener(Self::hide_theme_picker))
+            .on_action(cx.listener(Self::next_theme))
+            .on_action(cx.listener(Self::previous_theme))
+            .on_action(cx.listener(Self::commit_theme))
+            .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cancel))
             .size_full()
             .relative()

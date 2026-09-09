@@ -16,8 +16,8 @@ use crate::{
 use clankerdiff_core::{ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownFocusPane, MarkdownReview,
-    MarkdownReviewCommand, MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
-    MarkdownTargetKind,
+    MarkdownReviewCommand, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownReviewSession,
+    MarkdownTargetId, MarkdownTargetKind,
 };
 use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -47,6 +47,14 @@ actions!(
         MarkdownRequestChanges,
         MarkdownShowThemePicker,
         MarkdownHideThemePicker,
+        MarkdownNextTheme,
+        MarkdownPreviousTheme,
+        MarkdownCommitTheme,
+        MarkdownPageUp,
+        MarkdownPageDown,
+        MarkdownToggleFocus,
+        MarkdownOpenSelected,
+        MarkdownCopyReview,
         MarkdownCancel
     ]
 );
@@ -140,6 +148,12 @@ impl MarkdownReviewer {
             KeyBinding::new("home", MarkdownFirstTarget, Some(BROWSE)),
             KeyBinding::new("shift-g", MarkdownLastTarget, Some(BROWSE)),
             KeyBinding::new("end", MarkdownLastTarget, Some(BROWSE)),
+            KeyBinding::new("pageup", MarkdownPageUp, Some(BROWSE)),
+            KeyBinding::new("pagedown", MarkdownPageDown, Some(BROWSE)),
+            KeyBinding::new("tab", MarkdownToggleFocus, Some(BROWSE)),
+            KeyBinding::new("enter", MarkdownOpenSelected, Some(BROWSE)),
+            KeyBinding::new("y", MarkdownCopyReview, Some(BROWSE)),
+            KeyBinding::new("cmd-shift-c", MarkdownCopyReview, Some(BROWSE)),
             KeyBinding::new("n", MarkdownNextHeading, Some(BROWSE)),
             KeyBinding::new("p", MarkdownPreviousHeading, Some(BROWSE)),
             KeyBinding::new("c", MarkdownAddComment, Some(BROWSE)),
@@ -154,6 +168,31 @@ impl MarkdownReviewer {
             KeyBinding::new(
                 "escape",
                 MarkdownHideThemePicker,
+                Some("MarkdownReviewer && mode == themes"),
+            ),
+            KeyBinding::new(
+                "down",
+                MarkdownNextTheme,
+                Some("MarkdownReviewer && mode == themes"),
+            ),
+            KeyBinding::new(
+                "j",
+                MarkdownNextTheme,
+                Some("MarkdownReviewer && mode == themes"),
+            ),
+            KeyBinding::new(
+                "up",
+                MarkdownPreviousTheme,
+                Some("MarkdownReviewer && mode == themes"),
+            ),
+            KeyBinding::new(
+                "k",
+                MarkdownPreviousTheme,
+                Some("MarkdownReviewer && mode == themes"),
+            ),
+            KeyBinding::new(
+                "enter",
+                MarkdownCommitTheme,
                 Some("MarkdownReviewer && mode == themes"),
             ),
             KeyBinding::new("escape", MarkdownCancel, Some(BROWSE)),
@@ -304,6 +343,11 @@ impl MarkdownReviewer {
                     .child(heading.title)
                     .on_click(cx.listener(move |reviewer, _, window, cx| {
                         let _ = reviewer.handle_command(
+                            MarkdownReviewCommand::Focus(MarkdownFocusPane::Outline),
+                            window,
+                            cx,
+                        );
+                        let _ = reviewer.handle_command(
                             MarkdownReviewCommand::SelectTarget(target),
                             window,
                             cx,
@@ -420,6 +464,11 @@ impl MarkdownReviewer {
             .cursor_pointer()
             .on_click(cx.listener(move |reviewer, _, window, cx| {
                 let _ = reviewer.handle_command(
+                    MarkdownReviewCommand::Focus(MarkdownFocusPane::Document),
+                    window,
+                    cx,
+                );
+                let _ = reviewer.handle_command(
                     MarkdownReviewCommand::SelectTarget(target_id),
                     window,
                     cx,
@@ -481,10 +530,14 @@ impl MarkdownReviewer {
 
     fn render_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.review().len();
+        let pane = match self.pane {
+            MarkdownFocusPane::Document => "Document",
+            MarkdownFocusPane::Outline => "Outline",
+        };
         let theme = self.ui_theme();
         ActionBar::new(theme)
             .child(format!(
-                "{count} comment(s) · c add · e edit · x delete · u undo"
+                "{pane} · Tab pane · PgUp/PgDn page · {count} comment(s) · c add · e edit · x delete · u undo · y copy"
             ))
             .child(div().flex_1())
             .child(
@@ -665,6 +718,63 @@ impl MarkdownReviewer {
         .items(items)
     }
 
+    fn next_theme(&mut self, _: &MarkdownNextTheme, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.handle_command(ReviewCommand::MoveTheme(1), window, cx);
+    }
+
+    fn previous_theme(
+        &mut self,
+        _: &MarkdownPreviousTheme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.handle_command(ReviewCommand::MoveTheme(-1), window, cx);
+    }
+
+    fn commit_theme(
+        &mut self,
+        _: &MarkdownCommitTheme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.handle_command(ReviewCommand::CommitTheme, window, cx);
+    }
+
+    fn page_up(&mut self, _: &MarkdownPageUp, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.handle_command(MarkdownReviewCommand::Page(-1), window, cx);
+    }
+
+    fn page_down(&mut self, _: &MarkdownPageDown, window: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.handle_command(MarkdownReviewCommand::Page(1), window, cx);
+    }
+
+    fn toggle_focus(
+        &mut self,
+        _: &MarkdownToggleFocus,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.handle_command(MarkdownReviewCommand::ToggleFocus, window, cx);
+    }
+
+    fn open_selected(
+        &mut self,
+        _: &MarkdownOpenSelected,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.handle_command(MarkdownReviewCommand::OpenSelected, window, cx);
+    }
+
+    fn copy_review(&mut self, _: &MarkdownCopyReview, window: &mut Window, cx: &mut Context<Self>) {
+        let decision = if self.review().is_empty() {
+            MarkdownReviewDecision::Approved
+        } else {
+            MarkdownReviewDecision::ChangesRequested
+        };
+        let _ = self.handle_command(MarkdownReviewCommand::CopyReview(decision), window, cx);
+    }
+
     fn cancel(&mut self, _: &MarkdownCancel, window: &mut Window, cx: &mut Context<Self>) {
         let _ = self.handle_command(ReviewCommand::Cancel, window, cx);
     }
@@ -796,6 +906,14 @@ impl Render for MarkdownReviewer {
             .on_action(cx.listener(Self::request_changes))
             .on_action(cx.listener(Self::show_theme_picker))
             .on_action(cx.listener(Self::hide_theme_picker))
+            .on_action(cx.listener(Self::next_theme))
+            .on_action(cx.listener(Self::previous_theme))
+            .on_action(cx.listener(Self::commit_theme))
+            .on_action(cx.listener(Self::page_up))
+            .on_action(cx.listener(Self::page_down))
+            .on_action(cx.listener(Self::toggle_focus))
+            .on_action(cx.listener(Self::open_selected))
+            .on_action(cx.listener(Self::copy_review))
             .on_action(cx.listener(Self::cancel))
             .size_full()
             .flex()

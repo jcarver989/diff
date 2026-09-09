@@ -429,7 +429,9 @@ impl DiffViewer {
             .when(left, |value| value.border_r_1().border_color(border_color))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |viewer, _, _, cx| viewer.select_diff_cell(index, side, cx)),
+                cx.listener(move |viewer, _, window, cx| {
+                    viewer.select_diff_cell(index, side, window, cx);
+                }),
             );
         if commentable {
             element = element.hover(|hover| hover.bg(style::color(palette.selection)));

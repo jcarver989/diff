@@ -1,5 +1,5 @@
 use crate::{DiffViewer, ViewerPane, style::color};
-use clankerdiff_core::{DiffDocument, FileStatus, RepoPath, StageState};
+use clankerdiff_core::{DiffDocument, DiffReviewCommand, FileStatus, RepoPath, StageState};
 use gpui::{ClickEvent, Context, Div, Empty, Role, Stateful, div, prelude::*, px};
 use std::collections::{BTreeMap, HashSet};
 
@@ -439,8 +439,8 @@ impl DiffViewer {
             .when(selected, |row| row.bg(color(palette.selection)))
             .text_color(color(palette.muted))
             .hover(|row| row.bg(color(palette.selection)))
-            .on_click(cx.listener(move |viewer, _, _, cx| {
-                viewer.toggle_directory(&path, cx);
+            .on_click(cx.listener(move |viewer, _, window, cx| {
+                viewer.toggle_directory(&path, window, cx);
             }))
             .child(
                 div()
@@ -499,9 +499,14 @@ impl DiffViewer {
                     row.border_l_2().border_color(color(palette.accent))
                 })
                 .hover(|row| row.bg(color(palette.selection)))
-                .on_click(cx.listener(move |viewer, _, _, cx| {
-                    viewer.pane = ViewerPane::Files;
-                    viewer.select_file(index, cx);
+                .on_click(cx.listener(move |viewer, _, window, cx| {
+                    if viewer.handle_command(
+                        DiffReviewCommand::Focus(ViewerPane::Files),
+                        window,
+                        cx,
+                    ) {
+                        viewer.handle_command(DiffReviewCommand::SelectFile(index), window, cx);
+                    }
                 }))
                 .child(div().w(px(DISCLOSURE_WIDTH)).flex_shrink_0())
                 .child(
