@@ -4,7 +4,7 @@ use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use ratatui::layout::{Position, Rect};
 use std::{
     hash::{Hash, Hasher},
@@ -39,7 +39,7 @@ struct CachedLayout {
 #[derive(Debug)]
 pub struct MarkdownReviewState {
     pub(crate) session: MarkdownReviewSession,
-    pub(crate) theme: DiffTheme,
+    pub(crate) theme: ReviewTheme,
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) focus: MarkdownFocusPane,
     pub(crate) scroll: usize,
@@ -59,12 +59,12 @@ impl MarkdownReviewState {
     /// Creates ready state from an immutable parsed document.
     #[must_use]
     pub fn new(document: Arc<MarkdownDocument>) -> Self {
-        Self::with_theme(document, DiffTheme::default())
+        Self::with_theme(document, ReviewTheme::default())
     }
 
     /// Creates state with an explicit shared neutral theme.
     #[must_use]
-    pub fn with_theme(document: Arc<MarkdownDocument>, theme: DiffTheme) -> Self {
+    pub fn with_theme(document: Arc<MarkdownDocument>, theme: ReviewTheme) -> Self {
         Self {
             session: MarkdownReviewSession::new(document),
             theme,
@@ -143,7 +143,7 @@ impl MarkdownReviewState {
 
     /// Returns the active renderer-neutral theme.
     #[must_use]
-    pub const fn theme(&self) -> &DiffTheme {
+    pub const fn theme(&self) -> &ReviewTheme {
         &self.theme
     }
 
@@ -163,7 +163,7 @@ impl MarkdownReviewState {
     }
 
     /// Changes the theme and invalidates syntax highlighting.
-    pub fn set_theme(&mut self, theme: DiffTheme) {
+    pub fn set_theme(&mut self, theme: ReviewTheme) {
         self.theme = theme;
         self.highlighter.clear_cache();
         self.mark_dirty();
@@ -222,7 +222,7 @@ impl MarkdownReviewState {
         let Some(target) = self.selected_target() else {
             return;
         };
-        let Some(row) = layout.row_for_target(target) else {
+        let Some(row) = layout.focused_row(target, self.session.draft().is_some()) else {
             return;
         };
         let height = self.last_height.max(1);

@@ -1,21 +1,13 @@
 use super::{MarkdownFocusPane, MarkdownReviewEvent, MarkdownReviewState};
-use crate::theme_picker::{ThemePicker, ThemePickerAction};
-use clankerdiff_markdown::MarkdownReviewError;
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+use crate::{
+    InputOutcome, InteractionPhase, ReviewInput,
+    interaction::{self, ReviewWidget},
+    theme_picker::ThemePicker,
 };
+use clankerdiff_markdown::{MarkdownCommentDraft, MarkdownReviewError};
+use clankerdiff_theme::ReviewTheme;
+use crossterm::event::{Event, KeyCode, KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
-
-/// Framework-neutral input accepted by [`MarkdownReviewState::handle_input`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MarkdownReviewInput {
-    /// A Crossterm key event.
-    Key(KeyEvent),
-    /// Text pasted into the active draft.
-    Paste(String),
-    /// A Crossterm mouse event.
-    Mouse(MouseEvent),
-}
 
 /// Converts one Crossterm event and applies it to Markdown review state.
 ///
@@ -30,22 +22,24 @@ pub enum MarkdownReviewInput {
 pub fn handle_crossterm_event(
     state: &mut MarkdownReviewState,
     event: Event,
-) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
-    match event {
-        Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
-            state.handle_input(MarkdownReviewInput::Key(key))
-        }
-        Event::Paste(text) => state.handle_input(MarkdownReviewInput::Paste(text)),
-        Event::Mouse(mouse) => state.handle_input(MarkdownReviewInput::Mouse(mouse)),
-        Event::Resize(..) => {
-            state.mark_dirty();
-            Ok(None)
-        }
-        _ => Ok(None),
-    }
+) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+    interaction::handle_event(state, event)
 }
 
 impl MarkdownReviewState {
+    #[must_use]
+    pub fn interaction_phase(&self) -> InteractionPhase {
+        if self.theme_picker.is_some() {
+            InteractionPhase::ThemePicker
+        } else if self.help {
+            InteractionPhase::Help
+        } else if self.session.draft().is_some() {
+            InteractionPhase::Draft
+        } else {
+            InteractionPhase::Browse
+        }
+    }
+
     /// Applies one input event.
     ///
     /// # Errors
@@ -54,71 +48,81 @@ impl MarkdownReviewState {
     /// request-changes action encounters a blank comment body.
     pub fn handle_input(
         &mut self,
-        input: MarkdownReviewInput,
-    ) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
-        match input {
-            MarkdownReviewInput::Key(key) => {
-                self.mark_dirty();
-                self.handle_key(key)
-            }
-            MarkdownReviewInput::Paste(text) => {
-                if let Some(draft) = self.session.draft_mut() {
-                    draft.insert(&text);
-                    self.request_follow();
-                }
-                Ok(None)
-            }
-            MarkdownReviewInput::Mouse(mouse) => {
-                self.handle_mouse(mouse);
-                Ok(None)
-            }
-        }
+        input: ReviewInput,
+    ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+        interaction::handle_input(self, input)
+    }
+}
+
+impl ReviewWidget for MarkdownReviewState {
+    type Event = MarkdownReviewEvent;
+    type Error = MarkdownReviewError;
+    type Draft = MarkdownCommentDraft;
+
+    fn phase(&self) -> InteractionPhase {
+        self.interaction_phase()
     }
 
-    fn handle_key(
-        &mut self,
-        key: KeyEvent,
-    ) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
-        if let Some(picker) = self.theme_picker.as_mut() {
-            let action = picker.handle_key(key);
-            match action {
-                ThemePickerAction::Preview(theme) => self.set_theme(theme),
-                ThemePickerAction::Restore(theme) => {
-                    self.set_theme(theme);
-                    self.theme_picker = None;
-                }
-                ThemePickerAction::Commit => self.theme_picker = None,
-                ThemePickerAction::None => {}
-            }
-            return Ok(None);
-        }
-        if self.help {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-                self.help = false;
-            }
-            return Ok(None);
-        }
-        if self.session.draft().is_some() {
-            return Ok(self.handle_draft_key(key));
-        }
-        if key.code == KeyCode::Esc
-            || (key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL))
-        {
-            return Ok(Some(MarkdownReviewEvent::Cancel));
-        }
-        if key
-            .modifiers
-            .intersects(KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::CONTROL)
-        {
-            return Ok(None);
-        }
-        self.handle_browse_key(key)
+    fn contains(&self, position: Position) -> bool {
+        self.hit_regions
+            .iter()
+            .any(|region| region.area.contains(position))
+    }
+
+    fn mark_dirty(&mut self) {
+        Self::mark_dirty(self);
+    }
+
+    fn draft_mut(&mut self) -> Option<&mut MarkdownCommentDraft> {
+        self.session.draft_mut()
+    }
+
+    fn cancel_draft(&mut self) {
+        self.session.cancel_draft();
+    }
+
+    fn submit_draft(&mut self) {
+        self.session.submit_draft();
+    }
+
+    fn draft_changed(&mut self, _closed: bool) {
+        self.request_follow();
+    }
+
+    fn theme_picker(&mut self) -> &mut Option<ThemePicker> {
+        &mut self.theme_picker
+    }
+
+    fn set_theme(&mut self, theme: ReviewTheme) {
+        Self::set_theme(self, theme);
+    }
+
+    fn close_help(&mut self) {
+        self.help = false;
+    }
+
+    fn cancel_event() -> MarkdownReviewEvent {
+        MarkdownReviewEvent::Cancel
     }
 
     fn handle_browse_key(
         &mut self,
         key: KeyEvent,
-    ) -> Result<Option<MarkdownReviewEvent>, MarkdownReviewError> {
+    ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+        self.handle_browse_key(key)
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<MarkdownReviewEvent> {
+        self.handle_mouse(mouse);
+        InputOutcome::Consumed
+    }
+}
+
+impl MarkdownReviewState {
+    fn handle_browse_key(
+        &mut self,
+        key: KeyEvent,
+    ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
         match key.code {
             KeyCode::Tab => {
                 self.focus = match self.focus {
@@ -168,49 +172,17 @@ impl MarkdownReviewState {
                 self.session.undo_last_comment();
                 self.request_follow();
             }
-            KeyCode::Char('a') => return self.session.approve().map(Some),
-            KeyCode::Char('r') => return self.session.request_changes().map(Some),
+            KeyCode::Char('a') => return self.session.approve().map(InputOutcome::Emitted),
+            KeyCode::Char('r') => return self.session.request_changes().map(InputOutcome::Emitted),
             KeyCode::Char('t') => {
                 self.theme_picker = Some(ThemePicker::new(&self.theme));
             }
             KeyCode::Char('?') => self.help = true,
-            _ => {}
+            _ => return Ok(InputOutcome::Ignored),
         }
         self.sync_outline_selection();
         self.request_follow();
-        Ok(None)
-    }
-
-    fn handle_draft_key(&mut self, key: KeyEvent) -> Option<MarkdownReviewEvent> {
-        if key.code == KeyCode::Esc {
-            self.session.cancel_draft();
-            self.request_follow();
-            return None;
-        }
-        if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
-            self.session.submit_draft();
-            self.request_follow();
-            return None;
-        }
-        let draft = self.session.draft_mut()?;
-        match key.code {
-            KeyCode::Enter => draft.insert("\n"),
-            KeyCode::Left => draft.move_cursor_left(),
-            KeyCode::Right => draft.move_cursor_right(),
-            KeyCode::Home => draft.move_cursor_to_start(),
-            KeyCode::End => draft.move_cursor_to_end(),
-            KeyCode::Backspace => draft.delete_before_cursor(),
-            KeyCode::Delete => draft.delete_at_cursor(),
-            KeyCode::Char(character)
-                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
-            {
-                let mut buffer = [0_u8; 4];
-                draft.insert(character.encode_utf8(&mut buffer));
-            }
-            _ => {}
-        }
-        self.request_follow();
-        None
+        Ok(InputOutcome::Consumed)
     }
 
     fn move_target(&mut self, delta: isize) {
