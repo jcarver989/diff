@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/jcarver989/diff/compare/clankerdiff-syntax-v0.1.0...clankerdiff-syntax-v0.1.1) - 2026-09-09
+
+### Other
+
+- Crate libs.  ([#17](https://github.com/jcarver989/diff/pull/17))
+
 ## [0.1.0](https://github.com/jcarver989/diff/releases/tag/diff-syntax-v0.1.0) - 2026-08-31
 
 ### Added

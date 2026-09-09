@@ -1843,7 +1843,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1866,7 +1866,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
@@ -1879,7 +1879,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-fingerprint"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde",
@@ -1889,7 +1889,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-git"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1901,7 +1901,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1913,7 +1913,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1933,7 +1933,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-web"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -1952,7 +1952,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-markdown"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
@@ -1964,7 +1964,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1975,7 +1975,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ratatui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bitflags 2.13.1",
  "clankerdiff-core",
@@ -1994,7 +1994,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-syntax"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arborium",
  "arborium-highlight",
@@ -2008,7 +2008,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-theme"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
@@ -2019,7 +2019,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-watch"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -2805,9 +2805,9 @@ dependencies = [
 
 [[package]]
 name = "encoding_rs"
-version = "0.8.40"
+version = "0.8.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a7a45518d2863d18aa47f4a0cf9faec2aa4304cc09df5e41299f276b3ad135e"
+checksum = "7b5ef0006ac9ab233c38522f5ae99cae3625151de8f706cacee1cba4b8e2832a"
 dependencies = [
  "cfg-if",
  "core_detect",
@@ -4713,24 +4713,23 @@ dependencies = [
 
 [[package]]
 name = "multiversion"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7edb7f0ff51249dfda9ab96b5823695e15a052dc15074c9dbf3d118afaf2c201"
+checksum = "b4ca4bea16ffc3f443cf7d866912118196bfef4c6a1556ca00f9f9b00bb43f7c"
 dependencies = [
  "multiversion-macros",
- "target-features",
 ]
 
 [[package]]
 name = "multiversion-macros"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b093064383341eb3271f42e381cb8f10a01459478446953953c75d24bd339fc0"
+checksum = "0d416831a7317ef4b08bee00b69cbbb9c8763da7959a7026244d6266869f9c83"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
- "target-features",
+ "rustversion",
+ "syn 3.0.5",
 ]
 
 [[package]]
@@ -7033,12 +7032,6 @@ dependencies = [
  "libc",
  "objc",
 ]
-
-[[package]]
-name = "target-features"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1bbb9f3c5c463a01705937a24fdabc5047929ac764b2d5b9cf681c1f5041ed5"
 
 [[package]]
 name = "tauri-winrt-notification"
