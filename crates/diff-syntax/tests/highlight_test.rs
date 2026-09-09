@@ -427,6 +427,7 @@ fn supported_language_bundle_highlights_representative_sources() {
         ("json", "{\"x\": true}"),
         ("jsonc", "{\"x\": true /* comment */}"),
         ("toml", "x = 1"),
+        ("just", "greet name:\n\techo {{ name }}\n"),
         ("yml", "x: true"),
         ("html", "<b>x</b>"),
         ("css", "b { color: red; }"),

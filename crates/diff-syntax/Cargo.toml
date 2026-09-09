@@ -32,3 +32,6 @@ lru.workspace = true
 thiserror.workspace = true
 clankerdiff-fingerprint = { version = "0.1.0", path = "../diff-fingerprint" }
 clankerdiff-theme = { version = "0.1.0", path = "../diff-theme" }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+arborium-sysroot.workspace = true
