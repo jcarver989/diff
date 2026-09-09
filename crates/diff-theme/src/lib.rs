@@ -1,5 +1,8 @@
 //! Renderer-neutral colors, semantic diff palettes, and syntax themes.
 
+mod selection;
+pub use selection::{ThemeChoice, ThemeSelection};
+
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
