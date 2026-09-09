@@ -1,4 +1,5 @@
 pub mod anchor;
+pub mod commands;
 pub mod content;
 pub mod error;
 pub mod models;
@@ -12,6 +13,10 @@ pub mod testing;
 
 pub use anchor::LineAnchor;
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId};
+pub use commands::{
+    CommandContext, DiffReviewCommand, FocusPane, InteractionPhase, ReviewCapabilities,
+    ReviewCommand,
+};
 pub use content::{
     MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceDocument, SourceLineRef, SourceLocation,
     SourceResult, SourceUnavailable,

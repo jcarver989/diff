@@ -292,6 +292,7 @@ pub enum RepositoryAction {
 pub enum DiffReviewEvent {
     RepositoryAction(RepositoryAction),
     SetScope(DiffScope),
+    Refresh,
     SubmitReview(ReviewSubmission),
     CopyFormattedReview(String),
     Cancel,

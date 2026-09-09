@@ -531,6 +531,16 @@ impl ReviewSession {
         true
     }
 
+    pub fn edit_comment_at_selection(&mut self) -> bool {
+        self.comment_id_at_selection()
+            .is_some_and(|id| self.begin_draft(Some(id)))
+    }
+
+    pub fn undo_last_comment(&mut self) -> bool {
+        self.last_comment_id()
+            .is_some_and(|id| self.review.remove_comment(id).is_some())
+    }
+
     pub fn cancel_draft(&mut self) {
         self.draft = None;
     }
