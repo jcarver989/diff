@@ -1,34 +1,31 @@
 //! Read-only whole-document and append-stream Markdown rendering.
 
-use crate::syntax::highlighted_line;
-use clankerdiff_markdown::{
-    MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownInline, MarkdownStream,
-    MarkdownStreamIdentity,
+use crate::{
+    color::{layered_style, page_color},
+    markdown_layout::{
+        MarkdownLayout, MarkdownLayoutOptions, MarkdownPresentation, MarkdownRow,
+        MarkdownRowUpdate, RowChunk, RowStore,
+    },
+    syntax::highlighted_line,
+    text::{FitOptions, fit_spans},
 };
-use clankerdiff_syntax::{DocumentHighlights, LanguageHint, SourceSequenceId, SyntaxHighlighter};
+use clankerdiff_markdown::{
+    MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownDocument, MarkdownInline,
+    MarkdownLineRange, MarkdownListItem, MarkdownSourceRole, MarkdownSourceStyle, MarkdownStream,
+    MarkdownStreamIdentity, MarkdownTable, MarkdownTableAlignment, MarkdownTargetId, SourceRange,
+    rendered_text,
+};
+use clankerdiff_syntax::{
+    DocumentHighlights, HighlightSpan, LanguageHint, SourceSequenceId, SyntaxHighlighter,
+};
 use clankerdiff_theme::{Fingerprint, ReviewTheme, Rgba};
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
 };
-use std::sync::Arc;
-use unicode_width::UnicodeWidthChar;
-
-/// Width and spacing policy for transcript-style Markdown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MarkdownRenderOptions {
-    pub width: u16,
-    pub block_spacing: bool,
-}
-
-impl Default for MarkdownRenderOptions {
-    fn default() -> Self {
-        Self {
-            width: 80,
-            block_spacing: true,
-        }
-    }
-}
+use std::{collections::HashMap, sync::Arc};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 /// Deterministic work counters for incremental Markdown rendering.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -38,26 +35,64 @@ pub struct MarkdownRenderStats {
     pub parsed_documents: u64,
     pub rows_generated: usize,
     pub rows_reused: usize,
+    pub rows_materialized: usize,
+    pub highlighted_bytes: usize,
 }
 
 /// Renderer-owned cache for one logical streaming Markdown item.
 #[derive(Debug, Clone, Default)]
 pub struct StreamingMarkdownState {
-    parsed: Option<ParsedSource>,
-    options: MarkdownRenderOptions,
-    theme_revision: Fingerprint,
-    lines: Arc<[Line<'static>]>,
+    layout: MarkdownLayout,
+    cache: LayoutCache,
+    revision: u64,
+    /// Last revision handed out; survives `reset` so hosts never see a reuse.
+    next_revision: u64,
+    update: Option<MarkdownRowUpdate>,
     stats: MarkdownRenderStats,
 }
 
 impl StreamingMarkdownState {
     pub fn reset(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            next_revision: self.next_revision,
+            ..Self::default()
+        };
     }
 
     /// Returns accumulated renderer work counters and resets them.
     pub fn take_stats(&mut self) -> MarkdownRenderStats {
         std::mem::take(&mut self.stats)
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    #[must_use]
+    pub fn update_since(&self, base_revision: u64) -> MarkdownRowUpdate {
+        let rows = self.layout.rows();
+        if base_revision == self.revision {
+            return MarkdownRowUpdate {
+                base_revision,
+                revision: self.revision,
+                first_changed_row: rows.len(),
+                replacement: rows.slice(rows.len()..rows.len()),
+                reset: false,
+            };
+        }
+        if let Some(update) = &self.update
+            && update.base_revision == base_revision
+        {
+            return update.clone();
+        }
+        MarkdownRowUpdate {
+            base_revision,
+            revision: self.revision,
+            first_changed_row: 0,
+            replacement: rows.clone(),
+            reset: true,
+        }
     }
 }
 
@@ -65,7 +100,7 @@ impl StreamingMarkdownState {
 struct ParsedSource {
     identity: MarkdownStreamIdentity,
     revision: u64,
-    document: MarkdownDocument,
+    document: Arc<MarkdownDocument>,
 }
 
 impl ParsedSource {
@@ -73,7 +108,7 @@ impl ParsedSource {
         Self {
             identity: stream.identity(),
             revision: stream.revision(),
-            document: MarkdownDocument::parse(stream.source()),
+            document: Arc::new(MarkdownDocument::parse(stream.source())),
         }
     }
 
@@ -97,200 +132,680 @@ impl MarkdownRenderer {
     pub fn render_lines(
         &self,
         document: &MarkdownDocument,
-        options: MarkdownRenderOptions,
+        options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
         highlighter: &mut SyntaxHighlighter,
     ) -> Arc<[Line<'static>]> {
-        Arc::from(document_rows(document, options, theme, highlighter))
+        self.render_layout(document, options, theme, highlighter)
+            .materialize()
     }
 
     pub fn render_stream_lines(
         &self,
         state: &mut StreamingMarkdownState,
         stream: &MarkdownStream,
-        options: MarkdownRenderOptions,
+        options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
         highlighter: &mut SyntaxHighlighter,
     ) -> Arc<[Line<'static>]> {
-        let theme_revision = theme.revision();
-        let parsed = match state.parsed.take() {
-            Some(parsed) if parsed.matches(stream) => {
-                if state.options == options && state.theme_revision == theme_revision {
-                    state.stats.rows_reused += state.lines.len();
-                    state.parsed = Some(parsed);
-                    return Arc::clone(&state.lines);
-                }
-                parsed
-            }
-            _ => {
-                state.stats.parsed_bytes += stream.source().len();
-                state.stats.parsed_documents += 1;
-                ParsedSource::parse(stream)
+        let layout = self.render_stream_layout(state, stream, options, theme, highlighter);
+        if !layout.is_materialized() {
+            state.stats.rows_materialized += layout.row_count();
+        }
+        layout.materialize()
+    }
+
+    #[must_use]
+    pub fn render_layout(
+        &self,
+        document: &MarkdownDocument,
+        options: MarkdownLayoutOptions,
+        theme: &ReviewTheme,
+        highlighter: &mut SyntaxHighlighter,
+    ) -> MarkdownLayout {
+        layout_document(document, options, theme, highlighter, None)
+            .0
+            .finish(document)
+            .layout
+    }
+
+    pub fn render_stream_layout(
+        &self,
+        state: &mut StreamingMarkdownState,
+        stream: &MarkdownStream,
+        options: MarkdownLayoutOptions,
+        theme: &ReviewTheme,
+        highlighter: &mut SyntaxHighlighter,
+    ) -> MarkdownLayout {
+        let revision = theme.revision();
+        if state.cache.is_current(stream, options, revision) {
+            state.stats.rows_reused += state.layout.row_count();
+            return state.layout.clone();
+        }
+        let reset = state.cache.resets_for(stream, options, revision);
+        let highlighted_before = highlighter.stats().bytes;
+        let built = state.cache.render(
+            stream,
+            options,
+            theme,
+            revision,
+            highlighter,
+            &mut state.stats,
+        );
+        state.stats.highlighted_bytes +=
+            highlighter.stats().bytes.saturating_sub(highlighted_before);
+        let first_changed_row = if reset {
+            0
+        } else {
+            state
+                .layout
+                .rows()
+                .iter()
+                .zip(built.layout.rows().iter())
+                .take_while(|(left, right)| Arc::ptr_eq(left, right) || left == right)
+                .count()
+        };
+        state.next_revision += 1;
+        let revision = state.next_revision;
+        state.update = Some(MarkdownRowUpdate {
+            base_revision: state.revision,
+            revision,
+            first_changed_row,
+            replacement: built
+                .layout
+                .rows()
+                .slice(first_changed_row..built.layout.row_count()),
+            reset,
+        });
+        state.revision = revision;
+        state.stats.rows_generated += built.generated;
+        state.stats.rows_reused += built.reused;
+        state.layout = built.layout;
+        state.layout.clone()
+    }
+}
+
+struct LayoutBuild {
+    layout: MarkdownLayout,
+    generated: usize,
+    reused: usize,
+}
+
+#[derive(Default)]
+struct RowBuilder {
+    store: RowStore,
+    generated: usize,
+    reused: usize,
+}
+
+impl RowBuilder {
+    fn generated(&mut self, rows: RowChunk) {
+        self.generated += rows.len();
+        self.store.push(rows);
+    }
+
+    fn reused(&mut self, rows: RowChunk) {
+        self.reused += rows.len();
+        self.store.push(rows);
+    }
+
+    fn finish(self, document: &MarkdownDocument) -> LayoutBuild {
+        LayoutBuild {
+            layout: MarkdownLayout::new(self.store, document),
+            generated: self.generated,
+            reused: self.reused,
+        }
+    }
+}
+
+/// Per-presentation reuse entries for the previously laid-out document.
+#[derive(Debug, Clone)]
+enum CacheEntries {
+    Blocks(Vec<RowChunk>),
+    SourceLines(Vec<CachedSourceLine>),
+}
+
+impl Default for CacheEntries {
+    fn default() -> Self {
+        Self::Blocks(Vec::new())
+    }
+}
+
+/// The last parsed stream plus the reuse entries built from it.
+#[derive(Debug, Clone, Default)]
+struct LayoutCache {
+    parsed: Option<ParsedSource>,
+    entries: CacheEntries,
+    options: Option<MarkdownLayoutOptions>,
+    theme: Option<Fingerprint>,
+}
+
+impl LayoutCache {
+    fn matches(&self, options: MarkdownLayoutOptions, theme: Fingerprint) -> bool {
+        self.options == Some(options) && self.theme == Some(theme)
+    }
+
+    /// True when the cached layout already reflects `stream` under `options`
+    /// and `theme`, so no rendering is required.
+    fn is_current(
+        &self,
+        stream: &MarkdownStream,
+        options: MarkdownLayoutOptions,
+        theme: Fingerprint,
+    ) -> bool {
+        self.matches(options, theme) && self.parsed.as_ref().is_some_and(|p| p.matches(stream))
+    }
+
+    /// True when no row of the previous layout can survive: a different
+    /// stream identity, or different options or theme.
+    fn resets_for(
+        &self,
+        stream: &MarkdownStream,
+        options: MarkdownLayoutOptions,
+        theme: Fingerprint,
+    ) -> bool {
+        !self.matches(options, theme)
+            || self
+                .parsed
+                .as_ref()
+                .is_none_or(|p| p.identity != stream.identity())
+    }
+
+    fn render(
+        &mut self,
+        stream: &MarkdownStream,
+        options: MarkdownLayoutOptions,
+        theme: &ReviewTheme,
+        revision: Fingerprint,
+        highlighter: &mut SyntaxHighlighter,
+        stats: &mut MarkdownRenderStats,
+    ) -> LayoutBuild {
+        let reusable = self.matches(options, revision);
+        let (parsed, previous) = match self.parsed.take() {
+            // Same source under different options or theme: nothing to reuse.
+            Some(parsed) if parsed.matches(stream) => (parsed, None),
+            previous => {
+                stats.parsed_bytes += stream.source().len();
+                stats.parsed_documents += 1;
+                (ParsedSource::parse(stream), previous.filter(|_| reusable))
             }
         };
-        let rows = document_rows(&parsed.document, options, theme, highlighter);
-        state.stats.rows_generated += rows.len();
-        state.parsed = Some(parsed);
-        state.options = options;
-        state.theme_revision = theme_revision;
-        state.lines = Arc::from(rows);
-        Arc::clone(&state.lines)
+        let cached = previous
+            .as_ref()
+            .map(|previous| (&*previous.document, &self.entries));
+        let (rows, entries) =
+            layout_document(&parsed.document, options, theme, highlighter, cached);
+        let built = rows.finish(&parsed.document);
+        self.parsed = Some(parsed);
+        self.entries = entries;
+        self.options = Some(options);
+        self.theme = Some(revision);
+        built
     }
 }
 
-fn document_rows(
+fn layout_document(
     document: &MarkdownDocument,
-    options: MarkdownRenderOptions,
+    options: MarkdownLayoutOptions,
     theme: &ReviewTheme,
     highlighter: &mut SyntaxHighlighter,
-) -> Vec<Line<'static>> {
-    let mut output = Vec::new();
-    for (index, block) in document.blocks().iter().enumerate() {
-        render_block(
-            block,
-            options.width.max(1),
-            theme,
-            highlighter,
-            &mut output,
-            "",
-        );
-        if options.block_spacing && index + 1 < document.blocks().len() {
-            output.push(Line::default());
+    previous: Option<(&MarkdownDocument, &CacheEntries)>,
+) -> (RowBuilder, CacheEntries) {
+    let mut rows = RowBuilder::default();
+    let entries = match options.presentation {
+        MarkdownPresentation::SourceLines => {
+            let cached = match previous {
+                Some((_, CacheEntries::SourceLines(lines))) => lines.as_slice(),
+                _ => &[],
+            };
+            CacheEntries::SourceLines(source_rows(
+                document,
+                options,
+                theme,
+                highlighter,
+                cached,
+                &mut rows,
+            ))
         }
-    }
-    output
+        MarkdownPresentation::Rendered => {
+            let cached = match previous {
+                Some((document, CacheEntries::Blocks(blocks))) => {
+                    Some((document, blocks.as_slice()))
+                }
+                _ => None,
+            };
+            CacheEntries::Blocks(rendered_rows(
+                document,
+                options,
+                theme,
+                highlighter,
+                cached,
+                &mut rows,
+            ))
+        }
+    };
+    (rows, entries)
 }
 
-/// Renders highlighted code lines as wrapped rows on the code background.
-fn code_rows(
-    lines: &[&str],
-    highlights: &DocumentHighlights,
+fn rendered_rows(
+    document: &MarkdownDocument,
+    options: MarkdownLayoutOptions,
     theme: &ReviewTheme,
-    width: u16,
-    prefix: &str,
-) -> Vec<Line<'static>> {
-    let base = Style::new()
-        .fg(color(theme.markdown.code))
-        .bg(color(theme.diff.background));
-    let mut output = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        let spans = highlights.line(index).unwrap_or_default();
-        let mut rendered = highlighted_line(line, spans, base);
-        if !prefix.is_empty() {
-            rendered
-                .spans
-                .insert(0, Span::styled(prefix.to_owned(), base));
+    highlighter: &mut SyntaxHighlighter,
+    previous: Option<(&MarkdownDocument, &[RowChunk])>,
+    rows: &mut RowBuilder,
+) -> Vec<RowChunk> {
+    let mut blocks = Vec::with_capacity(document.blocks().len());
+    let mut next_source_line = 1;
+    let source_ranges = options
+        .preserve_source_gaps
+        .then(|| source_line_ranges(document.source()));
+    for (index, block) in document.blocks().iter().enumerate() {
+        if let Some(ranges) = &source_ranges {
+            for line in next_source_line..block.source.lines.start {
+                rows.generated(Arc::from([Arc::new(MarkdownRow {
+                    line: Line::default(),
+                    source: ranges.get(line - 1).cloned(),
+                    target: None,
+                })]));
+            }
+        } else if index > 0 && options.block_spacing {
+            rows.generated(Arc::from([Arc::new(MarkdownRow {
+                line: Line::default(),
+                source: None,
+                target: None,
+            })]));
         }
-        push_wrapped_spans(&mut output, rendered.spans, width);
+        let cached = previous
+            .filter(|(document, _)| document.blocks().get(index) == Some(block))
+            .and_then(|(_, chunks)| chunks.get(index));
+        let block_rows = if let Some(cached) = cached {
+            rows.reused(Arc::clone(cached));
+            Arc::clone(cached)
+        } else {
+            let mut output = RowOutput::new(options);
+            render_block(
+                block,
+                theme,
+                highlighter,
+                &mut output,
+                BlockContext {
+                    target: None,
+                    foreground: theme.diff.foreground,
+                    prefix: "",
+                },
+            );
+            let chunk: RowChunk = Arc::from(output.rows);
+            rows.generated(Arc::clone(&chunk));
+            chunk
+        };
+        blocks.push(block_rows);
+        next_source_line = block.source.lines.end.saturating_add(1);
     }
-    output
+    blocks
+}
+
+/// Foreground and background for fenced code, composited over the page.
+fn fenced_code_style(theme: &ReviewTheme) -> Style {
+    layered_style(
+        theme.markdown.code,
+        theme.markdown.code_background,
+        theme.diff.background,
+    )
+}
+
+/// Applies the inline-code role on top of `style`.
+fn inline_code_style(style: Style, theme: &ReviewTheme) -> Style {
+    style.patch(layered_style(
+        theme.markdown.inline_code,
+        theme.markdown.inline_code_background,
+        theme.diff.background,
+    ))
+}
+
+/// Highlights a fenced block with its complete content as parser context.
+fn highlight_code_block(
+    code: &MarkdownCodeBlock,
+    theme: &ReviewTheme,
+    highlighter: &mut SyntaxHighlighter,
+) -> Arc<DocumentHighlights> {
+    let lines = code
+        .lines
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect::<Vec<_>>();
+    highlighter
+        .with_theme(&theme.syntax)
+        .highlight_document_lines(
+            SourceSequenceId::from_lines(lines.iter().copied()),
+            LanguageHint::InfoString(code.highlight_hint()),
+            lines.iter().copied(),
+        )
+}
+
+/// Ownership and styling a block inherits from its enclosing blocks.
+#[derive(Clone, Copy)]
+struct BlockContext<'a> {
+    target: Option<MarkdownTargetId>,
+    foreground: Rgba,
+    prefix: &'a str,
+}
+
+/// Where the rows produced for one block element come from.
+#[derive(Clone, Copy)]
+struct RowOrigin<'a> {
+    source: &'a SourceRange,
+    target: Option<MarkdownTargetId>,
+}
+
+struct RowOutput {
+    rows: Vec<Arc<MarkdownRow>>,
+    options: MarkdownLayoutOptions,
+}
+
+impl RowOutput {
+    const fn new(options: MarkdownLayoutOptions) -> Self {
+        Self {
+            rows: Vec::new(),
+            options,
+        }
+    }
+
+    fn push(&mut self, line: Line<'static>, origin: RowOrigin<'_>) {
+        self.rows.push(Arc::new(MarkdownRow {
+            line,
+            source: Some(origin.source.clone()),
+            target: origin.target,
+        }));
+    }
+
+    fn push_wrapped(
+        &mut self,
+        spans: Vec<Span<'static>>,
+        continuation: &str,
+        origin: RowOrigin<'_>,
+    ) {
+        for line in fit_spans(spans, self.fit_options(self.options.width, continuation)) {
+            self.push(line, origin);
+        }
+    }
+
+    fn fit_options<'a>(&self, width: u16, continuation: &'a str) -> FitOptions<'a> {
+        FitOptions {
+            width: usize::from(width),
+            wrap: self.options.wrap,
+            tab_width: usize::from(self.options.tab_width),
+            continuation,
+        }
+    }
 }
 
 fn render_block(
     block: &MarkdownBlock,
-    width: u16,
     theme: &ReviewTheme,
     highlighter: &mut SyntaxHighlighter,
-    output: &mut Vec<Line<'static>>,
-    prefix: &str,
+    output: &mut RowOutput,
+    context: BlockContext<'_>,
 ) {
+    let prefix = context.prefix;
+    let width = output.options.width;
+    let origin = RowOrigin {
+        source: &block.source,
+        target: block.target_id.or(context.target),
+    };
     match &block.kind {
         MarkdownBlockKind::Heading { level, content } => {
-            let marker = format!("{} ", "#".repeat(usize::from(*level)));
+            let marker = if output.options.heading_markers {
+                format!("{} ", "#".repeat(usize::from(*level)))
+            } else {
+                String::new()
+            };
             let base = Style::new()
-                .fg(color(theme.markdown.heading))
+                .fg(page_color(theme, theme.markdown.heading))
                 .add_modifier(Modifier::BOLD);
             let mut spans = vec![Span::styled(format!("{prefix}{marker}"), base)];
             spans.extend(inline_spans(content, base, theme));
-            push_wrapped_spans(output, spans, width);
+            output.push_wrapped(spans, prefix, origin);
         }
         MarkdownBlockKind::Paragraph { content } | MarkdownBlockKind::HtmlFallback { content } => {
-            let base = Style::new().fg(color(theme.diff.foreground));
+            let base = Style::new().fg(page_color(theme, context.foreground));
             let mut spans = vec![Span::styled(prefix.to_owned(), base)];
             spans.extend(inline_spans(content, base, theme));
-            push_wrapped_spans(output, spans, width);
+            output.push_wrapped(spans, prefix, origin);
         }
         MarkdownBlockKind::List {
             ordered,
             start,
             items,
-        } => {
-            for (index, item) in items.iter().enumerate() {
-                let marker = if *ordered {
-                    format!("{}.", start.unwrap_or(1).saturating_add(index as u64))
-                } else {
-                    "•".to_owned()
-                };
-                let base = Style::new().fg(color(theme.diff.foreground));
-                let mut spans = vec![Span::styled(
-                    format!("{prefix}{}{marker} ", "  ".repeat(item.depth)),
-                    base,
-                )];
-                spans.extend(inline_spans(&item.content, base, theme));
-                push_wrapped_spans(output, spans, width);
-                for child in &item.blocks {
-                    render_block(
-                        child,
-                        width,
-                        theme,
-                        highlighter,
-                        output,
-                        &format!("{prefix}  "),
-                    );
-                }
-            }
-        }
+        } => render_list(
+            items,
+            (*ordered, *start),
+            theme,
+            highlighter,
+            output,
+            BlockContext {
+                target: origin.target,
+                ..context
+            },
+        ),
         MarkdownBlockKind::BlockQuote { blocks } => {
+            let quote_prefix = format!("{prefix}│ ");
             for child in blocks {
                 render_block(
                     child,
-                    width,
                     theme,
                     highlighter,
                     output,
-                    &format!("{prefix}│ "),
+                    BlockContext {
+                        target: origin.target,
+                        foreground: theme.markdown.quote,
+                        prefix: &quote_prefix,
+                    },
                 );
             }
         }
         MarkdownBlockKind::CodeBlock(code) => {
-            let lines = code
-                .lines
-                .iter()
-                .map(|line| line.text.as_str())
-                .collect::<Vec<_>>();
-            let highlights = highlighter
-                .with_theme(&theme.syntax)
-                .highlight_document_lines(
-                    SourceSequenceId::from_lines(lines.iter().copied()),
-                    LanguageHint::InfoString(code.highlight_hint()),
-                    lines.iter().copied(),
-                );
-            output.extend(code_rows(&lines, &highlights, theme, width, prefix));
+            render_code(code, theme, highlighter, output, origin.target, prefix);
         }
         MarkdownBlockKind::Table(table) => {
-            for row in &table.rows {
-                let base = Style::new().fg(color(theme.diff.foreground));
-                let border = Style::new().fg(color(theme.diff.border));
-                let mut spans = vec![Span::styled(format!("{prefix}│ "), border)];
-                for (index, cell) in row.cells.iter().enumerate() {
-                    if index > 0 {
-                        spans.push(Span::styled(" │ ", border));
-                    }
-                    let cell_base = if row.header {
-                        base.add_modifier(Modifier::BOLD)
-                    } else {
-                        base
-                    };
-                    spans.extend(inline_spans(&cell.content, cell_base, theme));
-                }
-                spans.push(Span::styled(" │", border));
-                push_wrapped_spans(output, spans, width);
-            }
+            render_table(
+                table,
+                theme,
+                output,
+                context.foreground,
+                origin.target,
+                prefix,
+            );
         }
-        MarkdownBlockKind::Rule => output.push(Line::styled(
-            "─".repeat(usize::from(width)),
-            Style::new().fg(color(theme.diff.border)),
-        )),
+        MarkdownBlockKind::Rule => output.push(
+            Line::styled(
+                "─".repeat(usize::from(width)),
+                Style::new().fg(page_color(theme, theme.diff.border)),
+            ),
+            origin,
+        ),
+    }
+}
+
+fn render_list(
+    items: &[MarkdownListItem],
+    (ordered, start): (bool, Option<u64>),
+    theme: &ReviewTheme,
+    highlighter: &mut SyntaxHighlighter,
+    output: &mut RowOutput,
+    context: BlockContext<'_>,
+) {
+    let prefix = context.prefix;
+    let base = Style::new().fg(page_color(theme, context.foreground));
+    for (index, item) in items.iter().enumerate() {
+        let item_target = item.target_id.or(context.target);
+        let marker = if ordered {
+            format!("{}.", start.unwrap_or(1).saturating_add(index as u64))
+        } else {
+            "•".to_owned()
+        };
+        let mut spans = vec![Span::styled(
+            format!("{prefix}{}{marker} ", "  ".repeat(item.depth)),
+            base,
+        )];
+        spans.extend(inline_spans(&item.content, base, theme));
+        let continuation = format!("{prefix}{}", " ".repeat(marker.width() + 1));
+        output.push_wrapped(
+            spans,
+            &continuation,
+            RowOrigin {
+                source: &item.source,
+                target: item_target,
+            },
+        );
+        let child_prefix = format!("{prefix}  ");
+        for child in &item.blocks {
+            render_block(
+                child,
+                theme,
+                highlighter,
+                output,
+                BlockContext {
+                    target: item_target,
+                    prefix: &child_prefix,
+                    ..context
+                },
+            );
+        }
+    }
+}
+
+fn render_code(
+    code: &MarkdownCodeBlock,
+    theme: &ReviewTheme,
+    highlighter: &mut SyntaxHighlighter,
+    output: &mut RowOutput,
+    target: Option<MarkdownTargetId>,
+    prefix: &str,
+) {
+    let highlights = highlight_code_block(code, theme, highlighter);
+    let base = fenced_code_style(theme);
+    for (index, line) in code.lines.iter().enumerate() {
+        let mut rendered =
+            highlighted_line(&line.text, highlights.line(index).unwrap_or_default(), base);
+        rendered
+            .spans
+            .insert(0, Span::styled(prefix.to_owned(), base));
+        output.push_wrapped(
+            rendered.spans,
+            prefix,
+            RowOrigin {
+                source: &line.source,
+                target: line.target_id.or(target),
+            },
+        );
+    }
+}
+
+/// Column widths for `table`, or `None` when the columns cannot fit side by
+/// side and cells must stack.
+fn table_column_widths(table: &MarkdownTable, available: usize, wrap: bool) -> Option<Vec<usize>> {
+    let columns = table_columns(table);
+    let mut natural = vec![1; columns];
+    for row in &table.rows {
+        for (index, cell) in row.cells.iter().enumerate() {
+            natural[index] = natural[index].max(rendered_text(&cell.content).width());
+        }
+    }
+    if !wrap || natural.iter().sum::<usize>() <= available {
+        return Some(natural);
+    }
+    if available < columns {
+        return None;
+    }
+    let mut order = (0..columns).collect::<Vec<_>>();
+    order.sort_by_key(|index| natural[*index]);
+    let mut widths = vec![0; columns];
+    let mut budget = available;
+    for (rank, index) in order.into_iter().enumerate() {
+        let share = budget / (columns - rank);
+        widths[index] = natural[index].min(share);
+        budget -= widths[index];
+    }
+    Some(widths)
+}
+
+fn table_columns(table: &MarkdownTable) -> usize {
+    table
+        .rows
+        .iter()
+        .map(|row| row.cells.len())
+        .max()
+        .unwrap_or(0)
+}
+
+fn render_table(
+    table: &MarkdownTable,
+    theme: &ReviewTheme,
+    output: &mut RowOutput,
+    foreground: Rgba,
+    target: Option<MarkdownTargetId>,
+    prefix: &str,
+) {
+    let text = Style::new().fg(page_color(theme, foreground));
+    let border = Style::new().fg(page_color(theme, theme.diff.border));
+    let columns = table_columns(table);
+    let available =
+        usize::from(output.options.width).saturating_sub(prefix.width() + columns * 3 + 1);
+    let widths = table_column_widths(table, available, output.options.wrap);
+    for row in &table.rows {
+        let base = if row.header {
+            text.add_modifier(Modifier::BOLD)
+        } else {
+            text
+        };
+        let origin = RowOrigin {
+            source: &row.source,
+            target: row.target_id.or(target),
+        };
+        let Some(widths) = &widths else {
+            for cell in &row.cells {
+                output.push_wrapped(inline_spans(&cell.content, base, theme), prefix, origin);
+            }
+            continue;
+        };
+        if widths.is_empty() {
+            continue;
+        }
+        let cells = row
+            .cells
+            .iter()
+            .enumerate()
+            .map(|(index, cell)| {
+                fit_spans(
+                    inline_spans(&cell.content, base, theme),
+                    output.fit_options(u16::try_from(widths[index]).unwrap_or(u16::MAX), ""),
+                )
+            })
+            .collect::<Vec<_>>();
+        let height = cells.iter().map(Vec::len).max().unwrap_or(1);
+        for line in 0..height {
+            let mut spans = vec![Span::styled(format!("{prefix}│ "), border)];
+            for (index, cell_width) in widths.iter().copied().enumerate() {
+                if index > 0 {
+                    spans.push(Span::styled(" │ ", border));
+                }
+                let cell = cells.get(index).and_then(|rows| rows.get(line));
+                let padding = cell_width.saturating_sub(cell.map_or(0, Line::width));
+                let left = match table.alignments.get(index) {
+                    Some(MarkdownTableAlignment::Right) => padding,
+                    Some(MarkdownTableAlignment::Center) => padding / 2,
+                    _ => 0,
+                };
+                spans.push(Span::styled(" ".repeat(left), base));
+                if let Some(cell) = cell {
+                    spans.extend(cell.spans.iter().cloned());
+                }
+                spans.push(Span::styled(" ".repeat(padding - left), base));
+            }
+            spans.push(Span::styled(" │", border));
+            output.push_wrapped(spans, prefix, origin);
+        }
     }
 }
 
@@ -307,12 +822,9 @@ fn inline_spans(
     ) {
         match inline {
             MarkdownInline::Text(text) => output.push(Span::styled(text.clone(), style)),
-            MarkdownInline::Code(text) => output.push(Span::styled(
-                text.clone(),
-                style
-                    .fg(color(theme.markdown.code))
-                    .bg(color(theme.diff.border)),
-            )),
+            MarkdownInline::Code(text) => {
+                output.push(Span::styled(text.clone(), inline_code_style(style, theme)));
+            }
             MarkdownInline::Strong(children) => children.iter().for_each(|child| {
                 append(child, style.add_modifier(Modifier::BOLD), theme, output);
             }),
@@ -331,7 +843,7 @@ fn inline_spans(
                 append(
                     child,
                     style
-                        .fg(color(theme.markdown.link))
+                        .fg(page_color(theme, theme.markdown.link))
                         .add_modifier(Modifier::UNDERLINED),
                     theme,
                     output,
@@ -342,7 +854,7 @@ fn inline_spans(
             MarkdownInline::ImageAlt(text) => output.push(Span::styled(
                 format!("Image: {text}"),
                 style
-                    .fg(color(theme.markdown.link))
+                    .fg(page_color(theme, theme.markdown.link))
                     .add_modifier(Modifier::ITALIC),
             )),
         }
@@ -355,261 +867,197 @@ fn inline_spans(
     output
 }
 
-fn push_wrapped_spans(output: &mut Vec<Line<'static>>, spans: Vec<Span<'static>>, width: u16) {
-    let width = usize::from(width.max(1));
-    let mut rows = vec![Line::default()];
-    let mut used = 0usize;
-    for span in spans {
-        let style = span.style;
-        for character in span.content.chars() {
-            if character == '\n' {
-                rows.push(Line::default());
-                used = 0;
-                continue;
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceLineKey {
+    text: String,
+    source: SourceRange,
+    target: Option<MarkdownTargetId>,
+    styles: Vec<MarkdownSourceStyle>,
+    code: Option<(String, Arc<[HighlightSpan]>)>,
+}
+
+impl SourceLineKey {
+    fn matches(
+        &self,
+        text: &str,
+        source: &SourceRange,
+        target: Option<MarkdownTargetId>,
+        styles: &[&MarkdownSourceStyle],
+        code: Option<&(&str, Arc<[HighlightSpan]>)>,
+    ) -> bool {
+        self.text == text
+            && self.source == *source
+            && self.target == target
+            && self.styles.iter().eq(styles.iter().copied())
+            && self
+                .code
+                .as_ref()
+                .map(|(text, spans)| (text.as_str(), spans))
+                == code.map(|(text, spans)| (*text, spans))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CachedSourceLine {
+    key: Arc<SourceLineKey>,
+    rows: RowChunk,
+}
+
+fn source_rows(
+    document: &MarkdownDocument,
+    options: MarkdownLayoutOptions,
+    theme: &ReviewTheme,
+    highlighter: &mut SyntaxHighlighter,
+    cached: &[CachedSourceLine],
+    rows: &mut RowBuilder,
+) -> Vec<CachedSourceLine> {
+    let source = document.source();
+    let lines = source_line_ranges(source);
+    let code_style = fenced_code_style(theme);
+    let code_lines = source_code_lines(document, theme, highlighter);
+    let mut styles_by_line: Vec<Vec<&MarkdownSourceStyle>> = vec![Vec::new(); lines.len()];
+    for style in document.source_styles() {
+        for line in style.source.lines.start..=style.source.lines.end {
+            if let Some(bucket) = styles_by_line.get_mut(line.wrapping_sub(1)) {
+                bucket.push(style);
             }
-            let character_width = character.width().unwrap_or(0);
-            if used > 0 && used.saturating_add(character_width) > width {
-                rows.push(Line::default());
-                used = 0;
-            }
-            let row = rows.last_mut().expect("wrapping always retains one row");
-            if let Some(last) = row.spans.last_mut().filter(|last| last.style == style) {
-                last.content.to_mut().push(character);
-            } else {
-                row.spans.push(Span::styled(character.to_string(), style));
-            }
-            used = used.saturating_add(character_width);
         }
     }
-    output.extend(rows);
-}
-
-const fn color(value: Rgba) -> Color {
-    Color::Rgb(value.r, value.g, value.b)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn finished_stream_matches_one_shot_for_every_utf8_chunk_boundary() {
-        let source = "# Héading\n\nText with 世界.\n\n```rust\n/* open\nstill comment */\n```\n";
-        let options = MarkdownRenderOptions {
-            width: 36,
-            block_spacing: true,
-        };
-        let theme = ReviewTheme::default();
-        let expected = MarkdownRenderer::new().render_lines(
-            &MarkdownDocument::parse(source),
-            options,
-            &theme,
-            &mut SyntaxHighlighter::default(),
-        );
-
-        for split in source
-            .char_indices()
-            .map(|(offset, _)| offset)
-            .chain(std::iter::once(source.len()))
+    let mut target_by_line: Vec<Option<(usize, MarkdownTargetId)>> = vec![None; lines.len()];
+    for target in document.targets() {
+        for line in target.source.lines.start..=target.source.lines.end {
+            if let Some(slot) = target_by_line.get_mut(line.wrapping_sub(1)) {
+                let candidate = (target.source.bytes.len(), target.id);
+                if slot.is_none_or(|current| candidate.0 < current.0) {
+                    *slot = Some(candidate);
+                }
+            }
+        }
+    }
+    let base = Style::new().fg(page_color(theme, theme.diff.foreground));
+    let mut result = Vec::with_capacity(lines.len());
+    for (index, range) in lines.iter().enumerate() {
+        let raw = &source[range.bytes.clone()];
+        let text = raw.strip_suffix('\n').unwrap_or(raw);
+        let text = text.strip_suffix('\r').unwrap_or(text);
+        let target = target_by_line[index].map(|(_, id)| id);
+        let code_input = code_lines.get(&(index + 1));
+        let styles = &styles_by_line[index];
+        if let Some(cached) = cached
+            .get(index)
+            .filter(|cached| cached.key.matches(text, range, target, styles, code_input))
         {
-            let mut stream = MarkdownStream::new();
-            stream.push(&source[..split]);
-            stream.push(&source[split..]);
-            stream.finish();
-            let actual = MarkdownRenderer::new().render_stream_lines(
-                &mut StreamingMarkdownState::default(),
-                &stream,
-                options,
-                &theme,
-                &mut SyntaxHighlighter::default(),
-            );
-            assert_eq!(actual, expected, "split at byte {split}");
+            rows.reused(Arc::clone(&cached.rows));
+            result.push(cached.clone());
+            continue;
         }
-    }
-
-    #[test]
-    fn open_fence_stream_matches_the_current_one_shot_snapshot() {
-        let source = "Settled prose.\n\n```rust\n/* open\nstill open";
-        let mut stream = MarkdownStream::new();
-        for chunk in ["Settled prose.\n\n```rust\n", "/* open\n", "still open"] {
-            stream.push(chunk);
-        }
-        assert!(!stream.is_finished());
-        let options = MarkdownRenderOptions {
-            width: 48,
-            block_spacing: true,
+        let mut output = RowOutput::new(options);
+        let code = code_input.and_then(|(code, spans)| {
+            Some((
+                text.strip_suffix(code)?,
+                highlighted_line(code, spans, code_style),
+            ))
+        });
+        let spans = match code {
+            Some((prefix, line)) => {
+                let mut spans = vec![Span::styled(prefix.to_owned(), code_style)];
+                spans.extend(line.spans.iter().cloned());
+                spans
+            }
+            None => text
+                .grapheme_indices(true)
+                .map(|(offset, grapheme)| {
+                    let position = range.bytes.start + offset;
+                    let style = styles
+                        .iter()
+                        .filter(|style| style.source.bytes.contains(&position))
+                        .fold(base, |style, role| {
+                            source_role_style(role.role, style, theme)
+                        });
+                    Span::styled(grapheme.to_owned(), style)
+                })
+                .collect(),
         };
-        let theme = ReviewTheme::default();
-        let expected = MarkdownRenderer::new().render_lines(
-            &MarkdownDocument::parse(source),
-            options,
-            &theme,
-            &mut SyntaxHighlighter::default(),
-        );
-        let actual = MarkdownRenderer::new().render_stream_lines(
-            &mut StreamingMarkdownState::default(),
-            &stream,
-            options,
-            &theme,
-            &mut SyntaxHighlighter::default(),
-        );
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn finishing_an_open_fence_commits_its_partial_final_line() {
-        let source = "```rust\n/* open\nstill open";
-        let mut stream = MarkdownStream::new();
-        stream.push(source);
-        let mut state = StreamingMarkdownState::default();
-        let renderer = MarkdownRenderer::new();
-        let options = MarkdownRenderOptions::default();
-        let theme = ReviewTheme::default();
-        let mut highlighter = SyntaxHighlighter::default();
-        renderer.render_stream_lines(&mut state, &stream, options, &theme, &mut highlighter);
-        stream.finish();
-        let actual =
-            renderer.render_stream_lines(&mut state, &stream, options, &theme, &mut highlighter);
-        let expected = renderer.render_lines(
-            &MarkdownDocument::parse(source),
-            options,
-            &theme,
-            &mut SyntaxHighlighter::default(),
-        );
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn unchanged_stream_reuses_rendered_lines() {
-        let mut stream = MarkdownStream::new();
-        stream.push("settled\n\n");
-        let mut state = StreamingMarkdownState::default();
-        let renderer = MarkdownRenderer::new();
-        let mut highlighter = SyntaxHighlighter::default();
-        let theme = ReviewTheme::default();
-        let first = renderer.render_stream_lines(
-            &mut state,
-            &stream,
-            MarkdownRenderOptions::default(),
-            &theme,
-            &mut highlighter,
-        );
-        let second = renderer.render_stream_lines(
-            &mut state,
-            &stream,
-            MarkdownRenderOptions::default(),
-            &theme,
-            &mut highlighter,
-        );
-        assert!(Arc::ptr_eq(&first, &second));
-    }
-
-    #[test]
-    fn read_only_rendering_preserves_nested_inline_styles() {
-        let source = "**bold and *both***, ~~gone~~, [`link`](https://example.com), `code`.";
-        let lines = MarkdownRenderer::new().render_lines(
-            &MarkdownDocument::parse(source),
-            MarkdownRenderOptions::default(),
-            &ReviewTheme::default(),
-            &mut SyntaxHighlighter::default(),
-        );
-        let spans = &lines[0].spans;
-        let both = spans
-            .iter()
-            .find(|span| span.content.contains("both"))
-            .unwrap();
-        assert!(both.style.add_modifier.contains(Modifier::BOLD));
-        assert!(both.style.add_modifier.contains(Modifier::ITALIC));
-        let gone = spans
-            .iter()
-            .find(|span| span.content.contains("gone"))
-            .unwrap();
-        assert!(gone.style.add_modifier.contains(Modifier::CROSSED_OUT));
-        let link = spans
-            .iter()
-            .find(|span| span.content.contains("link"))
-            .unwrap();
-        assert!(link.style.add_modifier.contains(Modifier::UNDERLINED));
-        let code = spans
-            .iter()
-            .find(|span| span.content.contains("code"))
-            .unwrap();
-        assert!(code.style.bg.is_some());
-    }
-
-    #[test]
-    fn stream_stats_reset_and_changed_snapshots_parse_complete_context() {
-        let renderer = MarkdownRenderer::new();
-        let theme = ReviewTheme::default();
-        let options = MarkdownRenderOptions::default();
-        let mut stream = MarkdownStream::new();
-        let mut state = StreamingMarkdownState::default();
-        let mut highlighter = SyntaxHighlighter::default();
-        stream.push("first paragraph\n\n");
-        renderer.render_stream_lines(&mut state, &stream, options, &theme, &mut highlighter);
-        let first = state.take_stats();
-        assert_eq!(first.parsed_bytes, "first paragraph\n\n".len());
-        stream.push("second paragraph\n\n");
-        renderer.render_stream_lines(&mut state, &stream, options, &theme, &mut highlighter);
-        let second = state.take_stats();
-        assert_eq!(second.parsed_bytes, stream.source().len());
-        assert_eq!(state.take_stats(), MarkdownRenderStats::default());
-
-        stream.replace("replacement is longer than both prior paragraphs\n\n");
-        let replaced =
-            renderer.render_stream_lines(&mut state, &stream, options, &theme, &mut highlighter);
-        let expected = renderer.render_lines(
-            &MarkdownDocument::parse(stream.source()),
-            options,
-            &theme,
-            &mut SyntaxHighlighter::default(),
-        );
-        assert_eq!(replaced, expected);
-        assert_eq!(state.take_stats().parsed_bytes, stream.source().len());
-    }
-
-    #[test]
-    fn stream_cache_invalidates_for_spacing_and_markdown_palette_changes() {
-        let mut stream = MarkdownStream::new();
-        stream.push("# Heading\n\nParagraph\n\n");
-        let mut state = StreamingMarkdownState::default();
-        let renderer = MarkdownRenderer::new();
-        let mut highlighter = SyntaxHighlighter::default();
-        let theme = ReviewTheme::default();
-        let spaced = renderer.render_stream_lines(
-            &mut state,
-            &stream,
-            MarkdownRenderOptions {
-                width: 80,
-                block_spacing: true,
+        output.push_wrapped(
+            spans,
+            "",
+            RowOrigin {
+                source: range,
+                target,
             },
-            &theme,
-            &mut highlighter,
         );
-        let compact = renderer.render_stream_lines(
-            &mut state,
-            &stream,
-            MarkdownRenderOptions {
-                width: 80,
-                block_spacing: false,
-            },
-            &theme,
-            &mut highlighter,
-        );
-        assert_ne!(spaced, compact);
+        let chunk: RowChunk = output.rows.into();
+        rows.generated(Arc::clone(&chunk));
+        result.push(CachedSourceLine {
+            key: Arc::new(SourceLineKey {
+                text: text.to_owned(),
+                source: range.clone(),
+                target,
+                styles: styles.iter().copied().cloned().collect(),
+                code: code_input.map(|(text, spans)| ((*text).to_owned(), Arc::clone(spans))),
+            }),
+            rows: chunk,
+        });
+    }
+    result
+}
 
-        let mut changed = theme.clone();
-        changed.markdown.heading = Rgba::new(1, 2, 3, 255);
-        let recolored = renderer.render_stream_lines(
-            &mut state,
-            &stream,
-            MarkdownRenderOptions {
-                width: 80,
-                block_spacing: false,
-            },
-            &changed,
-            &mut highlighter,
-        );
-        assert_ne!(compact, recolored);
+/// Byte and line ranges of every source line, including its line ending.
+fn source_line_ranges(source: &str) -> Vec<SourceRange> {
+    let mut start = 0;
+    source
+        .split('\n')
+        .enumerate()
+        .map(|(index, text)| {
+            let end = (start + text.len() + 1).min(source.len());
+            let range = SourceRange {
+                bytes: start..end,
+                lines: MarkdownLineRange {
+                    start: index + 1,
+                    end: index + 1,
+                },
+            };
+            start = end;
+            range
+        })
+        .collect()
+}
+
+fn source_code_lines<'a>(
+    document: &'a MarkdownDocument,
+    theme: &ReviewTheme,
+    highlighter: &mut SyntaxHighlighter,
+) -> HashMap<usize, (&'a str, Arc<[HighlightSpan]>)> {
+    let mut lines = HashMap::new();
+    for code in document.code_blocks() {
+        let highlights = highlight_code_block(code, theme, highlighter);
+        for (index, line) in code.lines.iter().enumerate() {
+            if let Some(source_line) = line.source_line {
+                lines.insert(
+                    source_line,
+                    (
+                        line.text.as_str(),
+                        highlights.line_shared(index).unwrap_or_default(),
+                    ),
+                );
+            }
+        }
+    }
+    lines
+}
+
+fn source_role_style(role: MarkdownSourceRole, style: Style, theme: &ReviewTheme) -> Style {
+    match role {
+        MarkdownSourceRole::Heading => style
+            .fg(page_color(theme, theme.markdown.heading))
+            .add_modifier(Modifier::BOLD),
+        MarkdownSourceRole::Link => style
+            .fg(page_color(theme, theme.markdown.link))
+            .add_modifier(Modifier::UNDERLINED),
+        MarkdownSourceRole::Quote => style.fg(page_color(theme, theme.markdown.quote)),
+        MarkdownSourceRole::Code => inline_code_style(style, theme),
+        MarkdownSourceRole::Strong => style.add_modifier(Modifier::BOLD),
+        MarkdownSourceRole::Emphasis => style.add_modifier(Modifier::ITALIC),
+        MarkdownSourceRole::Strikethrough => style.add_modifier(Modifier::CROSSED_OUT),
     }
 }

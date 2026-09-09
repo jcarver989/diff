@@ -8,12 +8,12 @@ use crate::{
     state::RepositoryPrompt,
     style::syntax_style,
     theme_picker::render_theme_picker,
-    ui::{ActionBar, AppFrame, EmptyState, Modal, NoticeTone, render_modal_text},
+    ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
 use clankerdiff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
 use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Position, Rect},
@@ -391,7 +391,7 @@ struct RowStyle {
 
 struct CellContext<'a> {
     theme: &'a RatatuiTheme,
-    diff_theme: &'a DiffTheme,
+    diff_theme: &'a ReviewTheme,
     highlighter: &'a mut SyntaxHighlighter,
     presentation: &'a clankerdiff_core::DiffPresentation,
     row: &'a PresentedRow,
@@ -519,7 +519,7 @@ fn render_cell(
     );
     let highlights = crate::diff_preview::cell_highlights(
         context.highlighter,
-        context.diff_theme,
+        &context.diff_theme.syntax,
         context.presentation,
         context.row,
         cell,
@@ -638,7 +638,7 @@ fn render_footer(
 }
 
 fn render_help(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
-    let content = Modal::new("Review shortcuts", theme)
+    let content = Modal::new("Review shortcuts", ModalSize::Medium, theme)
         .hint("? / Esc to close")
         .render(area, buffer);
     render_modal_text(

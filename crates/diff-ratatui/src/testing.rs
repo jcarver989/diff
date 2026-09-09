@@ -1,18 +1,15 @@
 //! Reusable test and benchmark support.
-//!
-//! Enable the `test-support` feature from integration tests and benchmarks
-//! alongside the features whose support is needed. The review harness owns a
-//! real Ratatui terminal and the production review state so input, rendering,
-//! terminal diffing, and syntax caches are all exercised together.
 
 mod backend;
-#[cfg(feature = "markdown")]
+mod buffer;
+mod input;
 mod markdown;
-#[cfg(feature = "diff-review")]
+mod markdown_review;
 mod review;
 
 pub use backend::{BackendStats, CountingBackend};
-#[cfg(feature = "markdown")]
+pub use buffer::{buffer_row_text, buffer_text};
+pub use input::{key, key_with, mouse};
 pub use markdown::MarkdownStreamFixture;
-#[cfg(feature = "diff-review")]
+pub use markdown_review::*;
 pub use review::*;

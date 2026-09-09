@@ -6,6 +6,7 @@ mod render;
 mod state;
 
 pub use clankerdiff_markdown::MarkdownReviewEvent;
+#[cfg(feature = "crossterm-backend")]
 pub use input::handle_crossterm_event;
 pub use render::MarkdownReviewWidget;
 pub use state::{MarkdownFocusPane, MarkdownReviewState};

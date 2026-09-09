@@ -3,7 +3,7 @@
 mod support;
 
 use clankerdiff_core::{DiffDocument, testing::DocumentBuilder};
-use crossterm::event::{KeyCode, MouseEventKind};
+use clankerdiff_ratatui::{KeyCode, MouseEventKind};
 use std::sync::Arc;
 use support::{ReviewHarness, key, mouse};
 

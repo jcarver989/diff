@@ -59,7 +59,7 @@ fn run(
                 }
             })?;
         }
-        match handle_markdown_crossterm_event(&mut state, event::read()?)? {
+        match handle_markdown_crossterm_event(&mut state, event::read()?)?.into_event() {
             Some(MarkdownReviewEvent::Submit(submission)) => return Ok(Some(submission)),
             Some(MarkdownReviewEvent::Cancel) => return Ok(None),
             Some(MarkdownReviewEvent::CopyFormatted(_)) | None => {}

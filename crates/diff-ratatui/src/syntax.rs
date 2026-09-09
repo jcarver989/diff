@@ -1,5 +1,6 @@
 //! Conversion of renderer-neutral syntax spans to Ratatui text.
 
+use crate::color::native_color;
 use clankerdiff_syntax::HighlightSpan;
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -32,10 +33,9 @@ pub fn highlighted_line(source: &str, spans: &[HighlightSpan], base: Style) -> L
         modifiers.set(Modifier::ITALIC, span.font_style.italic);
         modifiers.set(Modifier::UNDERLINED, span.font_style.underline);
         let syntax = Style::new()
-            .fg(Color::Rgb(
-                span.foreground.r,
-                span.foreground.g,
-                span.foreground.b,
+            .fg(native_color(
+                span.foreground,
+                base.bg.unwrap_or(Color::Black),
             ))
             .add_modifier(modifiers);
         output.push(Span::styled(

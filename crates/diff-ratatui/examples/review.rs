@@ -138,7 +138,7 @@ fn run_tui(scope: DiffScope, document: Arc<DiffDocument>) -> io::Result<Outcome>
 }
 
 fn apply_event(state: &mut DiffReviewState, event: Event) -> Option<Outcome> {
-    match handle_crossterm_event(state, event) {
+    match handle_crossterm_event(state, event).into_event() {
         Some(DiffReviewEvent::SetScope(scope)) => {
             state.set_scope(scope);
             None

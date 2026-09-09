@@ -1,15 +1,11 @@
-use super::{BackendStats, CountingBackend};
-use crate::{DiffReviewInput, DiffReviewState, DiffReviewWidget};
-#[cfg(feature = "markdown-review")]
-use crate::{MarkdownReviewInput, MarkdownReviewState, MarkdownReviewWidget};
+//! Diff review harness, input builders, and a one-shot renderer.
+
+use super::{BackendStats, CountingBackend, buffer_row_text, buffer_text, key};
+use crate::KeyCode;
+use crate::{DiffReviewState, DiffReviewWidget, ReviewInput};
 use clankerdiff_core::DiffDocument;
 use clankerdiff_syntax::HighlightStats;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-use ratatui::{
-    Terminal,
-    backend::TestBackend,
-    buffer::{Buffer, Cell},
-};
+use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 use std::sync::Arc;
 
 /// Deterministic work performed while drawing one frame.
@@ -115,7 +111,7 @@ impl ReviewHarness {
         FrameStats::new(self.terminal.backend_mut().take_stats(), before, after)
     }
 
-    pub fn input(&mut self, input: DiffReviewInput) {
+    pub fn input(&mut self, input: ReviewInput) {
         let _ = self.state.handle_input(input);
     }
 
@@ -129,7 +125,7 @@ impl ReviewHarness {
         }
     }
 
-    pub fn input_and_draw(&mut self, input: DiffReviewInput) -> FrameStats {
+    pub fn input_and_draw(&mut self, input: ReviewInput) -> FrameStats {
         self.input(input);
         self.draw()
     }
@@ -218,94 +214,9 @@ pub fn render_review(state: &mut DiffReviewState, width: u16, height: u16) -> St
     buffer_text(terminal.backend().buffer())
 }
 
-/// Renders a Markdown review state and returns its visible text.
-///
-/// # Panics
-///
-/// Panics if the in-memory test terminal cannot initialize or draw.
-#[cfg(feature = "markdown-review")]
-pub fn render_markdown_review(state: &mut MarkdownReviewState, width: u16, height: u16) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
-    terminal
-        .draw(|frame| {
-            frame.render_stateful_widget(MarkdownReviewWidget::new(), frame.area(), state);
-            if let Some(position) = state.cursor_position() {
-                frame.set_cursor_position(position);
-            }
-        })
-        .expect("draw Markdown review widget");
-    buffer_text(terminal.backend().buffer())
-}
-
-/// Converts a rendered buffer to fixed-width text rows without snapshot files.
-#[must_use]
-pub fn buffer_text(buffer: &Buffer) -> String {
-    (buffer.area.top()..buffer.area.bottom())
-        .map(|row| buffer_row_text(buffer, row))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Returns one rendered row from a buffer.
-#[must_use]
-pub fn buffer_row_text(buffer: &Buffer, row: u16) -> String {
-    (buffer.area.left()..buffer.area.right())
-        .filter_map(|column| buffer.cell((column, row)))
-        .map(Cell::symbol)
-        .collect()
-}
-
-#[must_use]
-pub fn key(code: KeyCode) -> DiffReviewInput {
-    DiffReviewInput::Key(KeyEvent::new(code, KeyModifiers::NONE))
-}
-
-#[must_use]
-pub fn key_with(code: KeyCode, modifiers: KeyModifiers) -> DiffReviewInput {
-    DiffReviewInput::Key(KeyEvent::new(code, modifiers))
-}
-
 /// Types text through the diff review input boundary.
 pub fn type_review_text(state: &mut DiffReviewState, text: &str) {
     for character in text.chars() {
         let _ = state.handle_input(key(KeyCode::Char(character)));
     }
-}
-
-/// Builds a Markdown review key input.
-#[cfg(feature = "markdown-review")]
-#[must_use]
-pub fn markdown_key(code: KeyCode) -> MarkdownReviewInput {
-    MarkdownReviewInput::Key(KeyEvent::new(code, KeyModifiers::NONE))
-}
-
-/// Builds a Markdown review mouse input.
-#[cfg(feature = "markdown-review")]
-#[must_use]
-pub fn markdown_mouse(kind: MouseEventKind, column: u16, row: u16) -> MarkdownReviewInput {
-    MarkdownReviewInput::Mouse(MouseEvent {
-        kind,
-        column,
-        row,
-        modifiers: KeyModifiers::NONE,
-    })
-}
-
-/// Types text through the Markdown review input boundary.
-#[cfg(feature = "markdown-review")]
-pub fn type_markdown_text(state: &mut MarkdownReviewState, text: &str) {
-    for character in text.chars() {
-        let _ = state.handle_input(markdown_key(KeyCode::Char(character)));
-    }
-}
-
-/// A mouse event at a terminal cell, for exercising pointer hit tests.
-#[must_use]
-pub fn mouse(kind: MouseEventKind, column: u16, row: u16) -> DiffReviewInput {
-    DiffReviewInput::Mouse(MouseEvent {
-        kind,
-        column,
-        row,
-        modifiers: KeyModifiers::NONE,
-    })
 }

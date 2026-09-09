@@ -1,6 +1,9 @@
 //! Diff-specific adaptation from review annotations to visual patch rows.
 
-use crate::annotation::{AnnotationBox, AnnotationKind, AnnotationLayout, AnnotationRow};
+use crate::{
+    annotation::{AnnotationBox, AnnotationKind},
+    annotation_layout::{AnnotationLayout, AnnotationRow},
+};
 use clankerdiff_core::{CommentDraft, ReviewComment, ReviewSession};
 use std::{collections::BTreeMap, ops::Range};
 

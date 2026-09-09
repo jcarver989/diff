@@ -8,7 +8,7 @@ use clankerdiff_core::{
     RevealAmount, Review, ReviewSession, StageState, ViewMode,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use ratatui::layout::{Position, Rect};
 use std::{
     collections::hash_map::DefaultHasher,
@@ -84,7 +84,7 @@ struct CachedPatchLayout {
 pub struct DiffReviewState {
     pub(crate) session: ReviewSession,
     pub(crate) scope: DiffScope,
-    pub(crate) theme: DiffTheme,
+    pub(crate) theme: ReviewTheme,
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) status: DiffReviewStatus,
     pub(crate) focus: FocusPane,
@@ -113,12 +113,12 @@ impl DiffReviewState {
     /// Creates ready state from an immutable document snapshot.
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
-        Self::with_theme(document, DiffTheme::default())
+        Self::with_theme(document, ReviewTheme::default())
     }
 
     /// Creates ready state with a shared neutral theme.
     #[must_use]
-    pub fn with_theme(document: Arc<DiffDocument>, theme: DiffTheme) -> Self {
+    pub fn with_theme(document: Arc<DiffDocument>, theme: ReviewTheme) -> Self {
         let drawer = DrawerTree::new(&document);
         let drawer_selected = drawer.position_of_file(0).unwrap_or(0);
         let mut state = Self {
@@ -232,7 +232,7 @@ impl DiffReviewState {
 
     /// Returns the active renderer-neutral theme.
     #[must_use]
-    pub const fn theme(&self) -> &DiffTheme {
+    pub const fn theme(&self) -> &ReviewTheme {
         &self.theme
     }
 
@@ -396,7 +396,7 @@ impl DiffReviewState {
     }
 
     /// Changes the neutral theme and clears cached syntax spans.
-    pub fn set_theme(&mut self, theme: DiffTheme) {
+    pub fn set_theme(&mut self, theme: ReviewTheme) {
         self.theme = theme;
         self.highlighter.clear_cache();
         self.mark_dirty();

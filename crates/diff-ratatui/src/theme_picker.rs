@@ -1,6 +1,9 @@
-use crate::{RatatuiTheme, ui::Modal};
-use clankerdiff_theme::{DiffTheme, SelectionState, ThemeDescriptor};
-use crossterm::event::{KeyCode, KeyEvent};
+use crate::{KeyCode, KeyEvent};
+use crate::{
+    RatatuiTheme,
+    ui::{Modal, ModalSize},
+};
+use clankerdiff_theme::{ReviewTheme, SelectionState, ThemeDescriptor};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -13,19 +16,19 @@ use ratatui::{
 pub(crate) struct ThemePicker {
     themes: Vec<ThemeDescriptor>,
     selected: usize,
-    original: DiffTheme,
+    original: ReviewTheme,
 }
 
 pub(crate) enum ThemePickerAction {
-    Preview(DiffTheme),
-    Restore(DiffTheme),
+    Preview(ReviewTheme),
+    Restore(ReviewTheme),
     Commit,
     None,
 }
 
 impl ThemePicker {
-    pub(crate) fn new(current: &DiffTheme) -> Self {
-        let themes = DiffTheme::catalog();
+    pub(crate) fn new(current: &ReviewTheme) -> Self {
+        let themes = ReviewTheme::catalog();
         let current_id = current.id().to_string();
         let selected = themes
             .iter()
@@ -58,8 +61,26 @@ impl ThemePicker {
 
     fn select(&mut self, selected: usize) -> ThemePickerAction {
         self.selected = selected;
-        DiffTheme::builtin(&self.themes[self.selected].id)
+        ReviewTheme::builtin(&self.themes[self.selected].id)
             .map_or(ThemePickerAction::None, ThemePickerAction::Preview)
+    }
+}
+
+/// Routes a key to an open picker. Returns a theme to apply when the picker
+/// previews or restores one, and closes the picker on commit or restore.
+pub(crate) fn apply_key(picker: &mut Option<ThemePicker>, key: KeyEvent) -> Option<ReviewTheme> {
+    let open = picker.as_mut()?;
+    match open.handle_key(key) {
+        ThemePickerAction::Preview(theme) => Some(theme),
+        ThemePickerAction::Restore(theme) => {
+            *picker = None;
+            Some(theme)
+        }
+        ThemePickerAction::Commit => {
+            *picker = None;
+            None
+        }
+        ThemePickerAction::None => None,
     }
 }
 
@@ -69,7 +90,7 @@ pub(crate) fn render_theme_picker(
     picker: &ThemePicker,
     theme: &RatatuiTheme,
 ) {
-    let popup = Modal::new("Theme", theme)
+    let popup = Modal::new("Theme", ModalSize::Medium, theme)
         .hint("j/k preview · Enter save · Esc cancel")
         .render(area, buffer);
     if popup.is_empty() {
@@ -91,39 +112,4 @@ pub(crate) fn render_theme_picker(
         .highlight_style(theme.ui.selection_style(SelectionState::Selected))
         .highlight_symbol("› ");
     StatefulWidget::render(list, popup, buffer, &mut state);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clankerdiff_theme::ThemeId;
-    use crossterm::event::KeyModifiers;
-
-    fn key(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, KeyModifiers::NONE)
-    }
-
-    #[test]
-    fn previews_navigation_and_restores_original_theme() {
-        let original = DiffTheme::default();
-        let mut picker = ThemePicker::new(&original);
-        let ThemePickerAction::Preview(preview) = picker.handle_key(key(KeyCode::Down)) else {
-            panic!("down should preview a theme");
-        };
-        assert_ne!(preview.id(), &ThemeId::Sage);
-
-        let ThemePickerAction::Restore(restored) = picker.handle_key(key(KeyCode::Esc)) else {
-            panic!("escape should restore the opening theme");
-        };
-        assert_eq!(restored.id(), &ThemeId::Sage);
-    }
-
-    #[test]
-    fn enter_commits_selection() {
-        let mut picker = ThemePicker::new(&DiffTheme::default());
-        assert!(matches!(
-            picker.handle_key(key(KeyCode::Enter)),
-            ThemePickerAction::Commit
-        ));
-    }
 }

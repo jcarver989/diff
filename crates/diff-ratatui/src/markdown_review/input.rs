@@ -4,9 +4,11 @@ use crate::{
     interaction::{self, ReviewWidget},
     theme_picker::ThemePicker,
 };
+use crate::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
 use clankerdiff_markdown::{MarkdownCommentDraft, MarkdownReviewError};
 use clankerdiff_theme::ReviewTheme;
-use crossterm::event::{Event, KeyCode, KeyEvent, MouseEvent, MouseEventKind};
+#[cfg(feature = "crossterm-backend")]
+use crossterm::event::Event;
 use ratatui::layout::Position;
 
 /// Converts one Crossterm event and applies it to Markdown review state.
@@ -19,11 +21,12 @@ use ratatui::layout::Position;
 ///
 /// Returns [`MarkdownReviewError::BlankComment`] when an approval or
 /// request-changes action encounters a blank comment body.
+#[cfg(feature = "crossterm-backend")]
 pub fn handle_crossterm_event(
     state: &mut MarkdownReviewState,
     event: Event,
 ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
-    interaction::handle_event(state, event)
+    crate::crossterm_adapter::handle_event(state, event)
 }
 
 impl MarkdownReviewState {

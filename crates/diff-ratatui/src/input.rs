@@ -1,122 +1,136 @@
 //! Crossterm keyboard, mouse, and paste input helpers.
 
 use crate::{
-    DiffReviewState, FocusPane,
+    DiffReviewState, FocusPane, InputOutcome, InteractionPhase, ReviewInput,
+    interaction::{self, ReviewWidget},
     state::{RepositoryOperationStatus, RepositoryPrompt},
-    theme_picker::{ThemePicker, ThemePickerAction},
+    theme_picker::ThemePicker,
 };
-use clankerdiff_core::{DiffReviewEvent, DiffSide, RepositoryAction, RevealAmount};
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
-};
+use crate::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use clankerdiff_core::{CommentDraft, DiffReviewEvent, DiffSide, RepositoryAction, RevealAmount};
+use clankerdiff_theme::ReviewTheme;
+#[cfg(feature = "crossterm-backend")]
+use crossterm::event::Event;
 use ratatui::layout::Position;
+use std::convert::Infallible;
 
-/// Files one wheel notch scrolls the drawer. A notch is a line, not a file, so
-/// the drawer moves one entry at a time.
 const DRAWER_WHEEL_ROWS: isize = 1;
-
-/// Framework-neutral input accepted by [`DiffReviewState::handle_input`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DiffReviewInput {
-    /// A Crossterm key event.
-    Key(KeyEvent),
-    /// Pasted text.
-    Paste(String),
-    /// A Crossterm mouse event.
-    Mouse(MouseEvent),
-}
 
 /// Converts one Crossterm event and applies it to state.
 ///
 /// Non-input events and key releases are ignored.
+#[cfg(feature = "crossterm-backend")]
 #[must_use]
 pub fn handle_crossterm_event(
     state: &mut DiffReviewState,
     event: Event,
-) -> Option<DiffReviewEvent> {
-    match event {
-        Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
-            state.handle_input(DiffReviewInput::Key(key))
-        }
-        Event::Paste(text) => state.handle_input(DiffReviewInput::Paste(text)),
-        Event::Mouse(mouse) => state.handle_input(DiffReviewInput::Mouse(mouse)),
-        Event::Resize(..) => {
-            state.mark_dirty();
-            None
-        }
-        _ => None,
-    }
+) -> InputOutcome<DiffReviewEvent> {
+    let Ok(outcome) = crate::crossterm_adapter::handle_event(state, event);
+    outcome
 }
 
 impl DiffReviewState {
     #[must_use]
-    pub fn handle_input(&mut self, input: DiffReviewInput) -> Option<DiffReviewEvent> {
-        match input {
-            DiffReviewInput::Key(key) => {
-                self.mark_dirty();
-                self.handle_key(key)
-            }
-            DiffReviewInput::Paste(text) => {
-                if let Some(draft) = self.session.draft_mut() {
-                    draft.insert(&text);
-                    self.request_follow();
-                }
-                None
-            }
-            DiffReviewInput::Mouse(mouse) => self.handle_mouse(mouse),
+    pub fn interaction_phase(&self) -> InteractionPhase {
+        if self.theme_picker.is_some() {
+            InteractionPhase::ThemePicker
+        } else if self.repository_prompt.is_some() {
+            InteractionPhase::RepositoryPrompt
+        } else if self.help {
+            InteractionPhase::Help
+        } else if self.session.draft().is_some() {
+            InteractionPhase::Draft
+        } else {
+            InteractionPhase::Browse
         }
     }
 
-    fn handle_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
-        if let Some(picker) = self.theme_picker.as_mut() {
-            let action = picker.handle_key(key);
-            match action {
-                ThemePickerAction::Preview(theme) => self.set_theme(theme),
-                ThemePickerAction::Restore(theme) => {
-                    self.set_theme(theme);
-                    self.theme_picker = None;
-                }
-                ThemePickerAction::Commit => self.theme_picker = None,
-                ThemePickerAction::None => {}
-            }
-            return None;
-        }
-        if self.repository_prompt.is_some() {
-            return self.handle_repository_prompt_key(key);
-        }
-        if self.help {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-                self.help = false;
-            }
-            return None;
-        }
-        if self.session.draft().is_some() {
-            self.handle_draft_key(key);
-            return None;
-        }
-        let cancels = key.code == KeyCode::Esc
-            || (key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL));
-        if cancels {
-            return Some(DiffReviewEvent::Cancel);
-        }
-        if key
-            .modifiers
-            .intersects(KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::CONTROL)
-        {
-            return None;
-        }
-        self.handle_browse_key(key)
+    #[must_use]
+    pub fn handle_input(&mut self, input: ReviewInput) -> InputOutcome<DiffReviewEvent> {
+        let Ok(outcome) = interaction::handle_input(self, input);
+        outcome
+    }
+}
+
+impl ReviewWidget for DiffReviewState {
+    type Event = DiffReviewEvent;
+    type Error = Infallible;
+    type Draft = CommentDraft;
+
+    fn phase(&self) -> InteractionPhase {
+        self.interaction_phase()
     }
 
+    fn contains(&self, position: Position) -> bool {
+        self.hit_layout.drawer.contains(position) || self.hit_layout.patch.contains(position)
+    }
+
+    fn mark_dirty(&mut self) {
+        Self::mark_dirty(self);
+    }
+
+    fn draft_mut(&mut self) -> Option<&mut CommentDraft> {
+        self.session.draft_mut()
+    }
+
+    fn cancel_draft(&mut self) {
+        self.session.cancel_draft();
+    }
+
+    fn submit_draft(&mut self) {
+        self.session.submit_draft();
+    }
+
+    fn draft_changed(&mut self, closed: bool) {
+        if closed {
+            self.cursor_position = None;
+        } else {
+            self.request_follow();
+        }
+    }
+
+    fn theme_picker(&mut self) -> &mut Option<ThemePicker> {
+        &mut self.theme_picker
+    }
+
+    fn set_theme(&mut self, theme: ReviewTheme) {
+        Self::set_theme(self, theme);
+    }
+
+    fn close_help(&mut self) {
+        self.help = false;
+    }
+
+    fn cancel_event() -> DiffReviewEvent {
+        DiffReviewEvent::Cancel
+    }
+
+    fn handle_browse_key(
+        &mut self,
+        key: KeyEvent,
+    ) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
+        Ok(self.handle_browse_key(key))
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
+        self.handle_mouse(mouse)
+    }
+
+    fn handle_prompt_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
+        self.handle_repository_prompt_key(key)
+    }
+}
+
+impl DiffReviewState {
     #[allow(clippy::too_many_lines)]
-    fn handle_browse_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
+    fn handle_browse_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
         if matches!(self.repository_status, RepositoryOperationStatus::Pending)
             && matches!(
                 key.code,
                 KeyCode::Char(' ' | 'a' | 'A' | 'C' | 'S' | 'd' | 'r')
             )
         {
-            return None;
+            return InputOutcome::Consumed;
         }
         let in_diff = self.focus == FocusPane::Diff;
         match key.code {
@@ -170,25 +184,27 @@ impl DiffReviewState {
                 }
             }
             KeyCode::Char('s') if in_diff => {
-                return Some(DiffReviewEvent::SubmitReview(self.session.submission()));
+                return InputOutcome::Emitted(DiffReviewEvent::SubmitReview(
+                    self.session.submission(),
+                ));
             }
             KeyCode::Char('y') if in_diff => {
-                return Some(DiffReviewEvent::CopyFormattedReview(
+                return InputOutcome::Emitted(DiffReviewEvent::CopyFormattedReview(
                     self.session.submission().formatted,
                 ));
             }
             KeyCode::Char(' ') if self.focus == FocusPane::Files => {
                 if let Some(action) = self.toggle_stage_action() {
-                    return Some(DiffReviewEvent::RepositoryAction(action));
+                    return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(action));
                 }
             }
             KeyCode::Char('a') if self.focus == FocusPane::Files => {
-                return Some(DiffReviewEvent::RepositoryAction(
+                return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(
                     RepositoryAction::StageAll,
                 ));
             }
             KeyCode::Char('A') if self.focus == FocusPane::Files => {
-                return Some(DiffReviewEvent::RepositoryAction(
+                return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(
                     RepositoryAction::UnstageAll,
                 ));
             }
@@ -221,12 +237,12 @@ impl DiffReviewState {
                 }
             }
             KeyCode::Char('S') => {
-                return Some(DiffReviewEvent::SetScope(self.scope.next()));
+                return InputOutcome::Emitted(DiffReviewEvent::SetScope(self.scope.next()));
             }
             KeyCode::Char('?') => self.help = true,
-            _ => {}
+            _ => return InputOutcome::Ignored,
         }
-        None
+        InputOutcome::Consumed
     }
 
     fn move_focused(&mut self, delta: isize) {
@@ -236,8 +252,11 @@ impl DiffReviewState {
         }
     }
 
-    fn handle_repository_prompt_key(&mut self, key: KeyEvent) -> Option<DiffReviewEvent> {
-        match self.repository_prompt.as_mut()? {
+    fn handle_repository_prompt_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
+        let Some(prompt) = self.repository_prompt.as_mut() else {
+            return InputOutcome::Consumed;
+        };
+        match prompt {
             RepositoryPrompt::Commit { message } => match key.code {
                 KeyCode::Esc => self.repository_prompt = None,
                 KeyCode::Enter => {
@@ -246,7 +265,7 @@ impl DiffReviewState {
                         self.set_repository_error("Commit message cannot be empty");
                     } else {
                         self.repository_prompt = None;
-                        return Some(DiffReviewEvent::RepositoryAction(
+                        return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(
                             RepositoryAction::Commit { message },
                         ));
                     }
@@ -268,49 +287,16 @@ impl DiffReviewState {
                         status: *status,
                     };
                     self.repository_prompt = None;
-                    return Some(DiffReviewEvent::RepositoryAction(action));
+                    return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(action));
                 }
                 KeyCode::Char('n' | 'N') | KeyCode::Esc => self.repository_prompt = None,
                 _ => {}
             },
         }
-        None
+        InputOutcome::Consumed
     }
 
-    fn handle_draft_key(&mut self, key: KeyEvent) {
-        if key.code == KeyCode::Esc {
-            self.session.cancel_draft();
-            self.cursor_position = None;
-            return;
-        }
-        if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {
-            self.session.submit_draft();
-            self.cursor_position = None;
-            return;
-        }
-        let Some(draft) = self.session.draft_mut() else {
-            return;
-        };
-        match key.code {
-            KeyCode::Enter => draft.insert("\n"),
-            KeyCode::Left => draft.move_cursor_left(),
-            KeyCode::Right => draft.move_cursor_right(),
-            KeyCode::Home => draft.move_cursor_to_start(),
-            KeyCode::End => draft.move_cursor_to_end(),
-            KeyCode::Backspace => draft.delete_before_cursor(),
-            KeyCode::Delete => draft.delete_at_cursor(),
-            KeyCode::Char(character)
-                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
-            {
-                let mut buffer = [0_u8; 4];
-                draft.insert(character.encode_utf8(&mut buffer));
-            }
-            _ => {}
-        }
-        self.request_follow();
-    }
-
-    fn handle_mouse(&mut self, mouse: MouseEvent) -> Option<DiffReviewEvent> {
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
         let position = Position::new(mouse.column, mouse.row);
         match mouse.kind {
             MouseEventKind::ScrollUp => self.scroll_at(position, -1),
@@ -325,7 +311,7 @@ impl DiffReviewState {
                         && !matches!(self.repository_status, RepositoryOperationStatus::Pending)
                         && let Some(action) = self.toggle_stage_action()
                     {
-                        return Some(DiffReviewEvent::RepositoryAction(action));
+                        return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(action));
                     }
                 } else if self.hit_layout.patch.contains(position) {
                     self.focus = FocusPane::Diff;
@@ -333,11 +319,9 @@ impl DiffReviewState {
                     self.mark_dirty();
                 }
             }
-            // Motion, drag, and button releases change nothing that is drawn,
-            // and a terminal in all-motion mode reports one per pointer step.
             _ => {}
         }
-        None
+        InputOutcome::Consumed
     }
 
     /// Navigates the pane under the pointer, falling back to the focused pane
