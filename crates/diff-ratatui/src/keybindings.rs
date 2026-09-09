@@ -82,7 +82,10 @@ pub(crate) fn binding_for_key<T>(
     document: bool,
     split: bool,
 ) -> Option<&KeyBinding<T>> {
-    bindings.iter().rev().find(|binding| binding.matches(key, document, split))
+    bindings
+        .iter()
+        .rev()
+        .find(|binding| binding.matches(key, document, split))
 }
 
 pub(crate) fn help_bindings<T>(
@@ -110,13 +113,21 @@ pub(crate) fn footer_hint<T: PartialEq>(
     help: &T,
     width: usize,
 ) -> String {
-    let active: Vec<_> = bindings.iter().filter(|binding| {
-        enabled(&binding.command)
-            && binding_for_key(bindings, binding.key, document, split)
-                .is_some_and(|resolved| ptr::eq(resolved, *binding))
-    }).collect();
-    let help = active.iter().find(|binding| &binding.command == help).copied();
-    let help_hint = help.map(KeyBinding::hint).filter(|hint| hint.width() <= width);
+    let active: Vec<_> = bindings
+        .iter()
+        .filter(|binding| {
+            enabled(&binding.command)
+                && binding_for_key(bindings, binding.key, document, split)
+                    .is_some_and(|resolved| ptr::eq(resolved, *binding))
+        })
+        .collect();
+    let help = active
+        .iter()
+        .find(|binding| &binding.command == help)
+        .copied();
+    let help_hint = help
+        .map(KeyBinding::hint)
+        .filter(|hint| hint.width() <= width);
     let mut remaining = width.saturating_sub(help_hint.as_ref().map_or(0, |hint| hint.width() + 2));
     let mut commands = Vec::new();
     let mut hints = Vec::new();
@@ -282,11 +293,19 @@ pub(crate) fn markdown_command_label(command: MarkdownReviewCommand) -> &'static
         C::SelectTarget(_) => "select target",
         C::SelectHeading(_) => "select heading",
         C::MoveSelection(lines) => {
-            if lines < 0 { "previous" } else { "next" }
+            if lines < 0 {
+                "previous"
+            } else {
+                "next"
+            }
         }
         C::Scroll { .. } => "scroll",
         C::Page(pages) => {
-            if pages < 0 { "page up" } else { "page down" }
+            if pages < 0 {
+                "page up"
+            } else {
+                "page down"
+            }
         }
         C::First => "first",
         C::Last => "last",

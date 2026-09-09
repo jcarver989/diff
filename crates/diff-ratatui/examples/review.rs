@@ -3,8 +3,7 @@
 use clankerdiff_core::{DiffDocument, DiffScope, ReviewCapabilities, ReviewSubmission};
 use clankerdiff_git::GitRepository;
 use clankerdiff_ratatui::{
-    DiffReviewEvent, DiffReviewState, DiffReviewWidget, ThemeChoice,
-    handle_crossterm_event,
+    DiffReviewEvent, DiffReviewState, DiffReviewWidget, ThemeChoice, handle_crossterm_event,
 };
 use crossterm::{
     event::{self, Event},

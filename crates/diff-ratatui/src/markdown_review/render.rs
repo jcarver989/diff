@@ -324,10 +324,7 @@ fn render_footer(
             Style::new().fg(theme.ui.text_muted),
         )]
     };
-    actions.push(Span::styled(
-        status,
-        Style::new().fg(theme.ui.accent),
-    ));
+    actions.push(Span::styled(status, Style::new().fg(theme.ui.accent)));
     ActionBar::new(Line::from(actions), theme).render(area, buffer);
 }
 
@@ -338,7 +335,8 @@ fn render_help(area: Rect, buffer: &mut Buffer, state: &MarkdownReviewState, the
     render_modal_text(
         content,
         buffer,
-        state.help_bindings()
+        state
+            .help_bindings()
             .skip(state.help_scroll)
             .map(|binding| binding.hint())
             .collect::<Vec<_>>()

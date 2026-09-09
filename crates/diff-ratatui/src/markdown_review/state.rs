@@ -1,9 +1,9 @@
 use super::layout::MarkdownVisualLayout;
-use clankerdiff_core::ReviewCapabilities;
 use crate::{
     KeyBinding, MarkdownReviewCommand, NavigationPane, ReviewOptions, ThemeChoice,
     default_markdown_keybindings, theme_picker::ThemePicker,
 };
+use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId,
 };

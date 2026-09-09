@@ -13,9 +13,9 @@ mod stream;
 #[cfg(feature = "review")]
 pub use anchor::*;
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
-pub use document::*;
 #[cfg(feature = "review")]
 pub use commands::{MarkdownFocusPane, MarkdownReviewCommand};
+pub use document::*;
 #[cfg(feature = "review")]
 pub use review::*;
 #[cfg(feature = "review")]

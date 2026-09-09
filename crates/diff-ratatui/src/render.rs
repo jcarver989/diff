@@ -648,7 +648,8 @@ fn render_help(area: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme: 
     render_modal_text(
         content,
         buffer,
-        state.help_bindings()
+        state
+            .help_bindings()
             .skip(state.help_scroll)
             .map(|binding| format!("{} ({:?})", binding.hint(), binding.scope))
             .collect::<Vec<_>>()
