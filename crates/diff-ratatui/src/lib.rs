@@ -47,7 +47,10 @@ pub use interaction::{
 pub use keybindings::{
     BindingScope, KeyBinding, default_diff_keybindings, default_markdown_keybindings,
 };
-pub use markdown::{MarkdownRenderStats, MarkdownRenderer, StreamingMarkdownState};
+pub use markdown::{
+    MarkdownCommitError, MarkdownRenderStats, MarkdownRenderer, MarkdownStreamError,
+    StreamingMarkdownPolicy, StreamingMarkdownState,
+};
 pub use markdown_layout::{
     MarkdownLayout, MarkdownLayoutOptions, MarkdownPresentation, MarkdownRow, MarkdownRowUpdate,
     MarkdownRows,

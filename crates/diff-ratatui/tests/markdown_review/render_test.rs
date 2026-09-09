@@ -7,6 +7,7 @@ use clankerdiff_ratatui::testing::{
 use clankerdiff_ratatui::{
     InputOutcome, KeyCode, MarkdownReviewState, MouseButton, MouseEventKind,
 };
+use clankerdiff_theme::ReviewTheme;
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -124,6 +125,21 @@ fn outline_click_and_draft_cancellation() -> Result<(), Box<dyn Error>> {
         InputOutcome::Consumed
     );
     assert!(state.session().draft().is_none());
+    Ok(())
+}
+
+#[test]
+fn changing_the_theme_reuses_retained_code_captures() -> Result<(), Box<dyn Error>> {
+    let mut state = MarkdownReviewState::new(document());
+    draw(&mut state, 100, 30);
+    let before = state.highlight_stats();
+    assert!(before.bytes > 0);
+    state.set_theme(ReviewTheme::ayu()?);
+    draw(&mut state, 100, 30);
+    let after = state.highlight_stats();
+    assert_eq!(after.bytes, before.bytes);
+    assert_eq!(after.misses, before.misses);
+    assert!(after.hits > before.hits);
     Ok(())
 }
 

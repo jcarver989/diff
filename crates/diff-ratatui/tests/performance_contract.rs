@@ -4,34 +4,10 @@ mod support;
 
 use clankerdiff_core::{DiffDocument, testing::DocumentBuilder};
 use clankerdiff_ratatui::{KeyCode, MouseEventKind};
-use std::sync::Arc;
-use support::{ReviewHarness, key, mouse};
-
-fn large_document(rows: usize) -> Arc<DiffDocument> {
-    DocumentBuilder::new()
-        .generated("src/large.rs", rows)
-        .build()
-}
-
-/// A single large hunk where every row pairs a removed and an added line, so a
-/// split layout exercises one highlight sequence per side.
-fn modified_document(rows: usize) -> Arc<DiffDocument> {
-    DocumentBuilder::new()
-        .changed(
-            "src/large.rs",
-            &source_lines(rows, ""),
-            &source_lines(rows, " + 1"),
-        )
-        .build()
-}
-
-fn source_lines(rows: usize, suffix: &str) -> String {
-    use std::fmt::Write;
-    (1..=rows).fold(String::new(), |mut source, i| {
-        let _ = writeln!(source, "let value_{i} = {i}{suffix};");
-        source
-    })
-}
+use clankerdiff_syntax::{Fingerprint, SyntaxError, SyntaxHighlighter, SyntaxTheme};
+use clankerdiff_theme::ReviewTheme;
+use std::{error::Error, fmt::Write, str, sync::Arc};
+use support::{MarkdownStreamFixture, ReviewHarness, key, mouse};
 
 #[test]
 fn settled_frame_emits_no_terminal_cells_and_reuses_highlights() {
@@ -88,7 +64,7 @@ fn highlighting_work_is_bounded_by_the_viewport_not_document_size() {
 }
 
 #[test]
-fn deep_full_file_scroll_parses_complete_sources_once() {
+fn deep_full_file_scroll_parses_complete_sources_once() -> Result<(), SyntaxError> {
     let old = source_lines(100_000, "");
     let new = old.replacen(
         "let value_50000 = 50000;",
@@ -107,7 +83,18 @@ fn deep_full_file_scroll_parses_complete_sources_once() {
         "first visible complete side parsed {} bytes",
         first_parse.highlighted_bytes
     );
-    assert!(first_parse.highlighted_bytes <= old.len() + new.len());
+    let mut reference = SyntaxHighlighter::new(0);
+    let theme = SyntaxTheme::default();
+    for source in [&old, &new] {
+        reference.with_theme(&theme).highlight_document(
+            Fingerprint::of([source.as_str()]),
+            "rust",
+            || source,
+        )?;
+    }
+    assert!(first_parse.highlight_misses <= 2);
+    assert!(first_parse.highlighted_bytes <= reference.stats().bytes);
+    assert!(reference.stats().bytes <= 4 * (old.len() + new.len()) + 64 * 1024);
     let jumped = harness.input_and_draw(key(KeyCode::End));
     assert!(
         jumped.highlighted_bytes < 100_000,
@@ -116,6 +103,7 @@ fn deep_full_file_scroll_parses_complete_sources_once() {
     );
     let settled = harness.draw();
     assert_eq!(settled.highlight_misses, 0);
+    Ok(())
 }
 
 #[test]
@@ -202,4 +190,98 @@ fn moving_back_to_a_cached_row_does_not_rehighlight_it() {
     assert_eq!(back.highlight_calls, back.highlight_hits);
     assert!(harness.state().selected_row().is_some());
     assert!(!harness.buffer().content().is_empty());
+}
+
+#[test]
+fn changing_the_review_theme_does_not_reparse_visible_sources() -> Result<(), Box<dyn Error>> {
+    let mut harness = ReviewHarness::new(large_document(1_000), 100, 24);
+    assert!(harness.draw().highlighted_bytes > 0);
+    harness.state_mut().set_theme(ReviewTheme::ayu()?);
+    let changed = harness.draw();
+    assert_eq!(changed.highlighted_bytes, 0);
+    assert_eq!(changed.highlight_misses, 0);
+    assert!(changed.highlight_hits > 0);
+    assert!(changed.backend.cells_drawn > 0);
+    Ok(())
+}
+
+#[test]
+fn aether_streaming_prose_has_bounded_parser_work() -> Result<(), Box<dyn Error>> {
+    let mut source = String::new();
+    let mut sentence = 0;
+    while source.len() < 16 * 1024 {
+        for _ in 0..4 {
+            write!(
+                source,
+                "Sentence {sentence} carries ordinary words so wrapping and parsing do real work. "
+            )?;
+            sentence += 1;
+        }
+        source.push_str("\n\n");
+    }
+    assert_streaming_budget(&source, false)
+}
+
+#[test]
+fn aether_streaming_code_has_bounded_parser_and_highlight_work() -> Result<(), Box<dyn Error>> {
+    let mut source = String::from("```rust\n");
+    let mut line = 0;
+    while source.len() < 24 * 1024 {
+        writeln!(
+            source,
+            "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");"
+        )?;
+        line += 1;
+    }
+    source.push_str("```\n");
+    assert_streaming_budget(&source, true)
+}
+
+fn assert_streaming_budget(source: &str, code: bool) -> Result<(), Box<dyn Error>> {
+    let mut fixture = MarkdownStreamFixture::default();
+    fixture.options.width = 120;
+    for chunk in source.as_bytes().chunks(256) {
+        fixture.stream.push(str::from_utf8(chunk)?);
+        fixture.apply_update();
+    }
+    fixture.stream.finish();
+    fixture.apply_update();
+    let work = fixture.state.take_stats();
+    let budget = 4 * source.len() + 64 * 1024;
+    assert_eq!(work.rows_materialized, 0);
+    assert!(
+        work.parsed_bytes <= budget && (!code || work.highlighted_bytes <= budget),
+        "{work:?}, budget {budget}"
+    );
+    fixture.assert_equivalent();
+    fixture.state.take_stats();
+    fixture.apply_update();
+    let settled = fixture.state.take_stats();
+    assert_eq!(settled.parsed_bytes, 0);
+    assert_eq!(settled.highlighted_bytes, 0);
+    assert_eq!(settled.rows_generated, 0);
+    Ok(())
+}
+
+fn large_document(rows: usize) -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .generated("src/large.rs", rows)
+        .build()
+}
+
+fn modified_document(rows: usize) -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .changed(
+            "src/large.rs",
+            &source_lines(rows, ""),
+            &source_lines(rows, " + 1"),
+        )
+        .build()
+}
+
+fn source_lines(rows: usize, suffix: &str) -> String {
+    (1..=rows).fold(String::new(), |mut source, i| {
+        let _ = writeln!(source, "let value_{i} = {i}{suffix};");
+        source
+    })
 }

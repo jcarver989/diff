@@ -110,6 +110,7 @@ fn streaming_updates_reconstruct_every_snapshot() {
         "[link][later]\n\n[later]: /target\n",
         "- one\n\n- two\n",
         "```rust\n/* open\n\nclose */\n```\n",
+        "```rust\n\n\nlet value = 1;\n```\n",
     ] {
         let mut fixture = MarkdownStreamFixture::default();
         for character in source.chars() {
@@ -146,6 +147,31 @@ fn stale_updates_reset_and_unchanged_updates_are_empty() {
     assert!(stale.reset);
     assert_eq!(stale.first_changed_row, 0);
     assert!(stale.replacement.iter().eq(fixture.host.iter()));
+}
+
+#[test]
+fn finishing_and_resuming_without_source_changes_do_not_repeat_work() {
+    let mut fixture = MarkdownStreamFixture::from_source("```rust\nfn main() {}\n```");
+    fixture.apply_update();
+    fixture.state.take_stats();
+    let revision = fixture.revision;
+    fixture.stream.finish();
+    let update = fixture.apply_update();
+    assert_eq!(update.revision, revision);
+    assert!(update.replacement.is_empty());
+    let work = fixture.state.take_stats();
+    assert_eq!(work.parsed_bytes, 0);
+    assert_eq!(work.parsed_documents, 0);
+    assert_eq!(work.highlighted_bytes, 0);
+    assert_eq!(work.rows_generated, 0);
+    fixture.stream.push("");
+    fixture.apply_update();
+    let work = fixture.state.take_stats();
+    assert_eq!(work.parsed_documents, 0);
+    assert_eq!(work.rows_generated, 0);
+    fixture.stream.push("\n\nNew paragraph");
+    fixture.assert_equivalent();
+    assert!(fixture.state.take_stats().parsed_documents > 0);
 }
 
 #[test]

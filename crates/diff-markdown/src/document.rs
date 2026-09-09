@@ -1,6 +1,6 @@
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag};
 use serde::{Deserialize, Serialize};
-use std::{cmp, ops::Range, sync::Arc};
+use std::{cmp, ops::Range};
 
 /// A one-based, inclusive range of lines in the original Markdown source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +21,10 @@ pub struct SourceRange {
 pub struct MarkdownTargetId(usize);
 
 impl MarkdownTargetId {
+    pub(crate) const fn new(index: usize) -> Self {
+        Self(index)
+    }
+
     /// Returns the document-local ordinal of this target.
     #[must_use]
     pub const fn index(self) -> usize {
@@ -277,15 +281,15 @@ pub struct MarkdownSourceStyle {
 }
 
 /// A parsed Markdown document.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct MarkdownDocument {
-    source_path: Option<String>,
-    title: Option<String>,
-    source: Arc<str>,
-    blocks: Vec<MarkdownBlock>,
-    outline: Vec<MarkdownHeading>,
-    targets: Vec<MarkdownTarget>,
-    source_styles: Vec<MarkdownSourceStyle>,
+    pub(crate) source_path: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) source: String,
+    pub(crate) blocks: Vec<MarkdownBlock>,
+    pub(crate) outline: Vec<MarkdownHeading>,
+    pub(crate) targets: Vec<MarkdownTarget>,
+    pub(crate) source_styles: Vec<MarkdownSourceStyle>,
 }
 
 impl MarkdownDocument {
@@ -320,7 +324,7 @@ impl MarkdownDocument {
         title: Option<String>,
         source: impl Into<String>,
     ) -> Self {
-        let source: Arc<str> = Arc::from(source.into());
+        let source: String = source.into();
         let line_starts = LineIndex::new(&source);
         let events = Parser::new_ext(&source, parser_options())
             .into_offset_iter()
@@ -417,17 +421,17 @@ impl MarkdownDocument {
 }
 
 #[derive(Debug, Clone)]
-struct Node {
-    event: Option<Event<'static>>,
-    range: Range<usize>,
-    children: Vec<Node>,
+pub(crate) struct Node {
+    pub(crate) event: Option<Event<'static>>,
+    pub(crate) range: Range<usize>,
+    pub(crate) children: Vec<Node>,
 }
 
-fn parser_options() -> Options {
+pub(crate) fn parser_options() -> Options {
     Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH
 }
 
-fn event_tree(events: &[(Event<'static>, Range<usize>)]) -> Vec<Node> {
+pub(crate) fn event_tree(events: &[(Event<'static>, Range<usize>)]) -> Vec<Node> {
     let mut stack = vec![Node {
         event: None,
         range: 0..0,
@@ -473,7 +477,11 @@ fn event_tree(events: &[(Event<'static>, Range<usize>)]) -> Vec<Node> {
     stack.pop().map_or_else(Vec::new, |root| root.children)
 }
 
-fn collect_source_styles(nodes: &[Node], index: &LineIndex, output: &mut Vec<MarkdownSourceStyle>) {
+pub(crate) fn collect_source_styles(
+    nodes: &[Node],
+    index: &LineIndex,
+    output: &mut Vec<MarkdownSourceStyle>,
+) {
     for node in nodes {
         let role = match node.event.as_ref() {
             Some(Event::Start(Tag::Heading { .. })) => Some(MarkdownSourceRole::Heading),
@@ -495,14 +503,14 @@ fn collect_source_styles(nodes: &[Node], index: &LineIndex, output: &mut Vec<Mar
     }
 }
 
-fn source_range(range: Range<usize>, index: &LineIndex) -> SourceRange {
+pub(crate) fn source_range(range: Range<usize>, index: &LineIndex) -> SourceRange {
     SourceRange {
         lines: index.range(range.clone()),
         bytes: range,
     }
 }
 
-fn parse_block(
+pub(crate) fn parse_block(
     node: &Node,
     depth: usize,
     source: &str,
@@ -610,41 +618,31 @@ fn parse_code_block(
     };
     let content_bytes = code_content_range(node.range.clone(), kind, source);
     let fenced = matches!(kind, CodeBlockKind::Fenced(_));
-    let code = if fenced {
-        source
-            .get(content_bytes.clone())
-            .unwrap_or(text.as_str())
-            .to_owned()
+    let lines = if fenced && source.get(content_bytes.clone()).is_some() {
+        fenced_code_lines(content_bytes.clone(), source, line_index)
     } else {
-        text.strip_suffix('\n').unwrap_or(&text).to_owned()
+        let code = if fenced {
+            text.as_str()
+        } else {
+            text.strip_suffix('\n').unwrap_or(&text)
+        };
+        let first_source_line = line_index.line_for_offset(node.range.start);
+        code.is_empty().then(Vec::new).unwrap_or_else(|| {
+            code.split('\n')
+                .enumerate()
+                .map(|(index, line)| {
+                    let source_line = first_source_line + index;
+                    MarkdownCodeLine {
+                        index,
+                        source: line_index.source_line_range(source_line),
+                        source_line: Some(source_line),
+                        text: line.strip_suffix('\r').unwrap_or(line).to_owned(),
+                        target_id: None,
+                    }
+                })
+                .collect()
+        })
     };
-    let first_source_line = line_index.line_for_offset(node.range.start);
-    let lines = code.is_empty().then(Vec::new).unwrap_or_else(|| {
-        code.split('\n')
-            .enumerate()
-            .map(|(index, line)| {
-                let line_offset = code_line_offset(&content_bytes, &code, index);
-                let source_line = if fenced {
-                    line_index.line_for_offset(line_offset)
-                } else {
-                    first_source_line + index
-                };
-                let line_source = if fenced {
-                    let end = line_offset + line.len();
-                    source_range(line_offset..end, line_index)
-                } else {
-                    line_index.source_line_range(source_line)
-                };
-                MarkdownCodeLine {
-                    index,
-                    source: line_source,
-                    source_line: Some(source_line),
-                    text: line.strip_suffix('\r').unwrap_or(line).to_owned(),
-                    target_id: None,
-                }
-            })
-            .collect()
-    });
     MarkdownCodeBlock {
         language,
         info,
@@ -655,13 +653,39 @@ fn parse_code_block(
     }
 }
 
-fn code_line_offset(content: &Range<usize>, code: &str, index: usize) -> usize {
-    content.start
-        + code
-            .split_inclusive('\n')
-            .take(index)
-            .map(str::len)
-            .sum::<usize>()
+pub(crate) fn fenced_code_lines(
+    content: Range<usize>,
+    source: &str,
+    line_index: &LineIndex,
+) -> Vec<MarkdownCodeLine> {
+    let code = &source[content.clone()];
+    if code.is_empty() {
+        return Vec::new();
+    }
+    let mut offset = content.start;
+    code.split('\n')
+        .enumerate()
+        .map(|(index, line)| {
+            let line_offset = offset;
+            offset += line.len() + 1;
+            fenced_code_line(index, line_offset, line, line_index)
+        })
+        .collect()
+}
+
+pub(crate) fn fenced_code_line(
+    index: usize,
+    offset: usize,
+    line: &str,
+    line_index: &LineIndex,
+) -> MarkdownCodeLine {
+    MarkdownCodeLine {
+        index,
+        source: source_range(offset..offset + line.len(), line_index),
+        source_line: Some(line_index.line_for_offset(offset)),
+        text: line.strip_suffix('\r').unwrap_or(line).to_owned(),
+        target_id: None,
+    }
 }
 
 fn code_content_range(
@@ -672,6 +696,10 @@ fn code_content_range(
     if !matches!(kind, CodeBlockKind::Fenced(_)) {
         return block;
     }
+    fenced_content_range(block, source)
+}
+
+pub(crate) fn fenced_content_range(block: Range<usize>, source: &str) -> Range<usize> {
     let start = block.start.min(source.len());
     let end = block.end.min(source.len());
     let opening_end = source[start..end]
@@ -680,31 +708,21 @@ fn code_content_range(
     if opening_end >= end {
         return opening_end..opening_end;
     }
-    let opening_line = source[start..opening_end].trim_end_matches(['\r', '\n']);
-    let trimmed = opening_line.trim_start();
-    let marker = trimmed.chars().next().unwrap_or('`');
-    let marker_len = trimmed
-        .chars()
-        .take_while(|character| *character == marker)
-        .count();
-    let mut closing_start = None;
-    let mut cursor = opening_end;
-    while cursor < end {
-        let line_end = source[cursor..end]
-            .find('\n')
-            .map_or(end, |offset| cursor + offset + 1);
-        let line = source[cursor..line_end].trim_end_matches(['\r', '\n']);
-        let candidate = line.trim_start();
-        let count = candidate
-            .chars()
-            .take_while(|character| *character == marker)
-            .count();
-        if count >= marker_len && marker_len > 0 && candidate[count..].trim().is_empty() {
-            closing_start = Some(cursor);
-            break;
-        }
-        cursor = line_end;
-    }
+    let (marker, count) = fence_marker(&source[start..opening_end]);
+    let last_line = source[opening_end..end]
+        .rfind('\n')
+        .map_or(opening_end, |offset| opening_end + offset + 1);
+    let closing_start =
+        closing_fence(&source.as_bytes()[last_line..end], marker, count).then_some(last_line);
+    fenced_content_bounds(opening_end, closing_start, end, source)
+}
+
+pub(crate) fn fenced_content_bounds(
+    opening_end: usize,
+    closing_start: Option<usize>,
+    end: usize,
+    source: &str,
+) -> Range<usize> {
     let mut content_end = closing_start.unwrap_or(end);
     if closing_start.is_some() && source[..content_end].ends_with('\n') {
         content_end -= 1;
@@ -713,6 +731,41 @@ fn code_content_range(
         }
     }
     opening_end.min(content_end)..content_end
+}
+
+pub(crate) fn fence_marker(opening_line: &str) -> (u8, usize) {
+    let trimmed = opening_line.trim_start_matches([' ', '\t']);
+    let marker = trimmed.bytes().next().unwrap_or(b'`');
+    let count = trimmed.bytes().take_while(|byte| *byte == marker).count();
+    (marker, count)
+}
+
+pub(crate) fn closing_fence(line: &[u8], marker: u8, count: usize) -> bool {
+    let mut columns = 0;
+    let mut cursor = 0;
+    while let Some(byte) = line.get(cursor) {
+        match byte {
+            b' ' => columns += 1,
+            b'\t' => columns = (columns / 4 + 1) * 4,
+            _ => break,
+        }
+        if columns >= 4 {
+            return false;
+        }
+        cursor += 1;
+    }
+    let run = line[cursor..]
+        .iter()
+        .take_while(|byte| **byte == marker)
+        .count();
+    if run == 0 || run < count {
+        return false;
+    }
+    cursor += run;
+    while line.get(cursor) == Some(&b' ') {
+        cursor += 1;
+    }
+    cursor == line.len() || line[cursor] == b'\r'
 }
 
 fn parse_table(node: &Node, alignments: &[Alignment], line_index: &LineIndex) -> MarkdownTable {
@@ -825,7 +878,7 @@ fn html_fallback(children: &[Node]) -> Vec<MarkdownInline> {
         .collect()
 }
 
-fn assign_targets(
+pub(crate) fn assign_targets(
     blocks: &mut [MarkdownBlock],
     targets: &mut Vec<MarkdownTarget>,
     outline: &mut Vec<MarkdownHeading>,
@@ -1002,33 +1055,59 @@ fn heading_level(level: HeadingLevel) -> u8 {
 }
 
 #[derive(Debug, Clone)]
-struct LineIndex {
+pub(crate) struct LineIndex {
     starts: Vec<usize>,
     content_ends: Vec<usize>,
     source_len: usize,
 }
 
+impl Default for LineIndex {
+    fn default() -> Self {
+        Self::new("")
+    }
+}
+
 impl LineIndex {
-    fn new(source: &str) -> Self {
-        let mut starts = vec![0];
-        let mut content_ends = Vec::new();
-        for (index, byte) in source.bytes().enumerate() {
-            if byte == b'\n' {
-                content_ends.push(index.saturating_sub(usize::from(
-                    index > 0 && source.as_bytes()[index - 1] == b'\r',
-                )));
-                starts.push(index + 1);
-            }
-        }
-        content_ends.push(source.len());
-        Self {
-            starts,
-            content_ends,
-            source_len: source.len(),
-        }
+    pub(crate) fn new(source: &str) -> Self {
+        let mut index = Self {
+            starts: vec![0],
+            content_ends: vec![0],
+            source_len: 0,
+        };
+        index.extend(source, 0);
+        index
     }
 
-    fn line_for_offset(&self, offset: usize) -> usize {
+    pub(crate) fn extend(&mut self, source: &str, from: usize) {
+        self.content_ends.pop();
+        let bytes = source.as_bytes();
+        for (offset, byte) in bytes[from..].iter().enumerate() {
+            let index = from + offset;
+            if *byte == b'\n' {
+                self.content_ends.push(
+                    index.saturating_sub(usize::from(index > 0 && bytes[index - 1] == b'\r')),
+                );
+                self.starts.push(index + 1);
+            }
+        }
+        self.content_ends.push(source.len());
+        self.source_len = source.len();
+    }
+
+    pub(crate) fn line_start_of(&self, offset: usize) -> usize {
+        let line = self.starts.partition_point(|start| *start <= offset);
+        self.starts[line.saturating_sub(1)]
+    }
+
+    pub(crate) fn line_complete(&self, offset: usize) -> bool {
+        self.starts.last().is_some_and(|start| *start > offset)
+    }
+
+    pub(crate) fn line_breaks_after(&self, offset: usize) -> usize {
+        self.starts.len() - self.starts.partition_point(|start| *start <= offset)
+    }
+
+    pub(crate) fn line_for_offset(&self, offset: usize) -> usize {
         let offset = offset.min(*self.starts.last().unwrap_or(&0));
         self.starts.partition_point(|start| *start <= offset)
     }

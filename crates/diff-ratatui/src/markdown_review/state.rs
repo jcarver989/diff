@@ -168,7 +168,6 @@ impl MarkdownReviewState {
         self.mark_dirty();
     }
 
-    /// Changes the theme and invalidates syntax highlighting.
     pub fn set_theme(&mut self, theme: ReviewTheme) {
         self.theme_picker = None;
         self.apply_theme(theme);
@@ -176,7 +175,6 @@ impl MarkdownReviewState {
 
     pub(crate) fn apply_theme(&mut self, theme: ReviewTheme) {
         self.theme = theme;
-        self.highlighter.clear_cache();
         self.mark_dirty();
     }
 

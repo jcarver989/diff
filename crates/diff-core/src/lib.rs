@@ -12,7 +12,7 @@ pub mod session;
 pub mod testing;
 
 pub use anchor::LineAnchor;
-pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId};
+pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId, join_lines};
 pub use commands::{
     CommandContext, DiffReviewCommand, FocusPane, InteractionPhase, ReviewCapabilities,
     ReviewCommand,
@@ -29,8 +29,8 @@ pub use models::{
 };
 pub use parser::{GitStatusEntry, UntrackedFile, parse_git_diff, parse_porcelain_v1_z};
 pub use presentation::{
-    ContentProjection, DiffPresentation, DiffTone, GapExpansion, GapId, GapInfo, GapInterval,
-    HunkSequence, Layout, MAX_HUNK_SEQUENCE_LINES, PresentationOptions, PresentedCell,
+    CellContext, ContentProjection, DiffPresentation, DiffTone, GapExpansion, GapId, GapInfo,
+    GapInterval, HunkSequence, Layout, MAX_HUNK_SEQUENCE_LINES, PresentationOptions, PresentedCell,
     PresentedRow, RowId, RowKind, ViewMode, gaps_for_file,
 };
 pub use review::{

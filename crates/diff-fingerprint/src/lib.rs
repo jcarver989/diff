@@ -24,6 +24,16 @@ impl SourceSequenceId {
     }
 }
 
+/// Joins lines into the newline-terminated text a [`SourceSequenceId`] names.
+#[must_use]
+pub fn join_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> String {
+    lines.into_iter().fold(String::new(), |mut text, line| {
+        text.push_str(line);
+        text.push('\n');
+        text
+    })
+}
+
 impl From<SourceSequenceId> for Fingerprint {
     fn from(id: SourceSequenceId) -> Self {
         id.fingerprint()

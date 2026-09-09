@@ -15,7 +15,9 @@ use clankerdiff_core::{
     SessionOptions, StageState, ViewMode,
 };
 use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
-use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
+use clankerdiff_syntax::{
+    HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter, empty_spans,
+};
 use clankerdiff_theme::ReviewTheme;
 use clankerdiff_theme::ThemeSelection;
 use gpui::{
@@ -560,7 +562,6 @@ impl DiffViewer {
             .or(self.background_error.as_deref())
     }
 
-    /// Changes the theme and invalidates cached syntax spans.
     pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
         self.theme_selection = None;
         self.apply_theme(theme, cx);
@@ -571,7 +572,6 @@ impl DiffViewer {
         if let Some(editor) = &self.comment_editor {
             editor.update(cx, |editor, cx| editor.set_theme(theme, cx));
         }
-        self.highlighter.clear_cache();
         self.diff_list_state.remeasure();
         cx.notify();
     }
@@ -916,33 +916,13 @@ impl DiffViewer {
         row: &PresentedRow,
         cell: &PresentedCell,
     ) -> Arc<[HighlightSpan]> {
-        let presentation = self.session.presentation();
-        let mut syntax = self.highlighter.with_theme(&self.theme.syntax);
-        if let (Some(source), Some(path), Some(line)) = (
-            presentation.source_document(row, cell),
-            presentation.source_path(row, cell),
-            cell.line_number().and_then(|line| line.checked_sub(1)),
-        ) {
-            return syntax
-                .highlight_document(
-                    source.sequence_id(),
-                    LanguageHint::Path(path),
-                    source.text(),
-                )
-                .line_shared(line)
-                .unwrap_or_else(clankerdiff_syntax::empty_spans);
-        }
-        if let Some(sequence) = presentation.hunk_sequence(row, cell) {
-            return syntax
-                .highlight_document_lines(
-                    sequence.id,
-                    LanguageHint::Path(sequence.path),
-                    sequence.lines(),
-                )
-                .line_shared(sequence.target_line)
-                .unwrap_or_else(clankerdiff_syntax::empty_spans);
-        }
-        syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
+        let source = self.session.presentation().cell_context(row, cell);
+        self.highlighter
+            .with_theme(&self.theme.syntax)
+            .highlight_document(source.id, LanguageHint::Path(source.path), || source.text())
+            .ok()
+            .and_then(|highlights| highlights.line_shared(source.target_line))
+            .unwrap_or_else(empty_spans)
     }
 
     fn move_file(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {

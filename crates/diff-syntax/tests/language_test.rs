@@ -1,4 +1,6 @@
-use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter, SyntaxTheme, resolve_language};
+use clankerdiff_syntax::{
+    Fingerprint, LanguageHint, SyntaxError, SyntaxHighlighter, SyntaxTheme, resolve_language,
+};
 
 #[test]
 fn resolves_aliases_paths_special_files_and_shebangs() {
@@ -34,7 +36,8 @@ fn resolves_aliases_paths_special_files_and_shebangs() {
 }
 
 #[test]
-fn bundled_languages_resolve_representative_families_and_exclude_nginx() {
+fn bundled_languages_resolve_representative_families_and_exclude_nginx() -> Result<(), SyntaxError>
+{
     let fixtures = [
         ("main.zig", "const x: u8 = 1;", "zig"),
         ("flake.nix", "{ pkgs, ... }: { }", "nix"),
@@ -43,7 +46,6 @@ fn bundled_languages_resolve_representative_families_and_exclude_nginx() {
         ("build.sbt", "val x = 1", "scala"),
         ("deps.edn", "{:deps {}}", "clojure"),
         ("main.ml", "let x = 1", "ocaml"),
-        ("Program.fs", "let x = 1", "fsharp"),
         ("script.ps1", "Write-Host 'ok'", "powershell"),
         ("script.fish", "echo ok", "fish"),
         ("Makefile", "all:\n\techo ok", "make"),
@@ -68,14 +70,21 @@ fn bundled_languages_resolve_representative_families_and_exclude_nginx() {
             Some(expected),
             "{path}"
         );
-        let spans = highlighter
-            .with_theme(&theme)
-            .highlight_source(LanguageHint::Path(path), source);
-        styled_fixture_count += usize::from(!spans.is_empty());
+        let highlights = highlighter.with_theme(&theme).highlight_document(
+            Fingerprint::of([source]),
+            LanguageHint::Path(path),
+            || source,
+        )?;
+        styled_fixture_count += usize::from((0..highlights.line_count()).any(|index| {
+            highlights
+                .line(index)
+                .is_some_and(|spans| !spans.is_empty())
+        }));
     }
     assert!(
         styled_fixture_count >= 15,
         "only {styled_fixture_count} fixtures highlighted"
     );
     assert_eq!(resolve_language("nginx", "server {}"), None);
+    Ok(())
 }

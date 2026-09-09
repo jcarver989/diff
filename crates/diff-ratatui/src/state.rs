@@ -399,7 +399,6 @@ impl DiffReviewState {
         });
     }
 
-    /// Changes the neutral theme and clears cached syntax spans.
     pub fn set_theme(&mut self, theme: ReviewTheme) {
         self.theme_picker = None;
         self.apply_theme(theme);
@@ -407,7 +406,6 @@ impl DiffReviewState {
 
     pub(crate) fn apply_theme(&mut self, theme: ReviewTheme) {
         self.theme = theme;
-        self.highlighter.clear_cache();
         self.mark_dirty();
     }
 

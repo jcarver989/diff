@@ -1,7 +1,8 @@
-use clankerdiff_markdown::{MarkdownDocument, MarkdownTargetId, SourceRange};
+use crate::text::FitPosition;
+use clankerdiff_markdown::{MarkdownTargetId, SourceRange};
+use imbl::Vector;
 use ratatui::text::Line;
 use std::{
-    collections::HashMap,
     ops::Range,
     sync::{Arc, OnceLock},
 };
@@ -43,23 +44,54 @@ pub struct MarkdownRow {
     pub line: Line<'static>,
     pub source: Option<SourceRange>,
     pub target: Option<MarkdownTargetId>,
+    pub(crate) checkpoint: Option<RowCheckpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RowCheckpoint {
+    pub source: SourceRange,
+    pub position: FitPosition,
+    pub rendered: Arc<str>,
 }
 
 pub(crate) type RowChunk = Arc<[Arc<MarkdownRow>]>;
-#[derive(Debug, Default)]
+pub(crate) type TargetIndex = imbl::HashMap<MarkdownTargetId, SourceRange>;
+#[derive(Debug, Clone, Default)]
 pub(crate) struct RowStore {
-    chunks: Vec<RowChunk>,
-    ends: Vec<usize>,
-    len: usize,
+    rows: Vector<Arc<MarkdownRow>>,
+    updates: usize,
 }
 impl RowStore {
-    pub(crate) fn push(&mut self, chunk: RowChunk) {
-        if chunk.is_empty() {
-            return;
+    pub(crate) fn push(&mut self, chunk: &RowChunk) {
+        self.updates += chunk.len();
+        self.rows.extend(chunk.iter().cloned());
+    }
+
+    pub(crate) fn extend(&mut self, rows: &MarkdownRows) {
+        self.append(&rows.store, rows.range.clone());
+    }
+
+    pub(crate) fn append(&mut self, store: &Self, range: Range<usize>) {
+        let mut rows = store.rows.clone();
+        rows.truncate(range.end);
+        let rows = rows.split_off(range.start);
+        self.rows.append(rows);
+        self.updates += 1;
+    }
+
+    pub(crate) fn truncate(&mut self, len: usize) {
+        if len < self.rows.len() {
+            self.rows.truncate(len);
+            self.updates += 1;
         }
-        self.len += chunk.len();
-        self.ends.push(self.len);
-        self.chunks.push(chunk);
+    }
+
+    pub(crate) fn take_updates(&mut self) -> usize {
+        std::mem::take(&mut self.updates)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.rows.len()
     }
 }
 
@@ -82,12 +114,7 @@ impl MarkdownRows {
         if index >= self.len() {
             return None;
         }
-        let index = self.range.start + index;
-        let chunk = self.store.ends.partition_point(|end| *end <= index);
-        let start = chunk
-            .checked_sub(1)
-            .map_or(0, |previous| self.store.ends[previous]);
-        self.store.chunks[chunk].get(index - start)
+        self.store.rows.get(self.range.start + index)
     }
     #[must_use]
     pub fn slice(&self, range: Range<usize>) -> Self {
@@ -99,21 +126,7 @@ impl MarkdownRows {
     }
     #[must_use]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Arc<MarkdownRow>> {
-        let start = self
-            .store
-            .ends
-            .partition_point(|end| *end <= self.range.start);
-        let end = self.store.ends.partition_point(|end| *end < self.range.end)
-            + usize::from(!self.range.is_empty());
-        (start..end).flat_map(move |index| {
-            let offset = index
-                .checked_sub(1)
-                .map_or(0, |previous| self.store.ends[previous]);
-            let chunk = &self.store.chunks[index];
-            let first = self.range.start.saturating_sub(offset);
-            let last = self.range.end.saturating_sub(offset).min(chunk.len());
-            chunk[first..last].iter()
-        })
+        self.range.clone().map(move |index| &self.store.rows[index])
     }
 }
 
@@ -121,24 +134,18 @@ impl MarkdownRows {
 pub struct MarkdownLayout {
     rows: MarkdownRows,
     flat: Arc<OnceLock<Arc<[Line<'static>]>>>,
-    targets: Arc<HashMap<MarkdownTargetId, SourceRange>>,
+    targets: TargetIndex,
 }
 impl MarkdownLayout {
-    pub(crate) fn new(store: RowStore, document: &MarkdownDocument) -> Self {
-        let range = 0..store.len;
+    pub(crate) fn new(store: RowStore, targets: TargetIndex) -> Self {
+        let range = 0..store.len();
         Self {
             rows: MarkdownRows {
                 store: Arc::new(store),
                 range,
             },
             flat: Arc::default(),
-            targets: Arc::new(
-                document
-                    .targets()
-                    .iter()
-                    .map(|target| (target.id, target.source.clone()))
-                    .collect(),
-            ),
+            targets,
         }
     }
     #[must_use]

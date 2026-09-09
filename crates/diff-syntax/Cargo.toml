@@ -15,7 +15,7 @@ arborium = { workspace = true, features = [
     "lang-asm", "lang-bash", "lang-batch", "lang-c", "lang-c-sharp",
     "lang-clojure", "lang-cmake", "lang-commonlisp", "lang-cpp", "lang-css",
     "lang-dart", "lang-diff", "lang-dockerfile", "lang-elixir", "lang-erlang",
-    "lang-fish", "lang-fsharp", "lang-go", "lang-graphql", "lang-haskell",
+    "lang-fish", "lang-go", "lang-graphql", "lang-haskell",
     "lang-hcl", "lang-html", "lang-ini", "lang-java", "lang-javascript",
     "lang-json", "lang-just", "lang-kotlin", "lang-lua", "lang-make",
     "lang-markdown", "lang-meson", "lang-ninja", "lang-nix", "lang-objc",
@@ -28,6 +28,8 @@ arborium = { workspace = true, features = [
 ] }
 arborium-highlight.workspace = true
 arborium-theme.workspace = true
+arborium-tree-sitter.workspace = true
+imbl.workspace = true
 lru.workspace = true
 thiserror.workspace = true
 clankerdiff-fingerprint = { version = "0.1.1", path = "../diff-fingerprint" }

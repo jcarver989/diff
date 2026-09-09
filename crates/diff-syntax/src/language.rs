@@ -86,7 +86,6 @@ fn canonical_id(hint: &str) -> Option<&'static str> {
         "commonlisp" | "common-lisp" | "lisp" | "cl" => "commonlisp",
         "scheme" | "scm" | "ss" => "scheme",
         "ocaml" | "ml" | "mli" => "ocaml",
-        "fsharp" | "f#" | "fs" | "fsi" | "fsx" => "fsharp",
         "dart" => "dart",
         "powershell" | "pwsh" | "ps1" | "psm1" => "powershell",
         "fish" => "fish",

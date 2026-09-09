@@ -18,6 +18,9 @@ workspace = true
 [dependencies]
 bitflags.workspace = true
 crossterm = { workspace = true, optional = true }
+imbl.workspace = true
+similar.workspace = true
+thiserror.workspace = true
 clankerdiff-core = { version = "0.1.1", path = "../diff-core" }
 clankerdiff-markdown = { version = "0.1.1", path = "../diff-markdown", features = ["review"] }
 clankerdiff-syntax = { version = "0.1.1", path = "../diff-syntax" }
@@ -60,6 +63,13 @@ required-features = ["crossterm-backend"]
 
 [[example]]
 name = "streaming_markdown"
+
+[[example]]
+name = "terminal_markdown"
+
+[[test]]
+name = "terminal_streaming"
+required-features = ["test-support"]
 
 [[bench]]
 name = "markdown"
