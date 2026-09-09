@@ -1,25 +1,26 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
 use crate::{args::CliArgs, menus::SetScope, preferences, window_chrome};
-use clankerdiff_core::{DiffReviewEvent, DiffScope, RepositoryAction, ReviewSubmission};
+use clankerdiff_core::{
+    DiffReviewCommand, DiffReviewEvent, DiffScope, RepositoryAction, ReviewCapabilities,
+    ReviewSubmission,
+};
 use clankerdiff_git::{GitError, GitRepository, RepositorySnapshot};
 use clankerdiff_gpui::{
-    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged,
+    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, StageAll, ThemeChanged, UnstageAll,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use clankerdiff_theme::ReviewTheme;
 use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchError, WatchOptions};
 use gpui::{
-    App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
-    actions, div, prelude::*,
+    App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window, div,
+    prelude::*,
 };
 use std::{
     path::PathBuf,
     sync::{Arc, mpsc::Sender},
 };
 use tokio::sync::oneshot;
-
-actions!(desktop_diff, [StageAll, UnstageAll]);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LoadState {
@@ -39,9 +40,9 @@ enum HostEventEffect {
 
 fn host_event_effect(event: &DiffReviewEvent) -> HostEventEffect {
     match event {
-        DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetScope(_) => {
-            HostEventEffect::None
-        }
+        DiffReviewEvent::RepositoryAction(_)
+        | DiffReviewEvent::SetScope(_)
+        | DiffReviewEvent::Refresh => HostEventEffect::None,
         DiffReviewEvent::CopyFormattedReview(text) => HostEventEffect::Copy(text.clone()),
         DiffReviewEvent::SubmitReview(submission) => HostEventEffect::PrintSubmission(
             serde_json::to_string_pretty(submission)
@@ -256,6 +257,7 @@ impl DesktopApp {
                 let mut viewer =
                     DiffViewer::with_options(document, theme, DiffViewerOptions::default());
                 viewer.set_scope(scope, cx);
+                viewer.set_capabilities(ReviewCapabilities::default(), cx);
                 viewer
             });
             self.viewer_subscription = Some(cx.subscribe(
@@ -309,11 +311,17 @@ impl DesktopApp {
                 self.set_scope(*scope, cx);
                 return;
             }
+            DiffReviewEvent::Refresh => {
+                self.set_scope(self.scope, cx);
+                return;
+            }
             _ => {}
         }
         if let Some(sender) = &self.outcome_sender {
             match event {
-                DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetScope(_) => {
+                DiffReviewEvent::RepositoryAction(_)
+                | DiffReviewEvent::SetScope(_)
+                | DiffReviewEvent::Refresh => {
                     unreachable!("handled above")
                 }
                 DiffReviewEvent::CopyFormattedReview(text) => {
@@ -339,16 +347,29 @@ impl DesktopApp {
         }
     }
 
-    fn stage_all(&mut self, _: &StageAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.command(HostCommand::Apply(RepositoryAction::StageAll), cx);
+    fn dispatch_command(
+        &mut self,
+        command: DiffReviewCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(viewer) = &self.viewer {
+            viewer.update(cx, |viewer, cx| {
+                viewer.handle_command(command, window, cx);
+            });
+        }
     }
 
-    fn unstage_all(&mut self, _: &UnstageAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.command(HostCommand::Apply(RepositoryAction::UnstageAll), cx);
+    fn stage_all(&mut self, _: &StageAll, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch_command(DiffReviewCommand::StageAll, window, cx);
     }
 
-    fn menu_set_scope(&mut self, action: &SetScope, _: &mut Window, cx: &mut Context<Self>) {
-        self.set_scope(action.scope(), cx);
+    fn unstage_all(&mut self, _: &UnstageAll, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch_command(DiffReviewCommand::UnstageAll, window, cx);
+    }
+
+    fn menu_set_scope(&mut self, action: &SetScope, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch_command(DiffReviewCommand::SetScope(action.scope()), window, cx);
     }
 
     fn set_scope(&mut self, scope: DiffScope, cx: &mut Context<Self>) {
@@ -358,15 +379,19 @@ impl DesktopApp {
     fn render_empty(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         use clankerdiff_gpui::ui::prelude::{Button, ControlSize};
         let scope = self.scope;
-        let pending = self.command_task.is_some();
+        let viewer = self.viewer.clone();
         let theme = UiTheme::new(&self.theme);
         let segment = |id: &'static str, label: &'static str, value: DiffScope| {
             Button::new(id, label, theme)
                 .size(ControlSize::Small)
                 .selected(scope == value)
-                .disabled(pending)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.set_scope(value, cx);
+                .disabled(!viewer.as_ref().is_some_and(|viewer| {
+                    viewer
+                        .read(cx)
+                        .command_enabled(&DiffReviewCommand::SetScope(value))
+                }))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.dispatch_command(DiffReviewCommand::SetScope(value), window, cx);
                 }))
         };
         div()

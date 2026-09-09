@@ -1,4 +1,5 @@
 use crate::{preferences, window_chrome};
+use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_gpui::{
     DEFAULT_FONT_FAMILY, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
 };
@@ -20,8 +21,20 @@ impl MarkdownDesktopApp {
         cx: &mut Context<Self>,
     ) -> Self {
         let theme = preferences::load_theme();
-        let reviewer = cx.new(|_| {
-            MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default())
+        let reviewer = cx.new(|cx| {
+            let mut reviewer =
+                MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default());
+            reviewer.set_capabilities(
+                ReviewCapabilities {
+                    repository: false,
+                    refresh: false,
+                    scope: false,
+                    submit: true,
+                    clipboard: true,
+                },
+                cx,
+            );
+            reviewer
         });
         let subscription = cx.subscribe(
             &reviewer,
