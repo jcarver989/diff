@@ -3,11 +3,13 @@ use crate::{
     PresentationOptions, PresentedCell, PresentedRow, Review, ReviewSubmission, SourceLocation,
     ViewMode, presentation::retained_expansions,
 };
+use serde::{Deserialize, Serialize};
 use std::{ops::Range, sync::Arc};
 
 const EXPAND_STEP: usize = 20;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RevealAmount {
     Step,
     All,
@@ -445,13 +447,10 @@ impl ReviewSession {
         true
     }
 
-    pub fn move_hunk(&mut self, delta: isize) -> bool {
-        self.pending_source_restore = None;
-        let Some(file) = self.document.files.get(self.selected_file) else {
-            return false;
-        };
+    pub fn hunk_target(&self, delta: isize) -> Option<usize> {
+        let file = self.document.files.get(self.selected_file)?;
         if file.hunks.is_empty() {
-            return false;
+            return None;
         }
         let current = self
             .presentation
@@ -459,13 +458,20 @@ impl ReviewSession {
             .and_then(|row| row.hunk_index)
             .unwrap_or(0);
         let target = offset(current, delta, file.hunks.len() - 1);
-        let Some(range) = self.presentation.hunk_range(self.selected_file, target) else {
+        let range = self.presentation.hunk_range(self.selected_file, target)?;
+        Some(
+            self.presentation
+                .first_navigable(range)
+                .unwrap_or(self.selected_row),
+        )
+    }
+
+    pub fn move_hunk(&mut self, delta: isize) -> bool {
+        self.pending_source_restore = None;
+        let Some(target) = self.hunk_target(delta) else {
             return false;
         };
-        self.selected_row = self
-            .presentation
-            .first_navigable(range)
-            .unwrap_or(self.selected_row);
+        self.selected_row = target;
         self.normalize_selected_side();
         true
     }

@@ -50,6 +50,19 @@ fn blank_submission_closes_the_draft_without_adding_a_comment() {
     assert!(session.review().is_empty());
 }
 
+#[test]
+fn hunk_targets_can_be_queried_without_changing_selection() -> Result<(), Box<dyn Error>> {
+    let mut session = session();
+    let selected = session.selected_row();
+    let target = session.hunk_target(1).ok_or("missing hunk target")?;
+    assert_eq!(session.selected_row(), selected);
+    assert!(session.move_hunk(1));
+    assert_eq!(session.selected_row(), Some(target));
+    let empty = ReviewSession::new(DocumentBuilder::new().build());
+    assert_eq!(empty.hunk_target(1), None);
+    Ok(())
+}
+
 fn session() -> ReviewSession {
     ReviewSession::new(
         DocumentBuilder::new()

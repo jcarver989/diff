@@ -1,6 +1,8 @@
 use crate::{DiffScope, DiffSide, RepositoryAction, RevealAmount, ViewMode};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FocusPane {
     #[default]
     Files,
@@ -17,7 +19,8 @@ pub enum InteractionPhase {
     RepositoryPrompt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct ReviewCapabilities {
     pub repository: bool,
     pub refresh: bool,
@@ -61,7 +64,8 @@ impl Default for CommandContext {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReviewCommand {
     BeginComment,
     EditComment,
@@ -97,7 +101,8 @@ impl ReviewCommand {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DiffReviewCommand {
     Review(ReviewCommand),
     Focus(FocusPane),
