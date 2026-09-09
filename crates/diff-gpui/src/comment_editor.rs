@@ -1,5 +1,5 @@
 use crate::style;
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use gpui::{
     App, Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler, FocusHandle,
     Focusable, KeyDownEvent, MouseButton, Pixels, UTF16Selection, Window, canvas, div, prelude::*,
@@ -19,18 +19,18 @@ pub(crate) struct CommentEditor {
     body: String,
     cursor: usize,
     marked_range: Option<Range<usize>>,
-    theme: DiffTheme,
+    theme: ReviewTheme,
     placeholder: &'static str,
 }
 
 impl CommentEditor {
-    pub(crate) fn new(body: String, theme: DiffTheme, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(body: String, theme: ReviewTheme, cx: &mut Context<Self>) -> Self {
         Self::with_placeholder(body, theme, "Leave a comment…", cx)
     }
 
     pub(crate) fn with_placeholder(
         body: String,
-        theme: DiffTheme,
+        theme: ReviewTheme,
         placeholder: &'static str,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -52,7 +52,7 @@ impl CommentEditor {
         self.body.trim().is_empty()
     }
 
-    pub(crate) fn set_theme(&mut self, theme: DiffTheme, cx: &mut Context<Self>) {
+    pub(crate) fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
         self.theme = theme;
         cx.notify();
     }
@@ -298,7 +298,7 @@ impl EntityInputHandler for CommentEditor {
 
 impl Render for CommentEditor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let palette = self.theme.palette();
+        let palette = &self.theme.diff;
         let display = if self.body.is_empty() {
             self.placeholder.to_owned()
         } else {

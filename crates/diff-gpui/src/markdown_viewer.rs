@@ -16,7 +16,7 @@ use clankerdiff_markdown::{
     MarkdownReviewSession, MarkdownTargetId, MarkdownTargetKind,
 };
 use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use gpui::{
     App, Context, Entity, EventEmitter, Focusable, HighlightStyle, KeyBinding, KeyContext,
     SharedString, StyledText, Subscription, Window, actions, div, prelude::*, px,
@@ -74,7 +74,7 @@ struct CodeInfo {
 /// Shared GPUI rendered-Markdown review entity used by desktop and web hosts.
 pub struct MarkdownReviewer {
     session: MarkdownReviewSession,
-    theme: DiffTheme,
+    theme: ReviewTheme,
     highlighter: RefCell<SyntaxHighlighter>,
     code_infos: HashMap<MarkdownTargetId, CodeInfo>,
     options: MarkdownReviewerOptions,
@@ -90,7 +90,7 @@ impl MarkdownReviewer {
     pub fn new(document: Arc<MarkdownDocument>) -> Self {
         Self::with_options(
             document,
-            DiffTheme::default(),
+            ReviewTheme::default(),
             MarkdownReviewerOptions::default(),
         )
     }
@@ -98,7 +98,7 @@ impl MarkdownReviewer {
     #[must_use]
     pub fn with_options(
         document: Arc<MarkdownDocument>,
-        theme: DiffTheme,
+        theme: ReviewTheme,
         options: MarkdownReviewerOptions,
     ) -> Self {
         Self {
@@ -185,7 +185,7 @@ impl MarkdownReviewer {
         UiTheme::new(&self.theme)
     }
 
-    pub fn set_theme(&mut self, theme: DiffTheme, cx: &mut Context<Self>) {
+    pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
         self.theme = theme.clone();
         if let Some(editor) = &self.editor {
             editor.update(cx, |editor, cx| editor.set_theme(theme, cx));
@@ -262,7 +262,7 @@ impl MarkdownReviewer {
     }
 
     fn render_outline(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let palette = self.theme.palette();
+        let palette = &self.theme.diff;
         let headings = self.document().outline().to_vec();
         div()
             .id("markdown-outline-pane")
@@ -302,7 +302,7 @@ impl MarkdownReviewer {
         target_id: MarkdownTargetId,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let palette = self.theme.palette();
+        let palette = &self.theme.diff;
         let Some(target) = self.document().target(target_id) else {
             return div().id(("missing-markdown-target", target_id.index()));
         };
@@ -333,7 +333,7 @@ impl MarkdownReviewer {
             let highlighted = self
                 .highlighter
                 .borrow_mut()
-                .with_theme(&self.theme)
+                .with_theme(&self.theme.syntax)
                 .highlight_lines(
                     LanguageHint::InfoString(&info.info),
                     info.lines.iter().map(String::as_str),
@@ -599,7 +599,7 @@ impl MarkdownReviewer {
     }
 
     fn select_theme(&mut self, id: &str, cx: &mut Context<Self>) {
-        if let Ok(theme) = DiffTheme::builtin(id) {
+        if let Ok(theme) = ReviewTheme::builtin(id) {
             self.theme_picker_open = false;
             self.set_theme(theme, cx);
             cx.emit(ThemeChanged { id: id.to_owned() });
@@ -608,7 +608,7 @@ impl MarkdownReviewer {
 
     fn render_theme_picker(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let current = self.theme.id().to_string();
-        let items = DiffTheme::catalog().into_iter().map(|descriptor| {
+        let items = ReviewTheme::catalog().into_iter().map(|descriptor| {
             let id = descriptor.id.clone();
             ThemePickerItem::new(
                 descriptor.id.clone(),
@@ -726,7 +726,7 @@ impl Render for MarkdownReviewer {
             .focus_handle
             .get_or_insert_with(|| cx.focus_handle())
             .clone();
-        let palette = self.theme.palette();
+        let palette = &self.theme.diff;
         let targets = self
             .document()
             .targets()

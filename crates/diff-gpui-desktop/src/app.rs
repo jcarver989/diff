@@ -7,7 +7,7 @@ use clankerdiff_gpui::{
     DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, ThemeChanged,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchError, WatchOptions};
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window,
@@ -66,7 +66,7 @@ pub(crate) struct DesktopApp {
     viewer: Option<Entity<DiffViewer>>,
     viewer_subscription: Option<Subscription>,
     theme_subscription: Option<Subscription>,
-    theme: DiffTheme,
+    theme: ReviewTheme,
     load_task: Option<Task<()>>,
     command_task: Option<Task<()>>,
     watch_task: Task<()>,
@@ -267,7 +267,7 @@ impl DesktopApp {
             self.theme_subscription = Some(cx.subscribe(
                 &viewer,
                 |this, _viewer, event: &ThemeChanged, _cx| {
-                    if let Ok(theme) = DiffTheme::builtin(&event.id) {
+                    if let Ok(theme) = ReviewTheme::builtin(&event.id) {
                         this.theme = theme;
                     }
                     let _ = preferences::save_theme(&event.id);

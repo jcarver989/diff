@@ -13,7 +13,7 @@ use clankerdiff_core::{
     SessionOptions, StageState, ViewMode,
 };
 use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter};
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use gpui::{
     App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
     ListAlignment, ListOffset, ListState, ScrollHandle, Subscription, Window, actions, div,
@@ -140,7 +140,7 @@ pub enum ViewerPane {
 pub struct DiffViewer {
     session: ReviewSession,
     scope: DiffScope,
-    theme: DiffTheme,
+    theme: ReviewTheme,
     highlighter: SyntaxHighlighter,
     options: DiffViewerOptions,
     sidebar_width: f32,
@@ -170,14 +170,18 @@ impl DiffViewer {
     /// Creates a viewer with the default Sage theme and options.
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
-        Self::with_options(document, DiffTheme::default(), DiffViewerOptions::default())
+        Self::with_options(
+            document,
+            ReviewTheme::default(),
+            DiffViewerOptions::default(),
+        )
     }
 
     /// Creates a viewer with explicit theme and adapter options.
     #[must_use]
     pub fn with_options(
         document: Arc<DiffDocument>,
-        theme: DiffTheme,
+        theme: ReviewTheme,
         options: DiffViewerOptions,
     ) -> Self {
         let sidebar_tree = SidebarTree::new(&document);
@@ -342,7 +346,7 @@ impl DiffViewer {
 
     /// Returns the shared neutral theme.
     #[must_use]
-    pub const fn theme(&self) -> &DiffTheme {
+    pub const fn theme(&self) -> &ReviewTheme {
         &self.theme
     }
 
@@ -550,7 +554,7 @@ impl DiffViewer {
     }
 
     /// Changes the theme and invalidates cached syntax spans.
-    pub fn set_theme(&mut self, theme: DiffTheme, cx: &mut Context<Self>) {
+    pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
         self.theme = theme.clone();
         if let Some(editor) = &self.comment_editor {
             editor.update(cx, |editor, cx| editor.set_theme(theme, cx));
@@ -869,7 +873,7 @@ impl DiffViewer {
         cell: &PresentedCell,
     ) -> Arc<[HighlightSpan]> {
         let presentation = self.session.presentation();
-        let mut syntax = self.highlighter.with_theme(&self.theme);
+        let mut syntax = self.highlighter.with_theme(&self.theme.syntax);
         if let (Some(source), Some(path), Some(line)) = (
             presentation.source_document(row, cell),
             presentation.source_path(row, cell),
@@ -1315,7 +1319,7 @@ impl DiffViewer {
     }
 
     fn select_theme(&mut self, id: &str, cx: &mut Context<Self>) {
-        if let Ok(theme) = DiffTheme::builtin(id) {
+        if let Ok(theme) = ReviewTheme::builtin(id) {
             self.theme_picker_open = false;
             self.set_theme(theme, cx);
             cx.emit(ThemeChanged { id: id.to_owned() });
@@ -1324,7 +1328,7 @@ impl DiffViewer {
 
     fn render_theme_picker(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let current = self.theme.id().to_string();
-        let items = DiffTheme::catalog().into_iter().map(|descriptor| {
+        let items = ReviewTheme::catalog().into_iter().map(|descriptor| {
             let id = descriptor.id.clone();
             ThemePickerItem::new(
                 descriptor.id.clone(),
@@ -1362,7 +1366,7 @@ impl DiffViewer {
     }
 
     fn render_repository_prompt(&self) -> impl IntoElement {
-        let palette = self.theme.palette();
+        let palette = &self.theme.diff;
         let prompt = self.repository_prompt.clone();
         let title = match &prompt {
             Some(RepositoryPrompt::Commit) => "Commit staged changes".to_owned(),
@@ -1438,7 +1442,7 @@ impl Render for DiffViewer {
         {
             self.diff_list_file = None;
         }
-        let palette = self.theme.palette().clone();
+        let palette = self.theme.diff.clone();
         let focus_handle = self
             .focus_handle
             .get_or_insert_with(|| cx.focus_handle())

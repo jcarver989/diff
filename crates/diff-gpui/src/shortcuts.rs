@@ -37,7 +37,7 @@ const DRAFT: &[(&str, &str)] = &[
 
 impl DiffViewer {
     pub(crate) fn render_shortcuts(&self) -> impl IntoElement {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let section = |title: &'static str, rows: &'static [(&'static str, &'static str)]| {
             let mut content = div().flex_1().flex().flex_col().gap_1().child(
                 div()

@@ -1,4 +1,4 @@
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use std::{env, fs, io, path::PathBuf};
 
 fn path() -> Option<PathBuf> {
@@ -18,10 +18,10 @@ fn path() -> Option<PathBuf> {
     }
 }
 
-pub(crate) fn load_theme() -> DiffTheme {
+pub(crate) fn load_theme() -> ReviewTheme {
     path()
         .and_then(|path| fs::read_to_string(path).ok())
-        .and_then(|id| DiffTheme::builtin(id.trim()).ok())
+        .and_then(|id| ReviewTheme::builtin(id.trim()).ok())
         .unwrap_or_default()
 }
 

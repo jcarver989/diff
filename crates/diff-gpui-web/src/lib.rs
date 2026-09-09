@@ -1,6 +1,6 @@
 use clankerdiff_core::{DiffDocument, DiffScope};
 use clankerdiff_markdown::MarkdownDocument;
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -208,8 +208,8 @@ pub fn demo_document() -> DiffDocument {
 ///
 /// # Errors
 /// Returns an error when the name is unknown or its theme cannot be parsed.
-pub fn decode_theme(name: &str) -> Result<DiffTheme, WebError> {
-    DiffTheme::builtin(name).map_err(|_| WebError::UnknownTheme(name.into()))
+pub fn decode_theme(name: &str) -> Result<ReviewTheme, WebError> {
+    ReviewTheme::builtin(name).map_err(|_| WebError::UnknownTheme(name.into()))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -227,7 +227,7 @@ mod wasm {
         load_default_fonts,
     };
     use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
-    use clankerdiff_theme::DiffTheme;
+    use clankerdiff_theme::ReviewTheme;
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
         Window, WindowBounds, WindowOptions, prelude::*, px, size,
@@ -248,7 +248,7 @@ mod wasm {
             request_id: Option<u64>,
             scope: Option<DiffScope>,
         },
-        SetTheme(DiffTheme),
+        SetTheme(ReviewTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
         RepositoryFinished(RepositoryReply),
         ClearReview,
@@ -542,7 +542,7 @@ mod wasm {
 
     const THEME_STORAGE_KEY: &str = "clankerdiff.theme.v1";
 
-    fn stored_theme() -> DiffTheme {
+    fn stored_theme() -> ReviewTheme {
         web_sys::window()
             .and_then(|window| window.local_storage().ok().flatten())
             .and_then(|storage| storage.get_item(THEME_STORAGE_KEY).ok().flatten())

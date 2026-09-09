@@ -22,6 +22,10 @@ clankerdiff-theme = { version = "0.1.0", path = "../diff-theme" }
 gpui.workspace = true
 
 [[test]]
+name = "ui_theme_test"
+path = "tests/ui/theme_test.rs"
+
+[[test]]
 name = "rendered"
 required-features = ["test-support"]
 

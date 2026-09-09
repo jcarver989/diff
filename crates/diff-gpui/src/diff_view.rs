@@ -47,7 +47,7 @@ impl Drop for DiffScrollbarDrag {
 
 impl DiffViewer {
     pub(crate) fn render_diff(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let palette = self.theme().palette().clone();
+        let palette = self.theme().diff.clone();
         let Some(file_index) = self.selected_file() else {
             return div()
                 .debug_selector(|| "diff-pane".to_owned())
@@ -187,7 +187,7 @@ impl DiffViewer {
         let track_space = viewport_height - thumb_height;
         let scroll_fraction = (current_offset / max_offset).clamp(0.0, 1.0);
         let thumb_top = track_space * scroll_fraction;
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let drag = DiffScrollbarDrag {
             thumb_offset: Cell::new(px(0.0)),
             list_state: list_state.clone(),
@@ -262,7 +262,7 @@ impl DiffViewer {
         row: &PresentedRow,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let palette = self.theme().palette().clone();
+        let palette = self.theme().diff.clone();
         let row_height = px(self.diff_row_height());
         if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
             let text: SharedString = if row.kind == RowKind::ExpandGap {
@@ -376,7 +376,7 @@ impl DiffViewer {
         left: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let palette = self.theme().palette().clone();
+        let palette = self.theme().diff.clone();
         let split = self.layout().is_split();
         let border_color = style::color(palette.border);
         let Some(cell) = cell else {
@@ -468,7 +468,7 @@ impl DiffViewer {
         hover_group: SharedString,
         cx: &mut Context<Self>,
     ) -> Div {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let foreground = match cell.tone {
             DiffTone::Added => palette.addition,
             DiffTone::Removed => palette.deletion,
@@ -522,7 +522,7 @@ impl DiffViewer {
         active_editor: Option<(DiffSide, Entity<CommentEditor>)>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let palette = self.theme().palette().clone();
+        let palette = self.theme().diff.clone();
         let old_editor = active_editor
             .as_ref()
             .filter(|(side, _)| *side == DiffSide::Old)
@@ -568,7 +568,7 @@ impl DiffViewer {
     }
 
     fn render_comment_thread(&self, index: usize, comments: Vec<ReviewComment>) -> AnyElement {
-        let palette = self.theme().palette().clone();
+        let palette = self.theme().diff.clone();
         let last_comment = comments.len().saturating_sub(1);
         div()
             .id(("comment-thread", index))
@@ -616,7 +616,7 @@ impl DiffViewer {
         editor: Entity<CommentEditor>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let palette = self.theme().palette().clone();
+        let palette = self.theme().diff.clone();
         let line = row
             .cell(side)
             .and_then(PresentedCell::line_number)

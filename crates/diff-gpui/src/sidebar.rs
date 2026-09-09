@@ -336,7 +336,7 @@ fn stage_checkbox(stage: &'static str) -> Div {
 
 impl DiffViewer {
     pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let mut rows = div()
             .id("diff-files")
             .debug_selector(|| "diff-files".to_owned())
@@ -388,7 +388,7 @@ impl DiffViewer {
     }
 
     pub(crate) fn render_sidebar_resize_handle(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         div()
             .id("sidebar-resize-container")
             .relative()
@@ -423,7 +423,7 @@ impl DiffViewer {
         expanded: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let path = directory.path.clone();
         let selected = self.sidebar_selection == SidebarEntry::Directory(path.clone());
         let entry = SidebarEntry::Directory(path.clone());
@@ -473,7 +473,7 @@ impl DiffViewer {
         depth: u16,
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
-        let palette = self.theme().palette();
+        let palette = &self.theme().diff;
         let index = file.index;
         let diff = self.document().files.get(index)?;
         let status_color = match diff.status {

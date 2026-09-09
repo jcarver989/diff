@@ -317,7 +317,7 @@ fn apply_markdown_event(
     event: Event,
 ) -> Result<MarkdownEventOutcome, TuiError> {
     let previous_theme = state.theme().id().to_string();
-    let outcome = match handle_markdown_crossterm_event(state, event)? {
+    let outcome = match handle_markdown_crossterm_event(state, event)?.into_event() {
         Some(MarkdownReviewEvent::Submit(submission)) => {
             MarkdownEventOutcome::Submitted(submission)
         }
@@ -595,7 +595,7 @@ fn apply_event(
     backend: &mut dyn DiffReviewBackend,
 ) -> EventOutcome {
     let previous_theme = state.theme().id().to_string();
-    let outcome = match handle_crossterm_event(state, event) {
+    let outcome = match handle_crossterm_event(state, event).into_event() {
         Some(DiffReviewEvent::RepositoryAction(action)) => {
             if state.repository_pending() {
                 return EventOutcome::Continue;

@@ -1,12 +1,12 @@
 //! Reusable GPUI integration-test support.
 //!
-//! The harness opens the production [`DiffViewer`](crate::DiffViewer) in a real
+//! The harness opens the production [`DiffViewer`] in a real
 //! GPUI test window, records host events, drives input through GPUI, and exposes
 //! rendered element bounds. It deliberately does not use image snapshots.
 
 use crate::{DiffViewer, DiffViewerEvent, DiffViewerOptions};
 use clankerdiff_core::{DiffDocument, testing::DocumentBuilder};
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use gpui::{
     AnyWindowHandle, App, Bounds, Context, Entity, InputEvent, ListOffset, Pixels, Point, Render,
     ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
@@ -22,7 +22,7 @@ struct HarnessRoot {
 impl HarnessRoot {
     fn new(
         document: Arc<DiffDocument>,
-        theme: DiffTheme,
+        theme: ReviewTheme,
         options: DiffViewerOptions,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -60,7 +60,7 @@ impl Render for HarnessRoot {
 /// ```
 pub struct DiffViewerHarnessBuilder {
     pub document: Arc<DiffDocument>,
-    pub theme: DiffTheme,
+    pub theme: ReviewTheme,
     pub options: DiffViewerOptions,
     pub window_options: WindowOptions,
 }
@@ -71,7 +71,7 @@ impl Default for DiffViewerHarnessBuilder {
             document: DocumentBuilder::new()
                 .changed("src/lib.rs", "old\n", "new\n")
                 .build(),
-            theme: DiffTheme::default(),
+            theme: ReviewTheme::default(),
             options: DiffViewerOptions::default(),
             window_options: WindowOptions::default(),
         }

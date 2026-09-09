@@ -1,5 +1,5 @@
 use clankerdiff_gpui::ui::prelude::*;
-use clankerdiff_theme::DiffTheme;
+use clankerdiff_theme::ReviewTheme;
 use gpui::{
     App, AppContext, Bounds, Context, Window, WindowBounds, WindowOptions, div, prelude::*, px,
     size,
@@ -10,7 +10,7 @@ struct ComponentGallery;
 
 impl Render for ComponentGallery {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = UiTheme::new(&DiffTheme::default());
+        let theme = UiTheme::new(&ReviewTheme::default());
         div()
             .size_full()
             .p_5()

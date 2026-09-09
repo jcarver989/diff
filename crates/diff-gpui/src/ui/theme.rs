@@ -2,7 +2,7 @@
 
 use crate::style::color;
 use clankerdiff_theme::{
-    ButtonVariant, ControlState, DiffTheme, NoticeTone, SelectionState, SemanticStyle, UiPalette,
+    ButtonVariant, ControlState, NoticeTone, ReviewTheme, SelectionState, SemanticStyle, UiPalette,
 };
 use gpui::Hsla;
 
@@ -62,7 +62,7 @@ impl From<SemanticStyle> for UiStyle {
     }
 }
 
-/// Semantic GPUI theme derived from a [`DiffTheme`].
+/// Semantic GPUI theme derived from a [`ReviewTheme`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UiTheme {
     palette: UiPalette,
@@ -72,8 +72,8 @@ pub struct UiTheme {
 impl UiTheme {
     /// Creates component tokens from a diff theme.
     #[must_use]
-    pub fn new(theme: &DiffTheme) -> Self {
-        let palette = UiPalette::from(theme.palette());
+    pub fn new(theme: &ReviewTheme) -> Self {
+        let palette = UiPalette::from(&theme.diff);
         Self {
             colors: UiColors::from_palette(&palette),
             palette,
