@@ -14,7 +14,7 @@ test-support = ["dep:tempfile"]
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.1.0", path = "../diff-core" }
+clankerdiff-core = { version = "0.1.1", path = "../diff-core" }
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "time"] }
