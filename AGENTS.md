@@ -10,6 +10,7 @@ This is a repository for Diff, a performant diff tool with comment support. The 
 2. Prefer using `T`, `U`, `V` etc for generic type param names, always start with `T`.
 3. Use `thiserror` crate for errors.
 4. Avoid `Mutex`, `Arc<Mutex>`, `Semaphore` and other forms of locking where possible. Instead give each task (or thread) ownership of its own resources, or if you must share resources use either structured concurrency or tokio channels via an actor pattern.
+5. Crates in this workspace should have "one way to do something" and export a cohesive api -- e.g. if we need to support incremental syntax highlighting _and_ full file syntax highlighting, the incremental API should be designed to cover both use-cases and we should not create parallel implementations.
 
 ### Rust docs
 

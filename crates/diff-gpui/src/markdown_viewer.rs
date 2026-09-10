@@ -13,13 +13,13 @@ use crate::{
         },
     },
 };
-use clankerdiff_core::{ReviewCapabilities, ReviewCommand};
+use clankerdiff_core::{ReviewCapabilities, ReviewCommand, SourceSequenceId, join_lines};
 use clankerdiff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownFocusPane, MarkdownReview,
     MarkdownReviewCommand, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownReviewSession,
     MarkdownTargetId, MarkdownTargetKind,
 };
-use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
+use clankerdiff_syntax::{DocumentHighlights, HighlightSpan, LanguageHint, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
 use clankerdiff_theme::ThemeSelection;
 use gpui::{
@@ -397,14 +397,17 @@ impl MarkdownReviewer {
                 .highlighter
                 .borrow_mut()
                 .with_theme(&self.theme.syntax)
-                .highlight_lines(
+                .highlight_document(
+                    SourceSequenceId::from_lines(info.lines.iter().map(String::as_str))
+                        .fingerprint(),
                     LanguageHint::InfoString(&info.info),
-                    info.lines.iter().map(String::as_str),
-                );
+                    || join_lines(info.lines.iter().map(String::as_str)),
+                )
+                .unwrap_or_default();
             let highlights = if let Some(index) = info.line_index {
-                highlighted.get(index).cloned().unwrap_or_default()
+                highlighted.line(index).unwrap_or_default().to_vec()
             } else {
-                flatten_line_spans(&info.lines, highlighted)
+                flatten_line_spans(&info.lines, &highlighted)
             };
             StyledText::new(rendered).with_highlights(highlights.iter().map(|span| {
                 let style: HighlightStyle =
@@ -780,18 +783,22 @@ impl MarkdownReviewer {
     }
 }
 
-fn flatten_line_spans(
-    lines: &[String],
-    highlighted: Vec<Vec<clankerdiff_theme::HighlightSpan>>,
-) -> Vec<clankerdiff_theme::HighlightSpan> {
+fn flatten_line_spans(lines: &[String], highlighted: &DocumentHighlights) -> Vec<HighlightSpan> {
     let mut offset = 0;
     let mut flattened = Vec::new();
-    for (line, spans) in lines.iter().zip(highlighted) {
-        flattened.extend(spans.into_iter().map(|mut span| {
-            span.range.start += offset;
-            span.range.end += offset;
-            span
-        }));
+    for (index, line) in lines.iter().enumerate() {
+        flattened.extend(
+            highlighted
+                .line(index)
+                .unwrap_or_default()
+                .iter()
+                .cloned()
+                .map(|mut span| {
+                    span.range.start += offset;
+                    span.range.end += offset;
+                    span
+                }),
+        );
         offset += line.len() + 1;
     }
     flattened

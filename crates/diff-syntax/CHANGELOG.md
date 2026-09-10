@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Retained Arborium Tree-sitter documents, incremental query/injection invalidation, shared line projections, and parser/query/projection work counters.
+- Full-document and streaming comparison against Arborium, including long multiline context, UTF-8, EOF edits, injection depth limits, boundary reinterpretation, and input-limit atomicity.
+
+### Changed
+
+- One document-highlighting API now accepts a `Fingerprint`, language hint, and lazy exact-source closure. `SyntaxError` replaces `SyntaxStreamError`; callers handle typed failures for complete documents and streams.
+- Theme changes recolor retained captures without reparsing. Complete source context is retained without a fixed lookbehind window.
+
+### Removed
+
+- F# grammar coverage and its aliases are no longer bundled. Unsupported hints use plain-text highlighting; consumers should not assume parity with the previous grammar catalog.
+- The syntax crate's `SourceSequenceId` re-export and separate line-sequence highlighting entry points; line-oriented consumers assemble consistently encoded source lazily at the document cache boundary.
+
 ## [0.1.1](https://github.com/jcarver989/diff/compare/clankerdiff-syntax-v0.1.0...clankerdiff-syntax-v0.1.1) - 2026-09-09
 
 ### Other

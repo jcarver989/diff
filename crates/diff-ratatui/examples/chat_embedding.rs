@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             MarkdownLayoutOptions::default(),
             &theme,
             &mut highlighter,
-        );
+        )?;
         let update = state.update_since(revision);
         rows.truncate(update.first_changed_row);
         rows.extend(update.replacement.iter().cloned());
@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         MarkdownLayoutOptions::default(),
         &theme,
         &mut highlighter,
-    );
+    )?;
     let update = state.update_since(revision);
     rows.truncate(update.first_changed_row);
     rows.extend(update.replacement.iter().cloned());

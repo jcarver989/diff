@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Source-buffer and retained-reference-prefix copy counters, plus regression coverage for growing paragraphs, lists, quotes, and nested fences without rescanning completed semantic prefixes.
+
+- Retained semantic stream parsing with settled-block reuse, reference-definition invalidation, incremental open fences, and actual parser/scan work counters.
+- `MarkdownStream::source_revision()` distinguishes source changes from completion and empty resumption. Source revisions advance on nonempty pushes and replacements; stream revisions retain their existing lifecycle semantics.
+
 ## [0.1.1](https://github.com/jcarver989/diff/compare/clankerdiff-markdown-v0.1.0...clankerdiff-markdown-v0.1.1) - 2026-09-09
 
 ### Other

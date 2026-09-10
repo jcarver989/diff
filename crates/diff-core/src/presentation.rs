@@ -3,11 +3,12 @@
 use crate::{
     DiffDocument, DiffSide, FileDiff, FileStatus, Fingerprint, Hunk, LineAnchor, PatchLine,
     PatchLineKind, RepoPath, SourceDocument, SourceLineRef, SourceLocation, SourceSequenceId,
-    SourceUnavailable,
+    SourceUnavailable, join_lines,
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     ops::Range,
     sync::{Arc, OnceLock},
@@ -210,6 +211,28 @@ impl HunkSequence<'_> {
             .filter(|line| line.line_number(self.side).is_some())
             .map(|line| line.text.as_ref())
     }
+}
+
+pub struct CellContext<'a> {
+    pub id: Fingerprint,
+    pub path: &'a str,
+    pub target_line: usize,
+    source: CellContextSource<'a>,
+}
+
+impl CellContext<'_> {
+    #[must_use]
+    pub fn text(&self) -> Cow<'_, str> {
+        match &self.source {
+            CellContextSource::Text(text) => Cow::Borrowed(text),
+            CellContextSource::Hunk(sequence) => Cow::Owned(join_lines(sequence.lines())),
+        }
+    }
+}
+
+enum CellContextSource<'a> {
+    Text(&'a str),
+    Hunk(HunkSequence<'a>),
 }
 
 fn hunk_side_sequence_id(lines: &[PatchLine], side: DiffSide) -> SourceSequenceId {
@@ -586,6 +609,40 @@ impl DiffPresentation {
             hunk,
             side: source.side,
         })
+    }
+
+    #[must_use]
+    pub fn cell_context<'a>(
+        &'a self,
+        row: &PresentedRow,
+        cell: &'a PresentedCell,
+    ) -> CellContext<'a> {
+        if let (Some(source), Some(path), Some(line)) = (
+            self.source_document(row, cell),
+            self.source_path(row, cell),
+            cell.line_number().and_then(|line| line.checked_sub(1)),
+        ) {
+            return CellContext {
+                id: source.content_id(),
+                path,
+                target_line: line,
+                source: CellContextSource::Text(source.text()),
+            };
+        }
+        if let Some(sequence) = self.hunk_sequence(row, cell) {
+            return CellContext {
+                id: sequence.id.fingerprint(),
+                path: sequence.path,
+                target_line: sequence.target_line,
+                source: CellContextSource::Hunk(sequence),
+            };
+        }
+        CellContext {
+            id: Fingerprint::of([b"diff-cell-context-v1".as_slice(), cell.text.as_bytes()]),
+            path: self.row_path(row),
+            target_line: 0,
+            source: CellContextSource::Text(&cell.text),
+        }
     }
 
     #[must_use]

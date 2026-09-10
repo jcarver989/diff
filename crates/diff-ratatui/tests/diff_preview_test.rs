@@ -31,6 +31,26 @@ fn previews_reuse_rows_and_invalidate_replaced_files() -> Result<(), Box<dyn Err
 }
 
 #[test]
+fn theme_changes_recolor_previews_without_parsing() -> Result<(), Box<dyn Error>> {
+    let mut state = DiffPreviewState::new(FileDiff::from_texts(
+        "src/main.rs",
+        "let before = 1;\n",
+        "let after = 2;\n",
+    )?);
+    let mut highlighter = SyntaxHighlighter::default();
+    let options = DiffPreviewOptions::default();
+    let first = state.render(80, &ReviewTheme::default(), &mut highlighter, options);
+    assert!(highlighter.take_stats().bytes > 0);
+    let changed = state.render(80, &ReviewTheme::ayu()?, &mut highlighter, options);
+    assert_ne!(first, changed);
+    let work = highlighter.take_stats();
+    assert_eq!(work.bytes, 0);
+    assert_eq!(work.misses, 0);
+    assert!(work.hits > 0);
+    Ok(())
+}
+
+#[test]
 fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn Error>> {
     let mut state = DiffPreviewState::new(FileDiff::from_texts(
         "wide.rs",

@@ -34,6 +34,7 @@ arborium = { version = "=2.18.2", default-features = false }
 arborium-highlight = "=2.18.2"
 arborium-sysroot = "=2.18.2"
 arborium-theme = "=2.18.2"
+arborium-tree-sitter = "=2.18.2"
 bitflags = "2.13.1"
 blake3 = "1.8.7"
 clap = { version = "4.6.6", features = ["derive"] }
@@ -43,6 +44,7 @@ gpui = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c385
 gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
 gpui_tokio = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d" }
 gpui_web = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
+imbl = "7.0.1"
 lru = "0.18.3"
 notify = "8.2.0"
 open = "5.4.2"

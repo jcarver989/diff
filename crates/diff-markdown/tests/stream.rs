@@ -56,6 +56,25 @@ fn replacement_and_appending_after_completion_report_resets() {
 }
 
 #[test]
+fn source_revisions_only_advance_when_source_can_change() {
+    let mut stream = MarkdownStream::new();
+    assert_eq!(stream.source_revision(), 0);
+    stream.push("café");
+    let source_revision = stream.source_revision();
+    assert_eq!(source_revision, 1);
+    stream.push("");
+    stream.finish();
+    stream.finish();
+    stream.push("");
+    assert_eq!(stream.source_revision(), source_revision);
+    assert_eq!(stream.clone().source_revision(), source_revision);
+    stream.replace("café");
+    assert_eq!(stream.source_revision(), source_revision + 1);
+    stream.push("!");
+    assert_eq!(stream.source_revision(), source_revision + 2);
+}
+
+#[test]
 fn independent_and_cloned_streams_have_distinct_identities() {
     let mut first = MarkdownStream::new();
     first.push("before");

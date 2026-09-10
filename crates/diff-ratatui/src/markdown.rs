@@ -4,26 +4,29 @@ use crate::{
     color::{layered_style, page_color},
     markdown_layout::{
         MarkdownLayout, MarkdownLayoutOptions, MarkdownPresentation, MarkdownRow,
-        MarkdownRowUpdate, RowChunk, RowStore,
+        MarkdownRowUpdate, RowCheckpoint, RowChunk, RowStore, TargetIndex,
     },
     syntax::highlighted_line,
-    text::{FitOptions, fit_spans},
+    text::{FitOptions, FitPosition, fit_spans, fit_spans_from},
 };
+use clankerdiff_core::SourceSequenceId;
 use clankerdiff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownDocument, MarkdownInline,
-    MarkdownLineRange, MarkdownListItem, MarkdownSourceRole, MarkdownSourceStyle, MarkdownStream,
-    MarkdownStreamIdentity, MarkdownTable, MarkdownTableAlignment, MarkdownTargetId, SourceRange,
-    rendered_text,
+    MarkdownLineRange, MarkdownListItem, MarkdownParseStats, MarkdownSourceRole,
+    MarkdownSourceStyle, MarkdownStream, MarkdownStreamIdentity, MarkdownTable,
+    MarkdownTableAlignment, MarkdownTargetId, SourceRange, rendered_text,
 };
 use clankerdiff_syntax::{
-    DocumentHighlights, HighlightSpan, LanguageHint, SourceSequenceId, SyntaxHighlighter,
+    DocumentHighlights, HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxStream,
 };
 use clankerdiff_theme::{Fingerprint, ReviewTheme, Rgba};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
-use std::{collections::HashMap, sync::Arc};
+use similar::{ChangeTag, TextDiff};
+use std::{collections::HashMap, ops::Range, sync::Arc};
+use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -32,18 +35,67 @@ use unicode_width::UnicodeWidthStr;
 pub struct MarkdownRenderStats {
     /// Bytes actually supplied to the Markdown parser.
     pub parsed_bytes: usize,
+    pub scanned_bytes: usize,
+    pub source_bytes_copied: usize,
+    pub prefix_bytes_copied: usize,
     pub parsed_documents: u64,
     pub rows_generated: usize,
     pub rows_reused: usize,
+    pub rows_compared: usize,
     pub rows_materialized: usize,
     pub highlighted_bytes: usize,
+    pub blocks_visited: usize,
+    pub targets_visited: usize,
+    pub chunks_visited: usize,
+    pub row_store_updates: usize,
+}
+
+impl MarkdownRenderStats {
+    fn record_parse(&mut self, parse: MarkdownParseStats, seen: MarkdownParseStats) {
+        self.parsed_bytes += parse.parsed_bytes.saturating_sub(seen.parsed_bytes);
+        self.scanned_bytes += parse.scanned_bytes.saturating_sub(seen.scanned_bytes);
+        self.source_bytes_copied += parse
+            .source_bytes_copied
+            .saturating_sub(seen.source_bytes_copied);
+        self.prefix_bytes_copied += parse
+            .prefix_bytes_copied
+            .saturating_sub(seen.prefix_bytes_copied);
+        self.parsed_documents += parse.parses.saturating_sub(seen.parses);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StreamingMarkdownPolicy {
+    #[default]
+    Reflowable,
+    Terminal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum MarkdownCommitError {
+    #[error("row commits require the terminal streaming policy")]
+    Reflowable,
+    #[error("commit base revision {base} does not match the layout revision {revision}")]
+    StaleRevision { base: u64, revision: u64 },
+    #[error("cannot commit {requested} rows when {committed} rows are already committed")]
+    Decreasing { committed: usize, requested: usize },
+    #[error("cannot commit {requested} rows of a layout with {rows} rows")]
+    OutOfRange { rows: usize, requested: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum MarkdownStreamError {
+    #[error("{committed} committed rows cannot be rewritten by a replaced or different stream")]
+    CommittedSourceReplaced { committed: usize },
 }
 
 /// Renderer-owned cache for one logical streaming Markdown item.
 #[derive(Debug, Clone, Default)]
 pub struct StreamingMarkdownState {
+    policy: StreamingMarkdownPolicy,
     layout: MarkdownLayout,
     cache: LayoutCache,
+    history: History,
     revision: u64,
     /// Last revision handed out; survives `reset` so hosts never see a reuse.
     next_revision: u64,
@@ -52,8 +104,23 @@ pub struct StreamingMarkdownState {
 }
 
 impl StreamingMarkdownState {
+    #[must_use]
+    pub fn new(policy: StreamingMarkdownPolicy) -> Self {
+        Self {
+            policy,
+            ..Self::default()
+        }
+    }
+
+    #[must_use]
+    pub const fn policy(&self) -> StreamingMarkdownPolicy {
+        self.policy
+    }
+
     pub fn reset(&mut self) {
         *self = Self {
+            policy: self.policy,
+            history: std::mem::take(&mut self.history),
             next_revision: self.next_revision,
             ..Self::default()
         };
@@ -67,6 +134,11 @@ impl StreamingMarkdownState {
     #[must_use]
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    #[must_use]
+    pub const fn committed_rows(&self) -> usize {
+        self.history.rows
     }
 
     #[must_use]
@@ -86,34 +158,68 @@ impl StreamingMarkdownState {
         {
             return update.clone();
         }
+        let committed = self.history.rows.min(rows.len());
         MarkdownRowUpdate {
             base_revision,
             revision: self.revision,
-            first_changed_row: 0,
-            replacement: rows.clone(),
-            reset: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ParsedSource {
-    identity: MarkdownStreamIdentity,
-    revision: u64,
-    document: Arc<MarkdownDocument>,
-}
-
-impl ParsedSource {
-    fn parse(stream: &MarkdownStream) -> Self {
-        Self {
-            identity: stream.identity(),
-            revision: stream.revision(),
-            document: Arc::new(MarkdownDocument::parse(stream.source())),
+            first_changed_row: committed,
+            replacement: rows.slice(committed..rows.len()),
+            reset: committed == 0,
         }
     }
 
-    fn matches(&self, stream: &MarkdownStream) -> bool {
-        self.identity == stream.identity() && self.revision == stream.revision()
+    pub fn commit_rows(
+        &mut self,
+        base_revision: u64,
+        end_exclusive: usize,
+    ) -> Result<(), MarkdownCommitError> {
+        if self.policy != StreamingMarkdownPolicy::Terminal {
+            return Err(MarkdownCommitError::Reflowable);
+        }
+        if base_revision != self.revision {
+            return Err(MarkdownCommitError::StaleRevision {
+                base: base_revision,
+                revision: self.revision,
+            });
+        }
+        let committed = self.history.rows;
+        if end_exclusive < committed {
+            return Err(MarkdownCommitError::Decreasing {
+                committed,
+                requested: end_exclusive,
+            });
+        }
+        let rows = self.layout.row_count();
+        if end_exclusive > rows {
+            return Err(MarkdownCommitError::OutOfRange {
+                rows,
+                requested: end_exclusive,
+            });
+        }
+        if end_exclusive == committed {
+            return Ok(());
+        }
+        let mut frozen = RowStore::default();
+        frozen.extend(&self.layout.rows().slice(0..end_exclusive));
+        self.stats.row_store_updates += frozen.take_updates();
+        self.history.store = frozen;
+        self.history.rows = end_exclusive;
+        self.update = None;
+        if let Some(boundary) = self.cache.boundary_at(end_exclusive) {
+            let mut boundary = boundary;
+            boundary.checkpoint = self
+                .layout
+                .row(end_exclusive - 1)
+                .and_then(|row| row.checkpoint.clone());
+            self.history.boundary = Some(boundary);
+        }
+        if self.history.bound.is_none() {
+            self.history.bound = self
+                .cache
+                .identity
+                .map(|identity| (identity, self.cache.revision));
+        }
+        Ok(())
     }
 }
 
@@ -147,12 +253,12 @@ impl MarkdownRenderer {
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
         highlighter: &mut SyntaxHighlighter,
-    ) -> Arc<[Line<'static>]> {
-        let layout = self.render_stream_layout(state, stream, options, theme, highlighter);
+    ) -> Result<Arc<[Line<'static>]>, MarkdownStreamError> {
+        let layout = self.render_stream_layout(state, stream, options, theme, highlighter)?;
         if !layout.is_materialized() {
             state.stats.rows_materialized += layout.row_count();
         }
-        layout.materialize()
+        Ok(layout.materialize())
     }
 
     #[must_use]
@@ -163,10 +269,21 @@ impl MarkdownRenderer {
         theme: &ReviewTheme,
         highlighter: &mut SyntaxHighlighter,
     ) -> MarkdownLayout {
-        layout_document(document, options, theme, highlighter, None)
-            .0
-            .finish(document)
-            .layout
+        let mut cache = LayoutCache::default();
+        let mut stats = MarkdownRenderStats::default();
+        let build = cache.build(
+            document,
+            None,
+            0,
+            true,
+            options,
+            theme,
+            theme.revision(),
+            highlighter,
+            &History::default(),
+            &mut stats,
+        );
+        MarkdownLayout::new(build.store, cache.targets)
     }
 
     pub fn render_stream_layout(
@@ -176,273 +293,870 @@ impl MarkdownRenderer {
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
         highlighter: &mut SyntaxHighlighter,
-    ) -> MarkdownLayout {
-        let revision = theme.revision();
-        if state.cache.is_current(stream, options, revision) {
+    ) -> Result<MarkdownLayout, MarkdownStreamError> {
+        let theme_revision = theme.revision();
+        let document = stream.document();
+        state.history.validate_source(stream)?;
+        let same_stream = state.cache.identity == Some(stream.identity());
+        let changes = same_stream.then(|| stream.changes_since(state.cache.revision));
+        let same_shape =
+            state.cache.options == Some(options) && state.cache.theme == Some(theme_revision);
+        let same_source = same_stream && state.cache.source_revision == stream.source_revision();
+        let parse = stream.parse_stats();
+        let seen = if same_stream {
+            state.cache.parse_stats
+        } else {
+            MarkdownParseStats::default()
+        };
+        state.stats.record_parse(parse, seen);
+        state.cache.parse_stats = parse;
+        let unchanged = same_shape
+            && same_source
+            && changes.is_some_and(|changes| {
+                !changes.replaced && changes.first_block >= document.blocks().len()
+            });
+        if unchanged {
+            state.cache.revision = stream.revision();
             state.stats.rows_reused += state.layout.row_count();
-            return state.layout.clone();
+            return Ok(state.layout.clone());
         }
-        let reset = state.cache.resets_for(stream, options, revision);
+        let (first_block, reset) = match changes {
+            Some(changes) if same_shape && !changes.replaced => (changes.first_block, false),
+            _ => (0, true),
+        };
         let highlighted_before = highlighter.stats().bytes;
-        let built = state.cache.render(
-            stream,
+        let build = state.cache.build(
+            document,
+            stream.open_code_block(),
+            first_block,
+            reset,
             options,
             theme,
-            revision,
+            theme_revision,
             highlighter,
+            &state.history,
             &mut state.stats,
         );
         state.stats.highlighted_bytes +=
             highlighter.stats().bytes.saturating_sub(highlighted_before);
-        let first_changed_row = if reset {
+        state.cache.identity = Some(stream.identity());
+        state.cache.revision = stream.revision();
+        state.cache.source_revision = stream.source_revision();
+        state.cache.options = Some(options);
+        state.cache.theme = Some(theme_revision);
+        let layout = MarkdownLayout::new(build.store, state.cache.targets.clone());
+        let previous = state.layout.rows();
+        let reset = reset && state.history.rows == 0;
+        let mut first_changed_row = if reset {
             0
         } else {
-            state
-                .layout
-                .rows()
-                .iter()
-                .zip(built.layout.rows().iter())
-                .take_while(|(left, right)| Arc::ptr_eq(left, right) || left == right)
-                .count()
+            build
+                .first_generated
+                .unwrap_or(layout.row_count())
+                .min(previous.len())
         };
+        while !reset
+            && first_changed_row < layout.row_count()
+            && let (Some(left), Some(right)) = (
+                previous.get(first_changed_row),
+                layout.row(first_changed_row),
+            )
+        {
+            state.stats.rows_compared += 1;
+            if Arc::ptr_eq(left, right) || left == right {
+                first_changed_row += 1;
+            } else {
+                break;
+            }
+        }
+        if first_changed_row == layout.row_count() && layout.row_count() == previous.len() {
+            return Ok(state.layout.clone());
+        }
+        let mut store = RowStore::default();
+        store.extend(&previous.slice(0..first_changed_row));
+        store.extend(&layout.rows().slice(first_changed_row..layout.row_count()));
+        state.stats.row_store_updates += store.take_updates();
+        state.cache.store = store.clone();
+        let layout = MarkdownLayout::new(store, state.cache.targets.clone());
         state.next_revision += 1;
         let revision = state.next_revision;
         state.update = Some(MarkdownRowUpdate {
             base_revision: state.revision,
             revision,
             first_changed_row,
-            replacement: built
-                .layout
-                .rows()
-                .slice(first_changed_row..built.layout.row_count()),
+            replacement: layout.rows().slice(first_changed_row..layout.row_count()),
             reset,
         });
         state.revision = revision;
-        state.stats.rows_generated += built.generated;
-        state.stats.rows_reused += built.reused;
-        state.layout = built.layout;
-        state.layout.clone()
+        state.layout = layout;
+        Ok(state.layout.clone())
     }
+}
+
+#[derive(Debug, Clone, Default)]
+struct History {
+    store: RowStore,
+    rows: usize,
+    boundary: Option<Boundary>,
+    bound: Option<(MarkdownStreamIdentity, u64)>,
+}
+
+impl History {
+    fn validate_source(&self, stream: &MarkdownStream) -> Result<(), MarkdownStreamError> {
+        if let Some((identity, revision)) = self.bound
+            && (stream.identity() != identity || stream.changes_since(revision).replaced)
+        {
+            return Err(MarkdownStreamError::CommittedSourceReplaced {
+                committed: self.rows,
+            });
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Boundary {
+    block_start: usize,
+    rows: usize,
+    options: MarkdownLayoutOptions,
+    checkpoint: Option<RowCheckpoint>,
 }
 
 struct LayoutBuild {
-    layout: MarkdownLayout,
-    generated: usize,
-    reused: usize,
-}
-
-#[derive(Default)]
-struct RowBuilder {
     store: RowStore,
-    generated: usize,
-    reused: usize,
+    first_generated: Option<usize>,
 }
 
-impl RowBuilder {
-    fn generated(&mut self, rows: RowChunk) {
-        self.generated += rows.len();
-        self.store.push(rows);
-    }
+#[derive(Debug, Clone, Default)]
+struct Unit {
+    block_start: usize,
+    store: RowStore,
+    first_generated: Option<usize>,
+    len: usize,
+}
 
-    fn reused(&mut self, rows: RowChunk) {
-        self.reused += rows.len();
-        self.store.push(rows);
-    }
-
-    fn finish(self, document: &MarkdownDocument) -> LayoutBuild {
-        LayoutBuild {
-            layout: MarkdownLayout::new(self.store, document),
-            generated: self.generated,
-            reused: self.reused,
+impl Unit {
+    fn push(&mut self, chunk: &RowChunk, generated: bool) {
+        if generated && !chunk.is_empty() && self.first_generated.is_none() {
+            self.first_generated = Some(self.len);
         }
+        self.len += chunk.len();
+        self.store.push(chunk);
     }
 }
 
-/// Per-presentation reuse entries for the previously laid-out document.
 #[derive(Debug, Clone)]
-enum CacheEntries {
-    Blocks(Vec<RowChunk>),
-    SourceLines(Vec<CachedSourceLine>),
+struct OpenCode {
+    block: usize,
+    hint: String,
+    syntax: SyntaxStream,
+    fed_lines: usize,
+    fed_partial: usize,
+    checkpoint: Option<RowCheckpoint>,
+    options: Option<MarkdownLayoutOptions>,
+    store: RowStore,
+    first_line: usize,
+    line_ends: Vec<usize>,
+    failed: bool,
 }
 
-impl Default for CacheEntries {
-    fn default() -> Self {
-        Self::Blocks(Vec::new())
-    }
-}
-
-/// The last parsed stream plus the reuse entries built from it.
 #[derive(Debug, Clone, Default)]
 struct LayoutCache {
-    parsed: Option<ParsedSource>,
-    entries: CacheEntries,
+    identity: Option<MarkdownStreamIdentity>,
+    revision: u64,
+    source_revision: u64,
     options: Option<MarkdownLayoutOptions>,
     theme: Option<Fingerprint>,
+    parse_stats: MarkdownParseStats,
+    store: RowStore,
+    units: Vec<Unit>,
+    block_ends: Vec<usize>,
+    skipped_rows: Vec<usize>,
+    open: Option<OpenCode>,
+    spacer: Option<RowChunk>,
+    targets: TargetIndex,
+    target_ids: Vec<MarkdownTargetId>,
+    source_lines: Vec<CachedSourceLine>,
+    line_ranges: Vec<SourceRange>,
 }
 
 impl LayoutCache {
-    fn matches(&self, options: MarkdownLayoutOptions, theme: Fingerprint) -> bool {
-        self.options == Some(options) && self.theme == Some(theme)
+    fn boundary_at(&self, offset: usize) -> Option<Boundary> {
+        let options = self.options?;
+        let index = self.block_ends.partition_point(|end| *end <= offset);
+        let index = index.min(self.units.len().checked_sub(1)?);
+        let unit = self.units.get(index)?;
+        let start = index
+            .checked_sub(1)
+            .map_or(0, |previous| self.block_ends[previous]);
+        Some(Boundary {
+            block_start: unit.block_start,
+            rows: self.skipped_rows[index] + offset.saturating_sub(start),
+            options,
+            checkpoint: None,
+        })
     }
 
-    /// True when the cached layout already reflects `stream` under `options`
-    /// and `theme`, so no rendering is required.
-    fn is_current(
-        &self,
-        stream: &MarkdownStream,
-        options: MarkdownLayoutOptions,
-        theme: Fingerprint,
-    ) -> bool {
-        self.matches(options, theme) && self.parsed.as_ref().is_some_and(|p| p.matches(stream))
-    }
-
-    /// True when no row of the previous layout can survive: a different
-    /// stream identity, or different options or theme.
-    fn resets_for(
-        &self,
-        stream: &MarkdownStream,
-        options: MarkdownLayoutOptions,
-        theme: Fingerprint,
-    ) -> bool {
-        !self.matches(options, theme)
-            || self
-                .parsed
-                .as_ref()
-                .is_none_or(|p| p.identity != stream.identity())
-    }
-
-    fn render(
+    #[allow(clippy::too_many_arguments)]
+    fn build(
         &mut self,
-        stream: &MarkdownStream,
+        document: &MarkdownDocument,
+        open_block: Option<usize>,
+        first_block: usize,
+        reset: bool,
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
-        revision: Fingerprint,
+        theme_revision: Fingerprint,
         highlighter: &mut SyntaxHighlighter,
+        history: &History,
         stats: &mut MarkdownRenderStats,
     ) -> LayoutBuild {
-        let reusable = self.matches(options, revision);
-        let (parsed, previous) = match self.parsed.take() {
-            // Same source under different options or theme: nothing to reuse.
-            Some(parsed) if parsed.matches(stream) => (parsed, None),
-            previous => {
-                stats.parsed_bytes += stream.source().len();
-                stats.parsed_documents += 1;
-                (ParsedSource::parse(stream), previous.filter(|_| reusable))
+        if self.options != Some(options) || self.theme != Some(theme_revision) {
+            self.spacer = None;
+        }
+        if reset {
+            self.open = None;
+            self.source_lines.clear();
+            self.line_ranges.clear();
+        }
+        if self
+            .open
+            .as_ref()
+            .is_some_and(|open| Some(open.block) != open_block)
+        {
+            self.open = None;
+        }
+        self.sync_targets(document, first_block, open_block, stats);
+        let mut store = history.store.clone();
+        store.take_updates();
+        stats.rows_reused += history.rows;
+        let mut first_generated = None;
+        match options.presentation {
+            MarkdownPresentation::Rendered => {
+                self.build_rendered(
+                    document,
+                    open_block,
+                    first_block,
+                    options,
+                    theme,
+                    highlighter,
+                    history,
+                    stats,
+                    &mut store,
+                    &mut first_generated,
+                );
+            }
+            MarkdownPresentation::SourceLines => {
+                self.units.clear();
+                self.block_ends.clear();
+                self.skipped_rows.clear();
+                self.build_source_lines(
+                    document,
+                    open_block,
+                    first_block,
+                    options,
+                    theme,
+                    highlighter,
+                    history,
+                    stats,
+                    &mut store,
+                    &mut first_generated,
+                );
+            }
+        }
+        stats.row_store_updates += store.take_updates();
+        self.store = store.clone();
+        LayoutBuild {
+            store,
+            first_generated,
+        }
+    }
+
+    fn sync_targets(
+        &mut self,
+        document: &MarkdownDocument,
+        first_block: usize,
+        open_block: Option<usize>,
+        stats: &mut MarkdownRenderStats,
+    ) {
+        let targets = document.targets();
+        let mut first_target = document
+            .blocks()
+            .get(first_block)
+            .map_or(targets.len(), |block| {
+                targets
+                    .partition_point(|target| target.source.bytes.start < block.source.bytes.start)
+            });
+        let code_prefix = self.open.as_ref().and_then(|open| {
+            if open_block != Some(first_block) || open.block != first_block || open.failed {
+                return None;
+            }
+            let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[first_block].kind else {
+                return None;
+            };
+            if code.lines.len() < open.fed_lines || code.highlight_hint() != open.hint {
+                return None;
+            }
+            let root = code.target_id?.index();
+            let line = open.fed_lines.saturating_sub(1).min(code.lines.len());
+            Some((root, root + 1 + line))
+        });
+        if let Some((root, first_line)) = code_prefix {
+            if let Some(target) = targets.get(root) {
+                stats.targets_visited += 1;
+                self.targets.insert(target.id, target.source.clone());
+            }
+            first_target = first_line.min(targets.len());
+        } else if first_block == 0 {
+            self.targets.clear();
+            self.target_ids.clear();
+        }
+        let first_target = first_target.min(self.target_ids.len());
+        for id in self.target_ids.drain(first_target..) {
+            stats.targets_visited += 1;
+            self.targets.remove(&id);
+        }
+        for target in &targets[first_target..] {
+            stats.targets_visited += 1;
+            self.targets.insert(target.id, target.source.clone());
+            self.target_ids.push(target.id);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_rendered(
+        &mut self,
+        document: &MarkdownDocument,
+        open_block: Option<usize>,
+        first_block: usize,
+        options: MarkdownLayoutOptions,
+        theme: &ReviewTheme,
+        highlighter: &mut SyntaxHighlighter,
+        history: &History,
+        stats: &mut MarkdownRenderStats,
+        store: &mut RowStore,
+        first_generated: &mut Option<usize>,
+    ) {
+        let blocks = document.blocks();
+        let boundary_index = history.boundary.as_ref().map_or(0, |boundary| {
+            blocks.partition_point(|block| {
+                boundary.checkpoint.as_ref().map_or(
+                    block.source.bytes.start < boundary.block_start,
+                    |checkpoint| block.source.bytes.end <= checkpoint.source.bytes.start,
+                )
+            })
+        });
+        let first_block = first_block.max(boundary_index).min(blocks.len());
+        let prefix = first_block
+            .checked_sub(1)
+            .and_then(|index| self.block_ends.get(index).copied())
+            .unwrap_or(history.rows)
+            .max(history.rows);
+        if first_block > boundary_index && prefix <= self.store.len() {
+            *store = self.store.clone();
+            store.take_updates();
+            store.truncate(prefix);
+            stats.rows_reused += prefix.saturating_sub(history.rows);
+        }
+        self.units.truncate(first_block);
+        self.units.resize_with(first_block, Unit::default);
+        self.block_ends.truncate(first_block);
+        self.block_ends.resize(first_block, history.rows);
+        self.skipped_rows.truncate(first_block);
+        self.skipped_rows.resize(first_block, 0);
+        let mut next_source_line = first_block
+            .checked_sub(1)
+            .map_or(1, |index| blocks[index].source.lines.end.saturating_add(1));
+        for (index, block) in blocks.iter().enumerate().skip(first_block) {
+            stats.blocks_visited += 1;
+            let start = block.source.bytes.start;
+            let gap = next_source_line..block.source.lines.start;
+            next_source_line = block.source.lines.end.saturating_add(1);
+            let boundary = history.boundary.as_ref();
+            let at_boundary = boundary.filter(|boundary| {
+                boundary
+                    .checkpoint
+                    .as_ref()
+                    .map_or(boundary.block_start == start, |checkpoint| {
+                        start <= checkpoint.source.bytes.start
+                            && checkpoint.source.bytes.start < block.source.bytes.end
+                    })
+            });
+            let checkpoint = at_boundary.and_then(|boundary| boundary.checkpoint.as_ref());
+            let unit_options = at_boundary
+                .filter(|_| checkpoint.is_none())
+                .map_or(options, |boundary| boundary.options);
+            let unit = self.render_unit(
+                document,
+                index,
+                block,
+                gap,
+                open_block,
+                unit_options,
+                checkpoint,
+                theme,
+                highlighter,
+                stats,
+            );
+            self.units.push(unit.clone());
+            let skip = at_boundary
+                .filter(|_| checkpoint.is_none())
+                .map_or(0, |boundary| boundary.rows);
+            self.skipped_rows.push(skip.min(unit.len));
+            emit_unit(&unit, skip, store, first_generated);
+            self.block_ends.push(store.len());
+        }
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn render_unit(
+        &mut self,
+        document: &MarkdownDocument,
+        index: usize,
+        block: &MarkdownBlock,
+        gap: Range<usize>,
+        open_block: Option<usize>,
+        options: MarkdownLayoutOptions,
+        checkpoint: Option<&RowCheckpoint>,
+        theme: &ReviewTheme,
+        highlighter: &mut SyntaxHighlighter,
+        stats: &mut MarkdownRenderStats,
+    ) -> Unit {
+        let mut unit = Unit {
+            block_start: block.source.bytes.start,
+            ..Unit::default()
+        };
+        if options.preserve_source_gaps {
+            if checkpoint.is_none() && !gap.is_empty() {
+                self.line_ranges(document.source());
+                let ranges = &self.line_ranges;
+                let rows = gap
+                    .clone()
+                    .map(|line| {
+                        Arc::new(MarkdownRow {
+                            line: Line::default(),
+                            source: ranges.get(line - 1).cloned(),
+                            target: None,
+                            checkpoint: None,
+                        })
+                    })
+                    .collect::<RowChunk>();
+                stats.rows_generated += rows.len();
+                unit.push(&rows, true);
+            }
+        } else if checkpoint.is_none() && index > 0 && options.block_spacing {
+            let spacer = self.spacer.get_or_insert_with(|| {
+                Arc::from([Arc::new(MarkdownRow {
+                    line: Line::default(),
+                    source: None,
+                    target: None,
+                    checkpoint: None,
+                })])
+            });
+            unit.push(spacer, true);
+        }
+        let context = BlockContext {
+            target: None,
+            foreground: theme.diff.foreground,
+            prefix: "",
+        };
+        if let (MarkdownBlockKind::CodeBlock(code), true) = (&block.kind, open_block == Some(index))
+        {
+            let (highlights, changed_from) =
+                self.open_code_highlights(index, code, theme, highlighter);
+            let open = self.open.as_mut().expect("open code cache initialised");
+            let first_line = checkpoint.map_or(0, |checkpoint| {
+                code.lines
+                    .partition_point(|line| line.source.bytes.end <= checkpoint.source.bytes.start)
+            });
+            let reuse = if open.options == Some(options)
+                && open.checkpoint.as_ref() == checkpoint
+                && open.first_line == first_line
+            {
+                changed_from
+                    .saturating_sub(first_line)
+                    .min(open.line_ends.len())
+            } else {
+                0
+            };
+            open.options = Some(options);
+            open.checkpoint = checkpoint.cloned();
+            let retained = reuse
+                .checked_sub(1)
+                .map_or(0, |index| open.line_ends[index]);
+            open.store.truncate(retained);
+            open.line_ends.truncate(reuse);
+            open.first_line = first_line;
+            stats.rows_reused += retained;
+            if reuse > 0 {
+                unit.first_generated = None;
+            }
+            let base = fenced_code_style(theme);
+            for (line_index, line) in code.lines.iter().enumerate().skip(first_line + reuse) {
+                stats.chunks_visited += 1;
+                let mut output = RowOutput::new(options).after(checkpoint);
+                render_code_line(
+                    line,
+                    highlights.line(line_index).unwrap_or_default(),
+                    base,
+                    "",
+                    line.target_id.or(code.target_id),
+                    &mut output,
+                );
+                let chunk: RowChunk = Arc::from(output.rows);
+                stats.rows_generated += chunk.len();
+                open.store.push(&chunk);
+                open.line_ends.push(open.store.len());
+            }
+            if unit.first_generated.is_none() && retained < open.store.len() {
+                unit.first_generated = Some(unit.len + retained);
+            }
+            unit.store.append(&open.store, 0..open.store.len());
+            unit.len += open.store.len();
+            stats.row_store_updates += open.store.take_updates() + unit.store.take_updates();
+            return unit;
+        }
+        let mut output = RowOutput::new(options).after(checkpoint);
+        render_block(block, theme, highlighter, &mut output, context);
+        let chunk: RowChunk = Arc::from(output.rows);
+        stats.rows_generated += chunk.len();
+        stats.chunks_visited += 1;
+        unit.push(&chunk, true);
+        stats.row_store_updates += unit.store.take_updates();
+        unit
+    }
+
+    fn open_code_highlights(
+        &mut self,
+        index: usize,
+        code: &MarkdownCodeBlock,
+        theme: &ReviewTheme,
+        highlighter: &mut SyntaxHighlighter,
+    ) -> (Arc<DocumentHighlights>, usize) {
+        let hint = code.highlight_hint();
+        let reusable = self.open.as_ref().is_some_and(|open| {
+            open.block == index
+                && !open.failed
+                && open.hint == hint
+                && code.lines.len() >= open.fed_lines
+                && open
+                    .fed_lines
+                    .checked_sub(1)
+                    .is_none_or(|last| code.lines[last].text.len() >= open.fed_partial)
+        });
+        if !reusable {
+            self.open = Some(OpenCode {
+                block: index,
+                hint: hint.to_owned(),
+                syntax: SyntaxStream::new(LanguageHint::InfoString(hint)),
+                fed_lines: 0,
+                fed_partial: 0,
+                checkpoint: None,
+                options: None,
+                store: RowStore::default(),
+                first_line: 0,
+                line_ends: Vec::new(),
+                failed: false,
+            });
+        }
+        let open = self.open.as_mut().expect("open code cache initialised");
+        let first_text_change = open.fed_lines.saturating_sub(1);
+        let mut delta = String::new();
+        if let Some(last) = open.fed_lines.checked_sub(1) {
+            delta.push_str(&code.lines[last].text[open.fed_partial..]);
+        }
+        for (index, line) in code.lines.iter().enumerate().skip(open.fed_lines) {
+            if index > 0 {
+                delta.push('\n');
+            }
+            delta.push_str(&line.text);
+        }
+        open.fed_lines = code.lines.len();
+        open.fed_partial = code.lines.last().map_or(0, |line| line.text.len());
+        if open.failed {
+            return (Arc::default(), 0);
+        }
+        if let Ok(update) = highlighter
+            .with_theme(&theme.syntax)
+            .append(&mut open.syntax, &delta)
+        {
+            (
+                update.highlights,
+                update.changed_lines.start.min(first_text_change),
+            )
+        } else {
+            open.failed = true;
+            open.store = RowStore::default();
+            open.line_ends.clear();
+            (Arc::default(), 0)
+        }
+    }
+
+    fn block_highlights(
+        &mut self,
+        index: usize,
+        code: &MarkdownCodeBlock,
+        open_block: Option<usize>,
+        theme: &ReviewTheme,
+        highlighter: &mut SyntaxHighlighter,
+    ) -> (Arc<DocumentHighlights>, usize) {
+        if open_block == Some(index) {
+            self.open_code_highlights(index, code, theme, highlighter)
+        } else {
+            (highlight_code_block(code, theme, highlighter), 0)
+        }
+    }
+
+    fn line_ranges(&mut self, source: &str) -> usize {
+        let previous = self.line_ranges.len();
+        let mut cursor = match self.line_ranges.pop() {
+            Some(last) if last.bytes.start <= source.len() => last.bytes.start,
+            _ => {
+                self.line_ranges.clear();
+                0
             }
         };
-        let cached = previous
-            .as_ref()
-            .map(|previous| (&*previous.document, &self.entries));
-        let (rows, entries) =
-            layout_document(&parsed.document, options, theme, highlighter, cached);
-        let built = rows.finish(&parsed.document);
-        self.parsed = Some(parsed);
-        self.entries = entries;
-        self.options = Some(options);
-        self.theme = Some(revision);
-        built
-    }
-}
-
-fn layout_document(
-    document: &MarkdownDocument,
-    options: MarkdownLayoutOptions,
-    theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
-    previous: Option<(&MarkdownDocument, &CacheEntries)>,
-) -> (RowBuilder, CacheEntries) {
-    let mut rows = RowBuilder::default();
-    let entries = match options.presentation {
-        MarkdownPresentation::SourceLines => {
-            let cached = match previous {
-                Some((_, CacheEntries::SourceLines(lines))) => lines.as_slice(),
-                _ => &[],
-            };
-            CacheEntries::SourceLines(source_rows(
-                document,
-                options,
-                theme,
-                highlighter,
-                cached,
-                &mut rows,
-            ))
-        }
-        MarkdownPresentation::Rendered => {
-            let cached = match previous {
-                Some((document, CacheEntries::Blocks(blocks))) => {
-                    Some((document, blocks.as_slice()))
-                }
-                _ => None,
-            };
-            CacheEntries::Blocks(rendered_rows(
-                document,
-                options,
-                theme,
-                highlighter,
-                cached,
-                &mut rows,
-            ))
-        }
-    };
-    (rows, entries)
-}
-
-fn rendered_rows(
-    document: &MarkdownDocument,
-    options: MarkdownLayoutOptions,
-    theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
-    previous: Option<(&MarkdownDocument, &[RowChunk])>,
-    rows: &mut RowBuilder,
-) -> Vec<RowChunk> {
-    let mut blocks = Vec::with_capacity(document.blocks().len());
-    let mut next_source_line = 1;
-    let source_ranges = options
-        .preserve_source_gaps
-        .then(|| source_line_ranges(document.source()));
-    for (index, block) in document.blocks().iter().enumerate() {
-        if let Some(ranges) = &source_ranges {
-            for line in next_source_line..block.source.lines.start {
-                rows.generated(Arc::from([Arc::new(MarkdownRow {
-                    line: Line::default(),
-                    source: ranges.get(line - 1).cloned(),
-                    target: None,
-                })]));
+        let mut line = self.line_ranges.len() + 1;
+        loop {
+            let end = source[cursor..]
+                .find('\n')
+                .map(|offset| cursor + offset + 1);
+            self.line_ranges.push(SourceRange {
+                bytes: cursor..end.unwrap_or(source.len()),
+                lines: MarkdownLineRange {
+                    start: line,
+                    end: line,
+                },
+            });
+            line += 1;
+            match end {
+                Some(end) => cursor = end,
+                None => break,
             }
-        } else if index > 0 && options.block_spacing {
-            rows.generated(Arc::from([Arc::new(MarkdownRow {
-                line: Line::default(),
-                source: None,
-                target: None,
-            })]));
         }
-        let cached = previous
-            .filter(|(document, _)| document.blocks().get(index) == Some(block))
-            .and_then(|(_, chunks)| chunks.get(index));
-        let block_rows = if let Some(cached) = cached {
-            rows.reused(Arc::clone(cached));
-            Arc::clone(cached)
+        previous.saturating_sub(1)
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn build_source_lines(
+        &mut self,
+        document: &MarkdownDocument,
+        open_block: Option<usize>,
+        first_block: usize,
+        options: MarkdownLayoutOptions,
+        theme: &ReviewTheme,
+        highlighter: &mut SyntaxHighlighter,
+        history: &History,
+        stats: &mut MarkdownRenderStats,
+        store: &mut RowStore,
+        first_generated: &mut Option<usize>,
+    ) {
+        let source = document.source();
+        let blocks = document.blocks();
+        let first_block = if history
+            .boundary
+            .as_ref()
+            .is_some_and(|boundary| boundary.checkpoint.is_some())
+        {
+            0
         } else {
-            let mut output = RowOutput::new(options);
-            render_block(
-                block,
-                theme,
-                highlighter,
-                &mut output,
-                BlockContext {
-                    target: None,
-                    foreground: theme.diff.foreground,
-                    prefix: "",
+            first_block
+        };
+        let first_byte = blocks
+            .get(first_block)
+            .map_or(source.len(), |block| block.source.bytes.start);
+        let mut first_line = blocks.get(first_block).map_or(usize::MAX, |block| {
+            block.source.lines.start.saturating_sub(1)
+        });
+        first_line = first_line.min(self.line_ranges(source));
+        let code_style = fenced_code_style(theme);
+        let mut code_lines = HashMap::new();
+        for (index, block) in blocks.iter().enumerate().skip(first_block) {
+            stats.blocks_visited += 1;
+            for code in block_code_blocks(block) {
+                let own = matches!(block.kind, MarkdownBlockKind::CodeBlock(_));
+                let (highlights, changed_from) = if own {
+                    self.block_highlights(index, code, open_block, theme, highlighter)
+                } else {
+                    (highlight_code_block(code, theme, highlighter), 0)
+                };
+                if own && open_block == Some(index) {
+                    let content_line = code.content.lines.start.saturating_sub(1);
+                    first_line = first_line.max(content_line + changed_from);
+                }
+                for (line_index, line) in code.lines.iter().enumerate() {
+                    stats.chunks_visited += 1;
+                    if let Some(source_line) = line.source_line {
+                        code_lines.insert(
+                            source_line,
+                            (
+                                line.text.as_str(),
+                                highlights.line_shared(line_index).unwrap_or_default(),
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        let lines = std::mem::take(&mut self.line_ranges);
+        let checkpoint = history
+            .boundary
+            .as_ref()
+            .and_then(|boundary| boundary.checkpoint.as_ref());
+        let first_line = if checkpoint.is_some() {
+            0
+        } else {
+            first_line.min(lines.len())
+        };
+        let first_style = document
+            .source_styles()
+            .partition_point(|style| style.source.bytes.start < first_byte);
+        let mut styles_by_line: HashMap<usize, Vec<&MarkdownSourceStyle>> = HashMap::new();
+        for style in &document.source_styles()[first_style..] {
+            for line in style.source.lines.start..=style.source.lines.end {
+                styles_by_line.entry(line).or_default().push(style);
+            }
+        }
+        let first_target = document
+            .targets()
+            .partition_point(|target| target.source.bytes.start < first_byte);
+        let mut target_by_line: HashMap<usize, (usize, MarkdownTargetId)> = HashMap::new();
+        for target in &document.targets()[first_target..] {
+            for line in target.source.lines.start..=target.source.lines.end {
+                let candidate = (target.source.bytes.len(), target.id);
+                let slot = target_by_line.entry(line).or_insert(candidate);
+                if candidate.0 < slot.0 {
+                    *slot = candidate;
+                }
+            }
+        }
+        let base = Style::new().fg(page_color(theme, theme.diff.foreground));
+        self.source_lines
+            .truncate(first_line.min(self.source_lines.len()));
+        let mut unit = Unit::default();
+        for (index, range) in lines.iter().enumerate() {
+            stats.chunks_visited += 1;
+            if index < first_line
+                && let Some(cached) = self.source_lines.get(index)
+            {
+                stats.rows_reused += cached.rows.len();
+                unit.push(&cached.rows, false);
+                continue;
+            }
+            let raw = &source[range.bytes.clone()];
+            let text = raw.strip_suffix('\n').unwrap_or(raw);
+            let text = text.strip_suffix('\r').unwrap_or(text);
+            let line_number = index + 1;
+            let target = target_by_line.get(&line_number).map(|(_, id)| *id);
+            let code_input = code_lines.get(&line_number);
+            let styles = styles_by_line
+                .get(&line_number)
+                .map_or(&[][..], Vec::as_slice);
+            if let Some(cached) = self
+                .source_lines
+                .get(index)
+                .filter(|cached| cached.key.matches(text, range, target, styles, code_input))
+            {
+                stats.rows_compared += 1;
+                stats.rows_reused += cached.rows.len();
+                unit.push(&cached.rows, false);
+                continue;
+            }
+            stats.rows_compared += usize::from(self.source_lines.get(index).is_some());
+            self.source_lines.truncate(index);
+            let mut output = RowOutput::new(options).after(checkpoint);
+            let code = code_input.and_then(|(code, spans)| {
+                Some((
+                    text.strip_suffix(code)?,
+                    highlighted_line(code, spans, code_style),
+                ))
+            });
+            let spans = match code {
+                Some((prefix, line)) => {
+                    let mut spans = vec![Span::styled(prefix.to_owned(), code_style)];
+                    spans.extend(line.spans.iter().cloned());
+                    spans
+                }
+                None => text
+                    .grapheme_indices(true)
+                    .map(|(offset, grapheme)| {
+                        let position = range.bytes.start + offset;
+                        let style = styles
+                            .iter()
+                            .filter(|style| style.source.bytes.contains(&position))
+                            .fold(base, |style, role| {
+                                source_role_style(role.role, style, theme)
+                            });
+                        Span::styled(grapheme.to_owned(), style)
+                    })
+                    .collect(),
+            };
+            output.push_wrapped(
+                spans,
+                "",
+                RowOrigin {
+                    source: range,
+                    target,
                 },
             );
-            let chunk: RowChunk = Arc::from(output.rows);
-            rows.generated(Arc::clone(&chunk));
-            chunk
+            let chunk: RowChunk = output.rows.into();
+            stats.rows_generated += chunk.len();
+            self.source_lines.push(CachedSourceLine {
+                key: Arc::new(SourceLineKey {
+                    text: text.to_owned(),
+                    source: range.clone(),
+                    target,
+                    styles: styles.iter().copied().cloned().collect(),
+                    code: code_input.map(|(text, spans)| ((*text).to_owned(), Arc::clone(spans))),
+                }),
+                rows: Arc::clone(&chunk),
+            });
+            unit.push(&chunk, true);
+        }
+        self.source_lines.truncate(lines.len());
+        self.line_ranges = lines;
+        let skip = if checkpoint.is_some() {
+            0
+        } else {
+            history.boundary.as_ref().map_or(0, |_| history.rows)
         };
-        blocks.push(block_rows);
-        next_source_line = block.source.lines.end.saturating_add(1);
+        stats.row_store_updates += unit.store.take_updates();
+        emit_unit(&unit, skip, store, first_generated);
+        self.skipped_rows.push(skip.min(unit.len));
+        self.block_ends.push(store.len());
+        self.units.push(unit);
     }
-    blocks
+}
+
+fn emit_unit(unit: &Unit, skip: usize, store: &mut RowStore, first_generated: &mut Option<usize>) {
+    if skip < unit.len {
+        if let Some(generated) = unit.first_generated
+            && first_generated.is_none()
+        {
+            *first_generated = Some(store.len() + generated.saturating_sub(skip));
+        }
+        store.append(&unit.store, skip..unit.len);
+    }
+}
+
+fn block_code_blocks(block: &MarkdownBlock) -> Vec<&MarkdownCodeBlock> {
+    fn collect<'a>(blocks: &'a [MarkdownBlock], output: &mut Vec<&'a MarkdownCodeBlock>) {
+        for block in blocks {
+            match &block.kind {
+                MarkdownBlockKind::CodeBlock(code) => output.push(code),
+                MarkdownBlockKind::List { items, .. } => {
+                    for item in items {
+                        collect(&item.blocks, output);
+                    }
+                }
+                MarkdownBlockKind::BlockQuote { blocks } => collect(blocks, output),
+                _ => {}
+            }
+        }
+    }
+    let mut output = Vec::new();
+    collect(std::slice::from_ref(block), &mut output);
+    output
 }
 
 /// Foreground and background for fenced code, composited over the page.
@@ -469,18 +1183,25 @@ fn highlight_code_block(
     theme: &ReviewTheme,
     highlighter: &mut SyntaxHighlighter,
 ) -> Arc<DocumentHighlights> {
-    let lines = code
-        .lines
-        .iter()
-        .map(|line| line.text.as_str())
-        .collect::<Vec<_>>();
     highlighter
         .with_theme(&theme.syntax)
-        .highlight_document_lines(
-            SourceSequenceId::from_lines(lines.iter().copied()),
+        .highlight_document(
+            Fingerprint::of([
+                b"markdown-code-without-final-newline".as_slice(),
+                SourceSequenceId::from_lines(code.lines.iter().map(|line| line.text.as_str()))
+                    .fingerprint()
+                    .as_bytes(),
+            ]),
             LanguageHint::InfoString(code.highlight_hint()),
-            lines.iter().copied(),
+            || {
+                code.lines
+                    .iter()
+                    .map(|line| line.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            },
         )
+        .unwrap_or_default()
 }
 
 /// Ownership and styling a block inherits from its enclosing blocks.
@@ -501,6 +1222,7 @@ struct RowOrigin<'a> {
 struct RowOutput {
     rows: Vec<Arc<MarkdownRow>>,
     options: MarkdownLayoutOptions,
+    checkpoint: Option<RowCheckpoint>,
 }
 
 impl RowOutput {
@@ -508,7 +1230,13 @@ impl RowOutput {
         Self {
             rows: Vec::new(),
             options,
+            checkpoint: None,
         }
+    }
+
+    fn after(mut self, checkpoint: Option<&RowCheckpoint>) -> Self {
+        self.checkpoint = checkpoint.cloned();
+        self
     }
 
     fn push(&mut self, line: Line<'static>, origin: RowOrigin<'_>) {
@@ -516,6 +1244,7 @@ impl RowOutput {
             line,
             source: Some(origin.source.clone()),
             target: origin.target,
+            checkpoint: None,
         }));
     }
 
@@ -525,8 +1254,49 @@ impl RowOutput {
         continuation: &str,
         origin: RowOrigin<'_>,
     ) {
-        for line in fit_spans(spans, self.fit_options(self.options.width, continuation)) {
-            self.push(line, origin);
+        if self
+            .checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| origin.source.bytes.end <= checkpoint.source.bytes.start)
+        {
+            return;
+        }
+        let rendered: Arc<str> = spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+            .into();
+        let mut from = FitPosition::default();
+        if let Some(checkpoint) = &self.checkpoint {
+            if origin.source.bytes.end <= checkpoint.source.bytes.start {
+                return;
+            }
+            if origin.source.bytes.start <= checkpoint.source.bytes.start {
+                from = checkpoint.position;
+                if !rendered.starts_with(checkpoint.rendered.as_ref()) {
+                    from.byte = translated_offset(&checkpoint.rendered, &rendered, from.byte);
+                    from.tab_remaining = 0;
+                }
+                if from.byte >= rendered.len() {
+                    return;
+                }
+            }
+        }
+        for (line, position) in fit_spans_from(
+            spans,
+            self.fit_options(self.options.width, continuation),
+            from,
+        ) {
+            self.rows.push(Arc::new(MarkdownRow {
+                line,
+                source: Some(origin.source.clone()),
+                target: origin.target,
+                checkpoint: Some(RowCheckpoint {
+                    source: origin.source.clone(),
+                    position,
+                    rendered: Arc::clone(&rendered),
+                }),
+            }));
         }
     }
 
@@ -538,6 +1308,25 @@ impl RowOutput {
             continuation,
         }
     }
+}
+
+fn translated_offset(before: &str, after: &str, offset: usize) -> usize {
+    let mut old = 0;
+    let mut new = 0;
+    for change in TextDiff::from_chars(before, after).iter_all_changes() {
+        if old >= offset {
+            break;
+        }
+        match change.tag() {
+            ChangeTag::Equal => {
+                old += change.value().len();
+                new += change.value().len();
+            }
+            ChangeTag::Delete => old += change.value().len(),
+            ChangeTag::Insert => new += change.value().len(),
+        }
+    }
+    new
 }
 
 fn render_block(
@@ -686,20 +1475,37 @@ fn render_code(
     let highlights = highlight_code_block(code, theme, highlighter);
     let base = fenced_code_style(theme);
     for (index, line) in code.lines.iter().enumerate() {
-        let mut rendered =
-            highlighted_line(&line.text, highlights.line(index).unwrap_or_default(), base);
-        rendered
-            .spans
-            .insert(0, Span::styled(prefix.to_owned(), base));
-        output.push_wrapped(
-            rendered.spans,
+        render_code_line(
+            line,
+            highlights.line(index).unwrap_or_default(),
+            base,
             prefix,
-            RowOrigin {
-                source: &line.source,
-                target: line.target_id.or(target),
-            },
+            line.target_id.or(target),
+            output,
         );
     }
+}
+
+fn render_code_line(
+    line: &clankerdiff_markdown::MarkdownCodeLine,
+    spans: &[HighlightSpan],
+    base: Style,
+    prefix: &str,
+    target: Option<MarkdownTargetId>,
+    output: &mut RowOutput,
+) {
+    let mut rendered = highlighted_line(&line.text, spans, base);
+    rendered
+        .spans
+        .insert(0, Span::styled(prefix.to_owned(), base));
+    output.push_wrapped(
+        rendered.spans,
+        prefix,
+        RowOrigin {
+            source: &line.source,
+            target,
+        },
+    );
 }
 
 /// Column widths for `table`, or `None` when the columns cannot fit side by
@@ -889,11 +1695,14 @@ impl SourceLineKey {
             && self.source == *source
             && self.target == target
             && self.styles.iter().eq(styles.iter().copied())
-            && self
-                .code
-                .as_ref()
-                .map(|(text, spans)| (text.as_str(), spans))
-                == code.map(|(text, spans)| (*text, spans))
+            && match (&self.code, code) {
+                (None, None) => true,
+                (Some((cached_text, cached_spans)), Some((text, spans))) => {
+                    cached_text == text
+                        && (Arc::ptr_eq(cached_spans, spans) || cached_spans == spans)
+                }
+                _ => false,
+            }
     }
 }
 
@@ -901,149 +1710,6 @@ impl SourceLineKey {
 struct CachedSourceLine {
     key: Arc<SourceLineKey>,
     rows: RowChunk,
-}
-
-fn source_rows(
-    document: &MarkdownDocument,
-    options: MarkdownLayoutOptions,
-    theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
-    cached: &[CachedSourceLine],
-    rows: &mut RowBuilder,
-) -> Vec<CachedSourceLine> {
-    let source = document.source();
-    let lines = source_line_ranges(source);
-    let code_style = fenced_code_style(theme);
-    let code_lines = source_code_lines(document, theme, highlighter);
-    let mut styles_by_line: Vec<Vec<&MarkdownSourceStyle>> = vec![Vec::new(); lines.len()];
-    for style in document.source_styles() {
-        for line in style.source.lines.start..=style.source.lines.end {
-            if let Some(bucket) = styles_by_line.get_mut(line.wrapping_sub(1)) {
-                bucket.push(style);
-            }
-        }
-    }
-    let mut target_by_line: Vec<Option<(usize, MarkdownTargetId)>> = vec![None; lines.len()];
-    for target in document.targets() {
-        for line in target.source.lines.start..=target.source.lines.end {
-            if let Some(slot) = target_by_line.get_mut(line.wrapping_sub(1)) {
-                let candidate = (target.source.bytes.len(), target.id);
-                if slot.is_none_or(|current| candidate.0 < current.0) {
-                    *slot = Some(candidate);
-                }
-            }
-        }
-    }
-    let base = Style::new().fg(page_color(theme, theme.diff.foreground));
-    let mut result = Vec::with_capacity(lines.len());
-    for (index, range) in lines.iter().enumerate() {
-        let raw = &source[range.bytes.clone()];
-        let text = raw.strip_suffix('\n').unwrap_or(raw);
-        let text = text.strip_suffix('\r').unwrap_or(text);
-        let target = target_by_line[index].map(|(_, id)| id);
-        let code_input = code_lines.get(&(index + 1));
-        let styles = &styles_by_line[index];
-        if let Some(cached) = cached
-            .get(index)
-            .filter(|cached| cached.key.matches(text, range, target, styles, code_input))
-        {
-            rows.reused(Arc::clone(&cached.rows));
-            result.push(cached.clone());
-            continue;
-        }
-        let mut output = RowOutput::new(options);
-        let code = code_input.and_then(|(code, spans)| {
-            Some((
-                text.strip_suffix(code)?,
-                highlighted_line(code, spans, code_style),
-            ))
-        });
-        let spans = match code {
-            Some((prefix, line)) => {
-                let mut spans = vec![Span::styled(prefix.to_owned(), code_style)];
-                spans.extend(line.spans.iter().cloned());
-                spans
-            }
-            None => text
-                .grapheme_indices(true)
-                .map(|(offset, grapheme)| {
-                    let position = range.bytes.start + offset;
-                    let style = styles
-                        .iter()
-                        .filter(|style| style.source.bytes.contains(&position))
-                        .fold(base, |style, role| {
-                            source_role_style(role.role, style, theme)
-                        });
-                    Span::styled(grapheme.to_owned(), style)
-                })
-                .collect(),
-        };
-        output.push_wrapped(
-            spans,
-            "",
-            RowOrigin {
-                source: range,
-                target,
-            },
-        );
-        let chunk: RowChunk = output.rows.into();
-        rows.generated(Arc::clone(&chunk));
-        result.push(CachedSourceLine {
-            key: Arc::new(SourceLineKey {
-                text: text.to_owned(),
-                source: range.clone(),
-                target,
-                styles: styles.iter().copied().cloned().collect(),
-                code: code_input.map(|(text, spans)| ((*text).to_owned(), Arc::clone(spans))),
-            }),
-            rows: chunk,
-        });
-    }
-    result
-}
-
-/// Byte and line ranges of every source line, including its line ending.
-fn source_line_ranges(source: &str) -> Vec<SourceRange> {
-    let mut start = 0;
-    source
-        .split('\n')
-        .enumerate()
-        .map(|(index, text)| {
-            let end = (start + text.len() + 1).min(source.len());
-            let range = SourceRange {
-                bytes: start..end,
-                lines: MarkdownLineRange {
-                    start: index + 1,
-                    end: index + 1,
-                },
-            };
-            start = end;
-            range
-        })
-        .collect()
-}
-
-fn source_code_lines<'a>(
-    document: &'a MarkdownDocument,
-    theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
-) -> HashMap<usize, (&'a str, Arc<[HighlightSpan]>)> {
-    let mut lines = HashMap::new();
-    for code in document.code_blocks() {
-        let highlights = highlight_code_block(code, theme, highlighter);
-        for (index, line) in code.lines.iter().enumerate() {
-            if let Some(source_line) = line.source_line {
-                lines.insert(
-                    source_line,
-                    (
-                        line.text.as_str(),
-                        highlights.line_shared(index).unwrap_or_default(),
-                    ),
-                );
-            }
-        }
-    }
-    lines
 }
 
 fn source_role_style(role: MarkdownSourceRole, style: Style, theme: &ReviewTheme) -> Style {

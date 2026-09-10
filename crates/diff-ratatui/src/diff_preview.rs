@@ -9,7 +9,9 @@ use clankerdiff_core::{
     DiffDocument, DiffPresentation, FileDiff, Layout, PresentationOptions, PresentedCell,
     PresentedRow, RowKind, ViewMode,
 };
-use clankerdiff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme};
+use clankerdiff_syntax::{
+    HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme, empty_spans,
+};
 use clankerdiff_theme::{Fingerprint, ReviewTheme};
 use ratatui::{
     style::Style,
@@ -132,9 +134,6 @@ fn preview_presentation(
     )
 }
 
-/// Highlights one presented cell, preferring its complete source version, then
-/// its bounded hunk-side sequence, and finally a path-hinted single-line
-/// highlight for synthetic cells and oversized hunks.
 pub(crate) fn cell_highlights(
     highlighter: &mut SyntaxHighlighter,
     theme: &SyntaxTheme,
@@ -142,32 +141,13 @@ pub(crate) fn cell_highlights(
     row: &PresentedRow,
     cell: &PresentedCell,
 ) -> Arc<[HighlightSpan]> {
-    let mut syntax = highlighter.with_theme(theme);
-    if let (Some(source), Some(path), Some(line)) = (
-        presentation.source_document(row, cell),
-        presentation.source_path(row, cell),
-        cell.line_number().and_then(|line| line.checked_sub(1)),
-    ) {
-        return syntax
-            .highlight_document(
-                source.sequence_id(),
-                LanguageHint::Path(path),
-                source.text(),
-            )
-            .line_shared(line)
-            .unwrap_or_else(clankerdiff_syntax::empty_spans);
-    }
-    if let Some(sequence) = presentation.hunk_sequence(row, cell) {
-        return syntax
-            .highlight_document_lines(
-                sequence.id,
-                LanguageHint::Path(sequence.path),
-                sequence.lines(),
-            )
-            .line_shared(sequence.target_line)
-            .unwrap_or_else(clankerdiff_syntax::empty_spans);
-    }
-    syntax.highlight_source(LanguageHint::Path(presentation.row_path(row)), &cell.text)
+    let source = presentation.cell_context(row, cell);
+    highlighter
+        .with_theme(theme)
+        .highlight_document(source.id, LanguageHint::Path(source.path), || source.text())
+        .ok()
+        .and_then(|highlights| highlights.line_shared(source.target_line))
+        .unwrap_or_else(empty_spans)
 }
 
 /// Renders one file without constructing review state or executing Git.

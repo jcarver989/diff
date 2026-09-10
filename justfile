@@ -79,7 +79,13 @@ automation-check:
         .github/workflows/aether-agent.yml .github/workflows/ci.yml
 
 # Run every local verification check. CI intentionally runs these as separate jobs.
-verify: fmt-check check feature-check lint test wasm-check doc-check automation-check
+verify: fmt-check check feature-check lint test wasm-check doc-check automation-check package-check
+
+package-check:
+    python3 scripts/check-consumer.py
+
+published-consumer-check:
+    python3 scripts/check-consumer.py --published
 
 release-pr-preview:
     release-plz release-pr --dry-run
