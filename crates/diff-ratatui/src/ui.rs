@@ -79,12 +79,9 @@ impl<'a> ActionBar<'a> {
 }
 impl Widget for ActionBar<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
+        let ui = self.theme.ui.on_background(self.theme.ui.surface);
         Paragraph::new(self.line)
-            .style(
-                Style::new()
-                    .fg(self.theme.ui.text_muted)
-                    .bg(self.theme.ui.surface),
-            )
+            .style(Style::new().fg(ui.text_muted).bg(ui.canvas))
             .render(area, buffer);
     }
 }
@@ -164,12 +161,10 @@ impl<'a> Modal<'a> {
                 self.hint
                     .map_or_else(Line::default, |hint| Line::from(format!(" {hint} "))),
             )
-            .style(
-                Style::new()
-                    .fg(self.theme.ui.text)
-                    .bg(self.theme.ui.surface),
-            )
-            .border_style(Style::new().fg(self.theme.ui.border));
+            .style(self.theme.ui.selection_style(SelectionState::None))
+            .border_style(
+                Style::new().fg(self.theme.ui.on_background(self.theme.ui.surface).border),
+            );
         let inner = block.inner(popup);
         block.render(popup, buffer);
         inner
@@ -206,6 +201,6 @@ pub(crate) fn render_modal_text(
     theme: &RatatuiTheme,
 ) {
     Paragraph::new(text)
-        .style(Style::new().fg(theme.ui.text).bg(theme.ui.surface))
+        .style(theme.ui.selection_style(SelectionState::None))
         .render(area, buffer);
 }

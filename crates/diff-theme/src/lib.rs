@@ -1,6 +1,7 @@
 //! Renderer-neutral colors, semantic diff palettes, and syntax themes.
 
 mod selection;
+mod ui;
 pub use selection::{ThemeChoice, ThemeSelection};
 
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
@@ -8,7 +9,7 @@ pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt, sync::LazyLock};
 
-const THEME_VERSION: u32 = 2;
+const THEME_VERSION: u32 = 3;
 
 /// An sRGB color with an explicit alpha channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -183,20 +184,24 @@ impl DiffPalette {
 /// Alpha applied to the canvas color when it backs a modal scrim.
 pub const SCRIM_ALPHA: u8 = 184;
 
-/// Renderer-neutral application colors derived from a diff palette.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UiPalette {
     pub canvas: Rgba,
     pub surface: Rgba,
     pub surface_hover: Rgba,
     pub surface_selected: Rgba,
     pub text: Rgba,
+    pub text_secondary: Rgba,
     pub text_muted: Rgba,
     pub border: Rgba,
     pub accent: Rgba,
     pub accent_foreground: Rgba,
+    pub info: Rgba,
     pub positive: Rgba,
+    pub warning: Rgba,
     pub destructive: Rgba,
+    pub destructive_foreground: Rgba,
     pub scrim: Rgba,
 }
 
@@ -263,6 +268,7 @@ pub enum SelectionState {
 /// Semantic tone for notices and status messages.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum NoticeTone {
+    Neutral,
     #[default]
     Info,
     Positive,
@@ -300,12 +306,14 @@ impl UiPalette {
         }
         let (foreground, background) = match (variant, state.interaction, state.selected) {
             (ButtonVariant::Primary, _, _) => (self.accent_foreground, Some(self.accent)),
-            (ButtonVariant::Destructive, _, _) => (self.accent_foreground, Some(self.destructive)),
+            (ButtonVariant::Destructive, _, _) => {
+                (self.destructive_foreground, Some(self.destructive))
+            }
             (ButtonVariant::Ghost, _, true) => (self.accent, Some(self.surface_selected)),
             (ButtonVariant::Secondary | ButtonVariant::Ghost, InteractionState::Hovered, _) => {
                 (self.text, Some(self.surface_hover))
             }
-            (ButtonVariant::Secondary, _, _) => (self.text, Some(self.surface_selected)),
+            (ButtonVariant::Secondary, _, _) => (self.text, Some(self.surface)),
             (ButtonVariant::Ghost, _, false) => (self.text_muted, None),
         };
         SemanticStyle {
@@ -346,9 +354,10 @@ impl UiPalette {
     #[must_use]
     pub const fn notice_style(self, tone: NoticeTone) -> SemanticStyle {
         let foreground = match tone {
-            NoticeTone::Info => self.text_muted,
+            NoticeTone::Neutral => self.text_secondary,
+            NoticeTone::Info => self.info,
             NoticeTone::Positive => self.positive,
-            NoticeTone::Warning => self.accent,
+            NoticeTone::Warning => self.warning,
             NoticeTone::Error => self.destructive,
         };
         SemanticStyle {
@@ -359,24 +368,27 @@ impl UiPalette {
     }
 }
 
-impl From<&DiffPalette> for UiPalette {
-    fn from(palette: &DiffPalette) -> Self {
-        let mut scrim = palette.background;
-        scrim.a = SCRIM_ALPHA;
-        Self {
-            canvas: palette.background,
-            surface: palette.background,
-            surface_hover: palette.selection,
-            surface_selected: palette.selection,
-            text: palette.foreground,
-            text_muted: palette.muted,
-            border: palette.border,
-            accent: palette.accent,
-            accent_foreground: palette.background,
-            positive: palette.addition,
-            destructive: palette.deletion,
-            scrim,
-        }
+impl UiPalette {
+    #[must_use]
+    pub const fn colors(&self) -> [Rgba; 16] {
+        [
+            self.canvas,
+            self.surface,
+            self.surface_hover,
+            self.surface_selected,
+            self.text,
+            self.text_secondary,
+            self.text_muted,
+            self.border,
+            self.accent,
+            self.accent_foreground,
+            self.info,
+            self.positive,
+            self.warning,
+            self.destructive,
+            self.destructive_foreground,
+            self.scrim,
+        ]
     }
 }
 
@@ -435,6 +447,7 @@ pub struct ThemeDescriptor {
 struct ThemeDocument {
     version: u32,
     palette: DiffPalette,
+    ui: UiPalette,
     syntax: BTreeMap<String, SyntaxStyle>,
     markdown: MarkdownPalette,
 }
@@ -443,6 +456,7 @@ struct ThemeDocument {
 pub struct ReviewTheme {
     id: ThemeId,
     pub diff: DiffPalette,
+    pub ui: UiPalette,
     pub syntax: SyntaxTheme,
     pub markdown: MarkdownPalette,
 }
@@ -452,6 +466,7 @@ impl ReviewTheme {
         ReviewThemeBuilder {
             id: ThemeId::Custom(id.into()),
             diff: DiffPalette::default(),
+            ui: UiPalette::default(),
             syntax: BTreeMap::new(),
             markdown: None,
         }
@@ -476,6 +491,7 @@ impl ReviewTheme {
         }
         Ok(Self {
             id,
+            ui: document.ui,
             diff: document.palette,
             syntax: SyntaxTheme::new(document.syntax),
             markdown: document.markdown,
@@ -491,10 +507,12 @@ impl ReviewTheme {
     pub fn revision(&self) -> Fingerprint {
         let diff = self.diff.colors().map(Rgba::to_bytes);
         let markdown = self.markdown.colors().map(Rgba::to_bytes);
+        let ui = self.ui.colors().map(Rgba::to_bytes);
         Fingerprint::of(
             std::iter::once(self.syntax.revision().as_bytes().as_slice())
                 .chain(diff.iter().map(<[u8; 4]>::as_slice))
-                .chain(markdown.iter().map(<[u8; 4]>::as_slice)),
+                .chain(markdown.iter().map(<[u8; 4]>::as_slice))
+                .chain(ui.iter().map(<[u8; 4]>::as_slice)),
         )
     }
 
@@ -502,6 +520,7 @@ impl ReviewTheme {
         serde_json::to_vec(&ThemeDocument {
             version: THEME_VERSION,
             palette: self.diff.clone(),
+            ui: self.ui,
             syntax: self.syntax.captures.clone(),
             markdown: self.markdown.clone(),
         })
@@ -555,10 +574,11 @@ impl ReviewTheme {
             .ok_or_else(|| ThemeError::UnknownTheme {
                 name: name.to_owned(),
             })?;
-        Ok(Self::from_arborium(ThemeId::Builtin(id), &source))
+        let ui = ui::builtin(&id)?;
+        Ok(Self::from_arborium(ThemeId::Builtin(id), &source, ui))
     }
 
-    fn from_arborium(id: ThemeId, source: &arborium_theme::Theme) -> Self {
+    fn from_arborium(id: ThemeId, source: &arborium_theme::Theme, ui: UiPalette) -> Self {
         let palette = palette_from_arborium(source);
         let syntax = HIGHLIGHTS
             .iter()
@@ -583,6 +603,7 @@ impl ReviewTheme {
         Self {
             id,
             diff: palette,
+            ui,
             syntax,
             markdown,
         }
@@ -705,9 +726,16 @@ impl Default for ReviewTheme {
     }
 }
 
+impl Default for UiPalette {
+    fn default() -> Self {
+        DEFAULT_THEME.ui
+    }
+}
+
 pub struct ReviewThemeBuilder {
     id: ThemeId,
     diff: DiffPalette,
+    ui: UiPalette,
     syntax: BTreeMap<String, SyntaxStyle>,
     markdown: Option<MarkdownPalette>,
 }
@@ -726,6 +754,12 @@ impl ReviewThemeBuilder {
     }
 
     #[must_use]
+    pub fn ui(mut self, palette: UiPalette) -> Self {
+        self.ui = palette;
+        self
+    }
+
+    #[must_use]
     pub fn markdown(mut self, palette: MarkdownPalette) -> Self {
         self.markdown = Some(palette);
         self
@@ -739,6 +773,7 @@ impl ReviewThemeBuilder {
             .unwrap_or_else(|| MarkdownPalette::from_syntax(&syntax, &self.diff));
         ReviewTheme {
             id: self.id,
+            ui: self.ui,
             diff: self.diff,
             syntax,
             markdown,

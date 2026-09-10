@@ -465,7 +465,7 @@ impl DiffViewer {
                 value.child(CommentCount::new(
                     comments,
                     self.metadata_font_size(),
-                    self.ui_theme(),
+                    &self.ui_theme(),
                 ))
             })
             .into_any_element()
@@ -612,7 +612,7 @@ impl DiffViewer {
                             format!("Your comment on {side} {line}"),
                             comment.body,
                             self.metadata_font_size(),
-                            self.ui_theme(),
+                            &self.ui_theme(),
                             offset == last_comment,
                         )
                     })),
@@ -658,7 +658,7 @@ impl DiffViewer {
             .child(CommentComposer::new(
                 editor,
                 format!("Add a comment on {side_label} {line}"),
-                theme,
+                &theme,
                 cancel_button,
                 submit_button,
             ))

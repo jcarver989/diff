@@ -449,7 +449,7 @@ impl MarkdownReviewer {
                 row.child(CommentCount::new(
                     comment_count,
                     self.font_size() - 2.0,
-                    self.ui_theme(),
+                    &self.ui_theme(),
                 ))
             });
 
@@ -494,7 +494,7 @@ impl MarkdownReviewer {
                     },
                     comment.body.clone(),
                     self.font_size() - 3.0,
-                    self.ui_theme(),
+                    &self.ui_theme(),
                     index + 1 == comment_count,
                 )
             }))
@@ -524,7 +524,7 @@ impl MarkdownReviewer {
                 div().mt_2().child(CommentComposer::new(
                     editor,
                     "Review comment",
-                    theme,
+                    &theme,
                     cancel,
                     submit,
                 ))

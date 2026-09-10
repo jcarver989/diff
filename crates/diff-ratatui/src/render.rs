@@ -3,6 +3,7 @@
 use crate::{
     DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme, RepositoryOperationStatus,
     annotation::render_annotation_line,
+    color::page_color,
     drawer::{DrawerEntry, DrawerTree},
     patch_layout::PatchVisualRow,
     state::{HitLayout, RepositoryPrompt},
@@ -99,7 +100,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, the
         }
         DiffReviewStatus::Ready if state.document().files.is_empty() => Some((
             format!("No changes (scope: {})", state.scope()),
-            NoticeTone::Info,
+            NoticeTone::Neutral,
         )),
         DiffReviewStatus::Ready => None,
     };
@@ -252,7 +253,7 @@ fn render_drawer(
             buffer.set_style(
                 row,
                 Style::new()
-                    .fg(theme.ui.canvas)
+                    .fg(theme.ui.accent_foreground)
                     .bg(theme.ui.accent)
                     .add_modifier(if state.focus == FocusPane::Files {
                         Modifier::BOLD
@@ -510,7 +511,7 @@ fn render_cell(
     let tone = cell.map_or(DiffTone::Context, |cell| cell.tone);
     let (foreground, tone_background) = context.theme.tone(tone);
     let background = if selected {
-        context.theme.ui.surface_selected
+        page_color(context.diff_theme, context.diff_theme.diff.selection)
     } else {
         tone_background
     };

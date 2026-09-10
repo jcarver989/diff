@@ -404,7 +404,7 @@ impl DesktopApp {
             .child(self.status_panel(
                 "No changes",
                 &format!("Scope: {scope} · press S to change scope"),
-                NoticeTone::Info,
+                NoticeTone::Neutral,
             ))
             .child(div().flex().gap_2().children([
                 segment("scope-unstaged", "Unstaged", DiffScope::Unstaged),

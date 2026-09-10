@@ -133,7 +133,7 @@ fn render_body(
     let last = layout.len().saturating_sub(state.last_height);
     state.scroll = state.scroll.min(last);
     if layout.is_empty() {
-        EmptyState::new("No Markdown content to review", NoticeTone::Info, theme)
+        EmptyState::new("No Markdown content to review", NoticeTone::Neutral, theme)
             .render(rows, buffer);
     } else {
         render_rows(rows, track, buffer, state, theme, &layout, gutter_width);

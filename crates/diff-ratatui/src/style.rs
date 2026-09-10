@@ -1,7 +1,6 @@
 //! Ratatui conversions for renderer-neutral diff themes.
 
-use crate::color::native_color;
-use crate::color::{composite_color, layered_style};
+use crate::color::{composite_color, native_color};
 use clankerdiff_core::DiffTone;
 use clankerdiff_theme::FontStyle;
 use clankerdiff_theme::{
@@ -19,31 +18,37 @@ pub struct RatatuiUiTheme {
     pub surface_hover: Color,
     pub surface_selected: Color,
     pub text: Color,
+    pub text_secondary: Color,
     pub text_muted: Color,
     pub border: Color,
     pub accent: Color,
     pub accent_foreground: Color,
+    pub info: Color,
     pub positive: Color,
+    pub warning: Color,
     pub destructive: Color,
+    pub destructive_foreground: Color,
 }
 
 impl RatatuiUiTheme {
     #[must_use]
     pub fn control_style(self, variant: ButtonVariant, state: ControlState) -> Style {
-        semantic_style(
-            self.palette.control_style(variant, state),
-            self.palette.canvas,
-        )
+        semantic_style(self.palette.control_style(variant, state), self.canvas)
     }
 
     #[must_use]
     pub fn selection_style(self, state: SelectionState) -> Style {
-        semantic_style(self.palette.selection_style(state), self.palette.canvas)
+        semantic_style(self.palette.selection_style(state), self.canvas)
     }
 
     #[must_use]
     pub fn notice_style(self, tone: NoticeTone) -> Style {
-        semantic_style(self.palette.notice_style(tone), self.palette.canvas)
+        semantic_style(self.palette.notice_style(tone), self.canvas)
+    }
+
+    #[must_use]
+    pub fn on_background(self, background: Color) -> Self {
+        Self::from_palette(self.palette, background)
     }
 
     #[must_use]
@@ -54,33 +59,48 @@ impl RatatuiUiTheme {
             ModalSize::Wide => (72, 22),
         }
     }
-}
 
-impl From<&UiPalette> for RatatuiUiTheme {
-    fn from(palette: &UiPalette) -> Self {
-        let color = |value| composite_color(value, palette.canvas);
+    fn from_palette(palette: UiPalette, canvas: Color) -> Self {
+        let color = |value| native_color(value, canvas);
         Self {
-            palette: *palette,
-            canvas: color(palette.canvas),
+            palette,
+            canvas,
             surface: color(palette.surface),
             surface_hover: color(palette.surface_hover),
             surface_selected: color(palette.surface_selected),
             text: color(palette.text),
+            text_secondary: color(palette.text_secondary),
             text_muted: color(palette.text_muted),
             border: color(palette.border),
             accent: color(palette.accent),
-            accent_foreground: color(palette.accent_foreground),
+            accent_foreground: native_color(palette.accent_foreground, color(palette.accent)),
+            info: color(palette.info),
             positive: color(palette.positive),
+            warning: color(palette.warning),
             destructive: color(palette.destructive),
+            destructive_foreground: native_color(
+                palette.destructive_foreground,
+                color(palette.destructive),
+            ),
         }
     }
 }
 
-fn semantic_style(style: SemanticStyle, canvas: Rgba) -> Style {
-    let mut native = match style.background {
-        Some(background) => layered_style(style.foreground, background, canvas),
-        None => Style::new().fg(composite_color(style.foreground, canvas)),
-    };
+impl From<&UiPalette> for RatatuiUiTheme {
+    fn from(palette: &UiPalette) -> Self {
+        Self::from_palette(
+            *palette,
+            composite_color(palette.canvas, Rgba::new(0, 0, 0, 255)),
+        )
+    }
+}
+
+fn semantic_style(style: SemanticStyle, canvas: Color) -> Style {
+    let background = style.background.map(|color| native_color(color, canvas));
+    let mut native = Style::new().fg(native_color(style.foreground, background.unwrap_or(canvas)));
+    if let Some(background) = background {
+        native = native.bg(background);
+    }
     if style.emphasized {
         native = native.add_modifier(Modifier::BOLD);
     }
@@ -93,6 +113,8 @@ fn semantic_style(style: SemanticStyle, canvas: Rgba) -> Style {
 pub struct RatatuiTheme {
     /// Semantic application colors.
     pub ui: RatatuiUiTheme,
+    pub foreground: Color,
+    pub background: Color,
     /// Line-number and secondary text.
     pub gutter: Color,
     /// Added-line foreground.
@@ -111,7 +133,7 @@ impl RatatuiTheme {
         match tone {
             DiffTone::Added => (self.addition, self.addition_background),
             DiffTone::Removed => (self.deletion, self.deletion_background),
-            DiffTone::Context | DiffTone::Meta => (self.ui.text, self.ui.canvas),
+            DiffTone::Context | DiffTone::Meta => (self.foreground, self.background),
         }
     }
 }
@@ -121,7 +143,9 @@ impl From<&ReviewTheme> for RatatuiTheme {
         let palette = &theme.diff;
         let color = |value| composite_color(value, palette.background);
         Self {
-            ui: RatatuiUiTheme::from(&UiPalette::from(palette)),
+            ui: RatatuiUiTheme::from(&theme.ui),
+            foreground: color(palette.foreground),
+            background: color(palette.background),
             gutter: color(palette.gutter),
             addition: color(palette.addition),
             deletion: color(palette.deletion),
