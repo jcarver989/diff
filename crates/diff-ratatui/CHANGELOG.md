@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.3...clankerdiff-ratatui-v0.1.4) - 2026-09-10
+
+### Added
+
+- *(theme)* separate semantic UI palettes from diff colors ([#28](https://github.com/jcarver989/diff/pull/28))
+- *(ratatui)* expose a complete embedding facade ([#27](https://github.com/jcarver989/diff/pull/27))
+- *(ratatui)* default diff tabs to two configurable columns ([#25](https://github.com/jcarver989/diff/pull/25))
+
+### Fixed
+
+- *(diff-ratatui)* Split diff backgrounds looked weird ([#26](https://github.com/jcarver989/diff/pull/26))
+
 ## [0.1.2](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.1...clankerdiff-ratatui-v0.1.2) - 2026-09-10
 
 ### Added

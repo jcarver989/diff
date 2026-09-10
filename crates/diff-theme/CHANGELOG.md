@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/jcarver989/diff/compare/clankerdiff-theme-v0.1.3...clankerdiff-theme-v0.1.4) - 2026-09-10
+
+### Added
+
+- *(theme)* separate semantic UI palettes from diff colors ([#28](https://github.com/jcarver989/diff/pull/28))
+
 ## [0.1.1](https://github.com/jcarver989/diff/compare/clankerdiff-theme-v0.1.0...clankerdiff-theme-v0.1.1) - 2026-09-09
 
 ### Other
