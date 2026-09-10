@@ -22,6 +22,7 @@ workspace = true
 test-support = []
 
 [dependencies]
+ignore.workspace = true
 clankerdiff-core = { version = "0.1.6", path = "../diff-core" }
 clankerdiff-git = { version = "0.1.6", path = "../diff-git" }
 notify.workspace = true

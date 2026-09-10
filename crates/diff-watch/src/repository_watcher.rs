@@ -1,14 +1,15 @@
 use crate::{
     error::WatchError,
-    file_watcher::{FileWatchError, FileWatcher, NotifyFileWatcher},
+    file_watcher::{FileWatcher, NotifyFileWatcher, worktree_walk},
     filter::should_refresh,
 };
 use clankerdiff_core::DiffScope;
 use clankerdiff_git::{GitError, GitRepository, RepositorySnapshot};
+use ignore::WalkBuilder;
 use std::{sync::Arc, time::Duration};
 use tokio::{
     sync::{mpsc, oneshot, watch},
-    task::JoinHandle,
+    task::{JoinHandle, spawn_blocking},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,21 +108,30 @@ impl RepositoryWatcher {
         repository: &GitRepository,
         debounce: Duration,
     ) -> Result<NotifyFileWatcher, WatchError> {
-        let root = repository.root().to_path_buf();
         let directories = repository.metadata_directories().await?;
-        let mut roots = vec![root.clone()];
-        roots.extend(directories.iter().cloned());
-        let filter_repository = repository.clone();
-        let watcher = NotifyFileWatcher::new(roots, debounce, move |paths| {
-            let repository = filter_repository.clone();
-            let directories = directories.clone();
-            async move { should_refresh(&repository, &directories, paths).await }
+        let mut worktree = worktree_walk(repository.root());
+        worktree.filter_entry(|entry| entry.file_name() != ".git");
+        let mut walks = vec![worktree];
+        if let Some((first, rest)) = directories.split_first() {
+            let mut metadata = WalkBuilder::new(first);
+            for directory in rest {
+                metadata.add(directory);
+            }
+            metadata.standard_filters(false).filter_entry(|entry| {
+                entry.depth() != 1 || matches!(entry.file_name().to_str(), Some("refs" | "info"))
+            });
+            walks.push(metadata);
+        }
+        let repository = repository.clone();
+        let watcher = spawn_blocking(move || {
+            NotifyFileWatcher::with_walks(walks, debounce, move |paths| {
+                let repository = repository.clone();
+                let directories = directories.clone();
+                async move { should_refresh(&repository, &directories, paths).await }
+            })
         })
-        .map_err(|error| match error {
-            FileWatchError::Create(source) => WatchError::Watch { path: root, source },
-            FileWatchError::Watch { path, source } => WatchError::Watch { path, source },
-        })?;
-
+        .await
+        .map_err(|_| WatchError::Stopped)??;
         Ok(watcher)
     }
 }
@@ -152,7 +162,10 @@ impl RepositoryActor {
                     }
                     None => return,
                 },
-                Some(()) = self.watcher.recv() => None,
+                event = self.watcher.recv() => match event {
+                    Some(()) => None,
+                    None => return,
+                },
             };
 
             let result = self

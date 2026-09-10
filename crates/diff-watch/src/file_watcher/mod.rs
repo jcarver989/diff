@@ -6,6 +6,7 @@ mod notify_file_watcher;
 mod fake_file_watcher;
 
 pub use file_watcher::FileWatcher;
+pub(crate) use notify_file_watcher::worktree_walk;
 pub use notify_file_watcher::{FileWatchError, NotifyFileWatcher};
 
 #[cfg(any(test, feature = "test-support"))]

@@ -85,7 +85,7 @@ fn classify_metadata(components: &[String]) -> PathClass {
         return PathClass::Ignored;
     }
     match components.first().map(String::as_str) {
-        None | Some("refs") => PathClass::GitMetadata,
+        None | Some("refs" | "info" | "config") => PathClass::GitMetadata,
         Some(name) if components.len() == 1 && GIT_METADATA_ENTRIES.contains(&name) => {
             PathClass::GitMetadata
         }

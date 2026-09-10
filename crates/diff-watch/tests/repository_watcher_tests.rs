@@ -466,6 +466,50 @@ async fn dropping_the_watcher_closes_queued_replies_and_channels() -> TestResult
     Ok(())
 }
 
+#[tokio::test]
+async fn new_nested_directories_and_ignore_changes_are_observed() -> TestResult {
+    let repo = RepoFixtureBuilder::new()
+        .file("file.txt", "original\n")
+        .gitignore(&["generated/"])
+        .committed()
+        .build();
+    repo.write("generated/nested/file.txt", "hidden\n");
+    let subscription = watcher(&repo).await?;
+    let mut state = subscription.state_rx.clone();
+    repo.write("new/deep/file.txt", "first\n");
+    let snapshot = wait_for_snapshot(&mut state).await?;
+    assert_eq!(added_lines(&snapshot, "new/deep/file.txt"), vec!["first"]);
+    repo.write("new/deep/file.txt", "second\n");
+    let snapshot = wait_for_snapshot(&mut state).await?;
+    assert_eq!(added_lines(&snapshot, "new/deep/file.txt"), vec!["second"]);
+    repo.write(".gitignore", "");
+    let snapshot = wait_for_snapshot(&mut state).await?;
+    assert_eq!(
+        added_lines(&snapshot, "generated/nested/file.txt"),
+        vec!["hidden"]
+    );
+    repo.write("generated/nested/file.txt", "visible\n");
+    let snapshot = wait_for_snapshot(&mut state).await?;
+    assert_eq!(
+        added_lines(&snapshot, "generated/nested/file.txt"),
+        vec!["visible"]
+    );
+    drop(subscription);
+    assert!(
+        wait_for("old subscription closed", state.changed())
+            .await
+            .is_err()
+    );
+    let reopened = watcher(&repo).await?;
+    repo.write("new/deep/file.txt", "reopened\n");
+    let snapshot = wait_for_snapshot(&mut reopened.state_rx.clone()).await?;
+    assert_eq!(
+        added_lines(&snapshot, "new/deep/file.txt"),
+        vec!["reopened"]
+    );
+    Ok(())
+}
+
 fn options() -> WatchOptions {
     WatchOptions {
         debounce: Duration::from_millis(50),
