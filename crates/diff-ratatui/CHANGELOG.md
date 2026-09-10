@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.1...clankerdiff-ratatui-v0.1.2) - 2026-09-10
+
+### Added
+
+- Streaming rendering ([#21](https://github.com/jcarver989/diff/pull/21))
+
 ### Added
 
 - Terminal streaming policy, revision-checked row commits, immutable native-history rows, and source/render checkpoints for live-tail reflow and partial tabs.
