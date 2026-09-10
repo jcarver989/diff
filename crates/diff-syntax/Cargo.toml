@@ -32,8 +32,8 @@ arborium-tree-sitter.workspace = true
 imbl.workspace = true
 lru.workspace = true
 thiserror.workspace = true
-clankerdiff-fingerprint = { version = "0.1.1", path = "../diff-fingerprint" }
-clankerdiff-theme = { version = "0.1.1", path = "../diff-theme" }
+clankerdiff-fingerprint = { version = "0.1.2", path = "../diff-fingerprint" }
+clankerdiff-theme = { version = "0.1.2", path = "../diff-theme" }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 arborium-sysroot.workspace = true

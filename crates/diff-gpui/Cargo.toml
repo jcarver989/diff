@@ -15,10 +15,10 @@ test-support = ["clankerdiff-core/test-support", "gpui/test-support"]
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.1.1", path = "../diff-core" }
-clankerdiff-markdown = { version = "0.1.1", path = "../diff-markdown", features = ["review"] }
-clankerdiff-syntax = { version = "0.1.1", path = "../diff-syntax" }
-clankerdiff-theme = { version = "0.1.1", path = "../diff-theme" }
+clankerdiff-core = { version = "0.1.2", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.1.2", path = "../diff-markdown", features = ["review"] }
+clankerdiff-syntax = { version = "0.1.2", path = "../diff-syntax" }
+clankerdiff-theme = { version = "0.1.2", path = "../diff-theme" }
 gpui.workspace = true
 
 [[test]]
