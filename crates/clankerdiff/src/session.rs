@@ -1,5 +1,5 @@
 use crate::protocol::{SessionRequest, SessionResponseRef, read_request, write_response};
-use clankerdiff_core::{DiffScope, ReviewSubmission};
+use clankerdiff_core::ReviewSubmission;
 use clankerdiff_git::{GitRepository, RepositorySnapshot};
 use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher};
 use std::{
@@ -27,8 +27,8 @@ fn run_blocking(
     let directory = tempfile::Builder::new().prefix("clankerdiff-").tempdir()?;
     let socket_path = directory.path().join("session.sock");
     let listener = UnixListener::bind(&socket_path)?;
-    let mut snapshot = watcher.snapshot_rx.borrow().as_ref().ok().cloned();
-    let mut revision = u64::from(snapshot.is_some());
+    let mut snapshot = watcher.state_rx.borrow().snapshot.clone();
+    let mut revision = 1;
     launch(&socket_path).map_err(SessionError::Launch)?;
 
     for connection in listener.incoming() {
@@ -59,37 +59,31 @@ fn handle_connection(
     stream: &mut UnixStream,
     repository: &GitRepository,
     watcher: &RepositoryWatcher,
-    snapshot: &mut Option<Arc<RepositorySnapshot>>,
+    snapshot: &mut Arc<RepositorySnapshot>,
     published_revision: &mut u64,
 ) -> Result<ConnectionOutcome, SessionError> {
     match read_request(stream)? {
         SessionRequest::Document { revision } => {
-            let result = watcher.snapshot_rx.borrow().clone();
-            let error = match result {
-                Ok(latest) => {
-                    if snapshot.as_ref() != Some(&latest) {
-                        *snapshot = Some(latest);
-                        *published_revision += 1;
-                    }
-                    None
-                }
-                Err(error) => Some(error.to_string()),
-            };
+            let retained = watcher.state_rx.borrow().clone();
+            let error = retained.error_message();
             let background_error = error.as_deref();
-            let scope = snapshot
-                .as_ref()
-                .map_or(DiffScope::Both, |snapshot| snapshot.scope);
-            let response = match snapshot.as_ref() {
-                Some(snapshot) if *published_revision != revision => SessionResponseRef::Document {
+            if *snapshot != retained.snapshot {
+                *snapshot = retained.snapshot;
+                *published_revision += 1;
+            }
+            let scope = snapshot.scope;
+            let response = if *published_revision == revision {
+                SessionResponseRef::Unchanged {
+                    scope,
+                    background_error,
+                }
+            } else {
+                SessionResponseRef::Document {
                     revision: *published_revision,
                     document: &snapshot.document,
                     scope,
                     background_error,
-                },
-                _ => SessionResponseRef::Unchanged {
-                    scope,
-                    background_error,
-                },
+                }
             };
             write_response(stream, &response)?;
             Ok(ConnectionOutcome::Continue)

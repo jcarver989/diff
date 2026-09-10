@@ -77,17 +77,22 @@ impl DiffReviewState {
             && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "Exhaustive command dispatch keeps routing in one place"
-    )]
     pub fn handle_command(
         &mut self,
         command: impl Into<DiffReviewCommand>,
     ) -> InputOutcome<DiffReviewEvent> {
+        let outcome = self.dispatch_command(command.into());
+        self.install_deferred();
+        outcome
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Exhaustive command dispatch keeps routing in one place"
+    )]
+    fn dispatch_command(&mut self, command: DiffReviewCommand) -> InputOutcome<DiffReviewEvent> {
         use DiffReviewCommand as C;
         use ReviewCommand as R;
-        let command = command.into();
         if !self.command_enabled(&command) {
             return InputOutcome::Ignored;
         }

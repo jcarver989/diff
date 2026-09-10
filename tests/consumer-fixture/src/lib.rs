@@ -212,12 +212,7 @@ mod tests {
         let repository = GitRepository::discover(directory.path()).await?;
         let mut watcher =
             RepositoryWatcher::spawn(repository, DiffScope::Both, WatchOptions::default()).await?;
-        let initial = watcher
-            .snapshot_rx
-            .borrow_and_update()
-            .as_ref()
-            .map_err(ToString::to_string)?
-            .clone();
+        let initial = watcher.state_rx.borrow_and_update().snapshot.clone();
         let mut state = DiffReviewState::new(Arc::clone(&initial.document));
         let area = Rect::new(0, 0, 80, 24);
         DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut state);
@@ -225,14 +220,12 @@ mod tests {
         fs::write(directory.path().join("file.rs"), "let changed_again = 3;\n")?;
         timeout(Duration::from_secs(10), async {
             loop {
-                watcher.snapshot_rx.changed().await?;
-                let snapshot = watcher
-                    .snapshot_rx
-                    .borrow_and_update()
-                    .as_ref()
-                    .map_err(ToString::to_string)?
-                    .clone();
-                if snapshot.document != initial.document {
+                watcher.state_rx.changed().await?;
+                let retained = watcher.state_rx.borrow_and_update().clone();
+                if let Some(error) = retained.error_message() {
+                    break Err(error.into());
+                }
+                if retained.snapshot.document != initial.document {
                     break Ok::<(), Box<dyn Error>>(());
                 }
             }
@@ -250,12 +243,7 @@ mod tests {
         timeout(Duration::from_secs(10), result_rx)
             .await??
             .map_err(|error| error.to_string())?;
-        let staged = watcher
-            .snapshot_rx
-            .borrow()
-            .as_ref()
-            .map_err(ToString::to_string)?
-            .clone();
+        let staged = watcher.state_rx.borrow().snapshot.clone();
         assert_eq!(staged.scope, DiffScope::Staged);
         assert!(staged.document.files.is_empty());
         Ok(())

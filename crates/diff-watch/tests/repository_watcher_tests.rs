@@ -11,7 +11,7 @@ use clankerdiff_git::{
     testing::{RepoFixture, RepoFixtureBuilder},
 };
 use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchOptions};
-use repository_watcher_assertions::{assert_snapshot_unchanged, wait_for_snapshot};
+use repository_watcher_assertions::{assert_snapshot_unchanged, healthy, wait_for_snapshot};
 use std::time::Duration;
 use test_result::TestResult;
 use tokio::sync::oneshot;
@@ -24,7 +24,7 @@ async fn a_worktree_edit_publishes_a_snapshot_with_the_new_hunk() -> TestResult 
         .committed()
         .build();
     let watcher = watcher(&repo).await?;
-    let mut state = watcher.snapshot_rx.clone();
+    let mut state = watcher.state_rx.clone();
     repo.write("src/lib.rs", "fn main() {}\nfn added() {}\n");
     let published = wait_for_snapshot(&mut state).await?;
     assert_eq!(added_lines(&published, "src/lib.rs"), vec!["fn added() {}"]);
@@ -41,7 +41,7 @@ async fn tracked_worktree_lock_files_are_not_filtered_as_metadata() -> TestResul
     repo.git(&["add", "--force", "Cargo.lock"]);
     repo.git(&["commit", "-m", "track lock file"]);
     let watcher = watcher(&repo).await?;
-    let mut state = watcher.snapshot_rx.clone();
+    let mut state = watcher.state_rx.clone();
     repo.write("Cargo.lock", "updated\n");
     let published = wait_for_snapshot(&mut state).await?;
     assert_eq!(added_lines(&published, "Cargo.lock"), vec!["updated"]);
@@ -64,12 +64,12 @@ async fn staging_is_observed_without_extra_notifications() -> TestResult {
         )?]))
         .await?;
 
-    let published = wait_for_snapshot(&mut watcher.snapshot_rx.clone()).await?;
+    let published = wait_for_snapshot(&mut watcher.state_rx.clone()).await?;
     assert_eq!(
         stage_state(&published, "src/lib.rs"),
         Some(StageState::Staged)
     );
-    assert_snapshot_unchanged(&mut watcher.snapshot_rx.clone()).await;
+    assert_snapshot_unchanged(&mut watcher.state_rx.clone()).await;
     Ok(())
 }
 
@@ -83,7 +83,7 @@ async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
 
     let repository = repo.repository().await;
     let watcher = watcher(&repo).await?;
-    let mut snapshots = watcher.snapshot_rx.clone();
+    let mut snapshots = watcher.state_rx.clone();
     repository.apply(RepositoryAction::StageAll).await?;
     let staged = wait_for_snapshot(&mut snapshots).await?;
 
@@ -133,7 +133,7 @@ async fn ignored_edits_do_not_publish_or_hide_relevant_edits() -> TestResult {
         .committed()
         .build();
     let watcher = watcher(&repo).await?;
-    let mut state = watcher.snapshot_rx.clone();
+    let mut state = watcher.state_rx.clone();
     for index in 0..5 {
         repo.write(&format!("target/debug/artifact-{index}.bin"), "noise\n");
     }
@@ -170,9 +170,9 @@ async fn changing_the_scope_republishes_for_the_new_scope() -> TestResult {
         })
         .await?;
     wait_for("scope acknowledgement", completion).await??;
-    let published = watcher.snapshot_rx.borrow().clone()?;
+    let published = healthy(&watcher.state_rx.borrow())?;
     assert_eq!(published.scope, DiffScope::Staged);
-    assert!(watcher.snapshot_rx.has_changed()?);
+    assert!(watcher.state_rx.has_changed()?);
     assert_eq!(
         added_lines(&published, "src/lib.rs"),
         vec!["fn staged() {}"]
@@ -187,7 +187,7 @@ async fn a_scope_only_change_notifies_but_repeated_scope_does_not() -> TestResul
         .committed()
         .build();
     let watcher = watcher(&repo).await?;
-    let original = watcher.snapshot_rx.borrow().clone()?;
+    let original = healthy(&watcher.state_rx.borrow())?;
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx
@@ -197,9 +197,9 @@ async fn a_scope_only_change_notifies_but_repeated_scope_does_not() -> TestResul
         })
         .await?;
     wait_for("scope acknowledgement", completion).await??;
-    let staged = watcher.snapshot_rx.borrow().clone()?;
+    let staged = healthy(&watcher.state_rx.borrow())?;
     assert_eq!(original.scope, DiffScope::Both);
-    let mut updates = watcher.snapshot_rx.clone();
+    let mut updates = watcher.state_rx.clone();
     assert!(updates.has_changed()?);
     updates.borrow_and_update();
     assert_eq!(staged.scope, DiffScope::Staged);
@@ -224,7 +224,7 @@ async fn a_burst_of_edits_publishes_the_latest_contents_and_settles() -> TestRes
         .committed()
         .build();
     let watcher = watcher(&repo).await?;
-    let mut snapshots = watcher.snapshot_rx.clone();
+    let mut snapshots = watcher.state_rx.clone();
     for index in 0..50 {
         repo.write("file.txt", format!("version {index}\n"));
     }
@@ -243,9 +243,9 @@ async fn linked_worktree_index_head_and_shared_refs_are_watched() -> TestResult 
     let repo = main.linked_worktree("review");
     repo.write("file.txt", "new\n");
     let watcher = watcher(&repo).await?;
-    let mut state = watcher.snapshot_rx.clone();
+    let mut state = watcher.state_rx.clone();
     assert_eq!(
-        stage_state(state.borrow().clone()?.as_ref(), "file.txt"),
+        stage_state(healthy(&state.borrow())?.as_ref(), "file.txt"),
         Some(StageState::Unstaged)
     );
     repo.git(&["add", "file.txt"]);
@@ -271,13 +271,13 @@ async fn background_recovery_publishes_success_even_with_unchanged_content() -> 
         .committed()
         .build();
     let watcher = watcher(&repo).await?;
-    let mut state = watcher.snapshot_rx.clone();
-    let original = state.borrow().clone()?;
+    let mut state = watcher.state_rx.clone();
+    let original = healthy(&state.borrow())?;
     let index = std::fs::read(repo.root().join(".git/index"))?;
     repo.write(".git/index", "corrupt index");
     wait_for("background failure publication", async {
         loop {
-            if state.borrow_and_update().is_err() {
+            if state.borrow_and_update().error.is_some() {
                 break;
             }
             state.changed().await?;
@@ -285,8 +285,10 @@ async fn background_recovery_publishes_success_even_with_unchanged_content() -> 
         TestResult::Ok(())
     })
     .await?;
-    let original_error = state.borrow().as_ref().err().map(ToString::to_string);
-    assert!(watcher.snapshot_rx.clone().borrow().is_err());
+    let original_error = state.borrow().error_message();
+    assert!(watcher.state_rx.clone().borrow().error.is_some());
+    // The failed load keeps the last good snapshot in place.
+    assert_eq!(state.borrow().snapshot, original);
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx
@@ -298,23 +300,20 @@ async fn background_recovery_publishes_success_even_with_unchanged_content() -> 
     wait_for("repeated failure acknowledgement", completion)
         .await?
         .expect_err("the index is still corrupt");
-    assert_eq!(
-        state.borrow().as_ref().err().map(ToString::to_string),
-        original_error
-    );
+    assert_eq!(state.borrow().error_message(), original_error);
     assert!(!state.has_changed()?);
     repo.write(".git/index", index);
     wait_for("equal-content recovery notification", async {
         loop {
             state.changed().await?;
-            if state.borrow_and_update().is_ok() {
+            if state.borrow_and_update().error.is_none() {
                 break;
             }
         }
         TestResult::Ok(())
     })
     .await?;
-    assert_eq!(state.borrow().clone()?, original);
+    assert_eq!(healthy(&state.borrow())?, original);
     Ok(())
 }
 
@@ -340,7 +339,7 @@ async fn changes_from_a_failed_mutation_are_observed() -> TestResult {
         })
         .await;
     assert!(result.is_err());
-    let mut snapshots = watcher.snapshot_rx.clone();
+    let mut snapshots = watcher.state_rx.clone();
     wait_for("the failed hook's worktree edit", async {
         loop {
             let published = wait_for_snapshot(&mut snapshots).await?;
@@ -384,7 +383,7 @@ async fn cancelling_a_host_owned_mutation_leaves_the_watcher_running() -> TestRe
             .is_cancelled()
     );
     repo.write("file.txt", "after cancellation\n");
-    let published = wait_for_snapshot(&mut watcher.snapshot_rx.clone()).await?;
+    let published = wait_for_snapshot(&mut watcher.state_rx.clone()).await?;
     assert!(added_lines(&published, "file.txt").contains(&"after cancellation".to_owned()));
     repo.write(".git/hook-release", "");
     observe().await;
@@ -405,20 +404,20 @@ async fn watched_snapshots_are_immutable_and_scope_requests_publish_before_ackno
         .build();
     let repository = repo.repository().await;
     let watcher = watcher(&repo).await?;
-    let mut snapshots = watcher.snapshot_rx.clone();
-    let original = snapshots.borrow_and_update().clone()?;
+    let mut snapshots = watcher.state_rx.clone();
+    let original = healthy(&snapshots.borrow_and_update())?;
     for contents in ["first\n", "second\n", "third\n"] {
         repo.write("file.txt", contents);
         wait_for_snapshot(&mut snapshots).await?;
         assert_eq!(
-            added_lines(snapshots.borrow().clone()?.as_ref(), "file.txt"),
+            added_lines(healthy(&snapshots.borrow())?.as_ref(), "file.txt"),
             vec![contents.trim_end()]
         );
     }
     assert!(original.document.files.is_empty());
     assert!(!snapshots.has_changed()?);
     let expected = repository.snapshot_with_sources(DiffScope::Both).await?;
-    assert_eq!(*snapshots.borrow().clone()?, expected);
+    assert_eq!(*healthy(&snapshots.borrow())?, expected);
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx
@@ -428,8 +427,8 @@ async fn watched_snapshots_are_immutable_and_scope_requests_publish_before_ackno
         })
         .await?;
     wait_for("raw scope acknowledgement", completion).await??;
-    assert_eq!(snapshots.borrow().clone()?.scope, DiffScope::Staged);
-    assert!(snapshots.borrow().clone()?.document.files.is_empty());
+    assert_eq!(healthy(&snapshots.borrow())?.scope, DiffScope::Staged);
+    assert!(healthy(&snapshots.borrow())?.document.files.is_empty());
     Ok(())
 }
 
@@ -441,7 +440,7 @@ async fn dropping_the_watcher_closes_queued_replies_and_channels() -> TestResult
         .build();
     let watcher = watcher(&repo).await?;
     let requests = watcher.request_tx.clone();
-    let mut snapshots = watcher.snapshot_rx.clone();
+    let mut snapshots = watcher.state_rx.clone();
     let (result_tx, completion) = oneshot::channel();
     requests
         .send(RepositoryRequest::SetScope {

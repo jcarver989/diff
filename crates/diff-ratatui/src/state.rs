@@ -1,5 +1,5 @@
 use crate::{
-    DiffReviewCommand, KeyBinding, NavigationPane, ReviewOptions, ThemeChoice,
+    DiffReviewCommand, InteractionPhase, KeyBinding, NavigationPane, ReviewOptions, ThemeChoice,
     default_diff_keybindings,
     drawer::{DrawerEntry, DrawerTree},
     patch_layout::PatchVisualLayout,
@@ -101,6 +101,8 @@ pub struct DiffReviewState {
     pub(crate) repository_prompt: Option<RepositoryPrompt>,
     pub(crate) repository_status: RepositoryOperationStatus,
     pub(crate) background_error: Option<String>,
+    deferred_document: Option<Arc<DiffDocument>>,
+    deferred_scope: Option<DiffScope>,
     pub(crate) hit_layout: HitLayout,
     pub(crate) visible_rows: Vec<(u16, usize)>,
     pub(crate) cursor_position: Option<Position>,
@@ -146,6 +148,8 @@ impl DiffReviewState {
             repository_prompt: None,
             repository_status: RepositoryOperationStatus::Idle,
             background_error: None,
+            deferred_document: None,
+            deferred_scope: None,
             hit_layout: HitLayout::default(),
             visible_rows: Vec::new(),
             cursor_position: None,
@@ -179,8 +183,12 @@ impl DiffReviewState {
     }
 
     pub fn set_scope(&mut self, scope: DiffScope) {
-        self.scope = scope;
-        self.mark_dirty();
+        if self.interaction_phase() == InteractionPhase::Browse {
+            self.scope = scope;
+            self.mark_dirty();
+        } else {
+            self.deferred_scope = Some(scope);
+        }
     }
 
     /// Returns the current immutable snapshot.
@@ -290,6 +298,26 @@ impl DiffReviewState {
 
     /// Replaces the complete document while retaining and reconciling review comments.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
+        if self.interaction_phase() == InteractionPhase::Browse {
+            self.install_document(document);
+        } else {
+            self.deferred_document = Some(document);
+        }
+    }
+
+    pub(crate) fn install_deferred(&mut self) {
+        if self.interaction_phase() != InteractionPhase::Browse {
+            return;
+        }
+        if let Some(document) = self.deferred_document.take() {
+            self.install_document(document);
+        }
+        if let Some(scope) = self.deferred_scope.take() {
+            self.set_scope(scope);
+        }
+    }
+
+    fn install_document(&mut self, document: Arc<DiffDocument>) {
         self.session.set_document(document);
         self.status = DiffReviewStatus::Ready;
         self.cursor_position = None;
@@ -309,6 +337,8 @@ impl DiffReviewState {
     /// Marks the state as waiting for a host snapshot.
     pub fn set_loading(&mut self) {
         self.status = DiffReviewStatus::Loading;
+        self.deferred_document = None;
+        self.deferred_scope = None;
         self.session.cancel_draft();
         self.cursor_position = None;
         self.mark_dirty();
@@ -317,6 +347,8 @@ impl DiffReviewState {
     /// Shows a host-provided loading error.
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.status = DiffReviewStatus::Error(message.into());
+        self.deferred_document = None;
+        self.deferred_scope = None;
         self.session.cancel_draft();
         self.cursor_position = None;
         self.mark_dirty();

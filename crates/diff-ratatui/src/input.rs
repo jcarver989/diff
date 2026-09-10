@@ -39,6 +39,7 @@ impl DiffReviewState {
     #[must_use]
     pub fn handle_input(&mut self, input: ReviewInput) -> InputOutcome<DiffReviewEvent> {
         let Ok(outcome) = interaction::handle_input(self, input);
+        self.install_deferred();
         outcome
     }
 }
