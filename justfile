@@ -39,14 +39,19 @@ bench-check:
 bench:
     cargo bench --workspace --all-features
 
-feature-check:
-    cargo check -p clankerdiff-ratatui --no-default-features
-    cargo check -p clankerdiff-ratatui --no-default-features --features test-support --all-targets
+feature-check: consumer-check
+    tree="$(cargo tree -p clankerdiff-git -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(notify|ratatui[^ ]*|crossterm|clankerdiff-(watch|ratatui|syntax|markdown|gpui[^ ]*)) v'; then echo "unexpected UI or watcher dependency in Git graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-watch -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(ratatui[^ ]*|crossterm|clankerdiff-(ratatui|syntax|markdown|gpui[^ ]*)) v'; then echo "unexpected renderer dependency in watcher graph" >&2; exit 1; fi
     cargo check -p clankerdiff-ratatui --all-features --all-targets
     tree="$(cargo tree -p clankerdiff-ratatui --no-default-features --features test-support -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(crossterm|ratatui-crossterm|syntect|two-face|clankerdiff-(git|watch|gpui[^ ]*)) v'; then echo "unexpected dependency in portable ratatui graph" >&2; exit 1; fi
 
+consumer-check:
+    cargo test --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
+    cargo test --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
+
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo clippy --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --all-targets --all-features -- -D warnings
 
 wasm-check:
     cargo check -p clankerdiff-core -p clankerdiff-theme -p clankerdiff-syntax -p clankerdiff-markdown -p clankerdiff-gpui -p clankerdiff-gpui-web --target wasm32-unknown-unknown
@@ -62,9 +67,11 @@ watch-test:
 
 fmt:
     cargo fmt --all
+    cargo fmt --manifest-path tests/consumer-fixture/Cargo.toml
 
 fmt-check:
     cargo fmt --all -- --check
+    cargo fmt --manifest-path tests/consumer-fixture/Cargo.toml -- --check
 
 doc-check:
     cargo doc --workspace --all-features --no-deps --document-private-items

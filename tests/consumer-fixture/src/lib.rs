@@ -1,16 +1,26 @@
 #[cfg(test)]
 mod tests {
-    use clankerdiff_core::{DiffDocument, DiffScope, FileDiff};
+    #[cfg(feature = "git")]
     use clankerdiff_git::GitRepository;
-    use clankerdiff_markdown::{MarkdownDocument, MarkdownStream};
+    #[cfg(feature = "git")]
+    use clankerdiff_ratatui::diff::DiffScope;
     use clankerdiff_ratatui::{
-        DiffReviewState, DiffReviewWidget, MarkdownLayoutOptions, MarkdownRenderer,
-        MarkdownReviewState, MarkdownReviewWidget, StreamingMarkdownPolicy, StreamingMarkdownState,
+        DiffPreviewOptions, DiffPreviewState, DiffReviewState, DiffReviewWidget,
+        MarkdownLayoutOptions, MarkdownRenderer, MarkdownReviewState, MarkdownReviewWidget,
+        StreamingMarkdownPolicy, StreamingMarkdownState,
+        diff::{DiffDocument, FileDiff, ViewMode},
+        markdown::{
+            MarkdownDocument, MarkdownReviewCommand, MarkdownReviewDecision, MarkdownReviewEvent,
+            MarkdownStream,
+        },
+        syntax::{LanguageHint, SyntaxHighlighter, resolve_language},
+        theme::{ReviewTheme, ThemeChoice, ThemeId},
     };
-    use clankerdiff_syntax::SyntaxHighlighter;
-    use clankerdiff_theme::{ReviewTheme, ThemeId};
     use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
-    use std::{error::Error, fs, process::Command, str, sync::Arc};
+    use std::{error::Error, str, sync::Arc};
+    #[cfg(feature = "git")]
+    use std::{fs, process::Command};
+    #[cfg(feature = "git")]
     use tempfile::{TempDir, tempdir};
 
     type TestResult = Result<(), Box<dyn Error>>;
@@ -42,6 +52,39 @@ mod tests {
             .render(area, &mut buffer, &mut markdown);
         assert!(buffer.content().iter().any(|cell| cell.symbol() != " "));
         let _ = (diff.cursor_position(), markdown.cursor_position());
+        Ok(())
+    }
+
+    #[test]
+    fn preview_and_review_events_use_facade_types() -> TestResult {
+        let theme = ReviewTheme::builtin("sage")?;
+        let choice = ThemeChoice::new("Consumer", theme.clone());
+        let mut highlighter = SyntaxHighlighter::default();
+        assert_eq!(
+            resolve_language(LanguageHint::Path("file.rs"), ""),
+            Some("rust")
+        );
+        let mut preview = DiffPreviewState::new(FileDiff::from_texts("file.rs", "old\n", "new\n")?);
+        let lines = preview.render(
+            80,
+            &theme,
+            &mut highlighter,
+            DiffPreviewOptions {
+                view_mode: ViewMode::Unified,
+                ..DiffPreviewOptions::default()
+            },
+        );
+        assert!(!lines.is_empty());
+        let mut review =
+            MarkdownReviewState::new(Arc::new(MarkdownDocument::parse("# Plan\n\nShip it.\n")));
+        review.set_theme_choices(vec![choice]);
+        let event = review
+            .handle_command(MarkdownReviewCommand::Approve)?
+            .into_event();
+        let Some(MarkdownReviewEvent::Submit(submission)) = event else {
+            return Err("expected a review submission".into());
+        };
+        assert_eq!(submission.decision, MarkdownReviewDecision::Approved);
         Ok(())
     }
 
@@ -142,9 +185,10 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "git")]
     #[tokio::test]
     async fn git_snapshots_supply_real_repository_sources() -> TestResult {
-        let directory = RepositoryBuilder::default().build()?;
+        let directory = RepositoryBuilder.build()?;
         let repository = GitRepository::discover(directory.path()).await?;
         let snapshot = repository.snapshot_with_sources(DiffScope::Both).await?;
         assert!(!snapshot.document.files.is_empty());
@@ -154,9 +198,71 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "watch")]
+    #[tokio::test]
+    async fn repository_watcher_supplies_renderable_snapshots_and_accepts_requests() -> TestResult {
+        use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchOptions};
+        use std::time::Duration;
+        use tokio::{sync::oneshot, time::timeout};
+
+        let directory = RepositoryBuilder.build()?;
+        let repository = GitRepository::discover(directory.path()).await?;
+        let mut watcher =
+            RepositoryWatcher::spawn(repository, DiffScope::Both, WatchOptions::default()).await?;
+        let initial = watcher
+            .snapshot_rx
+            .borrow_and_update()
+            .as_ref()
+            .map_err(ToString::to_string)?
+            .clone();
+        let mut state = DiffReviewState::new(Arc::clone(&initial.document));
+        let area = Rect::new(0, 0, 80, 24);
+        DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut state);
+
+        fs::write(directory.path().join("file.rs"), "let changed_again = 3;\n")?;
+        timeout(Duration::from_secs(10), async {
+            loop {
+                watcher.snapshot_rx.changed().await?;
+                let snapshot = watcher
+                    .snapshot_rx
+                    .borrow_and_update()
+                    .as_ref()
+                    .map_err(ToString::to_string)?
+                    .clone();
+                if snapshot.document != initial.document {
+                    break Ok::<(), Box<dyn Error>>(());
+                }
+            }
+        })
+        .await??;
+
+        let (result_tx, result_rx) = oneshot::channel();
+        watcher
+            .request_tx
+            .send(RepositoryRequest::SetScope {
+                scope: DiffScope::Staged,
+                result_tx,
+            })
+            .await?;
+        timeout(Duration::from_secs(10), result_rx)
+            .await??
+            .map_err(|error| error.to_string())?;
+        let staged = watcher
+            .snapshot_rx
+            .borrow()
+            .as_ref()
+            .map_err(ToString::to_string)?
+            .clone();
+        assert_eq!(staged.scope, DiffScope::Staged);
+        assert!(staged.document.files.is_empty());
+        Ok(())
+    }
+
+    #[cfg(feature = "git")]
     #[derive(Default)]
     struct RepositoryBuilder;
 
+    #[cfg(feature = "git")]
     impl RepositoryBuilder {
         fn build(self) -> Result<TempDir, Box<dyn Error>> {
             let directory = tempdir()?;
@@ -185,6 +291,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "git")]
     fn run_git(directory: &TempDir, arguments: &[&str]) -> TestResult {
         let output = Command::new("git")
             .args(arguments)

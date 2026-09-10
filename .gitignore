@@ -1,4 +1,6 @@
 /target
+/tests/consumer-fixture/target
+/tests/consumer-fixture/Cargo.lock
 **/*.rs.bk
 .DS_Store
 node_modules/
