@@ -22,8 +22,8 @@ workspace = true
 test-support = []
 
 [dependencies]
-clankerdiff-core = { version = "0.1.5", path = "../diff-core" }
-clankerdiff-git = { version = "0.1.5", path = "../diff-git" }
+clankerdiff-core = { version = "0.1.6", path = "../diff-core" }
+clankerdiff-git = { version = "0.1.6", path = "../diff-git" }
 notify.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
