@@ -21,6 +21,7 @@ impl NavigationPane {
 pub struct ReviewOptions {
     pub footer: bool,
     pub navigation: NavigationPane,
+    pub tab_width: u16,
 }
 
 impl Default for ReviewOptions {
@@ -28,6 +29,7 @@ impl Default for ReviewOptions {
         Self {
             footer: true,
             navigation: NavigationPane::Auto,
+            tab_width: 2,
         }
     }
 }

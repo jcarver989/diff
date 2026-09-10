@@ -45,6 +45,7 @@ fn embedded_render_matches_low_level_widget_without_touching_host_area()
     state.set_options(ReviewOptions {
         footer: false,
         navigation: NavigationPane::Hidden,
+        ..Default::default()
     });
     let mut actual = Terminal::new(TestBackend::new(100, 30))?;
     let mut expected = Terminal::new(TestBackend::new(100, 30))?;
@@ -78,7 +79,8 @@ fn embedded_preset_can_be_overridden() -> Result<(), Box<dyn Error>> {
         review.state().options(),
         &ReviewOptions {
             footer: true,
-            navigation: NavigationPane::Width(12)
+            navigation: NavigationPane::Width(12),
+            ..Default::default()
         }
     );
     let mut terminal = Terminal::new(TestBackend::new(100, 30))?;

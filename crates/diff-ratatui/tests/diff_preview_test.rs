@@ -5,6 +5,68 @@ use clankerdiff_theme::ReviewTheme;
 use std::{error::Error, sync::Arc};
 
 #[test]
+fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box<dyn Error>> {
+    assert_eq!(DiffPreviewOptions::default().tab_width, 2);
+    let mut state = DiffPreviewState::new(FileDiff::from_texts(
+        "tabs.rs",
+        "",
+        "\tlet a = 1;\na\tb\n界\tx\n    spaces\n",
+    )?);
+    let theme = ReviewTheme::default();
+    let mut highlighter = SyntaxHighlighter::default();
+    for width in [80, 120] {
+        let mut previous = None;
+        for (tab_width, indent, middle, wide) in [
+            (2, "  ", "a b", "界  x"),
+            (4, "    ", "a   b", "界  x"),
+            (0, " ", "a b", "界 x"),
+        ] {
+            let options = DiffPreviewOptions {
+                tab_width,
+                include_hunk_headers: false,
+                ..Default::default()
+            };
+            let rows = state.render(width, &theme, &mut highlighter, options);
+            let rendered: Vec<_> = rows.iter().map(ToString::to_string).collect();
+            for expected in [
+                format!("+ {indent}let a = 1;"),
+                format!("+ {middle}"),
+                format!("+ {wide}"),
+                "+     spaces".to_owned(),
+            ] {
+                assert!(
+                    rendered.iter().any(|line| line.contains(&expected)),
+                    "{expected:?}: {rendered:?}"
+                );
+            }
+            assert!(rows.iter().all(|row| row.width() <= usize::from(width)));
+            if let Some(previous) = previous {
+                assert!(!Arc::ptr_eq(&previous, &rows));
+            }
+            let cached = state.render(width, &theme, &mut highlighter, options);
+            assert!(Arc::ptr_eq(&rows, &cached));
+            previous = Some(rows);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn expanded_tabs_preserve_syntax_styles() -> Result<(), Box<dyn Error>> {
+    let theme = ReviewTheme::default();
+    let options = DiffPreviewOptions::default();
+    let mut highlighter = SyntaxHighlighter::default();
+    let mut actual = DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "\tlet a = 1;\n")?);
+    let mut expected =
+        DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "  let a = 1;\n")?);
+    assert_eq!(
+        actual.render(80, &theme, &mut highlighter, options),
+        expected.render(80, &theme, &mut highlighter, options),
+    );
+    Ok(())
+}
+
+#[test]
 fn previews_reuse_rows_and_invalidate_replaced_files() -> Result<(), Box<dyn Error>> {
     let file = FileDiff::from_texts("src/main.rs", "old\n", "new\n")?;
     let mut state = DiffPreviewState::new(file);

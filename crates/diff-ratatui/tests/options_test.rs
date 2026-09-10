@@ -20,6 +20,7 @@ fn hidden_chrome_uses_the_full_area_and_clears_hit_regions() -> Result<(), Box<d
     let options = ReviewOptions {
         footer: false,
         navigation: NavigationPane::Hidden,
+        ..Default::default()
     };
     diff.set_options(options.clone());
     markdown.set_options(options);
@@ -85,6 +86,7 @@ fn caller_widths_determine_navigation_hit_regions() -> Result<(), Box<dyn Error>
     let options = ReviewOptions {
         footer: false,
         navigation: NavigationPane::Width(12),
+        ..Default::default()
     };
     diff.set_options(options.clone());
     markdown.set_options(options);

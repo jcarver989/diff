@@ -7,6 +7,7 @@ use crate::{
     patch_layout::PatchVisualRow,
     state::{HitLayout, RepositoryPrompt},
     style::syntax_style,
+    text::{FitOptions, fit_spans},
     theme_picker::render_theme_picker,
     ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
@@ -308,6 +309,7 @@ fn render_patch(
         scroll,
         visible_rows,
         cursor_position,
+        options,
         ..
     } = state;
     visible_rows.clear();
@@ -335,6 +337,7 @@ fn render_patch(
                     highlighter,
                     presentation,
                     row,
+                    tab_width: options.tab_width,
                 };
                 let selected = selected_row == Some(index) && *focus == FocusPane::Diff;
                 render_row(
@@ -398,6 +401,7 @@ struct RowStyle {
 }
 
 struct CellContext<'a> {
+    tab_width: u16,
     theme: &'a RatatuiTheme,
     diff_theme: &'a ReviewTheme,
     highlighter: &'a mut SyntaxHighlighter,
@@ -541,7 +545,24 @@ fn render_cell(
         gutter,
         Style::new().fg(gutter_foreground).bg(background),
     )];
-    spans.extend(highlighted_spans(&cell.text, &highlights, background));
+    let content = highlighted_spans(&cell.text, &highlights, background);
+    if cell.text.contains('\t') {
+        let line = fit_spans(
+            content,
+            FitOptions {
+                width: usize::from(area.width).saturating_sub(spans[0].width()),
+                wrap: false,
+                tab_width: usize::from(context.tab_width),
+                continuation: "",
+            },
+        )
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+        spans.extend(line.spans);
+    } else {
+        spans.extend(content);
+    }
     Paragraph::new(Line::from(spans)).render(area, buffer);
 }
 
