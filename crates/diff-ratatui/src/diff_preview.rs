@@ -207,10 +207,10 @@ fn render_preview_rows(
                     let half = width.saturating_sub(1) / 2;
                     let right_width = width.saturating_sub(1).saturating_sub(half);
                     let blank = |width| {
-                        Line::styled(
+                        Line::from(Span::styled(
                             " ".repeat(usize::from(width)),
                             Style::new().bg(page_color(theme, theme.diff.background)),
-                        )
+                        ))
                     };
                     let left = row
                         .left
@@ -223,7 +223,9 @@ fn render_preview_rows(
                     let mut spans = left.spans;
                     spans.push(Span::styled(
                         "│",
-                        Style::new().fg(page_color(theme, theme.diff.border)),
+                        Style::new()
+                            .fg(page_color(theme, theme.diff.border))
+                            .bg(page_color(theme, theme.diff.background)),
                     ));
                     spans.extend(right.spans);
                     Line::from(spans)
