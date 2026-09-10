@@ -1,8 +1,8 @@
 {
   "version": 3,
   "ui": {
-    "canvas": {"r":21,"g":29,"b":31,"a":255},
-    "surface": {"r":28,"g":40,"b":40,"a":255},
+    "canvas": {"r":13,"g":17,"b":16,"a":255},
+    "surface": {"r":13,"g":17,"b":16,"a":255},
     "surface_hover": {"r":34,"g":46,"b":45,"a":255},
     "surface_selected": {"r":32,"g":44,"b":45,"a":255},
     "text": {"r":212,"g":221,"b":214,"a":255},
@@ -16,10 +16,10 @@
     "warning": {"r":216,"g":181,"b":106,"a":255},
     "destructive": {"r":230,"g":126,"b":128,"a":255},
     "destructive_foreground": {"r":0,"g":0,"b":0,"a":255},
-    "scrim": {"r":21,"g":29,"b":31,"a":184}
+    "scrim": {"r":13,"g":17,"b":16,"a":184}
   },
   "palette": {
-    "background": {"r":21,"g":29,"b":31,"a":255},
+    "background": {"r":13,"g":17,"b":16,"a":255},
     "foreground": {"r":212,"g":221,"b":214,"a":255},
     "gutter": {"r":74,"g":94,"b":86,"a":255},
     "addition": {"r":167,"g":192,"b":128,"a":255},
@@ -38,7 +38,7 @@
     "inline_code": {"r":212,"g":221,"b":214,"a":255},
     "inline_code_background": {"r":57,"g":73,"b":73,"a":255},
     "code": {"r":212,"g":221,"b":214,"a":255},
-    "code_background": {"r":21,"g":29,"b":31,"a":255}
+    "code_background": {"r":13,"g":17,"b":16,"a":255}
   },
   "syntax": {
     "attribute": {"foreground":{"r":196,"g":167,"b":231,"a":255}},
