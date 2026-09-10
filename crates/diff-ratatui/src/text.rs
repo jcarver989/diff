@@ -19,7 +19,7 @@ pub(crate) struct FitPosition {
     pub tab_remaining: usize,
 }
 
-pub(crate) fn fit_spans(spans: Vec<Span<'static>>, options: FitOptions<'_>) -> Vec<Line<'static>> {
+pub(crate) fn fit_spans(spans: Vec<Span<'_>>, options: FitOptions<'_>) -> Vec<Line<'static>> {
     fit_spans_from(spans, options, FitPosition::default())
         .into_iter()
         .map(|(line, _)| line)
@@ -27,7 +27,7 @@ pub(crate) fn fit_spans(spans: Vec<Span<'static>>, options: FitOptions<'_>) -> V
 }
 
 pub(crate) fn fit_spans_from(
-    spans: Vec<Span<'static>>,
+    spans: Vec<Span<'_>>,
     options: FitOptions<'_>,
     from: FitPosition,
 ) -> Vec<(Line<'static>, FitPosition)> {

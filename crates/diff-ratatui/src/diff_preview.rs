@@ -28,6 +28,7 @@ pub struct DiffPreviewOptions {
     pub view_mode: ViewMode,
     pub include_hunk_headers: bool,
     pub overflow_summary: bool,
+    pub tab_width: u16,
 }
 
 impl Default for DiffPreviewOptions {
@@ -37,6 +38,7 @@ impl Default for DiffPreviewOptions {
             view_mode: ViewMode::Auto,
             include_hunk_headers: true,
             overflow_summary: true,
+            tab_width: 2,
         }
     }
 }
@@ -186,8 +188,17 @@ fn render_preview_rows(
         .iter()
         .take(shown)
         .map(|row| {
-            let mut cell_line =
-                |cell, width| render_cell(presentation, row, cell, width, theme, highlighter);
+            let mut cell_line = |cell, width| {
+                render_cell(
+                    presentation,
+                    row,
+                    cell,
+                    width,
+                    theme,
+                    highlighter,
+                    options.tab_width,
+                )
+            };
             match presentation.layout() {
                 Layout::Unified => row
                     .primary_cell()
@@ -230,6 +241,7 @@ fn render_preview_rows(
                     .bg(page_color(theme, theme.diff.background)),
             ),
             usize::from(width),
+            options.tab_width,
         ));
     }
     lines
@@ -242,6 +254,7 @@ fn render_cell(
     width: u16,
     theme: &ReviewTheme,
     highlighter: &mut SyntaxHighlighter,
+    tab_width: u16,
 ) -> Line<'static> {
     let colors = theme.diff.tone(cell.tone);
     let base = layered_style(colors.foreground, colors.background, theme.diff.background);
@@ -250,22 +263,26 @@ fn render_cell(
         .line_number()
         .map_or_else(|| "    ".to_owned(), |line| format!("{line:>4}"));
     let prefix = format!("{number} {marker} ");
+    let width = usize::from(width);
+    if width <= prefix.len() {
+        return fit_line(Line::styled(prefix, base), width, tab_width);
+    }
     let spans = cell_highlights(highlighter, &theme.syntax, presentation, row, cell);
-    let mut line = highlighted_line(&cell.text, &spans, base);
+    let content = highlighted_line(&cell.text, &spans, base).style(base);
+    let mut line = fit_line(content, width - prefix.len(), tab_width);
     line.spans.insert(0, Span::styled(prefix, base));
-    line.style = base;
-    fit_line(line, usize::from(width))
+    line
 }
 
 /// Clips a line to `width` cells and pads it with the line's base style.
-fn fit_line(line: Line<'static>, width: usize) -> Line<'static> {
+fn fit_line(line: Line<'static>, width: usize, tab_width: u16) -> Line<'static> {
     let base = line.style;
     let mut fitted = fit_spans(
         line.spans,
         FitOptions {
             width,
             wrap: false,
-            tab_width: 4,
+            tab_width: usize::from(tab_width),
             continuation: "",
         },
     )
