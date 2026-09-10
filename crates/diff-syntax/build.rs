@@ -1,8 +1,12 @@
+use cc::Build;
 use std::env;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    if env::var("CARGO_CFG_TARGET_FAMILY").as_deref() == Ok("wasm") {
-        println!("cargo:rustc-link-lib=static=arborium_sysroot");
+    println!("cargo:rerun-if-changed=src/wasm.c");
+    if env::var("TARGET").as_deref() == Ok("wasm32-unknown-unknown") {
+        Build::new()
+            .file("src/wasm.c")
+            .compile("clankerdiff_syntax_wasm");
     }
 }

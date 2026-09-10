@@ -1,6 +1,6 @@
 # clankerdiff-syntax
 
-Reusable Arborium syntax highlighting through one retained-document engine.
+Reusable syntax highlighting via Tree-sitter and Arborium. Native and browser WASM builds use the same parser runtime.
 
 `ThemedHighlighter::append` accepts exact UTF-8 text, including partial lines, without
 adding newlines. Complete input is simply the first append. `highlight_document`

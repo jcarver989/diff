@@ -3,6 +3,7 @@ mod error;
 mod highlight;
 mod incremental;
 mod language;
+mod spans;
 
 pub use clankerdiff_fingerprint::Fingerprint;
 pub use clankerdiff_theme::{FontStyle, HighlightSpan, Rgba, SyntaxStyle, SyntaxTheme};

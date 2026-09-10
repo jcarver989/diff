@@ -4,8 +4,8 @@ use crate::{
     SyntaxError,
     incremental::{AppendContext, Grammars, IncrementalDocument, SyntaxWorkStats},
     language::{LanguageHint, resolve_language},
+    spans::{Span, spans_to_flat_tokens},
 };
-use arborium_highlight::{Span, spans_to_flat_tokens};
 use arborium_theme::tag_to_name;
 use clankerdiff_theme::{Fingerprint, HighlightSpan, SyntaxTheme};
 use imbl::Vector;

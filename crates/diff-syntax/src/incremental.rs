@@ -1,12 +1,16 @@
-use crate::{SyntaxError, language::resolve_language};
-use arborium_highlight::{Injection, Span};
-use arborium_tree_sitter::{
-    InputEdit, Language, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree,
+use crate::{
+    SyntaxError,
+    language::resolve_language,
+    spans::{Injection, Span},
 };
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
     fmt,
     sync::Arc,
+};
+use tree_sitter::{
+    InputEdit, Language, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree,
 };
 
 /// Bytes handed to Tree-sitter per input callback. `parser_input_bytes` counts
@@ -58,6 +62,14 @@ impl Grammars {
             let Some((language_fn, highlights, injections)) = grammar_spec(language) else {
                 return Ok(None);
             };
+            let highlights = if language == "solidity" {
+                Cow::Owned(highlights.replace(
+                    "(struct_expression type: ((expression (identifier)) @type .))",
+                    "(struct_expression type: (expression (identifier)) @type .)",
+                ))
+            } else {
+                Cow::Borrowed(highlights)
+            };
             let compile = |source| {
                 Query::new(&language_fn, source).map_err(|source| SyntaxError::Query {
                     language: language.to_owned(),
@@ -65,7 +77,7 @@ impl Grammars {
                 })
             };
             let query_source = format!("{highlights}\n{injections}");
-            let highlights = compile(highlights)?;
+            let highlights = compile(&highlights)?;
             let injections = compile(injections)?;
             let non_local = [&highlights, &injections].into_iter().any(|query| {
                 (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index))
@@ -406,7 +418,7 @@ fn query(
     let mut matches = cursor.matches(&grammar.highlights, tree.root_node(), source.as_bytes());
     let mut spans = Vec::new();
     while let Some(found) = matches.next() {
-        for capture in found.captures {
+        for capture in found.captures() {
             let name = grammar.highlights.capture_names()[capture.index as usize];
             if name.starts_with('_') || name.starts_with("injection.") {
                 continue;
@@ -425,15 +437,12 @@ fn query(
     while let Some(found) = matches.next() {
         let mut content = None;
         let mut language = None;
-        let mut include_children = false;
         for property in grammar.injections.property_settings(found.pattern_index) {
-            match property.key.as_ref() {
-                "injection.language" => language = property.value.as_deref().map(str::to_owned),
-                "injection.include-children" => include_children = true,
-                _ => {}
+            if property.key.as_ref() == "injection.language" {
+                language = property.value.as_deref().map(str::to_owned);
             }
         }
-        for capture in found.captures {
+        for capture in found.captures() {
             match grammar.injections.capture_names()[capture.index as usize] {
                 "injection.content" => content = Some(capture.node),
                 "injection.language" if language.is_none() => {
@@ -451,7 +460,6 @@ fn query(
                 start: u32::try_from(node.start_byte()).expect("source limit fits u32"),
                 end: u32::try_from(node.end_byte()).expect("source limit fits u32"),
                 language,
-                include_children,
             });
         }
     }
@@ -461,7 +469,7 @@ fn query(
 fn grammar_spec(language: &str) -> Option<(Language, &'static str, &'static str)> {
     macro_rules! grammar {
         ($module:ident) => {{
-            use arborium::$module as grammar;
+            use $module as grammar;
             (
                 grammar::language().into(),
                 &grammar::HIGHLIGHTS_QUERY,
@@ -470,67 +478,67 @@ fn grammar_spec(language: &str) -> Option<(Language, &'static str, &'static str)
         }};
     }
     Some(match language {
-        "asm" => grammar!(lang_asm),
-        "bash" => grammar!(lang_bash),
-        "batch" => grammar!(lang_batch),
-        "c" => grammar!(lang_c),
-        "c-sharp" => grammar!(lang_c_sharp),
-        "clojure" => grammar!(lang_clojure),
-        "cmake" => grammar!(lang_cmake),
-        "commonlisp" => grammar!(lang_commonlisp),
-        "cpp" => grammar!(lang_cpp),
-        "css" => grammar!(lang_css),
-        "dart" => grammar!(lang_dart),
-        "diff" => grammar!(lang_diff),
-        "dockerfile" => grammar!(lang_dockerfile),
-        "elixir" => grammar!(lang_elixir),
-        "erlang" => grammar!(lang_erlang),
-        "fish" => grammar!(lang_fish),
-        "go" => grammar!(lang_go),
-        "graphql" => grammar!(lang_graphql),
-        "haskell" => grammar!(lang_haskell),
-        "hcl" => grammar!(lang_hcl),
-        "html" => grammar!(lang_html),
-        "ini" => grammar!(lang_ini),
-        "java" => grammar!(lang_java),
-        "javascript" => grammar!(lang_javascript),
-        "json" => grammar!(lang_json),
-        "just" => grammar!(lang_just),
-        "kotlin" => grammar!(lang_kotlin),
-        "lua" => grammar!(lang_lua),
-        "make" => grammar!(lang_make),
-        "markdown" => grammar!(lang_markdown),
-        "meson" => grammar!(lang_meson),
-        "ninja" => grammar!(lang_ninja),
-        "nix" => grammar!(lang_nix),
-        "objc" => grammar!(lang_objc),
-        "ocaml" => grammar!(lang_ocaml),
-        "perl" => grammar!(lang_perl),
-        "php" => grammar!(lang_php),
-        "powershell" => grammar!(lang_powershell),
-        "proto" => grammar!(lang_proto),
-        "python" => grammar!(lang_python),
-        "r" => grammar!(lang_r),
-        "rego" => grammar!(lang_rego),
-        "ruby" => grammar!(lang_ruby),
-        "rust" => grammar!(lang_rust),
-        "scala" => grammar!(lang_scala),
-        "scheme" => grammar!(lang_scheme),
-        "scss" => grammar!(lang_scss),
-        "solidity" => grammar!(lang_solidity),
-        "sql" => grammar!(lang_sql),
-        "starlark" => grammar!(lang_starlark),
-        "svelte" => grammar!(lang_svelte),
-        "swift" => grammar!(lang_swift),
-        "toml" => grammar!(lang_toml),
-        "tsx" => grammar!(lang_tsx),
-        "typescript" => grammar!(lang_typescript),
-        "vue" => grammar!(lang_vue),
-        "x86asm" => grammar!(lang_x86asm),
-        "xml" => grammar!(lang_xml),
-        "yaml" => grammar!(lang_yaml),
-        "zig" => grammar!(lang_zig),
-        "zsh" => grammar!(lang_zsh),
+        "asm" => grammar!(arborium_asm),
+        "bash" => grammar!(arborium_bash),
+        "batch" => grammar!(arborium_batch),
+        "c" => grammar!(arborium_c),
+        "c-sharp" => grammar!(arborium_c_sharp),
+        "clojure" => grammar!(arborium_clojure),
+        "cmake" => grammar!(arborium_cmake),
+        "commonlisp" => grammar!(arborium_commonlisp),
+        "cpp" => grammar!(arborium_cpp),
+        "css" => grammar!(arborium_css),
+        "dart" => grammar!(arborium_dart),
+        "diff" => grammar!(arborium_diff),
+        "dockerfile" => grammar!(arborium_dockerfile),
+        "elixir" => grammar!(arborium_elixir),
+        "erlang" => grammar!(arborium_erlang),
+        "fish" => grammar!(arborium_fish),
+        "go" => grammar!(arborium_go),
+        "graphql" => grammar!(arborium_graphql),
+        "haskell" => grammar!(arborium_haskell),
+        "hcl" => grammar!(arborium_hcl),
+        "html" => grammar!(arborium_html),
+        "ini" => grammar!(arborium_ini),
+        "java" => grammar!(arborium_java),
+        "javascript" => grammar!(arborium_javascript),
+        "json" => grammar!(arborium_json),
+        "just" => grammar!(arborium_just),
+        "kotlin" => grammar!(arborium_kotlin),
+        "lua" => grammar!(arborium_lua),
+        "make" => grammar!(arborium_make),
+        "markdown" => grammar!(arborium_markdown),
+        "meson" => grammar!(arborium_meson),
+        "ninja" => grammar!(arborium_ninja),
+        "nix" => grammar!(arborium_nix),
+        "objc" => grammar!(arborium_objc),
+        "ocaml" => grammar!(arborium_ocaml),
+        "perl" => grammar!(arborium_perl),
+        "php" => grammar!(arborium_php),
+        "powershell" => grammar!(arborium_powershell),
+        "proto" => grammar!(arborium_proto),
+        "python" => grammar!(arborium_python),
+        "r" => grammar!(arborium_r),
+        "rego" => grammar!(arborium_rego),
+        "ruby" => grammar!(arborium_ruby),
+        "rust" => grammar!(arborium_rust),
+        "scala" => grammar!(arborium_scala),
+        "scheme" => grammar!(arborium_scheme),
+        "scss" => grammar!(arborium_scss),
+        "solidity" => grammar!(arborium_solidity),
+        "sql" => grammar!(arborium_sql),
+        "starlark" => grammar!(arborium_starlark),
+        "svelte" => grammar!(arborium_svelte),
+        "swift" => grammar!(arborium_swift),
+        "toml" => grammar!(arborium_toml),
+        "tsx" => grammar!(arborium_tsx),
+        "typescript" => grammar!(arborium_typescript),
+        "vue" => grammar!(arborium_vue),
+        "x86asm" => grammar!(arborium_x86asm),
+        "xml" => grammar!(arborium_xml),
+        "yaml" => grammar!(arborium_yaml),
+        "zig" => grammar!(arborium_zig),
+        "zsh" => grammar!(arborium_zsh),
         _ => return None,
     })
 }
