@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/jcarver989/diff/compare/clankerdiff-theme-v0.1.4...clankerdiff-theme-v0.1.5) - 2026-09-10
+
+### Other
+
+- update sage theme with more contrast ([#30](https://github.com/jcarver989/diff/pull/30))
+
 ## [0.1.4](https://github.com/jcarver989/diff/compare/clankerdiff-theme-v0.1.3...clankerdiff-theme-v0.1.4) - 2026-09-10
 
 ### Added
