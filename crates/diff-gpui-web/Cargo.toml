@@ -15,9 +15,9 @@ crate-type = ["cdylib", "rlib"]
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.1.6", path = "../diff-core" }
-clankerdiff-markdown = { version = "0.1.6", path = "../diff-markdown", features = ["review"] }
-clankerdiff-theme = { version = "0.1.6", path = "../diff-theme" }
+clankerdiff-core = { version = "0.1.7", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.1.7", path = "../diff-markdown", features = ["review"] }
+clankerdiff-theme = { version = "0.1.7", path = "../diff-theme" }
 clankerdiff-gpui = { version = "0.1.0", path = "../diff-gpui" }
 serde.workspace = true
 serde_json.workspace = true

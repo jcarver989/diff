@@ -15,8 +15,8 @@ review = ["dep:clankerdiff-core"]
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.1.6", path = "../diff-core", optional = true }
-clankerdiff-fingerprint = { version = "0.1.6", path = "../diff-fingerprint" }
+clankerdiff-core = { version = "0.1.7", path = "../diff-core", optional = true }
+clankerdiff-fingerprint = { version = "0.1.7", path = "../diff-fingerprint" }
 pulldown-cmark.workspace = true
 serde.workspace = true
 thiserror.workspace = true
