@@ -77,8 +77,8 @@ imbl.workspace = true
 lru.workspace = true
 thiserror.workspace = true
 tree-sitter.workspace = true
-clankerdiff-fingerprint = { version = "0.1.6", path = "../diff-fingerprint" }
-clankerdiff-theme = { version = "0.1.6", path = "../diff-theme" }
+clankerdiff-fingerprint = { version = "0.1.7", path = "../diff-fingerprint" }
+clankerdiff-theme = { version = "0.1.7", path = "../diff-theme" }
 
 [build-dependencies]
 cc = "1.4.5"
