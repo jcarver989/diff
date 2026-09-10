@@ -1,6 +1,7 @@
 use clankerdiff_syntax::{
     Fingerprint, LanguageHint, SyntaxError, SyntaxHighlighter, SyntaxTheme, resolve_language,
 };
+use tree_sitter::QueryErrorKind;
 
 #[test]
 fn resolves_aliases_paths_special_files_and_shebangs() {
@@ -33,6 +34,137 @@ fn resolves_aliases_paths_special_files_and_shebangs() {
     ] {
         assert_eq!(resolve_language(hint, source), expected, "{hint}");
     }
+}
+
+#[test]
+fn preserves_detector_fallbacks_and_local_precedence() {
+    for (alias, expected) in [
+        ("conf", "ini"),
+        ("docker", "dockerfile"),
+        ("mdx", "markdown"),
+        ("mm", "objc"),
+        ("mysql", "sql"),
+        ("postgres", "sql"),
+        ("postgresql", "sql"),
+        ("sqlite", "sql"),
+        ("opa", "rego"),
+        ("py3", "python"),
+        ("rkt", "scheme"),
+        ("rlang", "r"),
+        ("sass", "scss"),
+        ("x86", "x86asm"),
+        ("xsl", "xml"),
+        ("xslt", "xml"),
+    ] {
+        for hint in [
+            alias.to_owned(),
+            format!("src/file.{alias}"),
+            format!("SRC\\\\FILE.{}", alias.to_ascii_uppercase()),
+        ] {
+            assert_eq!(
+                resolve_language(hint.as_str(), "#!/bin/bash"),
+                Some(expected),
+                "{hint}"
+            );
+        }
+    }
+    for (hint, expected) in [
+        ("main.m", Some("objc")),
+        ("main.mm", Some("objc")),
+        ("main.scm", Some("scheme")),
+        ("m", None),
+        ("s", None),
+        ("dir/conf", None),
+        ("main.nginx", None),
+    ] {
+        assert_eq!(resolve_language(hint, ""), expected, "{hint}");
+    }
+}
+
+#[test]
+fn bundled_grammars_preserve_query_support() -> Result<(), SyntaxError> {
+    let mut highlighter = SyntaxHighlighter::default();
+    let theme = SyntaxTheme::default();
+    for language in [
+        "asm",
+        "bash",
+        "batch",
+        "c",
+        "c-sharp",
+        "clojure",
+        "cmake",
+        "commonlisp",
+        "cpp",
+        "css",
+        "dart",
+        "diff",
+        "dockerfile",
+        "elixir",
+        "erlang",
+        "fish",
+        "go",
+        "graphql",
+        "haskell",
+        "hcl",
+        "html",
+        "ini",
+        "java",
+        "javascript",
+        "json",
+        "just",
+        "kotlin",
+        "lua",
+        "make",
+        "markdown",
+        "meson",
+        "ninja",
+        "nix",
+        "objc",
+        "ocaml",
+        "perl",
+        "php",
+        "powershell",
+        "proto",
+        "python",
+        "r",
+        "rego",
+        "ruby",
+        "rust",
+        "scala",
+        "scheme",
+        "scss",
+        "solidity",
+        "sql",
+        "starlark",
+        "svelte",
+        "swift",
+        "toml",
+        "tsx",
+        "typescript",
+        "vue",
+        "x86asm",
+        "xml",
+        "yaml",
+        "zig",
+        "zsh",
+    ] {
+        assert_eq!(resolve_language(language, ""), Some(language));
+        let result = highlighter.with_theme(&theme).highlight_document(
+            Fingerprint::of(["x\n"]),
+            language,
+            || "x\n",
+        );
+        if language == "perl" {
+            assert!(
+                matches!(result, Err(SyntaxError::Query { source, .. })
+                if source.kind == QueryErrorKind::Structure && source.row == 136),
+                "Arborium 2.18.2 Perl query has an invalid postfix_deref pattern"
+            );
+        } else {
+            result?;
+        }
+    }
+    Ok(())
 }
 
 #[test]

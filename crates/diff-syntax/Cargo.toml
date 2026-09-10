@@ -1,6 +1,6 @@
 [package]
 name = "clankerdiff-syntax"
-description = "Portable Arborium syntax highlighting"
+description = "Portable Tree-sitter syntax highlighting"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,29 +11,77 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-arborium = { workspace = true, features = [
-    "lang-asm", "lang-bash", "lang-batch", "lang-c", "lang-c-sharp",
-    "lang-clojure", "lang-cmake", "lang-commonlisp", "lang-cpp", "lang-css",
-    "lang-dart", "lang-diff", "lang-dockerfile", "lang-elixir", "lang-erlang",
-    "lang-fish", "lang-go", "lang-graphql", "lang-haskell",
-    "lang-hcl", "lang-html", "lang-ini", "lang-java", "lang-javascript",
-    "lang-json", "lang-just", "lang-kotlin", "lang-lua", "lang-make",
-    "lang-markdown", "lang-meson", "lang-ninja", "lang-nix", "lang-objc",
-    "lang-ocaml", "lang-perl", "lang-php", "lang-powershell", "lang-proto",
-    "lang-python", "lang-r", "lang-rego", "lang-ruby", "lang-rust",
-    "lang-scala", "lang-scheme", "lang-scss", "lang-solidity", "lang-sql",
-    "lang-starlark", "lang-svelte", "lang-swift", "lang-toml", "lang-tsx",
-    "lang-typescript", "lang-vue", "lang-x86asm", "lang-xml", "lang-yaml",
-    "lang-zig", "lang-zsh",
-] }
-arborium-highlight.workspace = true
+arborium-asm = "=2.18.2"
+arborium-bash = "=2.18.2"
+arborium-batch = "=2.18.2"
+arborium-c = "=2.18.2"
+arborium-c-sharp = "=2.18.2"
+arborium-clojure = "=2.18.2"
+arborium-cmake = "=2.18.2"
+arborium-commonlisp = "=2.18.2"
+arborium-cpp = "=2.18.2"
+arborium-css = "=2.18.2"
+arborium-dart = "=2.18.2"
+arborium-diff = "=2.18.2"
+arborium-dockerfile = "=2.18.2"
+arborium-elixir = "=2.18.2"
+arborium-erlang = "=2.18.2"
+arborium-fish = "=2.18.2"
+arborium-go = "=2.18.2"
+arborium-graphql = "=2.18.2"
+arborium-haskell = "=2.18.2"
+arborium-hcl = "=2.18.2"
+arborium-html = "=2.18.2"
+arborium-ini = "=2.18.2"
+arborium-java = "=2.18.2"
+arborium-javascript = "=2.18.2"
+arborium-json = "=2.18.2"
+arborium-just = "=2.18.2"
+arborium-kotlin = "=2.18.2"
+arborium-lua = "=2.18.2"
+arborium-make = "=2.18.2"
+arborium-markdown = "=2.18.2"
+arborium-meson = "=2.18.2"
+arborium-ninja = "=2.18.2"
+arborium-nix = "=2.18.2"
+arborium-objc = "=2.18.2"
+arborium-ocaml = "=2.18.2"
+arborium-perl = "=2.18.2"
+arborium-php = "=2.18.2"
+arborium-powershell = "=2.18.2"
+arborium-proto = "=2.18.2"
+arborium-python = "=2.18.2"
+arborium-r = "=2.18.2"
+arborium-rego = "=2.18.2"
+arborium-ruby = "=2.18.2"
+arborium-rust = "=2.18.2"
+arborium-scala = "=2.18.2"
+arborium-scheme = "=2.18.2"
+arborium-scss = "=2.18.2"
+arborium-solidity = "=2.18.2"
+arborium-sql = "=2.18.2"
+arborium-starlark = "=2.18.2"
+arborium-svelte = "=2.18.2"
+arborium-swift = "=2.18.2"
+arborium-toml = "=2.18.2"
+arborium-tsx = "=2.18.2"
+arborium-typescript = "=2.18.2"
+arborium-vue = "=2.18.2"
+arborium-x86asm = "=2.18.2"
+arborium-xml = "=2.18.2"
+arborium-yaml = "=2.18.2"
+arborium-zig = "=2.18.2"
+arborium-zsh = "=2.18.2"
 arborium-theme.workspace = true
-arborium-tree-sitter.workspace = true
 imbl.workspace = true
 lru.workspace = true
 thiserror.workspace = true
+tree-sitter.workspace = true
 clankerdiff-fingerprint = { version = "0.1.2", path = "../diff-fingerprint" }
 clankerdiff-theme = { version = "0.1.2", path = "../diff-theme" }
 
-[target.'cfg(target_family = "wasm")'.dependencies]
-arborium-sysroot.workspace = true
+[build-dependencies]
+cc = "1.4.5"
+
+[dev-dependencies]
+ast-grep-core = "0.45.3"

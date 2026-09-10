@@ -1,5 +1,5 @@
-use arborium_tree_sitter::{LanguageError, QueryError};
 use thiserror::Error;
+use tree_sitter::{LanguageError, QueryError};
 
 #[derive(Debug, Error)]
 pub enum SyntaxError {

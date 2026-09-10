@@ -262,79 +262,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
-name = "arborium"
-version = "2.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "230e826fe3204178030e420751396c99431e4611fc67af63baf7767b4317bd75"
-dependencies = [
- "arborium-asm",
- "arborium-bash",
- "arborium-batch",
- "arborium-c",
- "arborium-c-sharp",
- "arborium-clojure",
- "arborium-cmake",
- "arborium-commonlisp",
- "arborium-cpp",
- "arborium-css",
- "arborium-dart",
- "arborium-diff",
- "arborium-dockerfile",
- "arborium-elixir",
- "arborium-erlang",
- "arborium-fish",
- "arborium-go",
- "arborium-graphql",
- "arborium-haskell",
- "arborium-hcl",
- "arborium-highlight",
- "arborium-html",
- "arborium-ini",
- "arborium-java",
- "arborium-javascript",
- "arborium-json",
- "arborium-just",
- "arborium-kotlin",
- "arborium-lua",
- "arborium-make",
- "arborium-markdown",
- "arborium-meson",
- "arborium-ninja",
- "arborium-nix",
- "arborium-objc",
- "arborium-ocaml",
- "arborium-perl",
- "arborium-php",
- "arborium-powershell",
- "arborium-proto",
- "arborium-python",
- "arborium-r",
- "arborium-rego",
- "arborium-ruby",
- "arborium-rust",
- "arborium-scala",
- "arborium-scheme",
- "arborium-scss",
- "arborium-solidity",
- "arborium-sql",
- "arborium-starlark",
- "arborium-svelte",
- "arborium-swift",
- "arborium-theme",
- "arborium-toml",
- "arborium-tree-sitter",
- "arborium-tsx",
- "arborium-typescript",
- "arborium-vue",
- "arborium-x86asm",
- "arborium-xml",
- "arborium-yaml",
- "arborium-zig",
- "arborium-zsh",
- "dlmalloc",
-]
-
-[[package]]
 name = "arborium-asm"
 version = "2.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -553,17 +480,6 @@ dependencies = [
  "arborium-sysroot",
  "cc",
  "tree-sitter-language",
-]
-
-[[package]]
-name = "arborium-highlight"
-version = "2.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cee400d694bd935c513c50f9b1fda469b6d9cd192d80fede7bfa9e5851a54cb8"
-dependencies = [
- "arborium-theme",
- "arborium-tree-sitter",
- "streaming-iterator",
 ]
 
 [[package]]
@@ -970,20 +886,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arborium-tree-sitter"
-version = "2.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd8de97695c76508ab780e03bd1db009f5db8567c985f5da5ae91a2ad57ef2bc"
-dependencies = [
- "arborium-sysroot",
- "cc",
- "regex",
- "regex-syntax",
- "streaming-iterator",
- "tree-sitter-language",
-]
-
-[[package]]
 name = "arborium-tsx"
 version = "2.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1147,6 +1049,18 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "zbus",
+]
+
+[[package]]
+name = "ast-grep-core"
+version = "0.45.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2af0513e0a025ce1ebbbdbf00e81ca84c29f26b33a6e1e0dd877945ceef75042"
+dependencies = [
+ "bit-set 0.11.1",
+ "regex",
+ "thiserror 2.0.20",
+ "tree-sitter",
 ]
 
 [[package]]
@@ -1472,6 +1386,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bit-set"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d87354e4229f54a44f7bf2435906a4656dba36026ab6eaca629a2c436a691c"
+dependencies = [
+ "bit-vec 0.10.1",
+]
+
+[[package]]
 name = "bit-vec"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1482,6 +1405,16 @@ name = "bit-vec"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51"
+
+[[package]]
+name = "bit-vec"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5727b15fa97d4f4fee0a3b7c3d550ed0269f54329207b86388de918604e31269"
+dependencies = [
+ "borsh",
+ "serde",
+]
 
 [[package]]
 name = "bit_field"
@@ -1584,8 +1517,22 @@ version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "553c5d846a6ba5150c65e3b1b8ec073bcf1abc20f9b7220de384a4443ea4e20a"
 dependencies = [
+ "borsh-derive",
  "bytes",
  "cfg_aliases",
+]
+
+[[package]]
+name = "borsh-derive"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12cdfe656708a01f89b451a7d36466e6fe6c414de0aa18fc54f864f6f9ca9f56"
+dependencies = [
+ "once_cell",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.5",
 ]
 
 [[package]]
@@ -1993,16 +1940,76 @@ dependencies = [
 name = "clankerdiff-syntax"
 version = "0.1.2"
 dependencies = [
- "arborium",
- "arborium-highlight",
- "arborium-sysroot",
+ "arborium-asm",
+ "arborium-bash",
+ "arborium-batch",
+ "arborium-c",
+ "arborium-c-sharp",
+ "arborium-clojure",
+ "arborium-cmake",
+ "arborium-commonlisp",
+ "arborium-cpp",
+ "arborium-css",
+ "arborium-dart",
+ "arborium-diff",
+ "arborium-dockerfile",
+ "arborium-elixir",
+ "arborium-erlang",
+ "arborium-fish",
+ "arborium-go",
+ "arborium-graphql",
+ "arborium-haskell",
+ "arborium-hcl",
+ "arborium-html",
+ "arborium-ini",
+ "arborium-java",
+ "arborium-javascript",
+ "arborium-json",
+ "arborium-just",
+ "arborium-kotlin",
+ "arborium-lua",
+ "arborium-make",
+ "arborium-markdown",
+ "arborium-meson",
+ "arborium-ninja",
+ "arborium-nix",
+ "arborium-objc",
+ "arborium-ocaml",
+ "arborium-perl",
+ "arborium-php",
+ "arborium-powershell",
+ "arborium-proto",
+ "arborium-python",
+ "arborium-r",
+ "arborium-rego",
+ "arborium-ruby",
+ "arborium-rust",
+ "arborium-scala",
+ "arborium-scheme",
+ "arborium-scss",
+ "arborium-solidity",
+ "arborium-sql",
+ "arborium-starlark",
+ "arborium-svelte",
+ "arborium-swift",
  "arborium-theme",
- "arborium-tree-sitter",
+ "arborium-toml",
+ "arborium-tsx",
+ "arborium-typescript",
+ "arborium-vue",
+ "arborium-x86asm",
+ "arborium-xml",
+ "arborium-yaml",
+ "arborium-zig",
+ "arborium-zsh",
+ "ast-grep-core",
+ "cc",
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
  "imbl",
  "lru",
  "thiserror 2.0.20",
+ "tree-sitter",
 ]
 
 [[package]]
@@ -7432,6 +7439,19 @@ dependencies = [
  "thread_local",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "tree-sitter"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2038684e0058edba0d17302619f62eabce4a8e11c6ac59506996a8d79848851d"
+dependencies = [
+ "cc",
+ "regex",
+ "serde_json",
+ "streaming-iterator",
+ "tree-sitter-language",
 ]
 
 [[package]]

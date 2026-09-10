@@ -30,11 +30,7 @@ lto = "thin"
 
 [workspace.dependencies]
 async-channel = "2.5.0"
-arborium = { version = "=2.18.2", default-features = false }
-arborium-highlight = "=2.18.2"
-arborium-sysroot = "=2.18.2"
 arborium-theme = "=2.18.2"
-arborium-tree-sitter = "=2.18.2"
 bitflags = "2.13.1"
 blake3 = "1.8.7"
 clap = { version = "4.6.6", features = ["derive"] }
@@ -58,6 +54,7 @@ serde = { version = "1.0.229", features = ["derive", "rc"] }
 similar = "3.2.0"
 thiserror = "2.0.20"
 tokio = { version = "1.47.1", features = ["fs", "process", "rt-multi-thread"] }
+tree-sitter = "0.27.0"
 unicode-width = "0.2.2"
 unicode-segmentation = "1.13.3"
 serde_json = "1.0.151"

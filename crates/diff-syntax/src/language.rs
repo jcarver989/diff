@@ -44,7 +44,7 @@ pub fn resolve_language<'a>(
         .or_else(|| canonical_id(simple))
         .or_else(|| extension_id(simple))
         .or_else(|| special_file(simple))
-        .or_else(|| arborium::detect_language(&normalized).and_then(canonical_id))
+        .or_else(|| fallback_id(&normalized))
         .or_else(|| shebang_id(source))
 }
 
@@ -144,6 +144,25 @@ fn special_file(file: &str) -> Option<&'static str> {
         ".bashrc" => Some("bash"),
         _ => None,
     }
+}
+
+fn fallback_id(path: &str) -> Option<&'static str> {
+    let extension = path.rsplit('.').next()?;
+    Some(match extension {
+        "conf" => "ini",
+        "docker" => "dockerfile",
+        "mdx" => "markdown",
+        "mm" => "objc",
+        "mysql" | "postgres" | "postgresql" | "sqlite" => "sql",
+        "opa" => "rego",
+        "py3" => "python",
+        "rkt" => "scheme",
+        "rlang" => "r",
+        "sass" => "scss",
+        "x86" => "x86asm",
+        "xsl" | "xslt" => "xml",
+        _ => return None,
+    })
 }
 
 fn shebang_id(source: &str) -> Option<&'static str> {
