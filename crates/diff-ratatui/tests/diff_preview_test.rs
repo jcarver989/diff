@@ -1,8 +1,63 @@
 use clankerdiff_core::{FileDiff, ViewMode};
-use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState};
+use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, page_color};
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_theme::{DiffTone, ReviewTheme};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Style},
+    widgets::{Paragraph, Widget},
+};
 use std::{error::Error, sync::Arc};
+
+#[test]
+fn split_additions_fill_missing_left_side_and_empty_source_lines() -> Result<(), Box<dyn Error>> {
+    assert_split_backgrounds(
+        "",
+        "let added = 1;\n\n",
+        &[(None, Some(DiffTone::Added)); 2],
+    )
+}
+
+#[test]
+fn split_deletions_fill_missing_right_side_and_empty_source_lines() -> Result<(), Box<dyn Error>> {
+    assert_split_backgrounds(
+        "let removed = 1;\n\n",
+        "",
+        &[(Some(DiffTone::Removed), None); 2],
+    )
+}
+
+#[test]
+fn split_replacements_fill_unequal_sides() -> Result<(), Box<dyn Error>> {
+    let short = "let value = 1;\n";
+    let long = "let value = 2;\nlet extra = 3;\n";
+    assert_split_backgrounds(
+        short,
+        long,
+        &[
+            (Some(DiffTone::Removed), Some(DiffTone::Added)),
+            (None, Some(DiffTone::Added)),
+        ],
+    )?;
+    assert_split_backgrounds(
+        long,
+        short,
+        &[
+            (Some(DiffTone::Removed), Some(DiffTone::Added)),
+            (Some(DiffTone::Removed), None),
+        ],
+    )
+}
+
+#[test]
+fn split_divider_does_not_inherit_parent_background() -> Result<(), Box<dyn Error>> {
+    assert_split_backgrounds(
+        "let value = 1;\n",
+        "let value = 2;\n",
+        &[(Some(DiffTone::Removed), Some(DiffTone::Added))],
+    )
+}
 
 #[test]
 fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box<dyn Error>> {
@@ -133,6 +188,58 @@ fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn 
             rows.iter().all(|row| row.width() <= usize::from(width)),
             "width: {width}"
         );
+    }
+    Ok(())
+}
+
+fn assert_split_backgrounds(
+    before: &str,
+    after: &str,
+    expected: &[(Option<DiffTone>, Option<DiffTone>)],
+) -> Result<(), Box<dyn Error>> {
+    let mut state = DiffPreviewState::new(FileDiff::from_texts("example.rs", before, after)?);
+    let mut highlighter = SyntaxHighlighter::default();
+    let options = DiffPreviewOptions {
+        view_mode: ViewMode::Split,
+        include_hunk_headers: false,
+        overflow_summary: false,
+        ..Default::default()
+    };
+    for width in [96, 97, 120, 121] {
+        for theme in [ReviewTheme::default(), ReviewTheme::ayu()?] {
+            let rows = state.render(width, &theme, &mut highlighter, options);
+            assert_eq!(rows.len(), expected.len());
+            let area = Rect::new(0, 0, width, u16::try_from(expected.len())?);
+            let mut buffer = Buffer::empty(area);
+            buffer.set_style(area, Style::new().bg(Color::Magenta));
+            Paragraph::new(rows.to_vec()).render(area, &mut buffer);
+            let divider = (width - 1) / 2;
+            let background = page_color(&theme, theme.diff.background);
+            for (y, &(left, right)) in expected.iter().enumerate() {
+                let y = u16::try_from(y)?;
+                for (range, tone) in [(0..divider, left), (divider + 1..width, right)] {
+                    let expected_bg = tone.map_or(background, |tone| {
+                        page_color(&theme, theme.diff.tone(tone).background)
+                    });
+                    for x in range {
+                        assert_eq!(
+                            buffer[(x, y)].bg,
+                            expected_bg,
+                            "width {width}, cell ({x}, {y}), tone {tone:?}"
+                        );
+                        if tone.is_none() {
+                            assert_eq!(buffer[(x, y)].symbol(), " ");
+                        }
+                    }
+                }
+                assert_eq!(buffer[(divider, y)].symbol(), "│");
+                assert_eq!(buffer[(divider, y)].bg, background);
+                assert_eq!(
+                    buffer[(divider, y)].fg,
+                    page_color(&theme, theme.diff.border)
+                );
+            }
+        }
     }
     Ok(())
 }
