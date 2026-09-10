@@ -10,16 +10,23 @@ use crate::{
     text::{FitOptions, FitPosition, fit_spans, fit_spans_from},
 };
 use clankerdiff_core::SourceSequenceId;
-use clankerdiff_markdown::{
-    MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownDocument, MarkdownInline,
-    MarkdownLineRange, MarkdownListItem, MarkdownParseStats, MarkdownSourceRole,
-    MarkdownSourceStyle, MarkdownStream, MarkdownStreamIdentity, MarkdownTable,
-    MarkdownTableAlignment, MarkdownTargetId, SourceRange, rendered_text,
+pub use clankerdiff_markdown::{
+    Fingerprint, FingerprintError, MarkdownAnchor, MarkdownBlock, MarkdownBlockAnchor,
+    MarkdownBlockKind, MarkdownCodeBlock, MarkdownCodeLine, MarkdownCodeLineAnchor,
+    MarkdownCommentContext, MarkdownCommentDraft, MarkdownDocument, MarkdownFocusPane,
+    MarkdownHeading, MarkdownInline, MarkdownLineRange, MarkdownListItem, MarkdownParseStats,
+    MarkdownReview, MarkdownReviewCommand, MarkdownReviewComment, MarkdownReviewDecision,
+    MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSession, MarkdownReviewSubmission,
+    MarkdownSourceRole, MarkdownSourceStyle, MarkdownStream, MarkdownStreamChanges,
+    MarkdownStreamIdentity, MarkdownStreamUpdate, MarkdownTable, MarkdownTableAlignment,
+    MarkdownTableCell, MarkdownTableRow, MarkdownTarget, MarkdownTargetId, MarkdownTargetKind,
+    SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review, parse_markdown,
+    rendered_text, resolve_anchor,
 };
 use clankerdiff_syntax::{
     DocumentHighlights, HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxStream,
 };
-use clankerdiff_theme::{Fingerprint, ReviewTheme, Rgba};
+use clankerdiff_theme::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},

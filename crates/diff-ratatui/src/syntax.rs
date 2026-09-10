@@ -1,7 +1,12 @@
 //! Conversion of renderer-neutral syntax spans to Ratatui text.
 
 use crate::color::native_color;
-use clankerdiff_syntax::HighlightSpan;
+pub use clankerdiff_syntax::{
+    CacheConfig, CacheKey, CacheUsage, DocumentHighlights, Fingerprint, FontStyle, HighlightSpan,
+    HighlightStats, LanguageHint, Rgba, SyntaxError, SyntaxHighlighter, SyntaxStream,
+    SyntaxStreamUpdate, SyntaxStyle, SyntaxTheme, SyntaxWorkStats, ThemedHighlighter, empty_spans,
+    resolve_language,
+};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},

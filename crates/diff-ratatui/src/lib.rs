@@ -8,13 +8,14 @@ mod color;
 mod commands;
 #[cfg(feature = "crossterm-backend")]
 mod crossterm_adapter;
+pub mod diff;
 mod diff_commands;
 mod diff_preview;
 mod drawer;
 mod input;
 mod interaction;
 mod keybindings;
-mod markdown;
+pub mod markdown;
 mod markdown_layout;
 mod markdown_review;
 mod options;
@@ -22,10 +23,11 @@ mod patch_layout;
 mod render;
 mod state;
 mod style;
-mod syntax;
+pub mod syntax;
 #[cfg(feature = "test-support")]
 pub mod testing;
 mod text;
+pub mod theme;
 mod theme_picker;
 pub mod ui;
 mod widgets;
