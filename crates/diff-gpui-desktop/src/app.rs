@@ -5,13 +5,15 @@ use clankerdiff_core::{
     DiffReviewCommand, DiffReviewEvent, DiffScope, RepositoryAction, ReviewCapabilities,
     ReviewSubmission,
 };
-use clankerdiff_git::{GitError, GitRepository, RepositorySnapshot};
+use clankerdiff_git::{GitRepository, RepositorySnapshot};
 use clankerdiff_gpui::{
     DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, StageAll, ThemeChanged, UnstageAll,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use clankerdiff_theme::ReviewTheme;
-use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchError, WatchOptions};
+use clankerdiff_watch::{
+    RepositoryRequest, RepositoryState, RepositoryWatcher, WatchError, WatchOptions,
+};
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, KeyBinding, Subscription, Task, Window, div,
     prelude::*,
@@ -142,7 +144,7 @@ impl DesktopApp {
     }
 
     fn install_watcher(&mut self, watcher: RepositoryWatcher, cx: &mut Context<Self>) {
-        let mut updates = watcher.snapshot_rx.clone();
+        let mut updates = watcher.state_rx.clone();
         let state = updates.borrow_and_update().clone();
         self.watcher = Some(watcher);
         self.apply_watch_state(&state, cx);
@@ -159,22 +161,13 @@ impl DesktopApp {
         });
     }
 
-    fn apply_watch_state(
-        &mut self,
-        result: &Result<Arc<RepositorySnapshot>, Arc<GitError>>,
-        cx: &mut Context<Self>,
-    ) {
-        let error = match result {
-            Ok(snapshot) => {
-                if self.installed_snapshot.as_ref() != Some(snapshot) {
-                    self.scope = snapshot.scope;
-                    self.install_snapshot(snapshot, cx);
-                    self.installed_snapshot = Some(Arc::clone(snapshot));
-                }
-                None
-            }
-            Err(error) => Some(error.to_string()),
-        };
+    fn apply_watch_state(&mut self, state: &RepositoryState, cx: &mut Context<Self>) {
+        if self.installed_snapshot.as_ref() != Some(&state.snapshot) {
+            self.scope = state.snapshot.scope;
+            self.install_snapshot(&state.snapshot, cx);
+            self.installed_snapshot = Some(Arc::clone(&state.snapshot));
+        }
+        let error = state.error_message();
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |viewer, cx| {
                 viewer.set_background_error(error, cx);

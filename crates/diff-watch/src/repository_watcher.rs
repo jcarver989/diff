@@ -32,10 +32,47 @@ pub enum RepositoryRequest {
     },
 }
 
+/// The retained repository state: the last successful snapshot and the health of
+/// the most recent load. A failed load keeps the previous snapshot in place.
+#[derive(Debug, Clone)]
+pub struct RepositoryState {
+    pub snapshot: Arc<RepositorySnapshot>,
+    pub error: Option<Arc<GitError>>,
+}
+
+impl RepositoryState {
+    /// The most recent load failure as a display message, if any.
+    #[must_use]
+    pub fn error_message(&self) -> Option<String> {
+        self.error.as_ref().map(ToString::to_string)
+    }
+
+    /// Folds one load result in; returns whether anything observable changed.
+    fn apply(&mut self, result: Result<RepositorySnapshot, Arc<GitError>>) -> bool {
+        match result {
+            Ok(snapshot) => {
+                let recovered = self.error.take().is_some();
+                if *self.snapshot == snapshot {
+                    return recovered;
+                }
+                self.snapshot = Arc::new(snapshot);
+                true
+            }
+            Err(error) => {
+                if self.error_message() == Some(error.to_string()) {
+                    return false;
+                }
+                self.error = Some(error);
+                true
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct RepositoryWatcher {
     pub request_tx: mpsc::Sender<RepositoryRequest>,
-    pub snapshot_rx: watch::Receiver<Result<Arc<RepositorySnapshot>, Arc<GitError>>>,
+    pub state_rx: watch::Receiver<RepositoryState>,
     task: JoinHandle<()>,
 }
 
@@ -48,7 +85,10 @@ impl RepositoryWatcher {
         let watcher = Self::create_file_watcher(&repository, options.debounce).await?;
         let snapshot = repository.snapshot_with_sources(scope).await?;
         let (request_tx, request_rx) = mpsc::channel(64);
-        let (state_tx, state_rx) = watch::channel(Ok(Arc::new(snapshot)));
+        let (state_tx, state_rx) = watch::channel(RepositoryState {
+            snapshot: Arc::new(snapshot),
+            error: None,
+        });
         let actor = RepositoryActor {
             repository,
             watcher,
@@ -58,7 +98,7 @@ impl RepositoryWatcher {
         };
         Ok(Self {
             request_tx,
-            snapshot_rx: state_rx,
+            state_rx,
             task: tokio::spawn(actor.run()),
         })
     }
@@ -97,7 +137,7 @@ struct RepositoryActor {
     watcher: NotifyFileWatcher,
     scope: DiffScope,
     request_rx: mpsc::Receiver<RepositoryRequest>,
-    state_tx: watch::Sender<Result<Arc<RepositorySnapshot>, Arc<GitError>>>,
+    state_tx: watch::Sender<RepositoryState>,
 }
 
 impl RepositoryActor {
@@ -119,26 +159,12 @@ impl RepositoryActor {
                 .repository
                 .snapshot_with_sources(self.scope)
                 .await
-                .map(Arc::new)
                 .map_err(Arc::new);
-
-            self.state_tx.send_if_modified(|state| {
-                let unchanged = match (&*state, &result) {
-                    (Ok(previous), Ok(snapshot)) => previous == snapshot,
-                    (Err(previous), Err(error)) => previous.to_string() == error.to_string(),
-                    _ => false,
-                };
-
-                if unchanged {
-                    return false;
-                }
-
-                state.clone_from(&result);
-                true
-            });
+            let outcome = result.as_ref().map(|_| ()).map_err(Arc::clone);
+            self.state_tx.send_if_modified(|state| state.apply(result));
 
             if let Some(tx) = result_tx {
-                let _ = tx.send(result.map(|_| ()));
+                let _ = tx.send(outcome);
             }
         }
     }
