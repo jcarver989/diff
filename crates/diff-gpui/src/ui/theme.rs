@@ -14,17 +14,20 @@ pub struct UiColors {
     pub surface_hover: Hsla,
     pub surface_selected: Hsla,
     pub text: Hsla,
+    pub text_secondary: Hsla,
     pub text_muted: Hsla,
     pub border: Hsla,
     pub accent: Hsla,
     pub accent_foreground: Hsla,
+    pub info: Hsla,
     pub positive: Hsla,
+    pub warning: Hsla,
     pub destructive: Hsla,
+    pub destructive_foreground: Hsla,
     pub scrim: Hsla,
 }
 
 impl UiColors {
-    /// Maps the renderer-neutral diff palette to UI roles.
     #[must_use]
     pub fn from_palette(palette: &UiPalette) -> Self {
         Self {
@@ -33,12 +36,16 @@ impl UiColors {
             surface_hover: color(palette.surface_hover),
             surface_selected: color(palette.surface_selected),
             text: color(palette.text),
+            text_secondary: color(palette.text_secondary),
             text_muted: color(palette.text_muted),
             border: color(palette.border),
             accent: color(palette.accent),
             accent_foreground: color(palette.accent_foreground),
+            info: color(palette.info),
             positive: color(palette.positive),
+            warning: color(palette.warning),
             destructive: color(palette.destructive),
+            destructive_foreground: color(palette.destructive_foreground),
             scrim: color(palette.scrim),
         }
     }
@@ -73,7 +80,7 @@ impl UiTheme {
     /// Creates component tokens from a diff theme.
     #[must_use]
     pub fn new(theme: &ReviewTheme) -> Self {
-        let palette = UiPalette::from(&theme.diff);
+        let palette = theme.ui;
         Self {
             colors: UiColors::from_palette(&palette),
             palette,

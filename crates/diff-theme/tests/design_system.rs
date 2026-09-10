@@ -1,23 +1,21 @@
 use clankerdiff_theme::{
-    ButtonVariant, ControlState, DiffPalette, InteractionState, NoticeTone, SCRIM_ALPHA,
-    SelectionState, UiPalette,
+    ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, SCRIM_ALPHA,
+    SelectionState,
 };
 
 #[test]
 fn ui_palette_uses_stable_semantic_roles() {
-    let diff = DiffPalette::default();
-    let ui = UiPalette::from(&diff);
-    assert_eq!(ui.canvas, diff.background);
-    assert_eq!(ui.surface_selected, diff.selection);
-    assert_eq!(ui.text_muted, diff.muted);
-    assert_eq!(ui.positive, diff.addition);
-    assert_eq!(ui.destructive, diff.deletion);
+    let ui = ReviewTheme::default().ui;
+    assert_ne!(ui.surface, ui.surface_selected);
+    assert_ne!(ui.text_secondary, ui.text_muted);
+    assert_ne!(ui.info, ui.text_muted);
+    assert_ne!(ui.warning, ui.accent);
     assert_eq!(ui.scrim.a, SCRIM_ALPHA);
 }
 
 #[test]
 fn semantic_states_resolve_before_renderer_conversion() {
-    let ui = UiPalette::from(&DiffPalette::default());
+    let ui = ReviewTheme::default().ui;
     let primary = ui.control_style(
         ButtonVariant::Primary,
         ControlState::new(InteractionState::Rest),
@@ -44,6 +42,6 @@ fn semantic_states_resolve_before_renderer_conversion() {
     assert!(focused.emphasized);
 
     let warning = ui.notice_style(NoticeTone::Warning);
-    assert_eq!(warning.foreground, ui.accent);
+    assert_eq!(warning.foreground, ui.warning);
     assert!(warning.emphasized);
 }

@@ -15,11 +15,11 @@ pub(crate) struct CommentCount {
     theme: UiTheme,
 }
 impl CommentCount {
-    pub(crate) fn new(count: usize, font_size: f32, theme: UiTheme) -> Self {
+    pub(crate) fn new(count: usize, font_size: f32, theme: &UiTheme) -> Self {
         Self {
             count,
             font_size,
-            theme,
+            theme: *theme,
         }
     }
 }
@@ -50,7 +50,7 @@ impl CommentCard {
         title: impl Into<SharedString>,
         body: impl Into<SharedString>,
         font_size: f32,
-        theme: UiTheme,
+        theme: &UiTheme,
         last: bool,
     ) -> Self {
         Self {
@@ -58,7 +58,7 @@ impl CommentCard {
             title: title.into(),
             body: body.into(),
             font_size,
-            theme,
+            theme: *theme,
             last,
         }
     }
@@ -108,14 +108,14 @@ impl CommentComposer {
     pub(crate) fn new(
         editor: Entity<CommentEditor>,
         title: impl Into<SharedString>,
-        theme: UiTheme,
+        theme: &UiTheme,
         cancel: impl IntoElement,
         submit: impl IntoElement,
     ) -> Self {
         Self {
             editor,
             title: title.into(),
-            theme,
+            theme: *theme,
             cancel: cancel.into_any_element(),
             submit: submit.into_any_element(),
         }

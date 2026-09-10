@@ -14,7 +14,7 @@ mod tests {
             MarkdownStream,
         },
         syntax::{LanguageHint, SyntaxHighlighter, resolve_language},
-        theme::{ReviewTheme, ThemeChoice, ThemeId},
+        theme::{ReviewTheme, Rgba, ThemeChoice, ThemeId},
     };
     use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
     use std::{error::Error, str, sync::Arc};
@@ -27,9 +27,12 @@ mod tests {
 
     #[test]
     fn themes_and_review_widgets_embed_without_a_terminal_loop() -> TestResult {
-        let theme = ReviewTheme::builtin("sage")?;
+        let mut theme = ReviewTheme::builtin("sage")?;
+        theme.ui.info = Rgba::new(30, 140, 230, 128);
         let restored =
             ReviewTheme::from_bytes(ThemeId::Custom("consumer".into()), &theme.to_bytes()?)?;
+        assert_eq!(restored.ui, theme.ui);
+        assert_eq!(restored.revision(), theme.revision());
         let file = FileDiff::from_texts("src/lib.rs", "let old = 1;\n", "let new = 2;\n")?;
         let mut diff = DiffReviewState::new(Arc::new(DiffDocument {
             repo_root: String::new(),
