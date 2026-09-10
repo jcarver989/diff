@@ -12,7 +12,7 @@ workspace = true
 
 [dependencies]
 arborium-theme.workspace = true
-clankerdiff-fingerprint = { version = "0.1.4", path = "../diff-fingerprint" }
+clankerdiff-fingerprint = { version = "0.1.5", path = "../diff-fingerprint" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
