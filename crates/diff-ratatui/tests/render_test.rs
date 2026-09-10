@@ -1,6 +1,10 @@
 use clankerdiff_core::testing::DocumentBuilder;
 use clankerdiff_ratatui::{DiffReviewState, DiffReviewWidget, NavigationPane, ReviewOptions};
-use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
+use ratatui::{
+    buffer::{Buffer, Cell},
+    layout::Rect,
+    widgets::StatefulWidget,
+};
 
 #[test]
 fn diff_tabs_match_explicit_spaces_including_syntax_styles() {
@@ -19,7 +23,7 @@ fn diff_tabs_match_explicit_spaces_including_syntax_styles() {
                 "tab width {tab_width}, area width {width}"
             );
             if width == 40 {
-                let text: String = actual.content.iter().map(|cell| cell.symbol()).collect();
+                let text: String = actual.content.iter().map(Cell::symbol).collect();
                 assert!(text.contains(expanded.lines().next().unwrap_or_default()));
             }
         }

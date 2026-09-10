@@ -545,10 +545,10 @@ fn render_cell(
         gutter,
         Style::new().fg(gutter_foreground).bg(background),
     )];
-    let content = highlighted_spans(&cell.text, &highlights, background);
+    let source_spans = highlighted_spans(&cell.text, &highlights, background);
     if cell.text.contains('\t') {
         let line = fit_spans(
-            content,
+            source_spans,
             FitOptions {
                 width: usize::from(area.width).saturating_sub(spans[0].width()),
                 wrap: false,
@@ -561,7 +561,7 @@ fn render_cell(
         .unwrap_or_default();
         spans.extend(line.spans);
     } else {
-        spans.extend(content);
+        spans.extend(source_spans);
     }
     Paragraph::new(Line::from(spans)).render(area, buffer);
 }
