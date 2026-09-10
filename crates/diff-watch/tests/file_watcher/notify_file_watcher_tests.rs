@@ -51,6 +51,56 @@ async fn filters_real_edits_and_observes_nested_overlapping_roots() -> TestResul
 }
 
 #[tokio::test]
+async fn ignored_directories_never_reach_the_event_filter() -> TestResult {
+    let directory = TempDirBuilder::new()
+        .entries([
+            (".git", ""),
+            (".gitignore", "target/\n"),
+            ("target/deep/file.txt", "ignored"),
+            ("src/file.txt", "original"),
+        ])
+        .build()?;
+    let root = directory.path().canonicalize()?;
+    let mut watcher =
+        NotifyFileWatcher::new([root.clone()], Duration::from_millis(50), |_| async {
+            true
+        })?;
+    fs::write(root.join("target/deep/file.txt"), "noise")?;
+    assert_no_invalidation(&mut watcher).await;
+    fs::write(root.join("src/file.txt"), "changed")?;
+    assert_invalidated(&mut watcher).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_overflow_during_a_slow_filter_still_invalidates() -> TestResult {
+    let directory = TempDirBuilder::new().build()?;
+    let root = directory.path().canonicalize()?;
+    let (entered, ready) = oneshot::channel();
+    let (release, gate) = oneshot::channel();
+    let mut first = Some((entered, gate));
+    let mut watcher =
+        NotifyFileWatcher::new([root.clone()], Duration::from_millis(50), move |_| {
+            let first = first.take();
+            async move {
+                if let Some((entered, gate)) = first {
+                    let _ = entered.send(());
+                    let _ = gate.await;
+                }
+                false
+            }
+        })?;
+    fs::write(root.join("start.txt"), "start")?;
+    wait_for("filter start", ready).await?;
+    for index in 0..2000 {
+        fs::write(root.join(format!("file-{index}.txt")), "changed")?;
+    }
+    release.send(()).map_err(|()| "filter stopped")?;
+    assert_invalidated(&mut watcher).await;
+    Ok(())
+}
+
+#[tokio::test]
 async fn reading_files_does_not_invalidate() -> TestResult {
     let directory = TempDirBuilder::new()
         .entries([("existing.txt", "content")])
