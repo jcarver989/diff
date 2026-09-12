@@ -183,64 +183,34 @@ fn render_preview_rows(
         .iter()
         .filter(|row| options.include_hunk_headers || row.kind != RowKind::HunkHeader)
         .collect::<Vec<_>>();
-    let shown = eligible.len().min(options.max_content_rows);
-    let mut lines = eligible
-        .iter()
-        .take(shown)
-        .map(|row| {
-            let mut cell_line = |cell, width| {
-                render_cell(
-                    presentation,
-                    row,
-                    cell,
-                    width,
-                    theme,
-                    highlighter,
-                    options.tab_width,
-                )
-            };
-            match presentation.layout() {
-                Layout::Unified => row
-                    .primary_cell()
-                    .map_or_else(Line::default, |cell| cell_line(cell, width)),
-                Layout::Split => {
-                    let half = width.saturating_sub(1) / 2;
-                    let right_width = width.saturating_sub(1).saturating_sub(half);
-                    let blank = |width| {
-                        Line::from(Span::styled(
-                            " ".repeat(usize::from(width)),
-                            Style::new().bg(page_color(theme, theme.diff.background)),
-                        ))
-                    };
-                    let left = row
-                        .left
-                        .as_ref()
-                        .map_or_else(|| blank(half), |cell| cell_line(cell, half));
-                    let right = row
-                        .right
-                        .as_ref()
-                        .map_or_else(|| blank(right_width), |cell| cell_line(cell, right_width));
-                    let mut spans = left.spans;
-                    spans.push(Span::styled(
-                        "│",
-                        Style::new()
-                            .fg(page_color(theme, theme.diff.border))
-                            .bg(page_color(theme, theme.diff.background)),
-                    ));
-                    spans.extend(right.spans);
-                    Line::from(spans)
-                }
-            }
-        })
-        .collect::<Vec<_>>();
-    let overflow = eligible.len().saturating_sub(shown);
+    let mut renderer = PreviewRenderer {
+        presentation,
+        theme,
+        highlighter,
+        width,
+        tab_width: options.tab_width,
+    };
+    let mut lines = Vec::new();
+    let mut overflow = 0;
+    for (index, row) in eligible.iter().enumerate() {
+        let remaining = options.max_content_rows.saturating_sub(lines.len());
+        let segments = if remaining == 0 {
+            Vec::new()
+        } else {
+            renderer.render(row, remaining.saturating_add(1))
+        };
+        let truncated = remaining == 0 || segments.len() > remaining;
+        lines.extend(segments.into_iter().take(remaining));
+        if truncated {
+            overflow = eligible.len() - index;
+            break;
+        }
+    }
     if options.overflow_summary && overflow > 0 {
         lines.push(fit_line(
             Line::styled(
                 format!("… {overflow} more rows"),
-                Style::new()
-                    .fg(page_color(theme, theme.diff.muted))
-                    .bg(page_color(theme, theme.diff.background)),
+                page_style(theme).fg(page_color(theme, theme.diff.muted)),
             ),
             usize::from(width),
             options.tab_width,
@@ -249,52 +219,150 @@ fn render_preview_rows(
     lines
 }
 
-fn render_cell(
-    presentation: &DiffPresentation,
-    row: &PresentedRow,
-    cell: &PresentedCell,
+struct PreviewRenderer<'a> {
+    presentation: &'a DiffPresentation,
+    theme: &'a ReviewTheme,
+    highlighter: &'a mut SyntaxHighlighter,
     width: u16,
-    theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
     tab_width: u16,
-) -> Line<'static> {
-    let colors = theme.diff.tone(cell.tone);
-    let base = layered_style(colors.foreground, colors.background, theme.diff.background);
-    let marker = cell.tone.marker();
-    let number = cell
-        .line_number()
-        .map_or_else(|| "    ".to_owned(), |line| format!("{line:>4}"));
-    let prefix = format!("{number} {marker} ");
-    let width = usize::from(width);
-    if width <= prefix.len() {
-        return fit_line(Line::styled(prefix, base), width, tab_width);
+}
+
+impl PreviewRenderer<'_> {
+    fn render(&mut self, row: &PresentedRow, limit: usize) -> Vec<Line<'static>> {
+        match self.presentation.layout() {
+            Layout::Unified => match row.primary_cell() {
+                Some(cell) => self.render_cell(row, cell, self.width, limit),
+                None => vec![self.blank(None, self.width)],
+            },
+            Layout::Split => {
+                let half = self.width.saturating_sub(1) / 2;
+                let right_width = self.width.saturating_sub(1).saturating_sub(half);
+                let mut left = row
+                    .left
+                    .as_ref()
+                    .map_or_else(Vec::new, |cell| self.render_cell(row, cell, half, limit));
+                let mut right = row.right.as_ref().map_or_else(Vec::new, |cell| {
+                    self.render_cell(row, cell, right_width, limit)
+                });
+                let height = left.len().max(right.len()).max(1);
+                left.resize_with(height, || self.blank(row.left.as_ref(), half));
+                right.resize_with(height, || self.blank(row.right.as_ref(), right_width));
+                let divider = Span::styled(
+                    "│",
+                    page_style(self.theme).fg(page_color(self.theme, self.theme.diff.border)),
+                );
+                left.into_iter()
+                    .zip(right)
+                    .map(|(left, right)| {
+                        let mut spans = left.spans;
+                        spans.push(divider.clone());
+                        spans.extend(right.spans);
+                        Line::from(spans)
+                    })
+                    .collect()
+            }
+        }
     }
-    let spans = cell_highlights(highlighter, &theme.syntax, presentation, row, cell);
-    let content = highlighted_line(&cell.text, &spans, base).style(base);
-    let mut line = fit_line(content, width - prefix.len(), tab_width);
-    line.spans.insert(0, Span::styled(prefix, base));
-    line
+
+    fn cell_style(&self, cell: &PresentedCell) -> Style {
+        let colors = self.theme.diff.tone(cell.tone);
+        layered_style(
+            colors.foreground,
+            colors.background,
+            self.theme.diff.background,
+        )
+    }
+
+    fn blank(&self, cell: Option<&PresentedCell>, width: u16) -> Line<'static> {
+        let style = cell.map_or_else(|| page_style(self.theme), |cell| self.cell_style(cell));
+        pad_line(Line::default().style(style), usize::from(width))
+    }
+
+    fn render_cell(
+        &mut self,
+        row: &PresentedRow,
+        cell: &PresentedCell,
+        width: u16,
+        limit: usize,
+    ) -> Vec<Line<'static>> {
+        let base = self.cell_style(cell);
+        let marker = cell.tone.marker();
+        let number = cell
+            .line_number()
+            .map_or_else(String::new, |line| line.to_string());
+        let number_width = number.len().max(4);
+        let gutter = |number: &str| format!("{number:>number_width$} {marker} ");
+        let width = usize::from(width);
+        let gutter_width = number_width + 3;
+        if width <= gutter_width {
+            return vec![fit_line(
+                Line::styled(gutter(&number), base),
+                width,
+                self.tab_width,
+            )];
+        }
+        let spans = cell_highlights(
+            self.highlighter,
+            &self.theme.syntax,
+            self.presentation,
+            row,
+            cell,
+        );
+        let content = highlighted_line(&cell.text, &spans, base).spans;
+        let content_width = width - gutter_width;
+        let wrap = matches!(row.kind, RowKind::Code | RowKind::ExpandedContext);
+        fit(content, content_width, wrap, self.tab_width)
+            .take(limit)
+            .enumerate()
+            .map(|(segment, line)| {
+                let mut line = pad_line(line.style(base), content_width);
+                line.spans.insert(
+                    0,
+                    Span::styled(gutter(if segment == 0 { &number } else { "↪" }), base),
+                );
+                line
+            })
+            .collect()
+    }
 }
 
 /// Clips a line to `width` cells and pads it with the line's base style.
 fn fit_line(line: Line<'static>, width: usize, tab_width: u16) -> Line<'static> {
     let base = line.style;
-    let mut fitted = fit_spans_from(
-        line.spans,
+    let fitted = fit(line.spans, width, false, tab_width)
+        .next()
+        .unwrap_or_default();
+    pad_line(fitted.style(base), width)
+}
+
+fn page_style(theme: &ReviewTheme) -> Style {
+    Style::new().bg(page_color(theme, theme.diff.background))
+}
+
+fn fit(
+    spans: Vec<Span<'_>>,
+    width: usize,
+    wrap: bool,
+    tab_width: u16,
+) -> impl Iterator<Item = Line<'static>> {
+    fit_spans_from(
+        spans,
         FitOptions {
             width,
-            wrap: false,
+            wrap,
             tab_width: usize::from(tab_width),
             continuation: "",
         },
         FitPosition::default(),
     )
-    .next()
     .map(|(line, _)| line)
-    .unwrap_or_default();
-    let used = fitted.width();
-    fitted
-        .spans
-        .push(Span::styled(" ".repeat(width.saturating_sub(used)), base));
-    fitted.style(base)
+}
+
+fn pad_line(mut line: Line<'static>, width: usize) -> Line<'static> {
+    let used = line.width();
+    line.spans.push(Span::styled(
+        " ".repeat(width.saturating_sub(used)),
+        line.style,
+    ));
+    line
 }
