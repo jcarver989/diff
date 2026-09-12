@@ -2,6 +2,7 @@
 
 use crate::{
     color::{layered_style, page_color},
+    style::diff_indicator,
     syntax::highlighted_line,
     text::{FitOptions, FitPosition, fit_spans_from},
 };
@@ -291,12 +292,17 @@ impl PreviewRenderer<'_> {
             .line_number()
             .map_or_else(String::new, |line| line.to_string());
         let number_width = number.len().max(4);
-        let gutter = |number: &str| format!("{number:>number_width$} {marker} ");
+        let gutter = |number: &str| {
+            vec![
+                diff_indicator(cell.tone, self.theme, base),
+                Span::styled(format!("{number:>number_width$} {marker} "), base),
+            ]
+        };
         let width = usize::from(width);
-        let gutter_width = number_width + 3;
+        let gutter_width = number_width + 4;
         if width <= gutter_width {
             return vec![fit_line(
-                Line::styled(gutter(&number), base),
+                Line::from(gutter(&number)).style(base),
                 width,
                 self.tab_width,
             )];
@@ -316,10 +322,8 @@ impl PreviewRenderer<'_> {
             .enumerate()
             .map(|(segment, line)| {
                 let mut line = pad_line(line.style(base), content_width);
-                line.spans.insert(
-                    0,
-                    Span::styled(gutter(if segment == 0 { &number } else { "↪" }), base),
-                );
+                line.spans
+                    .splice(0..0, gutter(if segment == 0 { &number } else { "↪" }));
                 line
             })
             .collect()

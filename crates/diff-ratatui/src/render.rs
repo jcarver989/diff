@@ -7,7 +7,7 @@ use crate::{
     drawer::{DrawerEntry, DrawerTree},
     patch_layout::{PatchContentLayout, PatchVisualRow},
     state::{HitLayout, RepositoryPrompt},
-    style::syntax_style,
+    style::{diff_indicator, syntax_style},
     text::{FitOptions, fit_spans_from},
     theme_picker::render_theme_picker,
     ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
@@ -569,12 +569,8 @@ fn render_cell(
         } else {
             "↪".to_owned()
         };
-        let indicator = match tone {
-            DiffTone::Added | DiffTone::Removed => '▌',
-            DiffTone::Context | DiffTone::Meta => ' ',
-        };
         let gutter = format!(
-            "{indicator}{number:>width$} ",
+            "{number:>width$} ",
             width = usize::from(geometry.gutter_width).saturating_sub(2),
         );
         let gutter_foreground = match tone {
@@ -588,10 +584,10 @@ fn render_cell(
             context.theme.ui.text_muted
         };
         let gutter_area = Rect::new(area.x, y, geometry.gutter_width.min(area.width), 1);
-        Paragraph::new(Span::styled(
-            gutter,
-            Style::new().fg(gutter_foreground).bg(background),
-        ))
+        Paragraph::new(Line::from(vec![
+            diff_indicator(tone, context.diff_theme, Style::new().bg(background)),
+            Span::styled(gutter, Style::new().fg(gutter_foreground).bg(background)),
+        ]))
         .render(gutter_area, buffer);
         let source_area = Rect::new(
             area.x.saturating_add(gutter_area.width),

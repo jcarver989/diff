@@ -180,7 +180,7 @@ fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn 
         (1, 2),
         (2, 2),
         (5, 2),
-        (10, 7),
+        (10, 9),
         (95, 2),
         (96, 1),
         (120, 1),
@@ -213,7 +213,7 @@ fn unified_previews_wrap_source_rows_and_preserve_gutters() -> Result<(), Box<dy
     )?;
     let rows = render_diff_preview(
         file,
-        12,
+        13,
         &ReviewTheme::default(),
         &mut SyntaxHighlighter::default(),
         DiffPreviewOptions {
@@ -225,15 +225,15 @@ fn unified_previews_wrap_source_rows_and_preserve_gutters() -> Result<(), Box<dy
     assert_eq!(
         text(&rows),
         [
-            "   1 - abcde",
-            "   ↪ - fghij",
-            "   1 + ABCDE",
-            "   ↪ + FGHIJ",
-            "   2   conte",
-            "   ↪   xt123",
+            "▌   1 - abcde",
+            "▌   ↪ - fghij",
+            "▌   1 + ABCDE",
+            "▌   ↪ + FGHIJ",
+            "    2   conte",
+            "    ↪   xt123",
         ]
     );
-    assert!(rows.iter().all(|row| row.width() == 12));
+    assert!(rows.iter().all(|row| row.width() == 13));
     Ok(())
 }
 
@@ -244,34 +244,34 @@ fn split_previews_align_continuations_before_the_next_source_row() -> Result<(),
             "abcdefghij\nsame\n",
             "XYZ\nsame\n",
             vec![
-                "   1 - abcde│   1 + XYZ  ",
-                "   ↪ - fghij│            ",
-                "   2   same │   2   same ",
+                "▌   1 - abcde│▌   1 + XYZ  ",
+                "▌   ↪ - fghij│             ",
+                "    2   same │    2   same ",
             ],
         ),
         (
             "XYZ\nsame\n",
             "abcdefghij\nsame\n",
             vec![
-                "   1 - XYZ  │   1 + abcde",
-                "            │   ↪ + fghij",
-                "   2   same │   2   same ",
+                "▌   1 - XYZ  │▌   1 + abcde",
+                "             │▌   ↪ + fghij",
+                "    2   same │    2   same ",
             ],
         ),
         (
             "abcdefghij\nsame\n",
             "ABCDEFGHIJKLM\nsame\n",
             vec![
-                "   1 - abcde│   1 + ABCDE",
-                "   ↪ - fghij│   ↪ + FGHIJ",
-                "            │   ↪ + KLM  ",
-                "   2   same │   2   same ",
+                "▌   1 - abcde│▌   1 + ABCDE",
+                "▌   ↪ - fghij│▌   ↪ + FGHIJ",
+                "             │▌   ↪ + KLM  ",
+                "    2   same │    2   same ",
             ],
         ),
     ] {
         let rows = render_diff_preview(
             FileDiff::from_texts("example.txt", before, after)?,
-            25,
+            27,
             &ReviewTheme::default(),
             &mut SyntaxHighlighter::default(),
             DiffPreviewOptions {
@@ -281,7 +281,7 @@ fn split_previews_align_continuations_before_the_next_source_row() -> Result<(),
             },
         );
         assert_eq!(text(&rows), expected);
-        assert!(rows.iter().all(|row| row.width() == 25));
+        assert!(rows.iter().all(|row| row.width() == 27));
     }
     Ok(())
 }
@@ -340,7 +340,7 @@ fn exact_preview_budget_does_not_report_overflow() -> Result<(), Box<dyn Error>>
     ] {
         let rows = render_diff_preview(
             FileDiff::from_texts("example.txt", "", after)?,
-            12,
+            13,
             &ReviewTheme::default(),
             &mut SyntaxHighlighter::default(),
             DiffPreviewOptions {
@@ -378,7 +378,7 @@ fn wrapped_tabs_unicode_and_styles_match_expanded_source() -> Result<(), Box<dyn
         "    let a = \"界e\u{301}👩‍💻\";  \n",
     )?);
     let mut highlighter = SyntaxHighlighter::default();
-    for width in [10, 12, 80, 12] {
+    for width in [11, 13, 80, 13] {
         let rows = actual.render(width, &theme, &mut highlighter, options);
         assert_eq!(
             rows,
