@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.8...clankerdiff-ratatui-v0.1.9) - 2026-09-12
+
+### Fixed
+
+- *(ratatui)* wrap compact previews and preserve diff indicator colors ([#38](https://github.com/jcarver989/diff/pull/38))
+
 ## [0.1.8](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.7...clankerdiff-ratatui-v0.1.8) - 2026-09-12
 
 ### Added
