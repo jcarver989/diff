@@ -1,11 +1,12 @@
 use clankerdiff_core::{FileDiff, ViewMode};
-use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, page_color};
+use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, page_color, render_diff_preview};
 use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_theme::{DiffTone, ReviewTheme};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
+    text::Line,
     widgets::{Paragraph, Widget},
 };
 use std::{error::Error, sync::Arc};
@@ -82,7 +83,7 @@ fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box
                 ..Default::default()
             };
             let rows = state.render(width, &theme, &mut highlighter, options);
-            let rendered: Vec<_> = rows.iter().map(ToString::to_string).collect();
+            let rendered = text(&rows);
             for expected in [
                 format!("+ {indent}let a = 1;"),
                 format!("+ {middle}"),
@@ -174,7 +175,16 @@ fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn 
         "界界界\te\u{301}\n",
         "changed\n",
     )?);
-    for width in [0, 1, 2, 5, 10, 95, 96, 120] {
+    for (width, expected_rows) in [
+        (0, 0),
+        (1, 2),
+        (2, 2),
+        (5, 2),
+        (10, 9),
+        (95, 2),
+        (96, 1),
+        (120, 1),
+    ] {
         let rows = state.render(
             width,
             &ReviewTheme::default(),
@@ -189,18 +199,219 @@ fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn 
             rows.iter().all(|row| row.width() <= usize::from(width)),
             "width: {width}"
         );
-        assert_eq!(
-            rows.len(),
-            if width == 0 {
-                0
-            } else if width < 96 {
-                2
-            } else {
-                1
-            }
-        );
+        assert_eq!(rows.len(), expected_rows, "width: {width}");
     }
     Ok(())
+}
+
+#[test]
+fn unified_previews_wrap_source_rows_and_preserve_gutters() -> Result<(), Box<dyn Error>> {
+    let file = FileDiff::from_texts(
+        "example.txt",
+        "abcdefghij\ncontext123\n",
+        "ABCDEFGHIJ\ncontext123\n",
+    )?;
+    let rows = render_diff_preview(
+        file,
+        13,
+        &ReviewTheme::default(),
+        &mut SyntaxHighlighter::default(),
+        DiffPreviewOptions {
+            view_mode: ViewMode::Unified,
+            include_hunk_headers: false,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        text(&rows),
+        [
+            "▌   1 - abcde",
+            "▌   ↪ - fghij",
+            "▌   1 + ABCDE",
+            "▌   ↪ + FGHIJ",
+            "    2   conte",
+            "    ↪   xt123",
+        ]
+    );
+    assert!(rows.iter().all(|row| row.width() == 13));
+    Ok(())
+}
+
+#[test]
+fn split_previews_align_continuations_before_the_next_source_row() -> Result<(), Box<dyn Error>> {
+    for (before, after, expected) in [
+        (
+            "abcdefghij\nsame\n",
+            "XYZ\nsame\n",
+            vec![
+                "▌   1 - abcde│▌   1 + XYZ  ",
+                "▌   ↪ - fghij│             ",
+                "    2   same │    2   same ",
+            ],
+        ),
+        (
+            "XYZ\nsame\n",
+            "abcdefghij\nsame\n",
+            vec![
+                "▌   1 - XYZ  │▌   1 + abcde",
+                "             │▌   ↪ + fghij",
+                "    2   same │    2   same ",
+            ],
+        ),
+        (
+            "abcdefghij\nsame\n",
+            "ABCDEFGHIJKLM\nsame\n",
+            vec![
+                "▌   1 - abcde│▌   1 + ABCDE",
+                "▌   ↪ - fghij│▌   ↪ + FGHIJ",
+                "             │▌   ↪ + KLM  ",
+                "    2   same │    2   same ",
+            ],
+        ),
+    ] {
+        let rows = render_diff_preview(
+            FileDiff::from_texts("example.txt", before, after)?,
+            27,
+            &ReviewTheme::default(),
+            &mut SyntaxHighlighter::default(),
+            DiffPreviewOptions {
+                view_mode: ViewMode::Split,
+                include_hunk_headers: false,
+                ..Default::default()
+            },
+        );
+        assert_eq!(text(&rows), expected);
+        assert!(rows.iter().all(|row| row.width() == 27));
+    }
+    Ok(())
+}
+
+#[test]
+fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result<(), Box<dyn Error>>
+{
+    for (view_mode, width) in [(ViewMode::Unified, 24), (ViewMode::Split, 49)] {
+        let file = FileDiff::from_texts(
+            "example.txt",
+            "",
+            &format!("{}\nnext\n", "x".repeat(100_000)),
+        )?;
+        let mut state = DiffPreviewState::new(file);
+        for max_content_rows in [0, 1, 2, 20] {
+            for overflow_summary in [false, true] {
+                let mut highlighter = SyntaxHighlighter::default();
+                let rows = state.render(
+                    width,
+                    &ReviewTheme::default(),
+                    &mut highlighter,
+                    DiffPreviewOptions {
+                        max_content_rows,
+                        view_mode,
+                        include_hunk_headers: false,
+                        overflow_summary,
+                        ..Default::default()
+                    },
+                );
+                if max_content_rows == 0 {
+                    assert_eq!(highlighter.take_stats().bytes, 0);
+                }
+                assert_eq!(rows.len(), max_content_rows + usize::from(overflow_summary));
+                assert!(rows.iter().all(|row| row.width() == usize::from(width)));
+                if overflow_summary {
+                    assert!(
+                        rows.last()
+                            .is_some_and(|row| row.to_string().starts_with("… 2 more rows"))
+                    );
+                }
+                assert!(rows.iter().all(|row| !row.to_string().contains("next")));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn exact_preview_budget_does_not_report_overflow() -> Result<(), Box<dyn Error>> {
+    for (after, budget, count) in [
+        ("abcde\n", 1, 1),
+        ("abcdef\n", 2, 2),
+        ("\n", 1, 1),
+        ("abcdef\n", usize::MAX, 2),
+        ("abcde\nnext\n", 1, 2),
+    ] {
+        let rows = render_diff_preview(
+            FileDiff::from_texts("example.txt", "", after)?,
+            13,
+            &ReviewTheme::default(),
+            &mut SyntaxHighlighter::default(),
+            DiffPreviewOptions {
+                max_content_rows: budget,
+                view_mode: ViewMode::Unified,
+                include_hunk_headers: false,
+                ..Default::default()
+            },
+        );
+        assert_eq!(rows.len(), count);
+        if count <= budget {
+            assert!(rows.iter().all(|row| !row.to_string().contains('…')));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn wrapped_tabs_unicode_and_styles_match_expanded_source() -> Result<(), Box<dyn Error>> {
+    let theme = ReviewTheme::default();
+    let options = DiffPreviewOptions {
+        view_mode: ViewMode::Unified,
+        include_hunk_headers: false,
+        tab_width: 4,
+        ..Default::default()
+    };
+    let mut actual = DiffPreviewState::new(FileDiff::from_texts(
+        "example.rs",
+        "",
+        "\tlet a = \"界e\u{301}👩‍💻\";  \n",
+    )?);
+    let mut expanded = DiffPreviewState::new(FileDiff::from_texts(
+        "example.rs",
+        "",
+        "    let a = \"界e\u{301}👩‍💻\";  \n",
+    )?);
+    let mut highlighter = SyntaxHighlighter::default();
+    for width in [11, 13, 80, 13] {
+        let rows = actual.render(width, &theme, &mut highlighter, options);
+        assert_eq!(
+            rows,
+            expanded.render(width, &theme, &mut highlighter, options)
+        );
+        assert!(rows.iter().all(|row| row.width() == usize::from(width)));
+        assert!(rows.iter().any(|row| row.to_string().contains("e\u{301}")));
+        assert!(rows.iter().any(|row| row.to_string().contains("👩‍💻")));
+        let cached = actual.render(width, &theme, &mut highlighter, options);
+        assert!(Arc::ptr_eq(&rows, &cached));
+    }
+    Ok(())
+}
+
+#[test]
+fn split_wrapped_rows_keep_diff_backgrounds_on_padding() -> Result<(), Box<dyn Error>> {
+    let long = format!("{}\n", "x".repeat(110));
+    assert_split_backgrounds("", &long, &[(None, Some(DiffTone::Added)); 3])?;
+    assert_split_backgrounds(&long, "", &[(Some(DiffTone::Removed), None); 3])?;
+    assert_split_backgrounds(
+        "short\n",
+        &long,
+        &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3],
+    )?;
+    assert_split_backgrounds(
+        &long,
+        "short\n",
+        &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3],
+    )
+}
+
+fn text(rows: &[Line<'_>]) -> Vec<String> {
+    rows.iter().map(ToString::to_string).collect()
 }
 
 fn assert_split_backgrounds(

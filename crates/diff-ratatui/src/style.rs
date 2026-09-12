@@ -1,13 +1,16 @@
 //! Ratatui conversions for renderer-neutral diff themes.
 
-use crate::color::{composite_color, native_color};
+use crate::color::{composite_color, native_color, page_color};
 use clankerdiff_core::DiffTone;
 use clankerdiff_theme::FontStyle;
 use clankerdiff_theme::{
     ButtonVariant, ControlState, ModalSize, NoticeTone, ReviewTheme, Rgba, SelectionState,
     SemanticStyle, UiPalette,
 };
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::Span,
+};
 
 /// Ratatui adapter for shared semantic component states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,6 +156,15 @@ impl From<&ReviewTheme> for RatatuiTheme {
             deletion_background: color(palette.deletion_background),
         }
     }
+}
+
+pub(crate) fn diff_indicator(tone: DiffTone, theme: &ReviewTheme, base: Style) -> Span<'static> {
+    let (symbol, foreground) = match tone {
+        DiffTone::Added => ("▌", theme.diff.addition),
+        DiffTone::Removed => ("▌", theme.diff.deletion),
+        DiffTone::Context | DiffTone::Meta => (" ", theme.diff.gutter),
+    };
+    Span::styled(symbol, base.fg(page_color(theme, foreground)))
 }
 
 pub(crate) fn syntax_style(foreground: Rgba, font: FontStyle, background: Color) -> Style {
