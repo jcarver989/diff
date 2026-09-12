@@ -4,6 +4,7 @@ pub mod content;
 pub mod error;
 pub mod models;
 pub mod parser;
+pub mod patch;
 pub mod presentation;
 pub mod review;
 pub mod session;
@@ -28,6 +29,7 @@ pub use models::{
     PatchLineKind, RepoPath, StageState,
 };
 pub use parser::{GitStatusEntry, UntrackedFile, parse_git_diff, parse_porcelain_v1_z};
+pub use patch::{PatchError, git_patch_from_texts};
 pub use presentation::{
     CellContext, ContentProjection, DiffPresentation, DiffTone, GapExpansion, GapId, GapInfo,
     GapInterval, HunkSequence, Layout, MAX_HUNK_SEQUENCE_LINES, PresentationOptions, PresentedCell,
