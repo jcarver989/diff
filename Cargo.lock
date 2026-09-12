@@ -1793,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-cli"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1816,7 +1816,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-core"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
@@ -1830,7 +1830,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-fingerprint"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "blake3",
  "serde",
@@ -1840,7 +1840,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-git"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1852,7 +1852,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1864,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-desktop"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1884,7 +1884,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-web"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -1903,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-markdown"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
@@ -1915,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-protocol"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1926,7 +1926,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ratatui"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "bitflags 2.13.2",
  "clankerdiff-core",
@@ -1948,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-syntax"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "arborium-asm",
  "arborium-bash",
@@ -2024,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-theme"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
@@ -2035,7 +2035,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-watch"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
