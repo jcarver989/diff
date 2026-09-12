@@ -32,7 +32,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
       - uses: Swatinem/rust-cache@v2
       - name: Publish libraries and create release tags
-        uses: release-plz/action@v0.5.131
+        uses: release-plz/action@v0.5.133
         with:
           command: release
         env:
@@ -63,7 +63,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
       - uses: Swatinem/rust-cache@v2
       - name: Open or update the release PR
-        uses: release-plz/action@v0.5.131
+        uses: release-plz/action@v0.5.133
         with:
           command: release-pr
         env:
