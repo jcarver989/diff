@@ -21,10 +21,10 @@ crossterm = { workspace = true, optional = true }
 imbl.workspace = true
 similar.workspace = true
 thiserror.workspace = true
-clankerdiff-core = { version = "0.1.7", path = "../diff-core" }
-clankerdiff-markdown = { version = "0.1.7", path = "../diff-markdown", features = ["review"] }
-clankerdiff-syntax = { version = "0.1.7", path = "../diff-syntax" }
-clankerdiff-theme = { version = "0.1.7", path = "../diff-theme" }
+clankerdiff-core = { version = "0.1.8", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.1.8", path = "../diff-markdown", features = ["review"] }
+clankerdiff-syntax = { version = "0.1.8", path = "../diff-syntax" }
+clankerdiff-theme = { version = "0.1.8", path = "../diff-theme" }
 ratatui.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
