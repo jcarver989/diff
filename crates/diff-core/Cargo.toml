@@ -14,8 +14,8 @@ test-support = []
 workspace = true
 
 [dependencies]
-clankerdiff-fingerprint = { version = "0.1.7", path = "../diff-fingerprint" }
-clankerdiff-theme = { version = "0.1.7", path = "../diff-theme" }
+clankerdiff-fingerprint = { version = "0.1.8", path = "../diff-fingerprint" }
+clankerdiff-theme = { version = "0.1.8", path = "../diff-theme" }
 diffy.workspace = true
 serde.workspace = true
 similar.workspace = true
