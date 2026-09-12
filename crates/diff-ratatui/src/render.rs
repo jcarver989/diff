@@ -5,15 +5,15 @@ use crate::{
     annotation::render_annotation_line,
     color::page_color,
     drawer::{DrawerEntry, DrawerTree},
-    patch_layout::PatchVisualRow,
+    patch_layout::{PatchContentLayout, PatchVisualRow},
     state::{HitLayout, RepositoryPrompt},
     style::syntax_style,
-    text::{FitOptions, fit_spans},
+    text::{FitOptions, fit_spans_from},
     theme_picker::render_theme_picker,
     ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use clankerdiff_core::{DiffTone, PresentedCell, PresentedRow, RowKind};
+use clankerdiff_core::{DiffSide, DiffTone, PresentedCell, PresentedRow, RowKind};
 use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
 use ratatui::{
@@ -27,7 +27,6 @@ use ratatui::{
 const DRAWER_BREAKPOINT: u16 = 72;
 const DRAWER_MIN_WIDTH: u16 = 20;
 const DRAWER_MAX_WIDTH: u16 = 36;
-const GUTTER_WIDTH: u16 = 6;
 
 /// Embeddable stateful diff review widget.
 #[derive(Debug, Clone)]
@@ -145,9 +144,11 @@ fn render_document(
 }
 
 fn render_separator(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
-    Paragraph::new("│")
-        .style(Style::new().fg(theme.ui.border).bg(theme.ui.canvas))
-        .render(area, buffer);
+    for y in area.top()..area.bottom() {
+        Paragraph::new("│")
+            .style(Style::new().fg(theme.ui.border).bg(theme.ui.canvas))
+            .render(Rect::new(area.x, y, area.width, 1), buffer);
+    }
 }
 
 #[expect(clippy::too_many_lines, reason = "tree row rendering is kept together")]
@@ -318,35 +319,37 @@ fn render_patch(
     let selected_row = session.selected_row();
     let selected_side = session.selected_side();
     let layout = session.layout();
-
-    for (drawn, visual_index) in (*scroll..visual_layout.len()).enumerate() {
-        let y = area
-            .y
-            .saturating_add(u16::try_from(drawn).unwrap_or(u16::MAX));
-        if y >= area.bottom() {
-            break;
-        }
+    let mut visual_index = *scroll;
+    let mut y = area.y;
+    while y < area.bottom() {
+        let mut height = 1;
         let row_area = Rect::new(area.x, y, area.width, 1);
         match visual_layout.row(visual_index) {
-            Some(PatchVisualRow::Source(index)) => {
+            Some(PatchVisualRow::Source { index, segment }) => {
                 let Some(row) = presentation.row(index) else {
-                    continue;
+                    break;
                 };
+                let Some(range) = visual_layout.content().content_range_for_source(index) else {
+                    break;
+                };
+                height = u16::try_from((range.len() - segment).min(usize::from(area.bottom() - y)))
+                    .unwrap_or(u16::MAX);
                 let mut context = CellContext {
                     theme,
                     diff_theme,
                     highlighter,
                     presentation,
                     row,
+                    source: index,
+                    first_segment: segment,
+                    patch_layout: visual_layout.content(),
                     tab_width: options.tab_width,
                 };
                 let selected = selected_row == Some(index) && *focus == FocusPane::Diff;
                 render_row(
-                    row_area,
+                    Rect::new(area.x, y, area.width, height),
                     buffer,
                     &mut context,
-                    index,
-                    row,
                     &RowStyle {
                         selected,
                         selected_side,
@@ -354,7 +357,7 @@ fn render_patch(
                         file_stats: file_stats(session, row),
                     },
                 );
-                visible_rows.push((y, index));
+                visible_rows.extend((y..y + height).map(|screen_y| (screen_y, index)));
             }
             Some(PatchVisualRow::Annotation {
                 source,
@@ -374,6 +377,8 @@ fn render_patch(
             }
             None => break,
         }
+        visual_index += usize::from(height);
+        y += height;
     }
     render_vertical_scrollbar(
         track,
@@ -396,7 +401,7 @@ fn file_stats(
 
 struct RowStyle {
     selected: bool,
-    selected_side: clankerdiff_core::DiffSide,
+    selected_side: DiffSide,
     layout: clankerdiff_core::Layout,
     file_stats: Option<(usize, usize)>,
 }
@@ -408,16 +413,13 @@ struct CellContext<'a> {
     highlighter: &'a mut SyntaxHighlighter,
     presentation: &'a clankerdiff_core::DiffPresentation,
     row: &'a PresentedRow,
+    source: usize,
+    first_segment: usize,
+    patch_layout: &'a PatchContentLayout,
 }
 
-fn render_row(
-    area: Rect,
-    buffer: &mut Buffer,
-    context: &mut CellContext<'_>,
-    row_index: usize,
-    row: &PresentedRow,
-    style: &RowStyle,
-) {
+fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, style: &RowStyle) {
+    let row = context.row;
     match row.kind {
         RowKind::FileHeader => {
             let text = row.primary_cell().map_or("", |cell| cell.text.as_ref());
@@ -446,7 +448,7 @@ fn render_row(
                 .render(area, buffer);
         }
         RowKind::ExpandGap => {
-            let text = context.presentation.gap_info(row_index).map_or_else(
+            let text = context.presentation.gap_info(context.source).map_or_else(
                 || " ⋯ unchanged lines".to_owned(),
                 |info| {
                     let message = if info.unavailable.is_none() {
@@ -470,12 +472,12 @@ fn render_row(
                 .render(area, buffer);
         }
         RowKind::Code | RowKind::ExpandedContext if style.layout.is_split() => {
-            let left_width = area.width.saturating_sub(1) / 2;
-            let right_width = area.width.saturating_sub(left_width + 1);
+            let geometry = context.patch_layout.geometry();
+            let separator_width = u16::from(area.width > 0);
             let [left, separator, right] = Layout::horizontal([
-                Constraint::Length(left_width),
-                Constraint::Length(1),
-                Constraint::Length(right_width),
+                Constraint::Length(geometry.left.width),
+                Constraint::Length(separator_width),
+                Constraint::Length(geometry.right.width),
             ])
             .areas(area);
             let focused = |side| style.selected && style.selected_side == side;
@@ -484,7 +486,8 @@ fn render_row(
                 buffer,
                 context,
                 row.left.as_ref(),
-                focused(clankerdiff_core::DiffSide::Old),
+                focused(DiffSide::Old),
+                DiffSide::Old,
             );
             render_separator(separator, buffer, context.theme);
             render_cell(
@@ -492,11 +495,19 @@ fn render_row(
                 buffer,
                 context,
                 row.right.as_ref(),
-                focused(clankerdiff_core::DiffSide::New),
+                focused(DiffSide::New),
+                DiffSide::New,
             );
         }
         RowKind::Code | RowKind::ExpandedContext => {
-            render_cell(area, buffer, context, row.primary_cell(), style.selected);
+            render_cell(
+                area,
+                buffer,
+                context,
+                row.primary_cell(),
+                style.selected,
+                DiffSide::New,
+            );
         }
     }
 }
@@ -507,6 +518,7 @@ fn render_cell(
     context: &mut CellContext<'_>,
     cell: Option<&PresentedCell>,
     selected: bool,
+    side: DiffSide,
 ) {
     let tone = cell.map_or(DiffTone::Context, |cell| cell.tone);
     let (foreground, tone_background) = context.theme.tone(tone);
@@ -519,17 +531,17 @@ fn render_cell(
     let Some(cell) = cell else {
         return;
     };
-    let number = cell
-        .line_number()
-        .map_or_else(String::new, |number| number.to_string());
-    let indicator = match tone {
-        DiffTone::Added | DiffTone::Removed => '▌',
-        DiffTone::Context | DiffTone::Meta => ' ',
+    let Some(checkpoint) =
+        context
+            .patch_layout
+            .checkpoint(context.source, side, context.first_segment)
+    else {
+        return;
     };
-    let gutter = format!(
-        "{indicator}{number:>width$} ",
-        width = usize::from(GUTTER_WIDTH) - 2,
-    );
+    let geometry = match side {
+        DiffSide::Old => context.patch_layout.geometry().left,
+        DiffSide::New => context.patch_layout.geometry().right,
+    };
     let highlights = crate::diff_preview::cell_highlights(
         context.highlighter,
         &context.diff_theme.syntax,
@@ -537,34 +549,58 @@ fn render_cell(
         context.row,
         cell,
     );
-    let gutter_foreground = match tone {
-        DiffTone::Added => context.theme.addition,
-        DiffTone::Removed => context.theme.deletion,
-        DiffTone::Context | DiffTone::Meta => context.theme.gutter,
-    };
-    let mut spans = vec![Span::styled(
-        gutter,
-        Style::new().fg(gutter_foreground).bg(background),
-    )];
     let source_spans = highlighted_spans(&cell.text, &highlights, background);
-    if cell.text.contains('\t') {
-        let line = fit_spans(
-            source_spans,
-            FitOptions {
-                width: usize::from(area.width).saturating_sub(spans[0].width()),
-                wrap: false,
-                tab_width: usize::from(context.tab_width),
-                continuation: "",
-            },
-        )
-        .into_iter()
-        .next()
-        .unwrap_or_default();
-        spans.extend(line.spans);
-    } else {
-        spans.extend(source_spans);
+    let lines = fit_spans_from(
+        source_spans,
+        FitOptions {
+            width: geometry.content_width,
+            wrap: true,
+            tab_width: usize::from(context.tab_width),
+            continuation: "",
+        },
+        checkpoint,
+    );
+    for (local_row, (line, _)) in lines.take(usize::from(area.height)).enumerate() {
+        let segment = context.first_segment + local_row;
+        let y = area.y + u16::try_from(local_row).unwrap_or(u16::MAX);
+        let number = if segment == 0 {
+            cell.line_number()
+                .map_or_else(String::new, |number| number.to_string())
+        } else {
+            "↪".to_owned()
+        };
+        let indicator = match tone {
+            DiffTone::Added | DiffTone::Removed => '▌',
+            DiffTone::Context | DiffTone::Meta => ' ',
+        };
+        let gutter = format!(
+            "{indicator}{number:>width$} ",
+            width = usize::from(geometry.gutter_width).saturating_sub(2),
+        );
+        let gutter_foreground = match tone {
+            DiffTone::Added => context.theme.addition,
+            DiffTone::Removed => context.theme.deletion,
+            DiffTone::Context | DiffTone::Meta => context.theme.gutter,
+        };
+        let gutter_foreground = if segment == 0 {
+            gutter_foreground
+        } else {
+            context.theme.ui.text_muted
+        };
+        let gutter_area = Rect::new(area.x, y, geometry.gutter_width.min(area.width), 1);
+        Paragraph::new(Span::styled(
+            gutter,
+            Style::new().fg(gutter_foreground).bg(background),
+        ))
+        .render(gutter_area, buffer);
+        let source_area = Rect::new(
+            area.x.saturating_add(gutter_area.width),
+            y,
+            area.width.saturating_sub(gutter_area.width),
+            1,
+        );
+        Paragraph::new(line).render(source_area, buffer);
     }
-    Paragraph::new(Line::from(spans)).render(area, buffer);
 }
 
 fn highlighted_spans<'a>(

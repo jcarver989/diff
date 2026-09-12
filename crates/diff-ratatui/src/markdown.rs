@@ -7,7 +7,7 @@ use crate::{
         MarkdownRowUpdate, RowCheckpoint, RowChunk, RowStore, TargetIndex,
     },
     syntax::highlighted_line,
-    text::{FitOptions, FitPosition, fit_spans, fit_spans_from},
+    text::{FitOptions, FitPosition, fit_spans_from},
 };
 use clankerdiff_core::SourceSequenceId;
 pub use clankerdiff_markdown::{
@@ -1289,11 +1289,8 @@ impl RowOutput {
                 }
             }
         }
-        for (line, position) in fit_spans_from(
-            spans,
-            self.fit_options(self.options.width, continuation),
-            from,
-        ) {
+        let options = self.fit_options(self.options.width, continuation);
+        for (line, position) in fit_spans_from(spans, options, from) {
             self.rows.push(Arc::new(MarkdownRow {
                 line,
                 source: Some(origin.source.clone()),
@@ -1590,10 +1587,13 @@ fn render_table(
             .iter()
             .enumerate()
             .map(|(index, cell)| {
-                fit_spans(
+                fit_spans_from(
                     inline_spans(&cell.content, base, theme),
                     output.fit_options(u16::try_from(widths[index]).unwrap_or(u16::MAX), ""),
+                    FitPosition::default(),
                 )
+                .map(|(line, _)| line)
+                .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
         let height = cells.iter().map(Vec::len).max().unwrap_or(1);

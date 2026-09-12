@@ -24,6 +24,16 @@ fn large_document(rows: usize) -> Arc<DiffDocument> {
         .build()
 }
 
+fn long_line_document(bytes: usize) -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .changed(
+            "src/long.rs",
+            "",
+            &format!("{}\n", "identifier_".repeat(bytes / 11)),
+        )
+        .build()
+}
+
 fn many_file_document(files: usize, rows_per_file: usize) -> Arc<DiffDocument> {
     DocumentBuilder::new()
         .generated_files(files, rows_per_file)
@@ -89,8 +99,35 @@ fn rendering(criterion: &mut Criterion) {
 
     let mut split = ReviewHarness::new(document.clone(), 140, 40);
     split.draw();
+    if !split.state().session().layout().is_split() {
+        split.input_and_draw(key(KeyCode::Char('v')));
+    }
+    assert!(split.state().session().layout().is_split());
     group.bench_function("warm_split_140x40", |bencher| {
         bencher.iter(|| black_box(split.draw()));
+    });
+
+    let long_line = long_line_document(100_000);
+    group.bench_function("cold_wrapped_line_80x24", |bencher| {
+        bencher.iter_batched(
+            || ReviewHarness::new(long_line.clone(), 80, 24),
+            |mut harness| black_box(harness.draw()),
+            BatchSize::SmallInput,
+        );
+    });
+    let mut warm_long = ReviewHarness::new(long_line, 80, 24);
+    warm_long.draw();
+    group.bench_function("warm_wrapped_line_80x24", |bencher| {
+        bencher.iter(|| black_box(warm_long.draw()));
+    });
+
+    warm_long.input(key(KeyCode::Enter));
+    for _ in 0..20 {
+        warm_long.input_and_draw(key(KeyCode::PageDown));
+    }
+    assert!(warm_long.state().scroll_offset() > 100);
+    group.bench_function("warm_deep_wrapped_line_80x24", |bencher| {
+        bencher.iter(|| black_box(warm_long.draw()));
     });
 
     let mut cached_navigation = ReviewHarness::new(document.clone(), 100, 24);

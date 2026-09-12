@@ -1,11 +1,12 @@
-use clankerdiff_core::{DiffReviewEvent, testing::DocumentBuilder};
+use clankerdiff_core::{DiffReviewEvent, ViewMode, testing::DocumentBuilder};
 use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ratatui::{
-    DiffReviewState, DiffReviewWidget, InputOutcome, InteractionPhase, KeyCode, KeyEvent,
-    KeyModifiers, MarkdownReviewState, MouseEvent, MouseEventKind, ReviewInput, ThemeChoice,
+    DiffReviewCommand, DiffReviewState, DiffReviewWidget, InputOutcome, InteractionPhase, KeyCode,
+    KeyEvent, KeyModifiers, MarkdownReviewState, MouseEvent, MouseEventKind, NavigationPane,
+    ReviewInput, ReviewOptions, ThemeChoice,
 };
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
-use std::{error::Error, sync::Arc};
+use std::{error::Error, fmt::Write, sync::Arc};
 
 #[test]
 fn portable_review_routes_input_without_a_terminal() -> Result<(), Box<dyn Error>> {
@@ -88,6 +89,120 @@ fn markdown_drafts_use_portable_input() -> Result<(), Box<dyn Error>> {
         state.handle_input(key(KeyCode::F(1)))?,
         InputOutcome::Ignored
     ));
+    Ok(())
+}
+
+#[test]
+fn deep_scrolling_preserves_source_content_and_logical_selection() -> Result<(), Box<dyn Error>> {
+    let mut source = String::new();
+    for index in 0..100 {
+        write!(source, "{index:04}_")?;
+    }
+    let document = DocumentBuilder::new()
+        .changed(
+            "long.rs",
+            "context\nshort\n",
+            &format!("context\n{source}\n"),
+        )
+        .build();
+    let make_state = || {
+        let mut state = DiffReviewState::new(document.clone());
+        state.set_options(ReviewOptions {
+            navigation: NavigationPane::Hidden,
+            footer: false,
+            ..Default::default()
+        });
+        state.set_view_mode(ViewMode::Split);
+        state
+    };
+    let mut state = make_state();
+    let mut reference_state = make_state();
+    let tall_area = Rect::new(0, 0, 40, 100);
+    let mut reference = Buffer::empty(tall_area);
+    DiffReviewWidget::new()
+        .borders(false)
+        .render(tall_area, &mut reference, &mut reference_state);
+    let area = Rect::new(0, 0, 40, 6);
+    let mut buffer = Buffer::empty(area);
+    DiffReviewWidget::new()
+        .borders(false)
+        .render(area, &mut buffer, &mut state);
+    let selected = state.selected_row();
+    for _ in 0..3 {
+        let _ = state.handle_input(key(KeyCode::PageDown));
+        buffer.reset();
+        DiffReviewWidget::new()
+            .borders(false)
+            .render(area, &mut buffer, &mut state);
+    }
+    let offset = u16::try_from(state.scroll_offset())?;
+    assert!(offset > area.height);
+    assert_eq!(state.selected_row(), selected);
+    for y in 0..area.height {
+        for x in 26..39 {
+            assert_eq!(
+                buffer[(x, y)].symbol(),
+                reference[(x, y + offset)].symbol(),
+                "at {x},{y}"
+            );
+        }
+    }
+    let expected = state
+        .presentation()
+        .rows(0..state.presentation().row_count())
+        .iter()
+        .position(|row| row.cells().any(|cell| cell.text.as_ref() == source))
+        .ok_or("missing logical row")?;
+    let _ = state.handle_input(ReviewInput::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(clankerdiff_ratatui::MouseButton::Left),
+        column: 2,
+        row: 2,
+        modifiers: KeyModifiers::NONE,
+    }));
+    assert_eq!(state.selected_row(), Some(expected));
+    assert_eq!(state.scroll_offset(), usize::from(offset));
+    Ok(())
+}
+
+#[test]
+fn viewport_starting_inside_a_comment_keeps_source_hit_mapping() -> Result<(), Box<dyn Error>> {
+    let mut state = DiffReviewState::new(
+        DocumentBuilder::new()
+            .changed("note.rs", "", "source\nnext\n")
+            .build(),
+    );
+    state.set_options(ReviewOptions {
+        navigation: NavigationPane::Hidden,
+        footer: false,
+        ..Default::default()
+    });
+    let source = state.selected_row().ok_or("missing selected source")?;
+    let anchor = state.session().selected_anchor().ok_or("missing anchor")?;
+    let mut comment = String::new();
+    for line in 0..20 {
+        writeln!(comment, "note {line}")?;
+    }
+    state.review_mut().add_comment(anchor, comment);
+    state.handle_command(DiffReviewCommand::SelectRow(source + 1));
+    let area = Rect::new(0, 0, 30, 6);
+    let mut buffer = Buffer::empty(area);
+    DiffReviewWidget::new()
+        .borders(false)
+        .render(area, &mut buffer, &mut state);
+    let _ = state.handle_input(key(KeyCode::PageUp));
+    buffer.reset();
+    DiffReviewWidget::new()
+        .borders(false)
+        .render(area, &mut buffer, &mut state);
+    let top: String = (0..area.width).map(|x| buffer[(x, 0)].symbol()).collect();
+    assert!(top.contains("note"), "{top}");
+    let _ = state.handle_input(ReviewInput::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(clankerdiff_ratatui::MouseButton::Left),
+        column: 3,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    }));
+    assert_eq!(state.selected_row(), Some(source));
     Ok(())
 }
 

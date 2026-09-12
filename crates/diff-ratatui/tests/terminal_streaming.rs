@@ -483,6 +483,49 @@ fn partial_row_checkpoints_survive_repeated_resizes_and_commits() -> TestResult 
 }
 
 #[test]
+fn hard_break_checkpoint_resumes_with_the_quote_prefix() -> TestResult {
+    let mut fixture = MarkdownStreamFixture::terminal();
+    fixture.options.width = 4;
+    fixture.stream.push("> a  \n> bcdef");
+    fixture.apply_update();
+    let text = |rows: &[Arc<MarkdownRow>]| {
+        rows.iter()
+            .map(|row| row.line.to_string())
+            .collect::<Vec<_>>()
+    };
+    fixture.state.commit_rows(fixture.revision, 1)?;
+    fixture.stream.push("g");
+    fixture.apply_update();
+    assert_eq!(text(&fixture.host), ["│ a", "│ bc", "│ de", "│ fg"]);
+    Ok(())
+}
+
+#[test]
+fn partial_tab_checkpoint_survives_append_and_resize() -> TestResult {
+    let mut fixture = MarkdownStreamFixture::terminal();
+    fixture.options.presentation = MarkdownPresentation::SourceLines;
+    fixture.options.width = 2;
+    fixture.options.tab_width = 8;
+    fixture.stream.push("a\tb");
+    fixture.apply_update();
+    fixture.state.commit_rows(fixture.revision, 1)?;
+    for (width, suffix, expected) in [(3, "c", "a       bc"), (1, "d\n", "a       bcd")] {
+        fixture.options.width = width;
+        fixture.stream.push(suffix);
+        fixture.apply_update();
+        assert_eq!(
+            fixture
+                .host
+                .iter()
+                .map(|row| row.line.to_string())
+                .collect::<String>(),
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn source_line_caches_follow_width_and_theme_changes() -> TestResult {
     let mut fixture = MarkdownStreamFixture::from_source(
         "# Heading\n\nA **styled** paragraph with enough text to wrap.\n\n```rust\nlet value = 123;\n```\n",

@@ -2,8 +2,8 @@
 
 mod support;
 
-use clankerdiff_core::{DiffDocument, testing::DocumentBuilder};
-use clankerdiff_ratatui::{KeyCode, MouseEventKind};
+use clankerdiff_core::{DiffDocument, ViewMode, testing::DocumentBuilder};
+use clankerdiff_ratatui::{KeyCode, MouseEventKind, NavigationPane, ReviewOptions};
 use clankerdiff_syntax::{Fingerprint, SyntaxError, SyntaxHighlighter, SyntaxTheme};
 use clankerdiff_theme::ReviewTheme;
 use std::{error::Error, fmt::Write, str, sync::Arc};
@@ -20,6 +20,38 @@ fn settled_frame_emits_no_terminal_cells_and_reuses_highlights() {
     assert_eq!(settled.backend.cells_drawn, 0);
     assert_eq!(settled.highlight_misses, 0);
     assert_eq!(settled.highlight_calls, settled.highlight_hits);
+}
+
+#[test]
+fn wrapped_cells_are_highlighted_once_per_visible_side() {
+    for split in [false, true] {
+        let source = format!("{}\n", "identifier_".repeat(1000));
+        let document = DocumentBuilder::new()
+            .changed(
+                "long.rs",
+                &source,
+                &source.replace("identifier", "replacement"),
+            )
+            .build();
+        let mut harness = ReviewHarness::new(document, 80, 12);
+        harness.state_mut().set_options(ReviewOptions {
+            navigation: NavigationPane::Hidden,
+            footer: false,
+            ..Default::default()
+        });
+        harness.state_mut().set_view_mode(if split {
+            ViewMode::Split
+        } else {
+            ViewMode::Unified
+        });
+        harness.draw();
+        for _ in 0..5 {
+            harness.input_and_draw(key(KeyCode::PageDown));
+        }
+        assert!(harness.state().scroll_offset() > 20);
+        let settled = harness.draw();
+        assert_eq!(settled.highlight_calls, if split { 2 } else { 1 });
+    }
 }
 
 #[test]
@@ -160,21 +192,24 @@ fn moving_one_row_changes_only_a_bounded_screen_region() {
 }
 
 #[test]
-fn one_wheel_notch_changes_only_a_bounded_screen_region() {
+fn one_wheel_notch_scrolls_without_moving_selection() {
     const WIDTH: u16 = 100;
+    const HEIGHT: u16 = 24;
     const PATCH_COLUMN: u16 = 60;
-    let mut harness = ReviewHarness::new(large_document(10_000), WIDTH, 24);
+    let mut harness = ReviewHarness::new(large_document(10_000), WIDTH, HEIGHT);
     harness.draw();
     harness.input(key(KeyCode::Enter));
     harness.draw();
+    let selected = harness.state().selected_row();
 
     let moved = harness.input_and_draw(mouse(MouseEventKind::ScrollDown, PATCH_COLUMN, 5));
     assert!(
-        moved.backend.cells_drawn <= u64::from(WIDTH) * 3,
+        moved.backend.cells_drawn <= u64::from(WIDTH) * u64::from(HEIGHT),
         "one wheel notch changed {} cells",
         moved.backend.cells_drawn
     );
-    assert_eq!(moved.highlight_misses, 0);
+    assert_eq!(harness.state().selected_row(), selected);
+    assert!(moved.highlight_misses <= 2);
 }
 
 #[test]
