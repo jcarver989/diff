@@ -1,0 +1,72 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps):"
+    directory: /
+    cooldown:
+      default-days: 7
+  - package-ecosystem: github-actions
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps):"
+    ignore:
+      - dependency-name: actions/upload-artifact
+      - dependency-name: actions/download-artifact
+    directory: /
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+  - package-ecosystem: npm
+    groups:
+      npm-production-minor-patch:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+      npm-development-minor-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps):"
+    directory: /crates/diff-gpui-web
+    cooldown:
+      default-days: 7
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      rust-toolchain-minor-patch:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
