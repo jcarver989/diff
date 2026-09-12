@@ -2,7 +2,7 @@ use crate::{
     DiffReviewCommand, InteractionPhase, KeyBinding, NavigationPane, ReviewOptions, ThemeChoice,
     default_diff_keybindings,
     drawer::{DrawerEntry, DrawerTree},
-    patch_layout::PatchVisualLayout,
+    patch_layout::{PatchContentLayout, PatchVisualLayout},
     theme_picker::ThemePicker,
 };
 use clankerdiff_core::{
@@ -73,6 +73,12 @@ struct CachedPatchLayout {
     layout: Arc<PatchVisualLayout>,
 }
 
+#[derive(Debug)]
+struct CachedPatchContent {
+    key: u64,
+    layout: Arc<PatchContentLayout>,
+}
+
 /// Persistent state for [`crate::DiffReviewWidget`].
 #[derive(Debug)]
 pub struct DiffReviewState {
@@ -94,6 +100,7 @@ pub struct DiffReviewState {
     pub(crate) scroll: usize,
     pub(crate) last_height: usize,
     pub(crate) presentation_width: u16,
+    patch_content: Option<CachedPatchContent>,
     patch_layout: Option<CachedPatchLayout>,
     pub(crate) help: bool,
     pub(crate) help_scroll: usize,
@@ -141,6 +148,7 @@ impl DiffReviewState {
             scroll: 0,
             last_height: 0,
             presentation_width: 0,
+            patch_content: None,
             patch_layout: None,
             help: false,
             help_scroll: 0,
@@ -728,17 +736,34 @@ impl DiffReviewState {
 
     pub(crate) fn patch_visual_layout(&mut self) -> Option<Arc<PatchVisualLayout>> {
         let range = self.session.selected_file_range()?;
-        let key = self.patch_layout_key(&range);
-        let rebuild = self
+        let content_key = self.patch_content_key(&range);
+        if self
+            .patch_content
+            .as_ref()
+            .is_none_or(|cached| cached.key != content_key)
+        {
+            self.patch_content = Some(CachedPatchContent {
+                key: content_key,
+                layout: Arc::new(PatchContentLayout::new(
+                    self.session.presentation(),
+                    range,
+                    self.presentation_width,
+                    self.options.tab_width,
+                )),
+            });
+        }
+        let content = self.patch_content.as_ref()?.layout.clone();
+        let key = self.patch_annotation_key(content_key);
+        if self
             .patch_layout
             .as_ref()
-            .is_none_or(|cached| cached.key != key);
-        if rebuild {
+            .is_none_or(|cached| cached.key != key)
+        {
             self.patch_layout = Some(CachedPatchLayout {
                 key,
                 layout: Arc::new(PatchVisualLayout::new(
                     &self.session,
-                    range,
+                    content,
                     self.presentation_width,
                 )),
             });
@@ -748,14 +773,21 @@ impl DiffReviewState {
             .map(|cached| cached.layout.clone())
     }
 
-    fn patch_layout_key(&self, range: &std::ops::Range<usize>) -> u64 {
+    fn patch_content_key(&self, range: &std::ops::Range<usize>) -> u64 {
         let mut hasher = DefaultHasher::new();
         (Arc::as_ptr(self.document()) as usize).hash(&mut hasher);
         self.presentation_width.hash(&mut hasher);
         self.layout().is_split().hash(&mut hasher);
+        self.options.tab_width.hash(&mut hasher);
         self.session.projection_revision().hash(&mut hasher);
         range.start.hash(&mut hasher);
         range.end.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn patch_annotation_key(&self, content_key: u64) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        content_key.hash(&mut hasher);
         for comment in self.review().comments() {
             comment.id.hash(&mut hasher);
             comment.anchor.hash(&mut hasher);
@@ -781,8 +813,10 @@ impl DiffReviewState {
         {
             if self.session.presentation().gap_info(index).is_some() {
                 self.reveal_selected_gap(RevealAmount::Step);
+            } else {
+                self.mark_dirty();
+                self.follow_pending = false;
             }
-            self.request_follow();
         }
     }
 }

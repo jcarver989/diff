@@ -181,12 +181,23 @@ fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn 
             &mut SyntaxHighlighter::default(),
             DiffPreviewOptions {
                 view_mode: ViewMode::Auto,
+                include_hunk_headers: false,
                 ..DiffPreviewOptions::default()
             },
         );
         assert!(
             rows.iter().all(|row| row.width() <= usize::from(width)),
             "width: {width}"
+        );
+        assert_eq!(
+            rows.len(),
+            if width == 0 {
+                0
+            } else if width < 96 {
+                2
+            } else {
+                1
+            }
         );
     }
     Ok(())

@@ -4,6 +4,7 @@ use clankerdiff_markdown::MarkdownStream;
 use clankerdiff_ratatui::{
     MarkdownLayoutOptions, MarkdownPresentation, testing::MarkdownStreamFixture,
 };
+use ratatui::style::Modifier;
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -175,22 +176,78 @@ fn finishing_and_resuming_without_source_changes_do_not_repeat_work() {
 }
 
 #[test]
-fn tab_expansion_survives_tiny_wrapped_widths() {
-    let mut fixture =
-        MarkdownStreamFixture::from_source("a\tb").with_options(MarkdownLayoutOptions {
-            width: 2,
-            tab_width: 4,
-            presentation: MarkdownPresentation::SourceLines,
-            ..MarkdownLayoutOptions::default()
-        });
-    let layout = fixture.layout();
-    assert!(layout.rows().iter().all(|row| row.line.width() <= 2));
-    assert_eq!(
-        layout
+fn source_fitting_preserves_text_within_the_requested_width() {
+    for (source, width, wrap, expected) in [
+        ("", 2, true, vec![""]),
+        ("a\n", 2, true, vec!["a", ""]),
+        ("a\r\nb", 2, true, vec!["a", "b"]),
+        ("e\u{301}👩‍💻界x", 2, true, vec!["e\u{301}", "👩‍💻", "界", "x"]),
+        ("界x", 1, true, vec!["x"]),
+        ("界x", 1, false, vec![""]),
+        ("abc\ndef", 0, true, vec!["", ""]),
+        ("abcdef\nxyz", 2, false, vec!["ab", "xy"]),
+        ("a\tb", 2, true, vec!["a ", "  ", "b"]),
+    ] {
+        let mut fixture =
+            MarkdownStreamFixture::from_source(source).with_options(MarkdownLayoutOptions {
+                width,
+                wrap,
+                presentation: MarkdownPresentation::SourceLines,
+                tab_width: 4,
+                ..Default::default()
+            });
+        let actual: Vec<_> = fixture
+            .layout()
             .rows()
             .iter()
             .map(|row| row.line.to_string())
-            .collect::<String>(),
-        "a   b"
+            .collect();
+        assert_eq!(
+            actual, expected,
+            "source {source:?}, width {width}, wrap {wrap}"
+        );
+    }
+}
+
+#[test]
+fn graphemes_crossing_style_boundaries_remain_intact() -> Result<(), Box<dyn Error>> {
+    let mut fixture = MarkdownStreamFixture::from_source("**e**\u{301}xy");
+    fixture.options.width = 1;
+    let layout = fixture.layout();
+    assert_eq!(
+        layout
+            .row(0)
+            .ok_or("missing combined row")?
+            .line
+            .to_string(),
+        "e\u{301}"
     );
+    assert!(
+        layout.row(0).ok_or("missing combined row")?.line.spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD)
+    );
+    Ok(())
+}
+
+#[test]
+fn continuation_prefixes_leave_room_for_source_text() {
+    for (source, width, expected) in [
+        ("> abcdef", 4, vec!["│ ab", "│ cd", "│ ef"]),
+        ("- abcdef", 4, vec!["• ab", "  cd", "  ef"]),
+        ("> ab", 1, vec!["│", " ", "a", "b"]),
+        ("> ab", 2, vec!["│ ", "│a", "│b"]),
+        ("> a  \n> b", 4, vec!["│ a", "b"]),
+    ] {
+        let mut fixture = MarkdownStreamFixture::from_source(source);
+        fixture.options.width = width;
+        let rows: Vec<_> = fixture
+            .layout()
+            .rows()
+            .iter()
+            .map(|row| row.line.to_string())
+            .collect();
+        assert_eq!(rows, expected, "{source}");
+    }
 }

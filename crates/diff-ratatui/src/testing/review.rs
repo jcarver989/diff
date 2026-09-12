@@ -5,7 +5,7 @@ use crate::KeyCode;
 use crate::{DiffReviewState, DiffReviewWidget, ReviewInput};
 use clankerdiff_core::DiffDocument;
 use clankerdiff_syntax::HighlightStats;
-use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
+use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
 use std::sync::Arc;
 
 /// Deterministic work performed while drawing one frame.
@@ -109,6 +109,13 @@ impl ReviewHarness {
             .expect("infallible test draw");
         let after = self.state.highlight_stats();
         FrameStats::new(self.terminal.backend_mut().take_stats(), before, after)
+    }
+
+    pub fn resize(&mut self, width: u16, height: u16) {
+        self.terminal
+            .resize(Rect::new(0, 0, width, height))
+            .expect("infallible test resize");
+        self.state.mark_dirty();
     }
 
     pub fn input(&mut self, input: ReviewInput) {

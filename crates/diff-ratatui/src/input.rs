@@ -178,7 +178,7 @@ impl DiffReviewState {
             self.focus
         };
         match pane {
-            FocusPane::Diff => self.move_row(direction),
+            FocusPane::Diff => self.scroll_patch(direction),
             FocusPane::Files => self.scroll_drawer(direction),
         }
     }

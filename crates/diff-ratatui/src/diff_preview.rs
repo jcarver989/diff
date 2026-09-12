@@ -3,7 +3,7 @@
 use crate::{
     color::{layered_style, page_color},
     syntax::highlighted_line,
-    text::{FitOptions, fit_spans},
+    text::{FitOptions, FitPosition, fit_spans_from},
 };
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, FileDiff, Layout, PresentationOptions, PresentedCell,
@@ -279,7 +279,7 @@ fn render_cell(
 /// Clips a line to `width` cells and pads it with the line's base style.
 fn fit_line(line: Line<'static>, width: usize, tab_width: u16) -> Line<'static> {
     let base = line.style;
-    let mut fitted = fit_spans(
+    let mut fitted = fit_spans_from(
         line.spans,
         FitOptions {
             width,
@@ -287,9 +287,10 @@ fn fit_line(line: Line<'static>, width: usize, tab_width: u16) -> Line<'static> 
             tab_width: usize::from(tab_width),
             continuation: "",
         },
+        FitPosition::default(),
     )
-    .into_iter()
     .next()
+    .map(|(line, _)| line)
     .unwrap_or_default();
     let used = fitted.width();
     fitted
