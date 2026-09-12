@@ -48,7 +48,7 @@ open = "5.4.2"
 pulldown-cmark = "0.13.0"
 rand = "0.9.5"
 crossterm = "0.29.0"
-criterion = "0.7.0"
+criterion = "0.8.2"
 ratatui = { version = "0.30.0", default-features = false, features = ["std", "layout-cache"] }
 schemars = { version = "1.2.2", features = ["indexmap2"] }
 serde = { version = "1.0.229", features = ["derive", "rc"] }
