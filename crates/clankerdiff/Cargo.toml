@@ -19,16 +19,16 @@ dist = true
 workspace = true
 
 [dependencies]
-clankerdiff-protocol = { version = "0.1.9", path = "../clankerdiff-protocol" }
+clankerdiff-protocol = { version = "0.1.10", path = "../clankerdiff-protocol" }
 clap.workspace = true
 crossterm.workspace = true
-clankerdiff-core = { version = "0.1.9", path = "../diff-core" }
-clankerdiff-git = { version = "0.1.9", path = "../diff-git" }
-clankerdiff-markdown = { version = "0.1.9", path = "../diff-markdown", features = ["review"] }
-clankerdiff-theme = { version = "0.1.9", path = "../diff-theme" }
+clankerdiff-core = { version = "0.1.10", path = "../diff-core" }
+clankerdiff-git = { version = "0.1.10", path = "../diff-git" }
+clankerdiff-markdown = { version = "0.1.10", path = "../diff-markdown", features = ["review"] }
+clankerdiff-theme = { version = "0.1.10", path = "../diff-theme" }
 clankerdiff-gpui-desktop = { version = "0.1.0", path = "../diff-gpui-desktop" }
-clankerdiff-ratatui = { version = "0.1.9", path = "../diff-ratatui", features = ["crossterm-backend"] }
-clankerdiff-watch = { version = "0.1.9", path = "../diff-watch" }
+clankerdiff-ratatui = { version = "0.1.10", path = "../diff-ratatui", features = ["crossterm-backend"] }
+clankerdiff-watch = { version = "0.1.10", path = "../diff-watch" }
 ratatui = { workspace = true, features = ["crossterm"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -38,4 +38,4 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
-clankerdiff-git = { version = "0.1.9", path = "../diff-git", features = ["test-support"] }
+clankerdiff-git = { version = "0.1.10", path = "../diff-git", features = ["test-support"] }

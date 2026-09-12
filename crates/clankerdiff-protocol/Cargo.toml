@@ -11,8 +11,8 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.1.9", path = "../diff-core" }
-clankerdiff-markdown = { version = "0.1.9", path = "../diff-markdown", features = ["review"] }
+clankerdiff-core = { version = "0.1.10", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.1.10", path = "../diff-markdown", features = ["review"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
