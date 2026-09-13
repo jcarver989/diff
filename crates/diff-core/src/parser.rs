@@ -2,7 +2,7 @@
 
 use crate::{
     DiffDocument, DiffError, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange,
-    PatchLine, PatchLineKind, RepoPath, StageState,
+    PatchLine, PatchLineKind, RepoPath, RepoPathError, StageState,
 };
 use diffy::{
     Line, Patch,
@@ -46,16 +46,34 @@ pub struct UntrackedFile {
 /// Returns an error when the patch is malformed, contains unsupported path
 /// encoding, or contains an invalid repository-relative path.
 pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
+    parse_git_diff_with_path_mapper(bytes, |path| RepoPath::new(path))
+}
+
+pub fn parse_git_diff_with_path_mapper<T>(
+    bytes: &[u8],
+    mut map_path: T,
+) -> Result<Vec<FileDiff>, DiffError>
+where
+    T: FnMut(&str) -> Result<RepoPath, RepoPathError>,
+{
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(Vec::new());
     }
     PatchSet::parse_bytes(bytes, ParseOptions::gitdiff())
-        .map(|patch| normalize_patch(&patch.map_err(|source| DiffError::Parse { source })?))
+        .map(|patch| {
+            normalize_patch(
+                &patch.map_err(|source| DiffError::Parse { source })?,
+                &mut map_path,
+            )
+        })
         .collect()
 }
 
-fn normalize_patch(patch: &FilePatch<'_, [u8]>) -> Result<FileDiff, DiffError> {
-    let (previous, current, status) = normalize_operation(patch.operation())?;
+fn normalize_patch<T>(patch: &FilePatch<'_, [u8]>, map_path: &mut T) -> Result<FileDiff, DiffError>
+where
+    T: FnMut(&str) -> Result<RepoPath, RepoPathError>,
+{
+    let (previous, current, status) = normalize_operation(patch.operation(), map_path)?;
     let (hunks, omitted_bytes) = match patch.patch() {
         PatchKind::Text(text) => {
             let (lines, bytes) = text_patch_size(text);
@@ -101,9 +119,15 @@ fn text_patch_size(text: &Patch<'_, [u8]>) -> (usize, u64) {
     )
 }
 
-fn normalize_operation(
+fn normalize_operation<T>(
     operation: &FileOperation<'_, [u8]>,
-) -> Result<(Option<RepoPath>, RepoPath, FileStatus), DiffError> {
+    map_path: &mut T,
+) -> Result<(Option<RepoPath>, RepoPath, FileStatus), DiffError>
+where
+    T: FnMut(&str) -> Result<RepoPath, RepoPathError>,
+{
+    let mut decode_path =
+        |bytes: &[u8], prefix: Option<&[u8]>| decode_path_with_mapper(bytes, prefix, map_path);
     Ok(match operation {
         FileOperation::Create(raw) => (None, decode_path(raw, Some(b"b/"))?, FileStatus::Added),
         FileOperation::Delete(raw) => {
@@ -202,11 +226,22 @@ fn normalize_mode(patch: &FilePatch<'_, [u8]>) -> Option<ModeChange> {
 }
 
 fn decode_path(bytes: &[u8], expected_prefix: Option<&[u8]>) -> Result<RepoPath, DiffError> {
+    decode_path_with_mapper(bytes, expected_prefix, &mut |path| RepoPath::new(path))
+}
+
+fn decode_path_with_mapper<T>(
+    bytes: &[u8],
+    expected_prefix: Option<&[u8]>,
+    map_path: &mut T,
+) -> Result<RepoPath, DiffError>
+where
+    T: FnMut(&str) -> Result<RepoPath, RepoPathError>,
+{
     let bytes = expected_prefix
         .and_then(|prefix| bytes.strip_prefix(prefix))
         .unwrap_or(bytes);
     let path = std::str::from_utf8(bytes).map_err(DiffError::UnsupportedPathEncoding)?;
-    RepoPath::new(path).map_err(DiffError::InvalidPath)
+    map_path(path).map_err(DiffError::InvalidPath)
 }
 
 fn mode_string(mode: FileMode) -> String {

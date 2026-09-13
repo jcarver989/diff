@@ -28,7 +28,10 @@ pub use models::{
     DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange, PatchLine,
     PatchLineKind, RepoPath, StageState,
 };
-pub use parser::{GitStatusEntry, UntrackedFile, parse_git_diff, parse_porcelain_v1_z};
+pub use parser::{
+    GitStatusEntry, UntrackedFile, parse_git_diff, parse_git_diff_with_path_mapper,
+    parse_porcelain_v1_z,
+};
 pub use patch::{PatchError, git_patch_from_texts};
 pub use presentation::{
     CellContext, ContentProjection, DiffPresentation, DiffTone, GapExpansion, GapId, GapInfo,
