@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.10...clankerdiff-ratatui-v0.1.11) - 2026-09-13
+
+### Added
+
+- *(diff-core)* Support parsing with path mapper ([#51](https://github.com/jcarver989/diff/pull/51))
+
 ## [0.1.10](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.9...clankerdiff-ratatui-v0.1.10) - 2026-09-12
 
 ### Other
