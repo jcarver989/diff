@@ -28,8 +28,14 @@ web: ensure_trunk_installed
 check:
     cargo check --workspace --all-targets
 
-test:
-    cargo test --workspace --all-features
+test profile="default":
+    cargo nextest run --profile {{profile}} --workspace --all-features
+    just doctest
+
+test-ci: (test "ci")
+
+doctest:
+    cargo test --doc --workspace --all-features
 
 # Compile benchmark targets without running statistical measurements.
 bench-check:
@@ -46,8 +52,10 @@ feature-check: consumer-check
     tree="$(cargo tree -p clankerdiff-ratatui --no-default-features --features test-support -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(crossterm|ratatui-crossterm|syntect|two-face|clankerdiff-(git|watch|gpui[^ ]*)) v'; then echo "unexpected dependency in portable ratatui graph" >&2; exit 1; fi
 
 consumer-check:
-    cargo test --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
-    cargo test --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
+    cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
+    cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
+    cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
+    cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
 
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -63,7 +71,8 @@ web-test:
 
 # Exercise the filesystem watcher against real Git worktrees.
 watch-test:
-    cargo test -p clankerdiff-watch --all-features
+    cargo nextest run -p clankerdiff-watch --all-features
+    cargo test --doc -p clankerdiff-watch --all-features
 
 fmt:
     cargo fmt --all

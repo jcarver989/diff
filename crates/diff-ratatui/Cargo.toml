@@ -71,6 +71,11 @@ name = "terminal_markdown"
 name = "terminal_streaming"
 required-features = ["test-support"]
 
+[[test]]
+name = "testing_markdown_test"
+path = "tests/testing_markdown_test.rs"
+required-features = ["test-support"]
+
 [[bench]]
 name = "markdown"
 harness = false
