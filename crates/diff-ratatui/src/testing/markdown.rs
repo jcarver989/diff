@@ -16,6 +16,7 @@ pub struct MarkdownStreamFixture {
     pub options: MarkdownLayoutOptions,
     pub theme: ReviewTheme,
     pub highlighter: SyntaxHighlighter,
+    pub reference_highlighter: SyntaxHighlighter,
     pub host: Vec<Arc<MarkdownRow>>,
     pub revision: u64,
 }
@@ -93,23 +94,25 @@ impl MarkdownStreamFixture {
     }
 
     #[must_use]
-    pub fn one_shot_lines(&self) -> Arc<[Line<'static>]> {
+    pub fn one_shot_lines(&mut self) -> Arc<[Line<'static>]> {
+        self.reference_highlighter.clear_cache();
         MarkdownRenderer::new().render_lines(
             &MarkdownDocument::parse(self.stream.source()),
             self.options,
             &self.theme,
-            &mut SyntaxHighlighter::default(),
+            &mut self.reference_highlighter,
         )
     }
 
     /// Renders the current source from scratch, without any streaming cache.
     #[must_use]
-    pub fn one_shot(&self) -> MarkdownLayout {
+    pub fn one_shot(&mut self) -> MarkdownLayout {
+        self.reference_highlighter.clear_cache();
         MarkdownRenderer::new().render_layout(
             &MarkdownDocument::parse(self.stream.source()),
             self.options,
             &self.theme,
-            &mut SyntaxHighlighter::default(),
+            &mut self.reference_highlighter,
         )
     }
 
