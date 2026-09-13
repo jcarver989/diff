@@ -26,7 +26,7 @@ clankerdiff-core = { version = "0.1.11", path = "../diff-core" }
 clankerdiff-git = { version = "0.1.11", path = "../diff-git" }
 clankerdiff-markdown = { version = "0.1.11", path = "../diff-markdown", features = ["review"] }
 clankerdiff-theme = { version = "0.1.11", path = "../diff-theme" }
-clankerdiff-gpui-desktop = { version = "0.1.0", path = "../diff-gpui-desktop" }
+clankerdiff-gpui-desktop = { path = "../diff-gpui-desktop" }
 clankerdiff-ratatui = { version = "0.1.11", path = "../diff-ratatui", features = ["crossterm-backend"] }
 clankerdiff-watch = { version = "0.1.11", path = "../diff-watch" }
 ratatui = { workspace = true, features = ["crossterm"] }
