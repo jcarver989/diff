@@ -9,7 +9,7 @@ use clankerdiff_ratatui::{
 };
 use clankerdiff_theme::ReviewTheme;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
-use std::{error::Error, sync::Arc};
+use std::{error::Error, fmt::Write, sync::Arc};
 
 #[test]
 fn renders_formatted_markdown_and_source_gutters() {
@@ -91,9 +91,10 @@ fn wheel_matches_keyboard_navigation() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn wheel_keeps_navigating_at_a_fixed_position_through_source_gaps() -> Result<(), Box<dyn Error>> {
-    let source = (0..30)
-        .map(|index| format!("# Heading {index}\n\nParagraph {index}\n\n"))
-        .collect::<String>();
+    let source = (0..30).fold(String::new(), |mut source, index| {
+        let _ = writeln!(source, "# Heading {index}\n\nParagraph {index}");
+        source
+    });
     let document = Arc::new(MarkdownDocument::parse(&source));
     let mut keyboard = MarkdownReviewState::new(Arc::clone(&document));
     let mut state = MarkdownReviewState::new(document);
