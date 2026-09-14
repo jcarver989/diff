@@ -229,7 +229,9 @@ fn split_cells_wrap_independently_and_pad_the_shorter_side() -> Result<(), Box<d
     let background = buffer[(0, continuation - 1)].bg;
     for y in continuation..following {
         assert_eq!(buffer[(19, y)].symbol(), "│");
-        for x in 0..19 {
+        assert_eq!(buffer[(0, y)].symbol(), "▌");
+        assert_eq!(buffer[(0, y)].fg, buffer[(0, continuation - 1)].fg);
+        for x in 1..19 {
             assert_eq!(buffer[(x, y)].symbol(), " ");
             assert_eq!(buffer[(x, y)].bg, background);
         }
@@ -349,6 +351,19 @@ fn empty_split_cells_have_gutters_but_missing_cells_do_not() -> Result<(), Box<d
         assert_eq!(missing.trim(), "");
     }
     Ok(())
+}
+
+#[test]
+fn changed_whitespace_lines_keep_the_change_indicator() {
+    for whitespace in ["", "   ", "\t"] {
+        let source = format!("changed\n{whitespace}\n");
+        for (old, new) in [("", source.as_str()), (source.as_str(), "")] {
+            let buffer = render(old, new, 2, 40);
+            let rows = source_rows(&buffer);
+            assert_eq!(rows.len(), 2, "whitespace: {whitespace:?}");
+            assert!(rows[1].starts_with("▌   2 "));
+        }
+    }
 }
 
 fn source_rows(buffer: &Buffer) -> Vec<String> {

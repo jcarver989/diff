@@ -531,6 +531,14 @@ fn render_cell(
     let Some(cell) = cell else {
         return;
     };
+    for y in area.top()..area.bottom() {
+        Paragraph::new(Line::from(diff_indicator(
+            tone,
+            context.diff_theme,
+            Style::new().bg(background),
+        )))
+        .render(Rect::new(area.x, y, area.width.min(1), 1), buffer);
+    }
     let Some(checkpoint) =
         context
             .patch_layout
