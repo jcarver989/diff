@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.11...clankerdiff-ratatui-v0.2.0) - 2026-09-14
+
+### Fixed
+
+- Markdown wheel navigation getting stuck over blank rows ([#57](https://github.com/jcarver989/diff/pull/57))
+
+### Other
+
+- Fix Ratatui preview gutters and split change indicators ([#56](https://github.com/jcarver989/diff/pull/56))
+- use cargo nextest for tests ([#53](https://github.com/jcarver989/diff/pull/53))
+
 ## [0.1.11](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.10...clankerdiff-ratatui-v0.1.11) - 2026-09-13
 
 ### Added
