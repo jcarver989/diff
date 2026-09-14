@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.2.0...clankerdiff-ratatui-v0.2.1) - 2026-09-14
+
+### Other
+
+- Match markdown mouse comment behavior to diff review ([#60](https://github.com/jcarver989/diff/pull/60))
+- Open and reposition empty comment drafts with diff clicks ([#58](https://github.com/jcarver989/diff/pull/58))
+
 ## [0.2.0](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.1.11...clankerdiff-ratatui-v0.2.0) - 2026-09-14
 
 ### Fixed

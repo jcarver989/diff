@@ -1098,9 +1098,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.46"
+version = "0.4.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f10dafd0c8d2e51ae9a748805777613ed0bbe17bf586b76c8311f45c020a32f"
+checksum = "ef217a77a86a6e3dab9a5b3c81dc445b603fe743a90c1cb10a2f2144628d8cfa"
 dependencies = [
  "compression-codecs",
  "compression-core",
@@ -1793,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1816,7 +1816,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
@@ -1830,7 +1830,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-fingerprint"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "blake3",
  "serde",
@@ -1840,7 +1840,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-git"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1852,7 +1852,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1864,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-desktop"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1884,7 +1884,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-web"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -1903,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-markdown"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
@@ -1915,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1926,7 +1926,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ratatui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bitflags 2.13.2",
  "clankerdiff-core",
@@ -1948,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-syntax"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "arborium-asm",
  "arborium-bash",
@@ -2024,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-theme"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
@@ -2035,7 +2035,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-watch"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -2195,9 +2195,9 @@ dependencies = [
 
 [[package]]
 name = "compression-codecs"
-version = "0.4.41"
+version = "0.4.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58a6d0db8759036a783bc7c3f7a07f8cef3bf9470eb1db3bc86e8bcd1c5d0fe8"
+checksum = "257c7085cbb71be72d8fb97edff08b03d86d5d9f2222b9cc34a6bec87093bc10"
 dependencies = [
  "bzip2",
  "compression-core",
