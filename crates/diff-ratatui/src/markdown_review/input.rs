@@ -342,6 +342,8 @@ impl MarkdownReviewState {
                     if let Some(target) = region.target {
                         self.session.select_target(target);
                     }
+                } else {
+                    return InputOutcome::Ignored;
                 }
             }
             _ => return InputOutcome::Ignored,
@@ -367,9 +369,7 @@ impl ReviewWidget for MarkdownReviewState {
         self.handle_command(command)
     }
     fn contains(&self, position: Position) -> bool {
-        self.hit_regions
-            .iter()
-            .any(|region| region.area.contains(position))
+        self.document_area.contains(position) || self.outline_area.contains(position)
     }
     fn mark_dirty(&mut self) {
         Self::mark_dirty(self);

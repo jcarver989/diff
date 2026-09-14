@@ -5,9 +5,10 @@ use clankerdiff_ratatui::testing::{
     key, mouse, render_markdown_review as draw, type_markdown_text as type_text,
 };
 use clankerdiff_ratatui::{
-    InputOutcome, KeyCode, MarkdownReviewState, MouseButton, MouseEventKind,
+    InputOutcome, KeyCode, MarkdownReviewState, MarkdownReviewWidget, MouseButton, MouseEventKind,
 };
 use clankerdiff_theme::ReviewTheme;
+use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -85,6 +86,90 @@ fn wheel_matches_keyboard_navigation() -> Result<(), Box<dyn Error>> {
     draw(&mut state, 100, 12);
     state.handle_input(mouse(MouseEventKind::ScrollUp, 60, 5))?;
     assert_eq!(state.selected_target(), first);
+    Ok(())
+}
+
+#[test]
+fn wheel_keeps_navigating_at_a_fixed_position_through_source_gaps() -> Result<(), Box<dyn Error>> {
+    let source = (0..30)
+        .map(|index| format!("# Heading {index}\n\nParagraph {index}\n\n"))
+        .collect::<String>();
+    let document = Arc::new(MarkdownDocument::parse(&source));
+    let mut keyboard = MarkdownReviewState::new(Arc::clone(&document));
+    let mut state = MarkdownReviewState::new(document);
+    let rendered = draw(&mut state, 100, 12);
+    assert!(
+        rendered
+            .lines()
+            .nth(2)
+            .ok_or("missing gap row")?
+            .contains("2 │")
+    );
+    draw(&mut keyboard, 100, 12);
+    for (wheel, arrow) in [
+        (MouseEventKind::ScrollDown, KeyCode::Down),
+        (MouseEventKind::ScrollUp, KeyCode::Up),
+    ] {
+        for _ in 0..40 {
+            assert_eq!(
+                state.handle_input(mouse(wheel, 60, 2))?,
+                InputOutcome::Consumed
+            );
+            keyboard.handle_input(key(arrow))?;
+            draw(&mut state, 100, 12);
+            draw(&mut keyboard, 100, 12);
+            assert_eq!(state.selected_target(), keyboard.selected_target());
+            assert_eq!(state.scroll_offset(), keyboard.scroll_offset());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn wheel_accepts_blank_pane_space_and_scrollbar() -> Result<(), Box<dyn Error>> {
+    for (column, row) in [(60, 2), (60, 8), (5, 8), (98, 2)] {
+        let mut state = MarkdownReviewState::new(Arc::new(MarkdownDocument::parse(
+            "# One\n\nText\n\n# Two\n",
+        )));
+        draw(&mut state, 100, 12);
+        let selected = state.selected_target();
+        assert_eq!(
+            state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), column, row))?,
+            InputOutcome::Ignored
+        );
+        assert_eq!(state.selected_target(), selected);
+        assert_eq!(
+            state.handle_input(mouse(MouseEventKind::ScrollDown, column, row))?,
+            InputOutcome::Consumed
+        );
+        assert_ne!(state.selected_target(), selected);
+        state.handle_input(mouse(MouseEventKind::ScrollUp, column, row))?;
+        assert_eq!(state.selected_target(), selected);
+    }
+    Ok(())
+}
+
+#[test]
+fn wheel_uses_only_current_rendered_panes() -> Result<(), Box<dyn Error>> {
+    let mut state = MarkdownReviewState::new(document());
+    let wheel = mouse(MouseEventKind::ScrollDown, 60, 2);
+    assert_eq!(state.handle_input(wheel.clone())?, InputOutcome::Ignored);
+    draw(&mut state, 100, 12);
+    for (column, row) in [(0, 2), (99, 2), (60, 0), (60, 11), (100, 2)] {
+        assert_eq!(
+            state.handle_input(mouse(MouseEventKind::ScrollDown, column, row))?,
+            InputOutcome::Ignored
+        );
+    }
+    state.set_options(state.options().clone());
+    assert_eq!(state.handle_input(wheel.clone())?, InputOutcome::Ignored);
+    draw(&mut state, 100, 12);
+    draw(&mut state, 40, 12);
+    assert_eq!(state.handle_input(wheel.clone())?, InputOutcome::Ignored);
+    draw(&mut state, 100, 12);
+    let area = Rect::new(0, 0, 1, 1);
+    MarkdownReviewWidget::new().render(area, &mut Buffer::empty(area), &mut state);
+    assert_eq!(state.handle_input(wheel)?, InputOutcome::Ignored);
     Ok(())
 }
 

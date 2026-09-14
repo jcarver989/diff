@@ -48,6 +48,8 @@ pub struct MarkdownReviewState {
     pub(crate) last_height: usize,
     layout: Option<CachedLayout>,
     pub(crate) hit_regions: Vec<MarkdownHitRegion>,
+    pub(crate) document_area: Rect,
+    pub(crate) outline_area: Rect,
     pub(crate) cursor_position: Option<Position>,
     pub(crate) help: bool,
     pub(crate) help_scroll: usize,
@@ -81,6 +83,8 @@ impl MarkdownReviewState {
             last_height: 1,
             layout: None,
             hit_regions: Vec::new(),
+            document_area: Rect::default(),
+            outline_area: Rect::default(),
             cursor_position: None,
             help: false,
             help_scroll: 0,
@@ -202,7 +206,7 @@ impl MarkdownReviewState {
             self.focus = MarkdownFocusPane::Document;
         }
         self.options = options;
-        self.hit_regions.clear();
+        self.clear_hit_regions();
         self.request_follow();
     }
 
@@ -285,6 +289,8 @@ impl MarkdownReviewState {
 
     pub(crate) fn clear_hit_regions(&mut self) {
         self.hit_regions.clear();
+        self.document_area = Rect::default();
+        self.outline_area = Rect::default();
     }
 
     pub(crate) fn set_cursor(&mut self, position: Option<Position>) {
