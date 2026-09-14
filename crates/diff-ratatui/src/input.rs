@@ -88,6 +88,34 @@ impl ReviewWidget for DiffReviewState {
     fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
         self.handle_mouse(mouse)
     }
+    fn handle_draft_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
+        if !matches!(mouse.kind, MouseEventKind::Down(_))
+            || !self
+                .hit_layout
+                .patch
+                .contains(Position::new(mouse.column, mouse.row))
+            || !self
+                .session
+                .draft()
+                .is_some_and(|draft| draft.body().is_empty())
+        {
+            return InputOutcome::Consumed;
+        }
+        let clicked = self
+            .visible_rows
+            .iter()
+            .find_map(|(row, index)| (*row == mouse.row).then_some(*index));
+        if let Some(index) = clicked
+            && self.session.presentation().gap_info(index).is_none()
+            && self.session.select_row(index)
+            && self.session.begin_draft(None)
+        {
+            self.focus = FocusPane::Diff;
+            self.request_follow();
+            self.mark_dirty();
+        }
+        InputOutcome::Consumed
+    }
     fn handle_prompt_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
         self.handle_repository_prompt_key(key)
     }
@@ -161,7 +189,9 @@ impl DiffReviewState {
                     }
                 } else if self.hit_layout.patch.contains(position) {
                     self.focus = FocusPane::Diff;
-                    self.select_clicked_row(mouse.row);
+                    if self.select_clicked_row(mouse.row) {
+                        return self.handle_command(ReviewCommand::BeginComment);
+                    }
                 }
             }
             _ => {}

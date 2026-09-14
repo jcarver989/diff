@@ -802,7 +802,7 @@ impl DiffReviewState {
         hasher.finish()
     }
 
-    pub(crate) fn select_clicked_row(&mut self, row: u16) {
+    pub(crate) fn select_clicked_row(&mut self, row: u16) -> bool {
         let clicked = self
             .visible_rows
             .iter()
@@ -816,8 +816,10 @@ impl DiffReviewState {
             } else {
                 self.mark_dirty();
                 self.follow_pending = false;
+                return true;
             }
         }
+        false
     }
 }
 

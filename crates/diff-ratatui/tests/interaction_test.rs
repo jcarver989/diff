@@ -3,7 +3,7 @@ use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ratatui::{
     DiffReviewCommand, DiffReviewState, DiffReviewWidget, InputOutcome, InteractionPhase, KeyCode,
     KeyEvent, KeyModifiers, MarkdownReviewState, MouseEvent, MouseEventKind, NavigationPane,
-    ReviewInput, ReviewOptions, ThemeChoice,
+    ReviewCommand, ReviewInput, ReviewOptions, ThemeChoice,
 };
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 use std::{error::Error, fmt::Write, sync::Arc};
@@ -93,6 +93,136 @@ fn markdown_drafts_use_portable_input() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn clicking_diff_content_opens_a_new_comment() -> Result<(), Box<dyn Error>> {
+    for mode in [ViewMode::Unified, ViewMode::Split] {
+        let mut state = DiffReviewState::new(
+            DocumentBuilder::new()
+                .changed("note.rs", "", "first\nsecond\n")
+                .build(),
+        );
+        state.set_options(ReviewOptions {
+            navigation: NavigationPane::Hidden,
+            footer: false,
+            ..Default::default()
+        });
+        state.set_view_mode(mode);
+        let area = Rect::new(0, 0, 80, 20);
+        let mut buffer = Buffer::empty(area);
+        DiffReviewWidget::new()
+            .borders(false)
+            .render(area, &mut buffer, &mut state);
+        let row = (0..area.height)
+            .find(|&y| {
+                let line: String = (0..area.width).map(|x| buffer[(x, y)].symbol()).collect();
+                line.contains("second")
+            })
+            .ok_or("missing rendered source")?;
+        let click = |row| {
+            ReviewInput::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(clankerdiff_ratatui::MouseButton::Left),
+                column: 3,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        let _ = state.handle_input(click(area.height - 1));
+        assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
+        let _ = state.handle_input(click(row));
+        assert_eq!(state.interaction_phase(), InteractionPhase::Draft);
+        let anchor = state.session().selected_anchor().ok_or("missing anchor")?;
+        assert_eq!(
+            state.session().draft().ok_or("missing draft")?.anchor(),
+            &anchor
+        );
+        let _ = state.handle_input(ReviewInput::Paste("Mouse comment".to_owned()));
+        state.handle_command(ReviewCommand::SubmitComment);
+        assert_eq!(state.review().len(), 1);
+        let _ = state.handle_input(click(row));
+        assert_eq!(state.interaction_phase(), InteractionPhase::Draft);
+        assert!(
+            state
+                .session()
+                .draft()
+                .ok_or("missing new draft")?
+                .body()
+                .is_empty()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn empty_comment_moves_to_clicked_line_but_nonempty_comment_stays() -> Result<(), Box<dyn Error>> {
+    for mode in [ViewMode::Unified, ViewMode::Split] {
+        let mut state = DiffReviewState::new(
+            DocumentBuilder::new()
+                .changed("note.rs", "", "first\nsecond\n")
+                .build(),
+        );
+        state.set_options(ReviewOptions {
+            navigation: NavigationPane::Hidden,
+            footer: false,
+            ..Default::default()
+        });
+        state.set_view_mode(mode);
+        let click = |row| {
+            ReviewInput::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(clankerdiff_ratatui::MouseButton::Left),
+                column: 3,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        let first = rendered_source_row(&mut state, "first")?;
+        let _ = state.handle_input(click(first));
+        let original = state
+            .session()
+            .draft()
+            .ok_or("missing draft")?
+            .anchor()
+            .clone();
+        let second = rendered_source_row(&mut state, "second")?;
+        let _ = state.handle_input(click(19));
+        assert_eq!(
+            state.session().draft().ok_or("missing draft")?.anchor(),
+            &original
+        );
+        let _ = state.handle_input(click(second));
+        let moved = state.session().draft().ok_or("missing moved draft")?;
+        assert_ne!(moved.anchor(), &original);
+        assert!(moved.body().is_empty());
+        let anchor = moved.anchor().clone();
+        assert_eq!(Some(anchor.clone()), state.session().selected_anchor());
+        assert_eq!(state.interaction_phase(), InteractionPhase::Draft);
+        assert!(state.review().is_empty());
+        let _ = state.handle_input(ReviewInput::Paste("Keep this".to_owned()));
+        let first = rendered_source_row(&mut state, "first")?;
+        let _ = state.handle_input(click(first));
+        let draft = state.session().draft().ok_or("missing preserved draft")?;
+        assert_eq!(draft.anchor(), &anchor);
+        assert_eq!(draft.body(), "Keep this");
+        assert_eq!(Some(anchor), state.session().selected_anchor());
+        for _ in 0..9 {
+            let _ = state.handle_input(key(KeyCode::Backspace));
+        }
+        let first = rendered_source_row(&mut state, "first")?;
+        let _ = state.handle_input(click(first));
+        assert_eq!(
+            state
+                .session()
+                .draft()
+                .ok_or("missing returned draft")?
+                .anchor(),
+            &original
+        );
+        let _ = state.handle_input(ReviewInput::Paste("Moved comment".to_owned()));
+        state.handle_command(ReviewCommand::SubmitComment);
+        assert_eq!(state.review().len(), 1);
+    }
+    Ok(())
+}
+
+#[test]
 fn deep_scrolling_preserves_source_content_and_logical_selection() -> Result<(), Box<dyn Error>> {
     let mut source = String::new();
     for index in 0..100 {
@@ -160,7 +290,11 @@ fn deep_scrolling_preserves_source_content_and_logical_selection() -> Result<(),
         modifiers: KeyModifiers::NONE,
     }));
     assert_eq!(state.selected_row(), Some(expected));
-    assert_eq!(state.scroll_offset(), usize::from(offset));
+    assert_eq!(state.interaction_phase(), InteractionPhase::Draft);
+    assert_eq!(
+        state.session().draft().ok_or("missing draft")?.anchor(),
+        &state.session().selected_anchor().ok_or("missing anchor")?
+    );
     Ok(())
 }
 
@@ -243,6 +377,20 @@ fn crossterm_adapter_matches_portable_input_and_ignores_releases() {
         InputOutcome::Ignored
     ));
     assert_eq!(terminal.interaction_phase(), InteractionPhase::Draft);
+}
+
+fn rendered_source_row(state: &mut DiffReviewState, text: &str) -> Result<u16, Box<dyn Error>> {
+    let area = Rect::new(0, 0, 80, 20);
+    let mut buffer = Buffer::empty(area);
+    DiffReviewWidget::new()
+        .borders(false)
+        .render(area, &mut buffer, state);
+    (0..area.height)
+        .find(|&y| {
+            let line: String = (0..area.width).map(|x| buffer[(x, y)].symbol()).collect();
+            line.contains(text)
+        })
+        .ok_or_else(|| "missing rendered source".into())
 }
 
 fn key(code: KeyCode) -> ReviewInput {
