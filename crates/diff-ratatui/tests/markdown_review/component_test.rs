@@ -213,7 +213,13 @@ fn mouse_input_uses_the_last_rendered_area() -> Result<(), Box<dyn Error>> {
     terminal.draw(|frame| review.render(frame, Rect::new(10, 5, 80, 20)))?;
     assert_eq!(review.handle_input(click(0, 0))?, InputOutcome::Ignored);
     assert_eq!(review.handle_input(click(11, 5))?, InputOutcome::Consumed);
+    assert_eq!(review.state().interaction_phase(), InteractionPhase::Draft);
+    let target = review.state().selected_target();
     terminal.draw(|frame| review.render(frame, Rect::new(0, 0, 8, 3)))?;
+    assert_eq!(review.handle_input(click(11, 5))?, InputOutcome::Consumed);
+    assert_eq!(review.state().selected_target(), target);
+    assert_eq!(review.state().interaction_phase(), InteractionPhase::Draft);
+    review.handle_command(ReviewCommand::Cancel)?;
     assert_eq!(review.handle_input(click(11, 5))?, InputOutcome::Ignored);
     Ok(())
 }

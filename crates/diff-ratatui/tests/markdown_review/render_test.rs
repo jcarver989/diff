@@ -5,7 +5,8 @@ use clankerdiff_ratatui::testing::{
     key, mouse, render_markdown_review as draw, type_markdown_text as type_text,
 };
 use clankerdiff_ratatui::{
-    InputOutcome, KeyCode, MarkdownReviewState, MarkdownReviewWidget, MouseButton, MouseEventKind,
+    InputOutcome, InteractionPhase, KeyCode, MarkdownReviewState, MarkdownReviewWidget,
+    MouseButton, MouseEventKind, NavigationPane, ReviewOptions,
 };
 use clankerdiff_theme::ReviewTheme;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
@@ -192,10 +193,97 @@ fn comments_and_decisions_are_emitted() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn document_clicks_open_new_comments_on_semantic_targets() -> Result<(), Box<dyn Error>> {
+    for (text, kind) in [
+        ("# Plan", MarkdownTargetKind::Heading),
+        ("A paragraph", MarkdownTargetKind::Paragraph),
+        ("let value = 1;", MarkdownTargetKind::CodeLine),
+    ] {
+        let mut state = MarkdownReviewState::new(document());
+        state.set_options(ReviewOptions {
+            navigation: NavigationPane::Hidden,
+            ..Default::default()
+        });
+        let row = rendered_row(&mut state, text)?;
+        state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 60, row))?;
+        assert_eq!(state.interaction_phase(), InteractionPhase::Draft);
+        assert_eq!(
+            state
+                .session()
+                .selected_target_info()
+                .ok_or("no target")?
+                .kind,
+            kind
+        );
+        let draft = state.session().draft().ok_or("no draft")?;
+        assert_eq!(Some(draft.target()), state.selected_target());
+        let anchor = draft.anchor().clone();
+        assert!(draft.body().is_empty());
+        type_text(&mut state, "Mouse comment");
+        state.handle_input(key(KeyCode::Enter))?;
+        assert_eq!(state.review().len(), 1);
+        let row = rendered_row(&mut state, text)?;
+        state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 60, row))?;
+        let draft = state.session().draft().ok_or("no new draft")?;
+        assert_eq!(draft.anchor(), &anchor);
+        assert!(draft.body().is_empty());
+        assert_eq!(draft.editing(), None);
+    }
+    Ok(())
+}
+
+#[test]
+fn empty_markdown_comments_move_but_nonempty_comments_stay() -> Result<(), Box<dyn Error>> {
+    let mut state = MarkdownReviewState::new(Arc::new(MarkdownDocument::parse(
+        "# Plan\n\nFirst paragraph\n\nSecond paragraph\n\n# Next\n",
+    )));
+    let first = rendered_row(&mut state, "First paragraph")?;
+    state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 60, first))?;
+    let original = state.session().draft().ok_or("no draft")?.anchor().clone();
+    let second = rendered_row(&mut state, "Second paragraph")?;
+    for (column, row) in [(60, 28), (0, 0), (5, 1)] {
+        state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), column, row))?;
+        assert_eq!(
+            state.session().draft().ok_or("no draft")?.anchor(),
+            &original
+        );
+    }
+    state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 60, second))?;
+    let draft = state.session().draft().ok_or("no moved draft")?;
+    assert_ne!(draft.anchor(), &original);
+    assert!(draft.body().is_empty());
+    assert_eq!(Some(draft.target()), state.selected_target());
+    let moved = draft.anchor().clone();
+    assert!(state.review().is_empty());
+    type_text(&mut state, "Keep");
+    let first = rendered_row(&mut state, "First paragraph")?;
+    state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 60, first))?;
+    let draft = state.session().draft().ok_or("no preserved draft")?;
+    assert_eq!(draft.anchor(), &moved);
+    assert_eq!(draft.body(), "Keep");
+    assert_eq!(Some(draft.target()), state.selected_target());
+    for _ in 0..4 {
+        state.handle_input(key(KeyCode::Backspace))?;
+    }
+    let first = rendered_row(&mut state, "First paragraph")?;
+    state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 60, first))?;
+    assert_eq!(
+        state.session().draft().ok_or("no returned draft")?.anchor(),
+        &original
+    );
+    type_text(&mut state, "Moved comment");
+    state.handle_input(key(KeyCode::Enter))?;
+    assert_eq!(state.review().len(), 1);
+    assert!(draw(&mut state, 100, 30).contains("Moved comment"));
+    Ok(())
+}
+
+#[test]
 fn outline_click_and_draft_cancellation() -> Result<(), Box<dyn Error>> {
     let mut state = MarkdownReviewState::new(document());
     draw(&mut state, 120, 20);
     state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 5, 3))?;
+    assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
     assert_eq!(
         state
             .session()
@@ -227,6 +315,15 @@ fn changing_the_theme_reuses_retained_code_captures() -> Result<(), Box<dyn Erro
     assert_eq!(after.misses, before.misses);
     assert!(after.hits > before.hits);
     Ok(())
+}
+
+fn rendered_row(state: &mut MarkdownReviewState, text: &str) -> Result<u16, Box<dyn Error>> {
+    let rendered = draw(state, 100, 30);
+    let row = rendered
+        .lines()
+        .position(|line| line.contains(text))
+        .ok_or("missing rendered row")?;
+    Ok(u16::try_from(row)?)
 }
 
 fn document() -> Arc<MarkdownDocument> {
