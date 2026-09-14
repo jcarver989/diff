@@ -222,6 +222,9 @@ pub(crate) trait ReviewWidget {
         key: KeyEvent,
     ) -> Result<InputOutcome<Self::Event>, Self::Error>;
     fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<Self::Event>;
+    fn handle_draft_mouse(&mut self, _mouse: MouseEvent) -> InputOutcome<Self::Event> {
+        InputOutcome::Consumed
+    }
     fn handle_prompt_key(&mut self, _key: KeyEvent) -> InputOutcome<Self::Event> {
         InputOutcome::Consumed
     }
@@ -252,7 +255,9 @@ pub(crate) fn handle_input<T: ReviewWidget>(
             }
         }
         ReviewInput::Mouse(mouse) => {
-            if phase != InteractionPhase::Browse {
+            if phase == InteractionPhase::Draft {
+                state.handle_draft_mouse(mouse)
+            } else if phase != InteractionPhase::Browse {
                 InputOutcome::Consumed
             } else if !state.contains(Position::new(mouse.column, mouse.row))
                 || !matches!(
