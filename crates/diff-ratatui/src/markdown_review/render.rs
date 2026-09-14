@@ -117,6 +117,8 @@ fn render_body(
     } else {
         (Rect::default(), Rect::default(), area)
     };
+    state.document_area = document;
+    state.outline_area = outline;
     if wide {
         buffer.set_style(
             separator,
