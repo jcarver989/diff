@@ -1688,9 +1688,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.4.5"
+version = "1.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "005ec2760ca554fae18df7a11195552ec576cd665632a881bc011d5bb2fd4d80"
+checksum = "a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1793,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-cli"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1816,7 +1816,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-core"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
@@ -1830,7 +1830,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-fingerprint"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "serde",
@@ -1840,7 +1840,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-git"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1852,7 +1852,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1864,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-desktop"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1884,7 +1884,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-web"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -1903,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-markdown"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
@@ -1915,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-protocol"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1926,7 +1926,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ratatui"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "bitflags 2.13.2",
  "clankerdiff-core",
@@ -1948,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-syntax"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "arborium-asm",
  "arborium-bash",
@@ -2024,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-theme"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
@@ -2035,7 +2035,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-watch"
-version = "0.1.11"
+version = "0.2.0"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -7304,18 +7304,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.13.2"
+version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cf0ded5c4e56918d8f8a339e1bb67d038d3bc6d144ac407904015ba2e4cde9b"
-dependencies = [
- "tinyvec_macros",
-]
-
-[[package]]
-name = "tinyvec_macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
