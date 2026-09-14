@@ -339,8 +339,12 @@ impl MarkdownReviewState {
                     } else {
                         MarkdownFocusPane::Document
                     };
-                    if let Some(target) = region.target {
-                        self.session.select_target(target);
+                    if let Some(target) = region.target
+                        && self.session.select_target(target)
+                        && !region.outline
+                        && self.command_enabled(&ReviewCommand::BeginComment.into())
+                    {
+                        self.session.begin_draft(None);
                     }
                 } else {
                     return InputOutcome::Ignored;
@@ -391,5 +395,27 @@ impl ReviewWidget for MarkdownReviewState {
     }
     fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<MarkdownReviewEvent> {
         self.handle_mouse(mouse)
+    }
+    fn handle_draft_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<MarkdownReviewEvent> {
+        let position = Position::new(mouse.column, mouse.row);
+        if matches!(mouse.kind, MouseEventKind::Down(_))
+            && self
+                .session
+                .draft()
+                .is_some_and(|draft| draft.body().is_empty())
+            && self
+                .hit_regions
+                .iter()
+                .rev()
+                .find(|region| region.area.contains(position))
+                .is_some_and(|region| !region.outline && region.target.is_some())
+        {
+            let outcome = self.handle_mouse(mouse);
+            if outcome.is_consumed() {
+                self.mark_dirty();
+            }
+            return outcome;
+        }
+        InputOutcome::Consumed
     }
 }
