@@ -276,7 +276,11 @@ impl PreviewRenderer<'_> {
 
     fn blank(&self, cell: Option<&PresentedCell>, width: u16) -> Line<'static> {
         let style = cell.map_or_else(|| page_style(self.theme), |cell| self.cell_style(cell));
-        pad_line(Line::default().style(style), usize::from(width))
+        let line = match cell {
+            Some(cell) if width > 0 => Line::from(diff_indicator(cell.tone, self.theme, style)),
+            _ => Line::default(),
+        };
+        pad_line(line.style(style), usize::from(width))
     }
 
     fn render_cell(
@@ -287,7 +291,6 @@ impl PreviewRenderer<'_> {
         limit: usize,
     ) -> Vec<Line<'static>> {
         let base = self.cell_style(cell);
-        let marker = cell.tone.marker();
         let number = cell
             .line_number()
             .map_or_else(String::new, |line| line.to_string());
@@ -295,11 +298,11 @@ impl PreviewRenderer<'_> {
         let gutter = |number: &str| {
             vec![
                 diff_indicator(cell.tone, self.theme, base),
-                Span::styled(format!("{number:>number_width$} {marker} "), base),
+                Span::styled(format!("{number:>number_width$} "), base),
             ]
         };
         let width = usize::from(width);
-        let gutter_width = number_width + 4;
+        let gutter_width = number_width + 2;
         if width <= gutter_width {
             return vec![fit_line(
                 Line::from(gutter(&number)).style(base),
