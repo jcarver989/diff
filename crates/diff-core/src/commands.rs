@@ -55,6 +55,7 @@ pub struct CommandContext {
     pub capabilities: ReviewCapabilities,
     pub repository_pending: bool,
     pub document_ready: bool,
+    pub source_view: bool,
     pub navigation_available: bool,
     pub themes_available: bool,
 }
@@ -66,6 +67,7 @@ impl Default for CommandContext {
             capabilities: ReviewCapabilities::default(),
             repository_pending: false,
             document_ready: true,
+            source_view: false,
             navigation_available: true,
             themes_available: false,
         }
@@ -127,6 +129,7 @@ pub enum DiffReviewCommand {
     CollapseSelected,
     RevealGap(RevealAmount),
     ToggleFullFile,
+    ToggleSourceView,
     SetViewMode(ViewMode),
     CycleViewMode,
     SubmitReview,
@@ -151,6 +154,24 @@ impl From<ReviewCommand> for DiffReviewCommand {
 impl DiffReviewCommand {
     #[must_use]
     pub fn enabled(&self, context: &CommandContext) -> bool {
+        if context.source_view
+            && matches!(
+                self,
+                Self::RevealGap(_)
+                    | Self::ToggleFullFile
+                    | Self::SetViewMode(_)
+                    | Self::CycleViewMode
+                    | Self::SelectSide(_)
+                    | Self::Review(
+                        ReviewCommand::BeginComment
+                            | ReviewCommand::EditComment
+                            | ReviewCommand::DeleteComment
+                            | ReviewCommand::UndoComment
+                    )
+            )
+        {
+            return false;
+        }
         if let Self::Review(command) = self {
             return command.enabled(context);
         }

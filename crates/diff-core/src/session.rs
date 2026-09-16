@@ -1,7 +1,7 @@
 use crate::{
     ContentProjection, DiffDocument, DiffPresentation, DiffSide, GapId, Layout, LineAnchor,
-    PresentationOptions, PresentedCell, PresentedRow, Review, ReviewSubmission, SourceLocation,
-    ViewMode, presentation::retained_expansions,
+    PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, RowId,
+    SourceLocation, ViewMode, presentation::retained_expansions,
 };
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, sync::Arc};
@@ -130,6 +130,22 @@ impl CommentDraft {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Restore {
+    Source,
+    Returning,
+    Refresh,
+}
+
+#[derive(Debug, Clone)]
+struct SelectionBookmark {
+    path: RepoPath,
+    row: Option<RowId>,
+    source: Option<SourceLocation>,
+    anchor: Option<LineAnchor>,
+    side: DiffSide,
+}
+
 #[derive(Debug, Clone)]
 pub struct ReviewSession {
     document: Arc<DiffDocument>,
@@ -145,6 +161,7 @@ pub struct ReviewSession {
     projection: ContentProjection,
     projection_revision: u64,
     pending_source_restore: Option<SourceLocation>,
+    diff_return: Option<SelectionBookmark>,
 }
 
 impl ReviewSession {
@@ -176,6 +193,7 @@ impl ReviewSession {
             projection: ContentProjection::default(),
             projection_revision: 0,
             pending_source_restore: None,
+            diff_return: None,
         };
         session.select_first_row();
         session
@@ -207,7 +225,15 @@ impl ReviewSession {
 
     #[must_use]
     pub const fn layout(&self) -> Layout {
-        self.view_mode.resolve(self.split_when_auto)
+        self.projection.layout(self.presentation_options())
+    }
+
+    const fn presentation_options(&self) -> PresentationOptions {
+        PresentationOptions {
+            view_mode: self.view_mode,
+            split_when_auto: self.split_when_auto,
+            include_file_headers: self.options.include_file_headers,
+        }
     }
 
     #[must_use]
@@ -249,6 +275,72 @@ impl ReviewSession {
         let row = self.selected_presented_row()?;
         self.presentation
             .source_location(row, row.preferred_cell(self.selected_side)?)
+    }
+
+    #[must_use]
+    pub fn source_view(&self) -> Option<&RepoPath> {
+        self.projection.source_view()
+    }
+
+    #[must_use]
+    pub fn source_view_label(&self) -> Option<&'static str> {
+        Some(match self.source_view_side()? {
+            DiffSide::New => "Source (new) · o back to diff",
+            DiffSide::Old => "Source (old — deleted) · o back to diff",
+        })
+    }
+
+    fn source_view_side(&self) -> Option<DiffSide> {
+        let path = self.source_view()?;
+        Some(self.document.files[self.document.file_index(path)?].source_side())
+    }
+
+    pub fn toggle_source_view(&mut self) -> bool {
+        if self.draft.is_some() {
+            return false;
+        }
+        if self.source_view().is_some() {
+            self.projection.set_source_view(None);
+            let bookmark = self.diff_return.take();
+            self.rebuild_restoring(bookmark);
+            return true;
+        }
+        let Some(file) = self.document.files.get(self.selected_file) else {
+            return false;
+        };
+        let (path, side) = (file.path.clone(), file.source_side());
+        self.diff_return = self.capture_bookmark();
+        let range = self.selected_file_range().unwrap_or(0..0);
+        let line_number = self
+            .presentation
+            .rows(self.selected_row..range.end)
+            .iter()
+            .chain(
+                self.presentation
+                    .rows(range.start..self.selected_row)
+                    .iter()
+                    .rev(),
+            )
+            .find_map(|row| row.cell(side)?.line_number())
+            .unwrap_or(1);
+        self.pending_source_restore = Some(SourceLocation {
+            path: path.clone(),
+            side,
+            line_number,
+        });
+        self.projection.set_source_view(Some(path));
+        self.rebuild();
+        true
+    }
+
+    fn capture_bookmark(&self) -> Option<SelectionBookmark> {
+        Some(SelectionBookmark {
+            path: self.document.files.get(self.selected_file)?.path.clone(),
+            row: self.selected_presented_row().map(|row| row.id),
+            source: self.selected_source_line(),
+            anchor: self.selected_anchor(),
+            side: self.selected_side,
+        })
     }
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
@@ -312,6 +404,17 @@ impl ReviewSession {
     /// Replaces the complete immutable document while preserving review and view
     /// state, including gap expansions for files whose content did not change.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
+        self.review.reconcile(&document);
+        if Arc::ptr_eq(&document, &self.document) || document == self.document {
+            return;
+        }
+        if self
+            .source_view()
+            .is_some_and(|path| document.file_index(path).is_none())
+        {
+            self.projection.set_source_view(None);
+            self.diff_return = None;
+        }
         let expansions =
             retained_expansions(&self.document, &self.projection.expansions, &document);
         let selected_path = self
@@ -319,7 +422,6 @@ impl ReviewSession {
             .files
             .get(self.selected_file)
             .map(|file| file.path.clone());
-        self.review.reconcile(&document);
         self.selected_file = selected_path
             .and_then(|path| document.file_index(&path))
             .unwrap_or(0)
@@ -376,6 +478,12 @@ impl ReviewSession {
     pub fn select_file(&mut self, index: usize) -> bool {
         if index >= self.document.files.len() {
             return false;
+        }
+        if self.source_view().is_some() {
+            if self.selected_file == index {
+                return true;
+            }
+            self.toggle_source_view();
         }
         self.pending_source_restore = None;
         self.selected_file = index;
@@ -438,6 +546,13 @@ impl ReviewSession {
     }
 
     pub fn select_row(&mut self, index: usize) -> bool {
+        if self.source_view().is_some()
+            && !self
+                .selected_file_range()
+                .is_some_and(|range| range.contains(&index))
+        {
+            return false;
+        }
         if !self.presentation.is_navigable(index) {
             return false;
         }
@@ -583,43 +698,74 @@ impl ReviewSession {
     }
 
     fn rebuild(&mut self) {
-        let source = self
-            .pending_source_restore
-            .take()
-            .or_else(|| self.selected_source_line());
-        let selected_id = self.presentation.row(self.selected_row).map(|row| row.id);
-        let anchor = self.selected_anchor();
+        self.rebuild_restoring(None);
+    }
+
+    fn rebuild_restoring(&mut self, bookmark: Option<SelectionBookmark>) {
+        let mode = match (bookmark.is_some(), self.source_view().is_some()) {
+            (true, _) => Restore::Returning,
+            (false, true) => Restore::Source,
+            (false, false) => Restore::Refresh,
+        };
+        let pending = self.pending_source_restore.take();
+        let bookmark = bookmark.or_else(|| self.capture_bookmark());
+        let mut source = bookmark
+            .as_ref()
+            .and_then(|bookmark| bookmark.source.clone());
+        if mode != Restore::Returning {
+            source = pending.or(source);
+        }
+        if let Some(bookmark) = &bookmark {
+            self.selected_file = self
+                .document
+                .file_index(&bookmark.path)
+                .unwrap_or(self.selected_file);
+            self.selected_side = bookmark.side;
+        }
+        if mode == Restore::Source
+            && let Some(location) = &mut source
+            && let Some(index) = self
+                .source_view()
+                .and_then(|path| self.document.file_index(path))
+        {
+            let file = &self.document.files[index];
+            location.path = file.path.clone();
+            location.side = file.source_side();
+            let count = file
+                .source_document(location.side)
+                .map_or(0, |source| source.line_count());
+            location.line_number = location.line_number.clamp(1, count.max(1));
+        }
         let draft_anchor = self.draft.as_ref().map(|draft| draft.anchor.clone());
         self.presentation = DiffPresentation::with_projection(
             self.document.clone(),
-            PresentationOptions {
-                view_mode: self.view_mode,
-                split_when_auto: self.split_when_auto,
-                include_file_headers: self.options.include_file_headers,
-            },
+            self.presentation_options(),
             &self.projection,
         );
         self.projection_revision = self.projection_revision.wrapping_add(1);
         let source_row = source
             .as_ref()
             .and_then(|location| self.presentation.row_showing_source(location));
-        if source_row.is_none() {
-            self.pending_source_restore.clone_from(&source);
+        if source_row.is_none() && mode == Restore::Refresh {
+            self.pending_source_restore = source;
         }
-        let restored = source_row
-            .or_else(|| {
-                selected_id.and_then(|id| {
-                    self.presentation
-                        .rows(0..self.presentation.row_count())
-                        .iter()
-                        .position(|row| row.id == id)
+        let patch_row = || {
+            let bookmark = bookmark.as_ref()?;
+            bookmark
+                .row
+                .and_then(|id| self.presentation.row_with_id(id))
+                .or_else(|| {
+                    bookmark
+                        .anchor
+                        .as_ref()
+                        .and_then(|anchor| self.presentation.row_showing_anchor(anchor))
                 })
-            })
-            .or_else(|| {
-                anchor
-                    .as_ref()
-                    .and_then(|anchor| self.presentation.row_showing_anchor(anchor))
-            });
+        };
+        let restored = match mode {
+            Restore::Source => source_row,
+            Restore::Returning => patch_row().or(source_row),
+            Restore::Refresh => source_row.or_else(patch_row),
+        };
         if let Some(row) = restored {
             self.selected_row = row;
             self.selected_file = self
@@ -647,7 +793,10 @@ impl ReviewSession {
         if !draft_is_current {
             self.draft = None;
         }
-        self.normalize_selected_side();
+        match self.source_view_side() {
+            Some(side) => self.selected_side = side,
+            None => self.normalize_selected_side(),
+        }
     }
 
     fn select_first_row(&mut self) {
