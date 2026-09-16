@@ -9,6 +9,10 @@ use std::error::Error;
 fn decodes_shared_commands_without_a_browser() -> Result<(), Box<dyn Error>> {
     for (json, command) in [
         (
+            r#"{"target":"diff","command":"toggle_source_view"}"#,
+            ViewerCommand::Diff(DiffReviewCommand::ToggleSourceView),
+        ),
+        (
             r#"{"target":"diff","command":"refresh"}"#,
             ViewerCommand::Diff(DiffReviewCommand::Refresh),
         ),
@@ -42,6 +46,7 @@ fn decodes_shared_commands_without_a_browser() -> Result<(), Box<dyn Error>> {
 #[test]
 fn requests_round_trip_with_correlation_ids() -> Result<(), Box<dyn Error>> {
     for command in [
+        ViewerCommand::Diff(DiffReviewCommand::ToggleSourceView),
         ViewerCommand::Diff(DiffReviewCommand::SelectFile(3)),
         ViewerCommand::Diff(ReviewCommand::MoveTheme(-1).into()),
         ViewerCommand::Markdown(MarkdownReviewCommand::CopyReview(

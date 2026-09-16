@@ -13,6 +13,51 @@ use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 use std::{error::Error, sync::Arc};
 
 #[test]
+fn source_toggle_targets_files_and_isolates_editors_and_overlays() -> Result<(), Box<dyn Error>> {
+    let mut state = DiffReviewState::new(
+        DocumentBuilder::new()
+            .changed("src/a.rs", "old", "new")
+            .build(),
+    );
+    state.handle_command(DiffCommand::Focus(FocusPane::Diff));
+    let shortcut = KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE);
+    assert_eq!(
+        state.command_for_key(shortcut),
+        Some(DiffCommand::ToggleSourceView)
+    );
+    let _ = state.handle_input(ReviewInput::Key(shortcut));
+    assert!(state.session().source_view().is_some());
+    for command in [
+        DiffCommand::ToggleFullFile,
+        DiffCommand::CycleViewMode,
+        ReviewCommand::UndoComment.into(),
+        ReviewCommand::BeginComment.into(),
+    ] {
+        assert!(!state.command_enabled(&command));
+        assert!(!command.enabled(&state.command_context()));
+    }
+    state.handle_command(DiffCommand::Focus(FocusPane::Files));
+    let _ = state.handle_input(ReviewInput::Key(shortcut));
+    assert!(state.session().source_view().is_none());
+    state.handle_command(ReviewCommand::ShowHelp);
+    let _ = state.handle_input(ReviewInput::Key(shortcut));
+    assert!(state.session().source_view().is_none());
+    state.handle_command(ReviewCommand::Cancel);
+    state.handle_command(ReviewCommand::BeginComment);
+    let _ = state.handle_input(ReviewInput::Key(shortcut));
+    assert_eq!(state.session().draft().ok_or("draft")?.body(), "o");
+    state.handle_command(ReviewCommand::Cancel);
+    state.handle_command(DiffCommand::Focus(FocusPane::Files));
+    state.handle_command(DiffCommand::MoveSelection(-1));
+    let _ = state.handle_input(ReviewInput::Key(shortcut));
+    assert!(
+        state.session().source_view().is_none(),
+        "directory does not open stale file"
+    );
+    Ok(())
+}
+
+#[test]
 fn replacement_bindings_and_direct_commands_are_independent() {
     let mut state = diff();
     let shortcut = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);

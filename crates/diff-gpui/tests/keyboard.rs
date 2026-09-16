@@ -1,7 +1,9 @@
 use clankerdiff_core::{
     DiffReviewEvent, RepositoryAction, RowKind, ViewMode, testing::DocumentBuilder,
 };
-use clankerdiff_gpui::{DiffViewer, DiffViewerEvent, ViewerPane};
+use clankerdiff_gpui::{
+    DiffViewer, DiffViewerEvent, ViewerPane, testing::DiffViewerHarnessBuilder,
+};
 use gpui::{Context, Entity, Render, TestAppContext, Window, WindowOptions, div, prelude::*};
 
 struct TestRoot {
@@ -75,6 +77,37 @@ fn browse_shortcuts_navigate_rows_files_and_panes(cx: &mut TestAppContext) {
         viewer.read_with(cx, |viewer, _| viewer.pane()),
         ViewerPane::Diff
     );
+}
+
+#[gpui::test]
+fn enter_expands_diff_context_while_o_opens_source(cx: &mut TestAppContext) {
+    let harness = DiffViewerHarnessBuilder {
+        document: DocumentBuilder::new()
+            .changed_with_hunk_window(
+                "a.rs",
+                "before\nold\nafter\n",
+                "before\nnew\nafter\n",
+                2..=2,
+            )
+            .build(),
+        ..Default::default()
+    }
+    .build(cx);
+    harness.simulate_keystrokes(cx, "enter");
+    harness.read(cx, |viewer, _| {
+        assert!(viewer.session().source_view().is_none());
+        assert!(
+            viewer
+                .presentation()
+                .rows(0..viewer.presentation().row_count())
+                .iter()
+                .any(|row| row.kind == RowKind::ExpandedContext)
+        );
+    });
+    harness.simulate_keystrokes(cx, "o");
+    assert!(harness.read(cx, |viewer, _| viewer.session().source_view().is_some()));
+    harness.simulate_keystrokes(cx, "o");
+    assert!(harness.read(cx, |viewer, _| viewer.session().source_view().is_none()));
 }
 
 #[gpui::test]

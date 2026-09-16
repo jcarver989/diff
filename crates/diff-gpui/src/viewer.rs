@@ -12,7 +12,7 @@ use crate::{
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, Layout, LineAnchor,
     PresentedCell, PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession,
-    SessionOptions, StageState, ViewMode,
+    RowId, SessionOptions, SourceLocation, StageState, ViewMode,
 };
 use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
 use clankerdiff_syntax::{
@@ -62,6 +62,7 @@ actions!(
         ActivateGap,
         ExpandGapAll,
         ToggleFullFile,
+        ToggleSourceView,
         AddComment,
         EditComment,
         DeleteComment,
@@ -134,6 +135,12 @@ enum RepositoryPrompt {
 
 pub use clankerdiff_core::FocusPane as ViewerPane;
 
+struct DiffViewportBookmark {
+    offset: ListOffset,
+    row: Option<RowId>,
+    source: Option<SourceLocation>,
+}
+
 /// Shared GPUI diff review view.
 ///
 pub struct DiffViewer {
@@ -149,6 +156,8 @@ pub struct DiffViewer {
     diff_list_state: ListState,
     diff_list_file: Option<usize>,
     diff_list_split: bool,
+    diff_list_revision: u64,
+    diff_viewport: Option<DiffViewportBookmark>,
     pub(crate) sidebar_tree: SidebarTree,
     pub(crate) sidebar_selection: crate::sidebar::SidebarEntry,
     pub(crate) sidebar_scroll_handle: ScrollHandle,
@@ -208,6 +217,8 @@ impl DiffViewer {
             diff_list_state: ListState::new(0, ListAlignment::Top, px(row_height * 8.0)),
             diff_list_file: None,
             diff_list_split: false,
+            diff_list_revision: 0,
+            diff_viewport: None,
             sidebar_tree,
             sidebar_selection: crate::sidebar::SidebarEntry::File(0),
             sidebar_scroll_handle: ScrollHandle::new(),
@@ -283,10 +294,10 @@ impl DiffViewer {
             KeyBinding::new("u", UndoComment, Some(DIFF)),
             KeyBinding::new("s", SubmitReview, Some(DIFF)),
             KeyBinding::new("y", CopyReview, Some(DIFF)),
-            KeyBinding::new("o", ExpandGap, Some(DIFF)),
+            KeyBinding::new("o", ToggleSourceView, Some(BROWSE)),
             KeyBinding::new("shift-o", ExpandGapAll, Some(DIFF)),
             KeyBinding::new("f", ToggleFullFile, Some(DIFF)),
-            KeyBinding::new("enter", ActivateGap, Some(DIFF)),
+            KeyBinding::new("enter", ExpandGap, Some(DIFF)),
             KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
             KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
             KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
@@ -456,6 +467,7 @@ impl DiffViewer {
     }
 
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
+        let revision = self.session.projection_revision();
         self.sidebar_tree.rebuild(&document);
         self.session.set_document(document);
 
@@ -466,7 +478,10 @@ impl DiffViewer {
                 .expand_file(self.session.document(), index);
         }
         self.settle_comment_editor();
-        self.diff_list_file = None;
+        self.diff_list_state.remeasure();
+        if revision != self.session.projection_revision() {
+            self.diff_list_file = None;
+        }
         cx.notify();
     }
 
@@ -686,7 +701,9 @@ impl DiffViewer {
         row_count: usize,
         split: bool,
     ) -> ListState {
-        if self.diff_list_file != Some(file_index) || self.diff_list_state.item_count() != row_count
+        if self.diff_list_file != Some(file_index)
+            || self.diff_list_state.item_count() != row_count
+            || self.diff_list_revision != self.session.projection_revision()
         {
             self.diff_list_state
                 .reset_with_uniform_height(row_count, px(self.diff_row_height()));
@@ -696,6 +713,7 @@ impl DiffViewer {
             self.diff_list_state.remeasure();
             self.diff_list_split = split;
         }
+        self.diff_list_revision = self.session.projection_revision();
         self.diff_list_state.clone()
     }
 
@@ -900,6 +918,73 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         self.handle_command(DiffReviewCommand::RevealGap(RevealAmount::All), window, cx);
+    }
+
+    fn toggle_source_view_action(
+        &mut self,
+        _: &ToggleSourceView,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.handle_command(DiffReviewCommand::ToggleSourceView, window, cx);
+    }
+
+    pub fn toggle_source_view(&mut self, cx: &mut Context<Self>) -> bool {
+        let entering = self.session.source_view().is_none();
+        let bookmark = if entering {
+            let offset = self.diff_list_state.logical_scroll_top();
+            let row = self
+                .session
+                .selected_file_range()
+                .and_then(|range| self.presentation().row(range.start + offset.item_ix));
+            Some(DiffViewportBookmark {
+                offset,
+                row: row.map(|row| row.id),
+                source: row.and_then(|row| {
+                    self.presentation()
+                        .source_location(row, row.primary_cell()?)
+                }),
+            })
+        } else {
+            None
+        };
+        if !self.session.toggle_source_view() {
+            return false;
+        }
+        if let (Some(file), Some(range)) =
+            (self.selected_file(), self.session.selected_file_range())
+        {
+            self.sync_diff_list(file, range.len(), self.layout().is_split());
+        }
+        if entering {
+            self.diff_viewport = bookmark;
+            self.reveal_selected_row();
+        } else if let Some(mut bookmark) = self.diff_viewport.take() {
+            let restored = bookmark
+                .row
+                .and_then(|id| self.presentation().row_with_id(id))
+                .or_else(|| {
+                    bookmark
+                        .source
+                        .as_ref()
+                        .and_then(|source| self.presentation().row_showing_source(source))
+                })
+                .zip(self.session.selected_file_range())
+                .and_then(|(row, range)| range.contains(&row).then(|| row - range.start));
+            if let Some(item_ix) = restored {
+                bookmark.offset.item_ix = item_ix;
+            }
+            bookmark.offset.item_ix = bookmark
+                .offset
+                .item_ix
+                .min(self.diff_list_state.item_count().saturating_sub(1));
+            self.diff_list_state.scroll_to(bookmark.offset);
+            if restored.is_none() {
+                self.reveal_selected_row();
+            }
+        }
+        cx.notify();
+        true
     }
 
     fn toggle_full_file_action(
@@ -1543,6 +1628,7 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::activate_gap_action))
             .on_action(cx.listener(Self::expand_gap_all_action))
             .on_action(cx.listener(Self::toggle_full_file_action))
+            .on_action(cx.listener(Self::toggle_source_view_action))
             .on_action(cx.listener(Self::increase_font_size))
             .on_action(cx.listener(Self::decrease_font_size))
             .on_action(cx.listener(Self::reset_font_size_action))

@@ -1,7 +1,7 @@
 use crate::{
     DiffReviewCommand, DiffReviewEvent, DiffReviewState, DiffReviewStatus, FocusPane, InputOutcome,
-    InteractionPhase, KeyBinding, KeyEvent, NavigationPane, ReviewCommand, keybindings,
-    theme_picker::ThemePicker,
+    InteractionPhase, KeyBinding, KeyEvent, NavigationPane, ReviewCommand, drawer::DrawerEntry,
+    keybindings, theme_picker::ThemePicker,
 };
 use clankerdiff_core::{CommandContext, RepositoryAction, ReviewCapabilities};
 use std::sync::Arc;
@@ -51,6 +51,7 @@ impl DiffReviewState {
             capabilities: self.capabilities,
             repository_pending: self.repository_pending(),
             document_ready: matches!(self.status, DiffReviewStatus::Ready),
+            source_view: self.session.source_view().is_some(),
             navigation_available: !matches!(
                 self.options.navigation,
                 NavigationPane::Hidden | NavigationPane::Width(0)
@@ -162,6 +163,24 @@ impl DiffReviewState {
             }
             C::RevealGap(amount) => {
                 self.reveal_selected_gap(amount);
+                return InputOutcome::Consumed;
+            }
+            C::ToggleSourceView => {
+                if self.session.source_view().is_none() && self.focus == FocusPane::Files {
+                    let Some(DrawerEntry::File { index, .. }) =
+                        self.drawer.entry(self.drawer_selected)
+                    else {
+                        return InputOutcome::Ignored;
+                    };
+                    let index = *index;
+                    if self.session.selected_file() != Some(index) {
+                        self.select_file(index);
+                    }
+                }
+                if !self.toggle_source_view() {
+                    return InputOutcome::Ignored;
+                }
+                self.focus = FocusPane::Diff;
                 return InputOutcome::Consumed;
             }
             C::ToggleFullFile => {

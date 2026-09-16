@@ -164,11 +164,30 @@ impl GapInfo {
 /// Reveal state used to project a document over the sources it carries.
 #[derive(Debug, Clone, Default)]
 pub struct ContentProjection {
+    source_view: Option<RepoPath>,
     pub(crate) expansions: HashMap<GapId, GapExpansion>,
     pub(crate) full_files: HashSet<RepoPath>,
 }
 
 impl ContentProjection {
+    pub fn set_source_view(&mut self, path: Option<RepoPath>) {
+        self.source_view = path;
+    }
+
+    #[must_use]
+    pub const fn source_view(&self) -> Option<&RepoPath> {
+        self.source_view.as_ref()
+    }
+
+    #[must_use]
+    pub const fn layout(&self, options: PresentationOptions) -> Layout {
+        if self.source_view.is_some() {
+            Layout::Unified
+        } else {
+            options.layout()
+        }
+    }
+
     pub fn set_expansion(&mut self, id: GapId, expansion: GapExpansion) {
         self.expansions.insert(id, expansion);
     }
@@ -368,7 +387,7 @@ impl DiffPresentation {
         options: PresentationOptions,
         projection: &ContentProjection,
     ) -> Self {
-        let layout = options.layout();
+        let layout = projection.layout(options);
         let mut rows = Vec::new();
         let mut gap_info = HashMap::new();
         let mut file_ranges = Vec::with_capacity(document.files.len());
@@ -377,6 +396,12 @@ impl DiffPresentation {
             let file_start = rows.len();
             if options.include_file_headers {
                 rows.push(header_row(file_index, file));
+            }
+            if projection.source_view() == Some(&file.path) {
+                append_source_rows(&mut rows, file_index, file);
+                file_ranges.push(file_start..rows.len());
+                hunk_ranges.push(Vec::new());
+                continue;
             }
             let old_count = file
                 .source_document(DiffSide::Old)
@@ -510,6 +535,11 @@ impl DiffPresentation {
     #[must_use]
     pub fn row(&self, index: usize) -> Option<&PresentedRow> {
         self.rows.get(index)
+    }
+
+    #[must_use]
+    pub fn row_with_id(&self, id: RowId) -> Option<usize> {
+        self.rows.iter().position(|row| row.id == id)
     }
 
     /// Returns a clamped visible row slice without allocating.
@@ -1008,6 +1038,48 @@ fn append_expanded_row(rows: &mut Vec<PresentedRow>, expanded: ExpandedRow<'_>, 
         left,
         right,
     });
+}
+
+fn append_source_rows(rows: &mut Vec<PresentedRow>, file_index: usize, file: &FileDiff) {
+    let side = file.source_side();
+    let source = match file.source(side) {
+        Ok(source) if source.line_count() > 0 => source,
+        result => {
+            let message = result
+                .as_ref()
+                .err()
+                .map_or_else(|| "Empty file".to_owned(), ToString::to_string);
+            rows.push(meta_row(
+                file_index,
+                None,
+                &file.path,
+                "source-state",
+                None,
+                message,
+            ));
+            return;
+        }
+    };
+    for line_number in 1..=source.line_count() {
+        let content = cell(
+            None,
+            Some(SourceLineRef { side, line_number }),
+            source.line(line_number).unwrap_or_default(),
+            DiffTone::Context,
+        );
+        let (left, right, old_number, new_number) = match side {
+            DiffSide::Old => (Some(content), None, Some(line_number), None),
+            DiffSide::New => (None, Some(content), None, Some(line_number)),
+        };
+        rows.push(PresentedRow {
+            id: row_id(&file.path, "source", None, old_number, new_number),
+            kind: RowKind::ExpandedContext,
+            file_index,
+            hunk_index: None,
+            left,
+            right,
+        });
+    }
 }
 
 fn placeholder_text(file: &FileDiff) -> Arc<str> {

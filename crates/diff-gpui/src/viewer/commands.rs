@@ -1,5 +1,5 @@
 use super::{DiffViewer, ViewerPane};
-use crate::{DiffViewerEvent, ThemeChanged};
+use crate::{DiffViewerEvent, ThemeChanged, sidebar::SidebarEntry};
 use clankerdiff_core::{
     CommandContext, DiffReviewCommand, InteractionPhase, RepositoryAction, ReviewCapabilities,
     ReviewCommand,
@@ -26,6 +26,7 @@ impl DiffViewer {
             capabilities: self.capabilities,
             repository_pending: self.repository_pending,
             themes_available: true,
+            source_view: self.session.source_view().is_some(),
             ..CommandContext::default()
         }
     }
@@ -130,6 +131,21 @@ impl DiffViewer {
             }
             C::RevealGap(amount) => {
                 self.expand_selected_gap(amount, cx);
+                return true;
+            }
+            C::ToggleSourceView => {
+                if self.session.source_view().is_none() && self.pane == ViewerPane::Files {
+                    let SidebarEntry::File(index) = self.sidebar_selection else {
+                        return false;
+                    };
+                    if self.session.selected_file() != Some(index) {
+                        self.select_file(index, cx);
+                    }
+                }
+                if !self.toggle_source_view(cx) {
+                    return false;
+                }
+                self.pane = ViewerPane::Diff;
                 return true;
             }
             C::ToggleFullFile => {

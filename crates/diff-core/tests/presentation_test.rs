@@ -1,10 +1,107 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffPresentation, DiffSide, MAX_HUNK_SEQUENCE_LINES, PresentationOptions, RowKind,
-    SourceDocument, testing::DocumentBuilder,
+    ContentProjection, DiffPresentation, DiffSide, DiffTone, Layout, MAX_HUNK_SEQUENCE_LINES,
+    PresentationOptions, RowKind, SourceDocument, SourceUnavailable, ViewMode,
+    testing::DocumentBuilder,
 };
 use std::{borrow::Cow, error::Error};
+
+#[test]
+fn source_projection_is_complete_neutral_and_has_no_patch_provenance() -> Result<(), Box<dyn Error>>
+{
+    let text = "before\r\n\r\n+ literal\r\n- literal\r\n@@ literal\r\n界 after";
+    for side in [DiffSide::Old, DiffSide::New] {
+        let document = match side {
+            DiffSide::Old => DocumentBuilder::new().deleted("a.rs", "old\n"),
+            DiffSide::New => DocumentBuilder::new().changed("a.rs", "old\n", "new\n"),
+        }
+        .source("a.rs", side, Ok(text))
+        .build();
+        let mut projection = ContentProjection::default();
+        projection.set_source_view(Some(document.files[0].path.clone()));
+        let presentation = DiffPresentation::with_projection(
+            document.clone(),
+            PresentationOptions {
+                view_mode: ViewMode::Split,
+                include_file_headers: false,
+                ..Default::default()
+            },
+            &projection,
+        );
+        assert_eq!(presentation.layout(), Layout::Unified);
+        let source = document.files[0].source_document(side).ok_or("source")?;
+        assert_eq!(presentation.row_count(), source.line_count());
+        assert!(presentation.hunk_range(0, 0).is_none());
+        for (offset, row) in presentation
+            .rows(0..presentation.row_count())
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(presentation.row_with_id(row.id), Some(offset));
+            assert_eq!(row.kind, RowKind::ExpandedContext);
+            assert!(row.is_navigable());
+            assert!(!row.is_commentable());
+            assert!(row.hunk_index.is_none());
+            let cell = row.cell(side).ok_or("source cell")?;
+            assert_eq!(Some(cell.text.as_ref()), source.line(offset + 1));
+            assert_eq!(cell.tone, DiffTone::Context);
+            assert!(cell.patch_source.is_none());
+            assert!(presentation.cell_anchor(row, cell).is_none());
+            assert_eq!(presentation.cell_context(row, cell).text(), text);
+            let location = presentation.source_location(row, cell).ok_or("location")?;
+            assert_eq!(presentation.row_showing_source(&location), Some(offset));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn source_projection_reports_empty_and_every_unavailable_reason_without_fallback()
+-> Result<(), Box<dyn Error>> {
+    for result in [
+        Ok(""),
+        Err(SourceUnavailable::Absent),
+        Err(SourceUnavailable::NotCaptured),
+        Err(SourceUnavailable::Binary),
+        Err(SourceUnavailable::TooLarge { bytes: 9_000_000 }),
+        Err(SourceUnavailable::TooManyLines { lines: 1_000_001 }),
+        Err(SourceUnavailable::SnapshotBudgetExceeded),
+        Err(SourceUnavailable::UnstableSnapshot),
+        Err(SourceUnavailable::Error("capture failed".into())),
+    ] {
+        let message = result
+            .as_ref()
+            .err()
+            .map_or_else(|| "Empty file".to_owned(), ToString::to_string);
+        let document = DocumentBuilder::new()
+            .changed(
+                "a.rs",
+                "old source must not appear",
+                "patch must not appear",
+            )
+            .source("a.rs", DiffSide::New, result)
+            .build();
+        let mut projection = ContentProjection::default();
+        projection.set_source_view(Some(document.files[0].path.clone()));
+        let presentation = DiffPresentation::with_projection(
+            document,
+            PresentationOptions {
+                include_file_headers: false,
+                ..Default::default()
+            },
+            &projection,
+        );
+        assert_eq!(presentation.row_count(), 1);
+        let row = presentation.row(0).ok_or("state row")?;
+        assert_eq!(row.kind, RowKind::Meta);
+        assert_eq!(
+            row.primary_cell().ok_or("state text")?.text.as_ref(),
+            message
+        );
+    }
+    Ok(())
+}
 
 #[test]
 fn cell_context_prefers_complete_source_and_side_specific_paths() {

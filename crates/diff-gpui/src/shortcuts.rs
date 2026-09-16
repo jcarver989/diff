@@ -11,9 +11,10 @@ const NAVIGATION: &[(&str, &str)] = &[
     ("Tab", "change pane"),
     ("g / G, Home / End", "first / last item"),
     ("PgUp / PgDn", "move a page"),
-    ("o / Enter", "expand context"),
+    ("o", "toggle source / diff"),
+    ("Enter", "expand context / open file"),
     ("O", "expand all context"),
-    ("f", "toggle full-file view"),
+    ("f", "toggle all diff context"),
 ];
 const GIT: &[(&str, &str)] = &[
     ("Space", "stage / unstage file or directory"),

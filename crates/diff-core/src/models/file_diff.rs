@@ -180,6 +180,14 @@ impl FileDiff {
         }
     }
 
+    pub(crate) const fn source_side(&self) -> DiffSide {
+        if matches!(self.status, FileStatus::Deleted) {
+            DiffSide::Old
+        } else {
+            DiffSide::New
+        }
+    }
+
     /// Returns the complete source document for one side when it is available.
     #[must_use]
     pub fn source_document(&self, side: DiffSide) -> Option<&Arc<SourceDocument>> {

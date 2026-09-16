@@ -10,6 +10,8 @@ impl DiffViewer {
         let theme = self.ui_theme();
         let hint = if self.comment_editor.is_some() {
             "Enter save · Shift-Enter newline · Esc cancel"
+        } else if self.session().source_view().is_some() {
+            "j/k line · o back to diff · s submit · y copy · ? help"
         } else if self.pane == ViewerPane::Files {
             "j/k entry · h/l fold/open · Tab pane · ? help"
         } else if self.layout().is_split() {

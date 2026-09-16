@@ -88,6 +88,7 @@ impl DiffViewer {
         .min_w_0()
         .flex_1();
 
+        let source_label = self.session().source_view_label();
         let header = div()
             .h(px(HEADER_HEIGHT))
             .flex_shrink_0()
@@ -107,17 +108,26 @@ impl DiffViewer {
                     .child(file_path),
             )
             .child(self.render_font_controls(cx))
-            .child(
+            .children(source_label.map(|label| {
                 div()
-                    .text_color(style::color(palette.addition))
-                    .child(format!("+{additions}")),
-            )
-            .child(
-                div()
-                    .ml_2()
-                    .text_color(style::color(palette.deletion))
-                    .child(format!("−{deletions}")),
-            );
+                    .debug_selector(|| "source-mode-header".to_owned())
+                    .text_color(style::color(palette.muted))
+                    .child(label)
+            }))
+            .when(source_label.is_none(), |header| {
+                header
+                    .child(
+                        div()
+                            .text_color(style::color(palette.addition))
+                            .child(format!("+{additions}")),
+                    )
+                    .child(
+                        div()
+                            .ml_2()
+                            .text_color(style::color(palette.deletion))
+                            .child(format!("−{deletions}")),
+                    )
+            });
 
         div()
             .debug_selector(|| "diff-pane".to_owned())
@@ -271,7 +281,7 @@ impl DiffViewer {
                     || "⋯ unchanged lines".into(),
                     |info| {
                         let message = if info.unavailable.is_none() {
-                            format!("{} — o expand · O expand all", info.message())
+                            format!("{} — Enter expand · O expand all", info.message())
                         } else {
                             info.message()
                         };

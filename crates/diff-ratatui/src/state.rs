@@ -2,12 +2,13 @@ use crate::{
     DiffReviewCommand, InteractionPhase, KeyBinding, NavigationPane, ReviewOptions, ThemeChoice,
     default_diff_keybindings,
     drawer::{DrawerEntry, DrawerTree},
-    patch_layout::{PatchContentLayout, PatchVisualLayout},
+    patch_layout::{PatchContentLayout, PatchVisualLayout, PatchVisualRow},
     theme_picker::ThemePicker,
 };
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, Layout, RepositoryAction,
-    RevealAmount, Review, ReviewCapabilities, ReviewSession, StageState, ViewMode,
+    RevealAmount, Review, ReviewCapabilities, ReviewSession, RowId, SourceLocation, StageState,
+    ViewMode,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -79,6 +80,14 @@ struct CachedPatchContent {
     layout: Arc<PatchContentLayout>,
 }
 
+#[derive(Debug)]
+struct DiffViewportBookmark {
+    scroll: usize,
+    row: Option<RowId>,
+    source: Option<SourceLocation>,
+    segment: usize,
+}
+
 /// Persistent state for [`crate::DiffReviewWidget`].
 #[derive(Debug)]
 pub struct DiffReviewState {
@@ -102,6 +111,7 @@ pub struct DiffReviewState {
     pub(crate) presentation_width: u16,
     patch_content: Option<CachedPatchContent>,
     patch_layout: Option<CachedPatchLayout>,
+    diff_viewport: Option<DiffViewportBookmark>,
     pub(crate) help: bool,
     pub(crate) help_scroll: usize,
     pub(crate) theme_picker: Option<ThemePicker>,
@@ -150,6 +160,7 @@ impl DiffReviewState {
             presentation_width: 0,
             patch_content: None,
             patch_layout: None,
+            diff_viewport: None,
             help: false,
             help_scroll: 0,
             theme_picker: None,
@@ -326,7 +337,10 @@ impl DiffReviewState {
     }
 
     fn install_document(&mut self, document: Arc<DiffDocument>) {
+        let revision = self.session.projection_revision();
         self.session.set_document(document);
+        let follow = revision != self.session.projection_revision()
+            || !matches!(self.status, DiffReviewStatus::Ready);
         self.status = DiffReviewStatus::Ready;
         self.cursor_position = None;
         self.mark_dirty();
@@ -339,7 +353,9 @@ impl DiffReviewState {
             self.drawer_selected = 0;
         }
         self.follow_drawer_selection();
-        self.request_follow();
+        if follow {
+            self.request_follow();
+        }
     }
 
     /// Marks the state as waiting for a host snapshot.
@@ -522,6 +538,69 @@ impl DiffReviewState {
                 self.session.selected_side(),
             );
         self.finish_projection_change(changed)
+    }
+
+    pub fn toggle_source_view(&mut self) -> bool {
+        let entering = self.session.source_view().is_none();
+        let bookmark = if entering {
+            let layout = self.patch_visual_layout();
+            let index = match layout.as_ref().and_then(|layout| layout.row(self.scroll)) {
+                Some(PatchVisualRow::Source { index, .. }) => Some(index),
+                Some(PatchVisualRow::Annotation { source, .. }) => Some(source),
+                None => None,
+            };
+            let segment = index
+                .zip(layout.as_ref())
+                .and_then(|(index, layout)| layout.focused_visual_row(index, false))
+                .map_or(0, |first| self.scroll.saturating_sub(first));
+            let row = index.and_then(|index| self.presentation().row(index));
+            Some(DiffViewportBookmark {
+                scroll: self.scroll,
+                row: row.map(|row| row.id),
+                source: row.and_then(|row| {
+                    self.presentation()
+                        .source_location(row, row.primary_cell()?)
+                }),
+                segment,
+            })
+        } else {
+            None
+        };
+        if !self.session.toggle_source_view() {
+            return false;
+        }
+        if entering {
+            self.diff_viewport = bookmark;
+            self.scroll = 0;
+            self.request_follow();
+        } else if let Some(bookmark) = self.diff_viewport.take() {
+            self.scroll = bookmark.scroll;
+            let row = bookmark
+                .row
+                .and_then(|id| self.presentation().row_with_id(id))
+                .or_else(|| {
+                    bookmark
+                        .source
+                        .as_ref()
+                        .and_then(|source| self.presentation().row_showing_source(source))
+                });
+            if let (Some(row), Some(layout)) = (row, self.patch_visual_layout()) {
+                self.scroll = layout
+                    .focused_visual_row(row, false)
+                    .unwrap_or(0)
+                    .saturating_add(bookmark.segment);
+            } else {
+                self.follow_selection();
+            }
+            if let Some(layout) = self.patch_visual_layout() {
+                self.scroll = self
+                    .scroll
+                    .min(layout.len().saturating_sub(self.last_height));
+            }
+            self.follow_pending = false;
+            self.mark_dirty();
+        }
+        true
     }
 
     pub fn toggle_full_file(&mut self) -> bool {
