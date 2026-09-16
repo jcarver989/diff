@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { page } from "vitest/browser";
 
 const documentFixture = {
   repo_root: "/fixture",
@@ -179,6 +180,48 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
     );
   }
   await new Promise((resolve) => setTimeout(resolve, 100));
+  const sourceFile = {
+    path: "source.rs", old_path: "source.rs", status: "Modified", staged: "Staged",
+    binary: false, mode: null, no_newline_at_end: false,
+    old_source: { Ok: "// out-of-hunk before\nlet old_only = 1;\n// out-of-hunk after\n" },
+    new_source: { Ok: "// out-of-hunk before\nlet new_only = 2;\n// out-of-hunk after\n" },
+    hunks: [{
+      header: "@@ -2 +2 @@", function_context: null,
+      old_start: 2, old_count: 1, new_start: 2, new_count: 1,
+      lines: [
+        { kind: "Removed", text: "let old_only = 1;", old_line_no: 2, new_line_no: null, no_newline: false },
+        { kind: "Added", text: "let new_only = 2;", old_line_no: null, new_line_no: 2, no_newline: false },
+      ],
+    }],
+  };
+  const applied = acknowledgements.length;
+  push({ repo_root: "/source-fixture", files: [sourceFile] });
+  await expect.poll(() => acknowledgements.length).toBe(applied + 1);
+  await command("diff", { focus: "diff" });
+  const repositoryRequests = requests.length;
+  await key("o");
+  expect((await command("diff", "toggle_full_file")).handled).toBe(false);
+  expect((await command("diff", { review: "begin_comment" })).handled).toBe(false);
+  await expect.element(page.elementLocator(frame)).toMatchScreenshot("source-view-new");
+  await key("o");
+  expect((await command("diff", { review: "begin_comment" })).handled).toBe(true);
+  await key("o");
+  expect((await command("diff", "toggle_source_view")).handled).toBe(false);
+  await command("diff", { review: "cancel" });
+  expect((await command("diff", "toggle_source_view")).handled).toBe(true);
+  await command("diff", { review: "show_help" });
+  await key("o");
+  expect((await command("diff", "toggle_source_view")).handled).toBe(false);
+  await command("diff", { review: "cancel" });
+  expect((await command("diff", "toggle_full_file")).handled).toBe(false);
+  expect((await command("diff", "toggle_source_view")).handled).toBe(true);
+  const { old_source, new_source, ...patchOnly } = sourceFile;
+  push({ repo_root: "/patch-fixture", files: [patchOnly] });
+  await expect.poll(() => acknowledgements.length).toBe(applied + 2);
+  expect((await command("diff", "toggle_source_view")).handled).toBe(true);
+  await expect.element(page.elementLocator(frame)).toMatchScreenshot("source-view-unavailable");
+  expect((await command("diff", "toggle_source_view")).handled).toBe(true);
+  expect(requests).toHaveLength(repositoryRequests);
   expect(runtimeErrors).toEqual([]);
 
   frame.remove();
