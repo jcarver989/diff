@@ -43,5 +43,6 @@ pub use viewer::{
     HideThemePicker, IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, NextTheme, PageDown,
     PageUp, PreviousFile, PreviousHunk, PreviousItem, PreviousTheme, Refresh, ResetFontSize,
     SelectNewSide, SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment,
-    SubmitReview, ToggleFullFile, TogglePane, ToggleStage, UndoComment, UnstageAll, ViewerPane,
+    SubmitReview, ToggleFullFile, TogglePane, ToggleSourceView, ToggleStage, UndoComment,
+    UnstageAll, ViewerPane,
 };

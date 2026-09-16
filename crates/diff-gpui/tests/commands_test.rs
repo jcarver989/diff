@@ -12,6 +12,40 @@ use gpui::{AppContext, Focusable, TestAppContext};
 use std::{error::Error, sync::Arc};
 
 #[gpui::test]
+fn source_commands_and_keys_obey_the_same_mode_and_phase_gates(cx: &mut TestAppContext) {
+    let result = (|| -> Result<(), Box<dyn Error>> {
+        let harness = DiffViewerHarnessBuilder::default().build(cx);
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::ToggleSourceView)?);
+        for command in [
+            DiffReviewCommand::ToggleFullFile,
+            DiffReviewCommand::CycleViewMode,
+            ReviewCommand::BeginComment.into(),
+            ReviewCommand::EditComment.into(),
+            ReviewCommand::DeleteComment.into(),
+            ReviewCommand::UndoComment.into(),
+        ] {
+            assert!(!harness.read(cx, |viewer, _| command.enabled(&viewer.command_context())));
+            assert!(!harness.dispatch_command(cx, command)?);
+        }
+        harness.simulate_keystrokes(cx, "h o");
+        assert!(harness.read(cx, |viewer, _| viewer.session().source_view().is_none()));
+        assert!(harness.dispatch_command(cx, ReviewCommand::ShowHelp)?);
+        harness.simulate_keystrokes(cx, "o");
+        assert!(harness.read(cx, |viewer, _| viewer.session().source_view().is_none()));
+        assert!(!harness.dispatch_command(cx, DiffReviewCommand::ToggleSourceView)?);
+        assert!(harness.dispatch_command(cx, ReviewCommand::Cancel)?);
+        assert!(harness.dispatch_command(cx, ReviewCommand::BeginComment)?);
+        harness.simulate_keystrokes(cx, "o");
+        assert!(harness.read(cx, |viewer, _| viewer.session().source_view().is_none()));
+        assert!(!harness.dispatch_command(cx, DiffReviewCommand::ToggleSourceView)?);
+        Ok(())
+    })();
+    if let Err(error) = result {
+        panic!("{error}");
+    }
+}
+
+#[gpui::test]
 fn keyboard_and_shared_commands_create_identical_reviews(cx: &mut TestAppContext) {
     let result = (|| -> Result<(), Box<dyn Error>> {
         let keyboard = DiffViewerHarnessBuilder::default().build(cx);
