@@ -355,6 +355,7 @@ fn render_patch(
                         selected_side,
                         layout,
                         file_stats: file_stats(session, row),
+                        source_label: session.source_view_label(),
                     },
                 );
                 visible_rows.extend((y..y + height).map(|screen_y| (screen_y, index)));
@@ -404,6 +405,7 @@ struct RowStyle {
     selected_side: DiffSide,
     layout: clankerdiff_core::Layout,
     file_stats: Option<(usize, usize)>,
+    source_label: Option<&'static str>,
 }
 
 struct CellContext<'a> {
@@ -432,7 +434,9 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("+{additions} -{deletions}"),
+                    style
+                        .source_label
+                        .map_or_else(|| format!("+{additions} -{deletions}"), ToOwned::to_owned),
                     Style::new().fg(context.theme.ui.text_muted),
                 ),
             ]))
@@ -452,7 +456,7 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
                 || " ⋯ unchanged lines".to_owned(),
                 |info| {
                     let message = if info.unavailable.is_none() {
-                        format!("{} — o expand · O expand all", info.message())
+                        format!("{} — Enter expand · O expand all", info.message())
                     } else {
                         info.message()
                     };

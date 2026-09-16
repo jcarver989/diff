@@ -10,6 +10,33 @@ use std::{error::Error, fmt::Write, str, sync::Arc};
 use support::{MarkdownStreamFixture, ReviewHarness, key, mouse};
 
 #[test]
+fn source_view_large_snapshot_reuses_full_document_highlights() {
+    let old = source_lines(100_000, "");
+    let new = old.replace("let value_50000 = 50000;", "let changed = 50000;");
+    let document = DocumentBuilder::new()
+        .changed_with_hunk_window("large.rs", &old, &new, 49_998..=50_002)
+        .changed("unrelated.rs", "old", "new")
+        .build();
+    let mut harness = ReviewHarness::new(document, 100, 24);
+    harness.state_mut().set_options(ReviewOptions {
+        navigation: NavigationPane::Hidden,
+        footer: false,
+        ..Default::default()
+    });
+    harness.draw();
+    harness.input_and_draw(key(KeyCode::Char('o')));
+    assert!(harness.state().session().source_view().is_some());
+    for _ in 0..3 {
+        harness.input_and_draw(key(KeyCode::Char('G')));
+        let settled = harness.draw();
+        assert_eq!(settled.highlight_misses, 0);
+        assert!(settled.highlight_calls <= 24);
+        harness.input_and_draw(key(KeyCode::Char('o')));
+        harness.input_and_draw(key(KeyCode::Char('o')));
+    }
+}
+
+#[test]
 fn settled_frame_emits_no_terminal_cells_and_reuses_highlights() {
     let mut harness = ReviewHarness::new(large_document(1_000), 100, 24);
     let cold = harness.draw();
