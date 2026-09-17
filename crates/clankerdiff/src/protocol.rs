@@ -1,65 +1,36 @@
-use clankerdiff_core::{DiffDocument, DiffScope, RepositoryAction, ReviewSubmission};
+use clankerdiff_core::{DiffScope, ReviewSubmission};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 use thiserror::Error;
 
 const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;
-const MAX_RESPONSE_BYTES: usize = 128 * 1024 * 1024;
+const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub enum SessionRequest {
-    /// Polls for a document newer than the client's installed revision. Revision
-    /// zero requests the initial document.
-    Document {
-        revision: u64,
-    },
-    RepositoryAction(RepositoryAction),
-    SetScope(DiffScope),
+    Bootstrap,
     Submit(ReviewSubmission),
     Cancel,
 }
 
 #[derive(Serialize)]
 pub enum SessionRequestRef<'a> {
-    Document { revision: u64 },
-    RepositoryAction(&'a RepositoryAction),
-    SetScope(DiffScope),
+    Bootstrap,
     Submit(&'a ReviewSubmission),
     Cancel,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub enum SessionResponse {
-    Document {
-        revision: u64,
-        document: DiffDocument,
-        scope: DiffScope,
-        background_error: Option<String>,
-    },
-    /// Content is unchanged; background health is reconciled on every poll.
-    Unchanged {
-        scope: DiffScope,
-        background_error: Option<String>,
-    },
+    Bootstrap { url: String, scope: DiffScope },
     Accepted,
-    RepositoryError(String),
     ProtocolError(String),
 }
 
 #[derive(Serialize)]
 pub enum SessionResponseRef<'a> {
-    Document {
-        revision: u64,
-        document: &'a DiffDocument,
-        scope: DiffScope,
-        background_error: Option<&'a str>,
-    },
-    Unchanged {
-        scope: DiffScope,
-        background_error: Option<&'a str>,
-    },
+    Bootstrap { url: &'a str, scope: DiffScope },
     Accepted,
-    RepositoryError(&'a str),
     ProtocolError(&'a str),
 }
 
@@ -98,7 +69,6 @@ fn read_message<T: DeserializeOwned>(
             maximum_size,
         });
     }
-
     let mut body = vec![0; length];
     stream.read_exact(&mut body)?;
     serde_json::from_slice(&body).map_err(ProtocolError::Json)
@@ -120,7 +90,6 @@ fn write_message<T: Serialize>(
         size: body.len(),
         maximum_size,
     })?;
-
     stream.write_all(&length.to_be_bytes())?;
     stream.write_all(&body)?;
     stream.flush().map_err(ProtocolError::Io)
@@ -134,94 +103,4 @@ pub enum ProtocolError {
     Json(#[from] serde_json::Error),
     #[error("session message is {size} bytes, exceeding the {maximum_size}-byte limit")]
     MessageTooLarge { size: usize, maximum_size: usize },
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::os::unix::net::UnixStream;
-
-    #[test]
-    fn exchanges_length_delimited_messages() {
-        let (mut writer, mut reader) = UnixStream::pair().unwrap();
-        write_request(
-            &mut writer,
-            &SessionRequestRef::RepositoryAction(&RepositoryAction::StageAll),
-        )
-        .unwrap();
-        assert_eq!(
-            read_request(&mut reader).unwrap(),
-            SessionRequest::RepositoryAction(RepositoryAction::StageAll)
-        );
-
-        write_request(&mut writer, &SessionRequestRef::Document { revision: 7 }).unwrap();
-        assert_eq!(
-            read_request(&mut reader).unwrap(),
-            SessionRequest::Document { revision: 7 }
-        );
-
-        write_response(
-            &mut reader,
-            &SessionResponseRef::RepositoryError("repository changed"),
-        )
-        .unwrap();
-        assert_eq!(
-            read_response(&mut writer).unwrap(),
-            SessionResponse::RepositoryError("repository changed".to_owned())
-        );
-
-        write_response(
-            &mut reader,
-            &SessionResponseRef::Unchanged {
-                scope: DiffScope::Both,
-                background_error: Some("refresh failed"),
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            read_response(&mut writer).unwrap(),
-            SessionResponse::Unchanged {
-                scope: DiffScope::Both,
-                background_error: Some("refresh failed".to_owned())
-            }
-        );
-
-        write_request(&mut writer, &SessionRequestRef::SetScope(DiffScope::Staged)).unwrap();
-        assert_eq!(
-            read_request(&mut reader).unwrap(),
-            SessionRequest::SetScope(DiffScope::Staged)
-        );
-
-        let document = DiffDocument::empty();
-        write_response(
-            &mut reader,
-            &SessionResponseRef::Document {
-                revision: 3,
-                document: &document,
-                scope: DiffScope::Staged,
-                background_error: None,
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            read_response(&mut writer).unwrap(),
-            SessionResponse::Document {
-                revision: 3,
-                document,
-                scope: DiffScope::Staged,
-                background_error: None,
-            }
-        );
-    }
-
-    #[test]
-    fn rejects_an_oversized_announced_message() {
-        let (mut writer, mut reader) = UnixStream::pair().unwrap();
-        let oversized_length = u32::try_from(MAX_REQUEST_BYTES + 1).unwrap();
-        writer.write_all(&oversized_length.to_be_bytes()).unwrap();
-        assert!(matches!(
-            read_request(&mut reader),
-            Err(ProtocolError::MessageTooLarge { .. })
-        ));
-    }
 }

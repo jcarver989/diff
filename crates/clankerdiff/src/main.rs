@@ -5,18 +5,20 @@ mod session;
 mod tui;
 
 use args::{
-    CapabilitiesArgs, Cli, Command, MarkdownArgs, OutputFormat, ReviewArgs, TuiPlacement, Ui,
+    CapabilitiesArgs, Cli, Command, ConnectArgs, MarkdownArgs, OutputFormat, ReviewArgs,
+    TuiPlacement, Ui,
 };
-use clankerdiff_core::ReviewSubmission;
+use clankerdiff_client::DiffClient;
+use clankerdiff_core::{DiffScope, ReviewSubmission};
 use clankerdiff_git::GitRepository;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission};
 use clankerdiff_protocol::{CapabilityResponse, PROTOCOL_VERSION, ReviewOutcome, ReviewResponse};
-use clankerdiff_watch::{RepositoryWatcher, WatchOptions};
+use clankerdiff_server::{DiffServer, ServerOptions};
 use clap::Parser;
 use std::{
     fs,
     io::{self, Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::ExitCode,
     sync::Arc,
 };
@@ -35,6 +37,24 @@ async fn main() -> ExitCode {
 
 async fn dispatch(command: Command) -> Result<ExitCode, AppError> {
     match command {
+        Command::Serve(args) => {
+            let server = DiffServer::open(args.repository, ServerOptions::default()).await?;
+            let listener = server.listen(args.listen).await?;
+            eprintln!(
+                "Serving repository at ws://{}/ws (trusted network only; no authentication)",
+                listener.local_addr()
+            );
+            tokio::signal::ctrl_c().await?;
+            server.shutdown().await?;
+            listener.shutdown().await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Connect(args) => {
+            let format = args.format;
+            let response = connect(args).await?;
+            write_review_response(&response, format)?;
+            Ok(exit_code(response.outcome()))
+        }
         Command::Review(args) => {
             let format = args.format;
             let response = run(args).await?;
@@ -52,49 +72,93 @@ async fn dispatch(command: Command) -> Result<ExitCode, AppError> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Attach(args) => {
-            tui::attach(args.socket_path)?;
+            tui::attach(args.socket_path).await?;
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+async fn connect(args: ConnectArgs) -> Result<ReviewResponse, AppError> {
+    #[cfg(not(feature = "desktop"))]
+    if args.ui == Ui::Desktop {
+        return Err(AppError::DesktopDisabled);
+    }
+    let client = DiffClient::connect(&args.url, args.scope.into()).await?;
+    let outcome = match args.ui {
+        Ui::Tui => tui::run_client(&client),
+        #[cfg(feature = "desktop")]
+        Ui::Desktop => Ok(clankerdiff_gpui_desktop::run_client_review(client.clone())),
+        #[cfg(not(feature = "desktop"))]
+        Ui::Desktop => return Err(AppError::DesktopDisabled),
+    };
+    let state = client.state();
+    client.close().await?;
+    let snapshot = state.snapshot.as_ref();
+    Ok(diff_response(
+        snapshot.map_or_else(PathBuf::new, |snapshot| {
+            snapshot.document.repo_root.clone().into()
+        }),
+        snapshot.map_or(args.scope, |snapshot| snapshot.scope),
+        outcome?,
+    ))
 }
 
 async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
     let repository = GitRepository::discover(&args.repository).await?;
     let root = repository.root().to_path_buf();
     let submission = match args.ui {
+        #[cfg(not(feature = "desktop"))]
+        Ui::Desktop => return Err(AppError::DesktopDisabled),
+        #[cfg(feature = "desktop")]
         Ui::Desktop => {
             clankerdiff_gpui_desktop::run_review(clankerdiff_gpui_desktop::args::CliArgs {
                 repository: root.clone(),
                 scope: args.scope,
+                connect: None,
             })
         }
-        Ui::Tui => {
-            let watcher =
-                RepositoryWatcher::spawn(repository.clone(), args.scope, WatchOptions::default())
-                    .await?;
-            match args.tui_placement {
-                TuiPlacement::Current => tui::run_local(&repository, &watcher)?,
-                TuiPlacement::External => session::run(&repository, &watcher, |socket_path| {
+        Ui::Tui => match args.tui_placement {
+            TuiPlacement::Current => {
+                let server = DiffServer::open(&root, ServerOptions::default()).await?;
+                let transport = server.connect().await?;
+                let client = DiffClient::from_transport(transport, args.scope.into()).await?;
+                let outcome = tui::run_client(&client);
+                client.close().await?;
+                server.shutdown().await?;
+                outcome?
+            }
+            TuiPlacement::External => {
+                session::run(&root, args.scope, |socket_path| {
                     tui::launch(socket_path).map_err(|error| error.to_string())
-                })?,
+                })
+                .await?
             }
-        }
+        },
     };
-    let outcome = submission
-        .as_ref()
-        .map_or(ReviewOutcome::Cancelled, |submission| {
-            if submission.comments.is_empty() {
-                ReviewOutcome::Approved
-            } else {
-                ReviewOutcome::ChangesRequested
-            }
-        });
-    Ok(ReviewResponse::Diff {
+    Ok(diff_response(root, args.scope, submission))
+}
+
+fn diff_response(
+    repository_root: PathBuf,
+    scope: DiffScope,
+    submission: Option<ReviewSubmission>,
+) -> ReviewResponse {
+    ReviewResponse::Diff {
         protocol_version: PROTOCOL_VERSION,
-        outcome,
-        repository_root: root,
-        scope: args.scope,
+        outcome: diff_outcome(submission.as_ref()),
+        repository_root,
+        scope,
         submission,
+    }
+}
+
+fn diff_outcome(submission: Option<&ReviewSubmission>) -> ReviewOutcome {
+    submission.map_or(ReviewOutcome::Cancelled, |submission| {
+        if submission.comments.is_empty() {
+            ReviewOutcome::Approved
+        } else {
+            ReviewOutcome::ChangesRequested
+        }
     })
 }
 
@@ -131,7 +195,10 @@ fn run_markdown(args: &MarkdownArgs) -> Result<ReviewResponse, AppError> {
     let document = MarkdownDocument::parse_with_metadata(source_path.clone(), title, source);
     let submission = match args.ui {
         Ui::Tui => tui::run_markdown(Arc::new(document))?,
+        #[cfg(feature = "desktop")]
         Ui::Desktop => clankerdiff_gpui_desktop::run_markdown_review(document),
+        #[cfg(not(feature = "desktop"))]
+        Ui::Desktop => return Err(AppError::DesktopDisabled),
     };
     let outcome =
         submission
@@ -242,9 +309,14 @@ fn text_feedback(submission: &ReviewSubmission) -> &str {
 #[derive(Debug, Error)]
 enum AppError {
     #[error(transparent)]
-    Git(#[from] clankerdiff_git::GitError),
+    Server(#[from] clankerdiff_server::ServerError),
     #[error(transparent)]
-    Watch(#[from] clankerdiff_watch::WatchError),
+    Client(#[from] clankerdiff_client::ClientError),
+    #[cfg(not(feature = "desktop"))]
+    #[error("desktop UI is disabled in this build")]
+    DesktopDisabled,
+    #[error(transparent)]
+    Git(#[from] clankerdiff_git::GitError),
     #[error("Markdown input path is a directory: {0}")]
     MarkdownDirectory(String),
     #[error("Markdown input is not valid UTF-8: {0}")]
