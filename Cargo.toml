@@ -2,6 +2,7 @@
 members = [
     "crates/clankerdiff",
     "crates/clankerdiff-protocol",
+    "crates/clankerdiff-live-protocol",
     "crates/diff-core",
     "crates/diff-fingerprint",
     "crates/diff-theme",
@@ -13,6 +14,8 @@ members = [
     "crates/diff-gpui-web",
     "crates/diff-ratatui",
     "crates/diff-watch",
+    "crates/diff-client",
+    "crates/diff-server",
 ]
 exclude = ["patches/gpui"]
 resolver = "3"

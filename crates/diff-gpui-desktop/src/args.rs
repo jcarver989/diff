@@ -3,7 +3,7 @@ use std::{ffi::OsString, path::PathBuf};
 use thiserror::Error;
 
 /// Desktop command-line usage text.
-pub const USAGE: &str = "Usage: clankerdiff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n  -h, --help           Print help";
+pub const USAGE: &str = "Usage: clankerdiff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n      --connect <URL>  Connect to a remote WebSocket backend instead of a local repository\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n  -h, --help           Print help";
 
 /// Arguments accepted by the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +12,7 @@ pub struct CliArgs {
     pub repository: PathBuf,
     /// Initial Git diff scope.
     pub scope: DiffScope,
+    pub connect: Option<String>,
 }
 
 impl Default for CliArgs {
@@ -19,6 +20,7 @@ impl Default for CliArgs {
         Self {
             repository: PathBuf::from("."),
             scope: DiffScope::Both,
+            connect: None,
         }
     }
 }
@@ -42,6 +44,7 @@ impl CliArgs {
         let mut arguments = arguments.into_iter();
         let mut repository = None;
         let mut scope = DiffScope::Both;
+        let mut connect = None;
         while let Some(argument) = arguments.next() {
             let text = argument.to_string_lossy();
             match text.as_ref() {
@@ -49,6 +52,13 @@ impl CliArgs {
                 "--unstaged" => scope = DiffScope::Unstaged,
                 "--staged" => scope = DiffScope::Staged,
                 "--both" => scope = DiffScope::Both,
+                "--connect" => {
+                    let value = arguments.next().ok_or(ArgsError::MissingConnect)?;
+                    connect = Some(value.into_string().map_err(|_| ArgsError::InvalidConnect)?);
+                }
+                value if value.starts_with("--connect=") => {
+                    connect = Some(value["--connect=".len()..].to_owned());
+                }
                 "-s" | "--scope" => {
                     let value = arguments.next().ok_or(ArgsError::MissingScope)?;
                     scope = value.to_string_lossy().parse()?;
@@ -63,11 +73,25 @@ impl CliArgs {
                 _ => repository = Some(PathBuf::from(argument)),
             }
         }
+        if connect.is_some() && repository.is_some() {
+            return Err(ArgsError::ConflictingSource);
+        }
+        if connect
+            .as_ref()
+            .is_some_and(|url| !(url.starts_with("ws://") || url.starts_with("wss://")))
+        {
+            return Err(ArgsError::InvalidConnect);
+        }
         let repository = match repository {
+            None if connect.is_some() => PathBuf::new(),
             Some(repository) => repository,
             None => std::env::current_dir().map_err(ArgsError::CurrentDirectory)?,
         };
-        Ok(Self { repository, scope })
+        Ok(Self {
+            repository,
+            scope,
+            connect,
+        })
     }
 }
 
@@ -78,6 +102,12 @@ pub enum ArgsError {
     Help,
     #[error("--scope requires unstaged, staged, or both")]
     MissingScope,
+    #[error("--connect requires a WebSocket URL")]
+    MissingConnect,
+    #[error("--connect requires a UTF-8 ws:// or wss:// URL")]
+    InvalidConnect,
+    #[error("--connect and a local repository path are mutually exclusive")]
+    ConflictingSource,
     #[error(transparent)]
     InvalidScope(#[from] ParseDiffScopeError),
     #[error("unknown option `{0}`")]

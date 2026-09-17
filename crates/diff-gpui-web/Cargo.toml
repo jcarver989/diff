@@ -24,6 +24,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+clankerdiff-client = { version = "0.2.1", path = "../diff-client" }
+wasm-bindgen-futures = "0.4.70"
 async-channel.workspace = true
 console_error_panic_hook.workspace = true
 gpui.workspace = true
@@ -36,5 +38,7 @@ web-sys = { workspace = true, features = [
     "Document",
     "EventTarget",
     "Storage",
+    "Location",
+    "UrlSearchParams",
     "Window",
 ] }

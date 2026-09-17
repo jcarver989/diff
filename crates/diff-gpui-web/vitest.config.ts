@@ -7,6 +7,7 @@ export default defineConfig({
   publicDir: "dist",
   test: {
     include: ["tests/**/*.spec.ts"],
+    globalSetup: ["tests/remote.setup.ts"],
     browser: {
       enabled: true,
       provider: playwright(),

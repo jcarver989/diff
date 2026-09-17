@@ -9,6 +9,7 @@ mod window_chrome;
 
 use app::DesktopApp;
 use args::CliArgs;
+use clankerdiff_client::DiffClient;
 use clankerdiff_core::ReviewSubmission;
 use clankerdiff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
@@ -36,8 +37,8 @@ fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
 }
 
 /// Runs the regular desktop application.
-pub fn run(args: CliArgs) {
-    run_application(args, None);
+pub fn run(args: CliArgs, client: Option<DiffClient>) {
+    run_application(args, client, None);
 }
 
 /// Runs a one-shot desktop review and returns its submitted feedback.
@@ -46,7 +47,7 @@ pub fn run(args: CliArgs) {
 #[must_use]
 pub fn run_review(args: CliArgs) -> Option<ReviewSubmission> {
     let (sender, receiver) = mpsc::channel();
-    run_application(args, Some(sender));
+    run_application(args, None, Some(sender));
     receiver.try_recv().ok().flatten()
 }
 
@@ -73,7 +74,18 @@ pub fn run_markdown_review(document: MarkdownDocument) -> Option<MarkdownReviewS
     receiver.try_recv().ok().flatten()
 }
 
-fn run_application(args: CliArgs, outcome_sender: Option<mpsc::Sender<Option<ReviewSubmission>>>) {
+#[must_use]
+pub fn run_client_review(client: DiffClient) -> Option<ReviewSubmission> {
+    let (sender, receiver) = mpsc::channel();
+    run_application(CliArgs::default(), Some(client), Some(sender));
+    receiver.try_recv().ok().flatten()
+}
+
+fn run_application(
+    args: CliArgs,
+    client: Option<DiffClient>,
+    outcome_sender: Option<mpsc::Sender<Option<ReviewSubmission>>>,
+) {
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_tokio::init(cx);
         load_default_fonts(cx).expect("failed to load the bundled fonts");
@@ -83,7 +95,7 @@ fn run_application(args: CliArgs, outcome_sender: Option<mpsc::Sender<Option<Rev
 
         let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
         cx.open_window(window_options(bounds), |window, cx| {
-            cx.new(|cx| DesktopApp::new(args, outcome_sender, window, cx))
+            cx.new(|cx| DesktopApp::new(args, client, outcome_sender, window, cx))
         })
         .expect("failed to open the diff review window");
         cx.activate(true);
