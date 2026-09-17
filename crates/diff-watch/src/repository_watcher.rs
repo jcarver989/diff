@@ -27,6 +27,10 @@ impl Default for WatchOptions {
 
 #[derive(Debug)]
 pub enum RepositoryRequest {
+    Refresh {
+        result_tx: oneshot::Sender<Result<(), Arc<GitError>>>,
+    },
+    Shutdown,
     SetScope {
         scope: DiffScope,
         result_tx: oneshot::Sender<Result<(), Arc<GitError>>>,
@@ -104,6 +108,14 @@ impl RepositoryWatcher {
         })
     }
 
+    pub async fn shutdown(mut self) -> Result<(), WatchError> {
+        self.request_tx
+            .send(RepositoryRequest::Shutdown)
+            .await
+            .map_err(|_| WatchError::Stopped)?;
+        (&mut self.task).await.map_err(|_| WatchError::Stopped)
+    }
+
     async fn create_file_watcher(
         repository: &GitRepository,
         debounce: Duration,
@@ -160,7 +172,8 @@ impl RepositoryActor {
                         self.scope = scope;
                         Some(result_tx)
                     }
-                    None => return,
+                    Some(RepositoryRequest::Refresh { result_tx }) => Some(result_tx),
+                    Some(RepositoryRequest::Shutdown) | None => return,
                 },
                 event = self.watcher.recv() => match event {
                     Some(()) => None,
