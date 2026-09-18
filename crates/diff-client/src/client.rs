@@ -1,6 +1,6 @@
 use crate::{
-    ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, DiffScope,
-    DiffSnapshot, ReconnectPolicy, RemoteError, RepositoryAction, platform,
+    ClientError, ClientOptions, ClientState, ConnectionHeader, ConnectionState, DiffReviewEvent,
+    DiffScope, DiffSnapshot, ReconnectPolicy, RemoteError, RepositoryAction, platform,
     protocol::{
         client::{ClientCommand, LocalClientTransport, capabilities},
         server::ServerEvent,
@@ -72,8 +72,25 @@ impl ClientSubscription {
 impl DiffClient {
     #[cfg(feature = "websocket")]
     pub async fn connect(url: &str, options: ClientOptions) -> Result<Self, ClientError> {
-        let transport = ClientTransport::try_connect(url).await?;
-        Self::start(transport, options, Some(url.to_owned())).await
+        Self::connect_with_headers(url, options, Vec::new()).await
+    }
+
+    #[cfg(feature = "websocket")]
+    pub async fn connect_with_headers(
+        url: &str,
+        options: ClientOptions,
+        headers: Vec<ConnectionHeader>,
+    ) -> Result<Self, ClientError> {
+        let transport = ClientTransport::try_connect(url, &headers).await?;
+        Self::start(
+            transport,
+            options,
+            Some(ConnectionTarget {
+                url: url.to_owned(),
+                headers,
+            }),
+        )
+        .await
     }
 
     pub async fn from_transport(
@@ -86,7 +103,7 @@ impl DiffClient {
     async fn start(
         transport: ClientTransport,
         options: ClientOptions,
-        url: Option<String>,
+        target: Option<ConnectionTarget>,
     ) -> Result<Self, ClientError> {
         let (commands, rx) = unbounded();
         let (state_tx, state) = watch::channel(Arc::new(ClientState::default()));
@@ -100,7 +117,7 @@ impl DiffClient {
                 connection: ConnectionState::Connecting,
                 closed: false,
             }
-            .run(transport, url, ready_tx)
+            .run(transport, target, ready_tx)
             .await;
         });
         ready_rx.await.map_err(|_| ClientError::Disconnected)??;
@@ -180,6 +197,11 @@ enum Command {
     Close(Reply),
 }
 
+struct ConnectionTarget {
+    url: String,
+    headers: Vec<ConnectionHeader>,
+}
+
 enum ConnectionInput {
     Command(Option<Command>),
     Event(Result<ServerEvent, ClientError>),
@@ -219,7 +241,12 @@ impl Worker {
         }));
     }
 
-    async fn run(mut self, mut transport: ClientTransport, url: Option<String>, ready: Reply) {
+    async fn run(
+        mut self,
+        mut transport: ClientTransport,
+        target: Option<ConnectionTarget>,
+        ready: Reply,
+    ) {
         let mut ready = Some(ready);
         loop {
             let result = self.connection(&mut transport, &mut ready).await;
@@ -227,7 +254,7 @@ impl Worker {
             self.abandon_request();
             let retry = !self.closed
                 && ready.is_none()
-                && url.is_some()
+                && target.is_some()
                 && matches!(self.options.reconnect, ReconnectPolicy::Retry)
                 && !is_terminal(&result);
             if let Some(ready) = ready.take() {
@@ -241,7 +268,10 @@ impl Worker {
             }
             self.connection = ConnectionState::Connecting;
             self.publish();
-            match self.reconnect(url.as_deref().unwrap_or_default()).await {
+            let Some(target) = target.as_ref() else {
+                break;
+            };
+            match self.reconnect(target).await {
                 Some(next) => transport = next,
                 None => break,
             }
@@ -392,18 +422,18 @@ impl Worker {
     }
 
     #[cfg(not(feature = "websocket"))]
-    async fn reconnect(&mut self, _url: &str) -> Option<ClientTransport> {
+    async fn reconnect(&mut self, _target: &ConnectionTarget) -> Option<ClientTransport> {
         None
     }
 
     #[cfg(feature = "websocket")]
-    async fn reconnect(&mut self, url: &str) -> Option<ClientTransport> {
+    async fn reconnect(&mut self, target: &ConnectionTarget) -> Option<ClientTransport> {
         let mut delay = 250;
         loop {
             let wait = delay;
             let connecting = async {
                 platform::sleep(platform::reconnect_delay(wait)).await;
-                ClientTransport::try_connect(url).await
+                ClientTransport::try_connect(&target.url, &target.headers).await
             }
             .fuse();
             let command = self.commands.recv().fuse();

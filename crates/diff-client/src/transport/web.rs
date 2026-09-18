@@ -1,5 +1,5 @@
 use crate::{
-    ClientError,
+    ClientError, ConnectionHeader,
     error::transport,
     protocol::{
         client::{ClientCommand, DocumentCache},
@@ -15,7 +15,12 @@ pub struct WebSocketTransport {
 }
 
 impl WebSocketTransport {
-    pub async fn try_connect(url: &str) -> Result<Self, ClientError> {
+    pub async fn try_connect(url: &str, headers: &[ConnectionHeader]) -> Result<Self, ClientError> {
+        if !headers.is_empty() {
+            return Err(ClientError::Transport(
+                "custom WebSocket headers are unavailable in browser clients".to_owned(),
+            ));
+        }
         let socket = WebSocket::open(url).map_err(|error| {
             ClientError::Transport(format!(
                 "{error}; HTTPS pages require a compatible wss:// URL"

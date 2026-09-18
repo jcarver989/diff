@@ -1880,6 +1880,7 @@ dependencies = [
  "futures-util",
  "gloo-net",
  "gloo-timers",
+ "http",
  "js-sys",
  "rand 0.9.5",
  "thiserror 2.0.20",

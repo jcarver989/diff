@@ -22,6 +22,8 @@ fn remote_commands_are_available_in_executable() -> Result<(), Box<dyn Error>> {
             assert!(text.contains("127.0.0.1:7331"));
             assert!(text.contains("--format"));
         } else {
+            assert!(text.contains("-H"));
+            assert!(text.contains("--header"));
             assert!(text.contains("--ui"));
             assert!(text.contains("--scope"));
             assert!(!text.contains("--format"));
@@ -93,6 +95,27 @@ async fn server_cancellation_uses_the_review_exit_code() -> Result<(), Box<dyn E
             ..
         }
     ));
+    Ok(())
+}
+
+#[test]
+fn malformed_connection_headers_fail_before_network_connection() -> Result<(), Box<dyn Error>> {
+    for header in [
+        "MissingColon",
+        ": value",
+        "Bad Name: value",
+        "Host: example.com",
+        "X-Test: value\nother",
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_clankerdiff"))
+            .args(["connect", "ws://127.0.0.1:1/ws", "-H", header])
+            .output()?;
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr)?;
+        assert!(stderr.contains("invalid value"), "{stderr}");
+        assert!(!stderr.contains("connection refused"), "{stderr}");
+    }
     Ok(())
 }
 

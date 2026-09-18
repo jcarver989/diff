@@ -1,5 +1,5 @@
 use crate::{
-    ClientError,
+    ClientError, ConnectionHeader,
     protocol::{
         client::{ClientCommand, LocalClientTransport},
         server::ServerEvent,
@@ -49,8 +49,8 @@ impl ClientTransport {
     }
 
     #[cfg(feature = "websocket")]
-    pub async fn try_connect(url: &str) -> Result<Self, ClientError> {
-        let transport = ws::WebSocketTransport::try_connect(url).await?;
+    pub async fn try_connect(url: &str, headers: &[ConnectionHeader]) -> Result<Self, ClientError> {
+        let transport = ws::WebSocketTransport::try_connect(url, headers).await?;
         Ok(Self::WebSocket(Box::new(transport)))
     }
 }

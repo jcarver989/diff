@@ -95,7 +95,8 @@ async fn connect(args: ConnectArgs) -> Result<ReviewOutcome, AppError> {
     if args.ui == Ui::Desktop {
         return Err(AppError::DesktopDisabled);
     }
-    let client = DiffClient::connect(&args.url, args.scope.into()).await?;
+    let client =
+        DiffClient::connect_with_headers(&args.url, args.scope.into(), args.headers).await?;
     let outcome = match args.ui {
         Ui::Tui => tui::run_client(&client),
         #[cfg(feature = "desktop")]

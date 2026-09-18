@@ -1,3 +1,4 @@
+use clankerdiff_client::ConnectionHeader;
 use clankerdiff_core::DiffScope;
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -41,6 +42,13 @@ pub struct ServeArgs {
 #[derive(Debug, Clone, ClapArgs)]
 pub struct ConnectArgs {
     pub url: String,
+    #[arg(
+        short = 'H',
+        long = "header",
+        value_name = "NAME: VALUE",
+        action = clap::ArgAction::Append
+    )]
+    pub headers: Vec<ConnectionHeader>,
     #[arg(long, value_enum, default_value_t)]
     pub ui: Ui,
     #[arg(short, long, default_value = "both")]

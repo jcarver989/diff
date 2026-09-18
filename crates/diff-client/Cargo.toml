@@ -19,6 +19,7 @@ clankerdiff-core = { version = "0.2.1", path = "../diff-core" }
 clankerdiff-protocol = { version = "0.2.1", path = "../diff-protocol" }
 async-channel.workspace = true
 futures-util = { version = "0.3.31", features = ["sink"] }
+http.workspace = true
 tokio = { version = "1.47.1", default-features = false, features = ["sync"] }
 thiserror.workspace = true
 

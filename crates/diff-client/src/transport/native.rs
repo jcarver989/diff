@@ -1,5 +1,5 @@
 use crate::{
-    ClientError,
+    ClientError, ConnectionHeader,
     error::transport,
     protocol::{
         client::{ClientCommand, DocumentCache},
@@ -12,7 +12,7 @@ use std::time::Duration;
 use tokio::{net::TcpStream, time::timeout};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream, connect_async_with_config,
-    tungstenite::{Message, protocol::WebSocketConfig},
+    tungstenite::{Message, client::IntoClientRequest, protocol::WebSocketConfig},
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -26,14 +26,21 @@ pub struct WebSocketTransport {
 }
 
 impl WebSocketTransport {
-    pub async fn try_connect(url: &str) -> Result<Self, ClientError> {
+    pub async fn try_connect(url: &str, headers: &[ConnectionHeader]) -> Result<Self, ClientError> {
         let config = WebSocketConfig::default()
             .max_message_size(Some(MAX_MESSAGE_BYTES))
             .max_frame_size(Some(MAX_MESSAGE_BYTES));
 
+        let mut request = url.into_client_request().map_err(transport)?;
+        for header in headers {
+            request
+                .headers_mut()
+                .append(header.name().clone(), header.value().clone());
+        }
+
         let (socket, _) = timeout(
             CONNECT_TIMEOUT,
-            connect_async_with_config(url, Some(config), false),
+            connect_async_with_config(request, Some(config), false),
         )
         .await
         .map_err(transport)?
