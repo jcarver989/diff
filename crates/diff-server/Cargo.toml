@@ -1,0 +1,28 @@
+[package]
+name = "clankerdiff-server"
+description = "Native repository backend and WebSocket service for clankerdiff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clankerdiff-core = { version = "0.2.1", path = "../diff-core" }
+clankerdiff-protocol = { version = "0.2.1", path = "../diff-protocol" }
+clankerdiff-git = { version = "0.2.1", path = "../diff-git" }
+clankerdiff-watch = { version = "0.2.1", path = "../diff-watch" }
+axum = { version = "0.8", features = ["ws"] }
+futures-util = { version = "0.3.31", features = ["sink"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "net", "macros"] }
+tokio-util = { version = "0.7.16", features = ["rt"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.28"
+tokio = { workspace = true, features = ["signal"] }
+clankerdiff-client = { path = "../diff-client" }
+clankerdiff-git = { path = "../diff-git", features = ["test-support"] }
