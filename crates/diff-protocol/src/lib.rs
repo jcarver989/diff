@@ -4,6 +4,10 @@
 //! Deserialization accepts unknown fields for forward compatibility, while
 //! [`parse_response`] validates versions and outcome/submission invariants.
 
+pub mod client;
+pub mod server;
+pub mod shared;
+
 use clankerdiff_core::{DiffScope, ReviewSubmission};
 use clankerdiff_markdown::MarkdownReviewSubmission;
 use serde::{Deserialize, Serialize};

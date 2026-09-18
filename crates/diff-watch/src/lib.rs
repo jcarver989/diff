@@ -6,4 +6,7 @@ mod repository_watcher;
 
 pub use error::WatchError;
 pub use file_watcher::{FileWatchError, FileWatcher, NotifyFileWatcher};
-pub use repository_watcher::{RepositoryRequest, RepositoryState, RepositoryWatcher, WatchOptions};
+pub use repository_watcher::{
+    RepositoryHandle, RepositoryHandleError, RepositoryRequest, RepositoryState, RepositoryWatcher,
+    WatchOptions,
+};

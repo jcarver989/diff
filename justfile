@@ -69,6 +69,13 @@ wasm-check:
 web-test:
     cd crates/diff-gpui-web && npm ci && npx playwright install chromium && npm test
 
+# Exercise the remote backend, clients, and the headless CLI build.
+remote-test:
+    cargo nextest run -p clankerdiff-client -p clankerdiff-server --all-features
+    cargo build -p clankerdiff-cli --no-default-features --bin clankerdiff
+    cargo nextest run -p clankerdiff-cli --no-default-features
+    cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features remote
+
 # Exercise the filesystem watcher against real Git worktrees.
 watch-test:
     cargo nextest run -p clankerdiff-watch --all-features

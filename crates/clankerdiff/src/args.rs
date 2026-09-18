@@ -1,3 +1,4 @@
+use clankerdiff_client::ConnectionHeader;
 use clankerdiff_core::DiffScope;
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -15,6 +16,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    Serve(ServeArgs),
+    Connect(ConnectArgs),
     /// Review changes and return the submitted feedback on stdout.
     Review(ReviewArgs),
     /// Review a rendered Markdown document.
@@ -24,6 +27,32 @@ pub enum Command {
     /// Attach the TUI to an active review session socket.
     #[command(hide = true)]
     Attach(AttachArgs),
+}
+
+#[derive(Debug, Clone, ClapArgs)]
+pub struct ServeArgs {
+    #[arg(default_value = ".")]
+    pub repository: PathBuf,
+    #[arg(long, default_value = "127.0.0.1:7331")]
+    pub listen: std::net::SocketAddr,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Clone, ClapArgs)]
+pub struct ConnectArgs {
+    pub url: String,
+    #[arg(
+        short = 'H',
+        long = "header",
+        value_name = "NAME: VALUE",
+        action = clap::ArgAction::Append
+    )]
+    pub headers: Vec<ConnectionHeader>,
+    #[arg(long, value_enum, default_value_t)]
+    pub ui: Ui,
+    #[arg(short, long, default_value = "both")]
+    pub scope: DiffScope,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ClapArgs)]
@@ -118,7 +147,11 @@ mod tests {
         let cli = Cli::try_parse_from(arguments).expect("arguments should parse");
         match cli.command {
             Command::Review(args) => args,
-            Command::Attach(_) | Command::Capabilities(_) | Command::Markdown(_) => {
+            Command::Attach(_)
+            | Command::Capabilities(_)
+            | Command::Markdown(_)
+            | Command::Serve(_)
+            | Command::Connect(_) => {
                 panic!("expected the review command")
             }
         }

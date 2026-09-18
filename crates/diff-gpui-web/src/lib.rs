@@ -229,6 +229,7 @@ mod wasm {
         demo_document, document_update_decision,
     };
     use async_channel::{Receiver, Sender};
+    use clankerdiff_client::{ClientOptions, ClientState, DiffClient, DiffSnapshot};
     use clankerdiff_core::{
         DiffDocument, DiffReviewEvent, DiffScope, ReviewCapabilities, ReviewSubmission,
     };
@@ -242,16 +243,27 @@ mod wasm {
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
         Window, WindowBounds, WindowOptions, prelude::*, px, size,
     };
-    use std::{cell::RefCell, rc::Rc, sync::Arc};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+        sync::Arc,
+    };
     use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
+    use wasm_bindgen_futures::spawn_local;
     use web_sys::{CustomEvent, CustomEventInit};
+
+    const CONNECTION_STATE_EVENT: &str = "diff-review-connection-state";
 
     thread_local! {
         static APPLICATION: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
         static COMMANDS: RefCell<Option<Sender<WebCommand>>> = const { RefCell::new(None) };
+        static MANAGED: Cell<bool> = const { Cell::new(false) };
     }
 
     enum WebCommand {
+        InstallRemote(DiffClient),
+        DisconnectRemote,
+        RemoteFinished(RepositoryReply),
         SetDocument {
             document: Arc<DiffDocument>,
             revision: Option<u64>,
@@ -267,7 +279,10 @@ mod wasm {
     }
 
     struct WebRoot {
+        remote: Option<DiffClient>,
+        remote_task: Option<Task<()>>,
         capabilities: ReviewCapabilities,
+        installed_snapshot: Option<Arc<DiffSnapshot>>,
         applied_revision: Option<u64>,
         current_scope: Option<DiffScope>,
         requests: RepositoryRequests,
@@ -299,19 +314,26 @@ mod wasm {
             });
             let viewer_subscription = cx.subscribe(
                 &viewer,
-                |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| match event {
-                    DiffReviewEvent::RepositoryAction(action) => this
-                        .request_repository(cx, |request_id| {
-                            dispatch_repository_action(request_id, action)
-                        }),
-                    DiffReviewEvent::SetScope(scope) => {
-                        this.request_repository(cx, |_| dispatch_scope_request(*scope));
+                |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| {
+                    if MANAGED.get() && !matches!(event, DiffReviewEvent::CopyFormattedReview(_)) {
+                        this.remote_request(event.clone(), cx);
+                        return;
                     }
-                    DiffReviewEvent::Refresh => this.request_repository(cx, |request_id| {
-                        let detail = serde_json::json!({ "request_id": request_id }).to_string();
-                        dispatch_custom_event(super::REFRESH_REQUEST_EVENT, Some(&detail))
-                    }),
-                    _ => dispatch_viewer_event(event),
+                    match event {
+                        DiffReviewEvent::RepositoryAction(action) => this
+                            .request_repository(cx, |request_id| {
+                                dispatch_repository_action(request_id, action)
+                            }),
+                        DiffReviewEvent::SetScope(scope) => {
+                            this.request_repository(cx, |_| dispatch_scope_request(*scope));
+                        }
+                        DiffReviewEvent::Refresh => this.request_repository(cx, |request_id| {
+                            let detail =
+                                serde_json::json!({ "request_id": request_id }).to_string();
+                            dispatch_custom_event(super::REFRESH_REQUEST_EVENT, Some(&detail))
+                        }),
+                        _ => dispatch_viewer_event(event),
+                    }
                 },
             );
             let viewer_theme_subscription =
@@ -332,7 +354,10 @@ mod wasm {
             });
 
             Self {
+                remote: None,
+                remote_task: None,
                 capabilities,
+                installed_snapshot: None,
                 applied_revision: None,
                 current_scope: None,
                 requests: RepositoryRequests::default(),
@@ -344,6 +369,74 @@ mod wasm {
                 markdown_theme_subscription: None,
                 _command_task: command_task,
             }
+        }
+
+        fn install_remote(&mut self, client: DiffClient, cx: &mut Context<Self>) {
+            if !MANAGED.get() {
+                close(client);
+                return;
+            }
+            self.drop_remote();
+            self.markdown = None;
+            self.markdown_subscription = None;
+            self.markdown_theme_subscription = None;
+            let mut subscription = client.subscribe();
+            self.apply_remote_state(&subscription.latest(), cx);
+            self.remote = Some(client);
+            self.remote_task = Some(cx.spawn(async move |this, cx| {
+                while let Ok(state) = subscription.changed().await {
+                    if this
+                        .update(cx, |this, cx| this.apply_remote_state(&state, cx))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }));
+        }
+
+        fn drop_remote(&mut self) {
+            self.remote_task = None;
+            if let Some(client) = self.remote.take() {
+                close(client);
+            }
+            self.requests.pending = None;
+            self.installed_snapshot = None;
+            self.applied_revision = None;
+        }
+
+        fn apply_remote_state(&mut self, state: &ClientState, cx: &mut Context<Self>) {
+            if let Some(snapshot) = state.snapshot_if_changed(&mut self.installed_snapshot) {
+                self.viewer.update(cx, |viewer, cx| {
+                    viewer.set_scope(snapshot.scope, cx);
+                    viewer.set_document(snapshot.document.clone(), cx);
+                });
+                self.current_scope = Some(snapshot.scope);
+            }
+            let error = state.status();
+            self.viewer.update(cx, |viewer, cx| {
+                viewer.set_capabilities(state.capabilities, cx);
+                viewer.set_background_error(error.clone(), cx);
+            });
+            let _ = emit_connection_state(state.label(), error.as_deref());
+        }
+
+        fn remote_request(&mut self, event: DiffReviewEvent, cx: &mut Context<Self>) {
+            let Some(client) = self.remote.clone() else {
+                return;
+            };
+            let Some(request_id) = self.requests.begin() else {
+                return;
+            };
+            self.viewer
+                .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+            spawn_local(async move {
+                let result = client.handle(event).await;
+                let _ = send(WebCommand::RemoteFinished(RepositoryReply {
+                    request_id,
+                    error: result.err().map(|error| error.to_string()),
+                }));
+            });
         }
 
         fn finish_repository(&mut self, reply: RepositoryReply, cx: &mut Context<Self>) {
@@ -430,6 +523,21 @@ mod wasm {
             cx: &mut Context<Self>,
         ) {
             match command {
+                WebCommand::InstallRemote(client) => self.install_remote(client, cx),
+                WebCommand::DisconnectRemote => {
+                    self.drop_remote();
+                    self.viewer.update(cx, |viewer, cx| {
+                        viewer.set_repository_pending(false, cx);
+                        viewer.set_background_error(None, cx);
+                    });
+                    self.set_capabilities(self.capabilities, cx);
+                    let _ = emit_connection_state("host", None);
+                }
+                WebCommand::RemoteFinished(reply) => {
+                    if self.remote.is_some() {
+                        self.finish_repository(reply, cx);
+                    }
+                }
                 WebCommand::SetDocument {
                     document,
                     revision,
@@ -760,6 +868,17 @@ mod wasm {
             cx.activate(true);
         });
         APPLICATION.with(|current| *current.borrow_mut() = Some(application));
+        if let Some(url) = web_sys::window()
+            .and_then(|window| window.location().search().ok())
+            .and_then(|query| web_sys::UrlSearchParams::new_with_str(&query).ok())
+            .and_then(|params| params.get("connect"))
+        {
+            spawn_local(async move {
+                if let Err(error) = connect_remote(&url).await {
+                    web_sys::console::error_1(&error);
+                }
+            });
+        }
         Ok(())
     }
 
@@ -772,6 +891,7 @@ mod wasm {
     /// Returns an error for invalid JSON or an unavailable command channel.
     #[wasm_bindgen]
     pub fn set_document_json(json: &str) -> Result<(), JsValue> {
+        ensure_host_mode()?;
         let command = decode_document_command(json).map_err(js_error)?;
         send(WebCommand::SetDocument {
             document: Arc::new(command.document),
@@ -788,6 +908,7 @@ mod wasm {
     /// Returns an error for an invalid payload or an unavailable command channel.
     #[wasm_bindgen]
     pub fn set_markdown_document_json(json: &str) -> Result<(), JsValue> {
+        ensure_host_mode()?;
         let document = decode_markdown_document(json).map_err(js_error)?;
         send(WebCommand::SetMarkdownDocument(Arc::new(document))).map_err(js_error)
     }
@@ -798,6 +919,7 @@ mod wasm {
     /// Returns an error for an invalid reply or an unavailable command channel.
     #[wasm_bindgen]
     pub fn complete_repository_json(json: &str) -> Result<(), JsValue> {
+        ensure_host_mode()?;
         let reply = serde_json::from_str::<RepositoryReply>(json)
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
         send(WebCommand::RepositoryFinished(reply)).map_err(js_error)
@@ -823,6 +945,58 @@ mod wasm {
         send(WebCommand::ClearReview).map_err(js_error)
     }
 
+    fn close(client: DiffClient) {
+        spawn_local(async move {
+            let _ = client.close().await;
+        });
+    }
+
+    fn emit_connection_state(state: &str, error: Option<&str>) -> Result<(), JsValue> {
+        let detail = serde_json::json!({ "state": state, "error": error }).to_string();
+        dispatch_custom_event(CONNECTION_STATE_EVENT, Some(&detail))
+    }
+
+    fn ensure_host_mode() -> Result<(), JsValue> {
+        if MANAGED.get() {
+            Err(JsValue::from_str(
+                "managed remote connection owns the document; disconnect_remote first",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[wasm_bindgen]
+    pub async fn connect_remote(url: &str) -> Result<(), JsValue> {
+        ensure_host_mode()?;
+        if !COMMANDS.with(|commands| commands.borrow().is_some()) {
+            return Err(js_error(WebError::NotStarted));
+        }
+        MANAGED.set(true);
+        match DiffClient::connect(url, ClientOptions::default()).await {
+            Ok(client) => {
+                if let Err(error) = send(WebCommand::InstallRemote(client.clone())) {
+                    MANAGED.set(false);
+                    let _ = client.close().await;
+                    return Err(js_error(error));
+                }
+                Ok(())
+            }
+            Err(error) => {
+                MANAGED.set(false);
+                let message = error.to_string();
+                let _ = emit_connection_state("failed", Some(&message));
+                Err(JsValue::from_str(&error.to_string()))
+            }
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn disconnect_remote() -> Result<(), JsValue> {
+        MANAGED.set(false);
+        send(WebCommand::DisconnectRemote).map_err(js_error)
+    }
+
     #[wasm_bindgen]
     pub fn dispatch_command_json(json: &str) -> Result<(), JsValue> {
         let request =
@@ -832,6 +1006,7 @@ mod wasm {
 
     #[wasm_bindgen]
     pub fn set_capabilities_json(json: &str) -> Result<(), JsValue> {
+        ensure_host_mode()?;
         let capabilities =
             decode_capabilities(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
         send(WebCommand::SetCapabilities(capabilities)).map_err(js_error)
@@ -840,8 +1015,9 @@ mod wasm {
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm::{
-    clear_review, complete_repository_json, dispatch_command_json, set_capabilities_json,
-    set_document_json, set_markdown_document_json, set_theme, start,
+    clear_review, complete_repository_json, connect_remote, disconnect_remote,
+    dispatch_command_json, set_capabilities_json, set_document_json, set_markdown_document_json,
+    set_theme, start,
 };
 
 #[cfg(test)]

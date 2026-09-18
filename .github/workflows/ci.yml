@@ -75,6 +75,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check portable adapter features
         run: just feature-check
+      - name: Test remote backend and headless CLI
+        run: just remote-test
 
   wasm:
     name: WASM

@@ -1,140 +1,55 @@
 use crate::protocol::{SessionRequest, SessionResponseRef, read_request, write_response};
-use clankerdiff_core::ReviewSubmission;
-use clankerdiff_git::{GitRepository, RepositorySnapshot};
-use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher};
-use std::{
-    io,
-    os::unix::net::{UnixListener, UnixStream},
-    path::Path,
-    sync::Arc,
-};
+use clankerdiff_core::{DiffScope, ReviewSubmission};
+use clankerdiff_server::{DiffServer, ServerOptions};
+use std::{io, path::Path, time::Duration};
 use thiserror::Error;
-use tokio::runtime::Handle;
+use tokio::{net::UnixListener, time::timeout};
 
-pub fn run(
-    repository: &GitRepository,
-    watcher: &RepositoryWatcher,
+pub async fn run(
+    path: &Path,
+    scope: DiffScope,
     launch: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<Option<ReviewSubmission>, SessionError> {
-    tokio::task::block_in_place(|| run_blocking(repository, watcher, launch))
+    let server = DiffServer::open(path, ServerOptions::default()).await?;
+    let listener = server.listen(([127, 0, 0, 1], 0).into()).await?;
+    let url = format!("ws://{}/ws", listener.local_addr());
+    let result = run_session(&url, scope, launch).await;
+    server.shutdown().await?;
+    result
 }
 
-fn run_blocking(
-    repository: &GitRepository,
-    watcher: &RepositoryWatcher,
+async fn run_session(
+    url: &str,
+    scope: DiffScope,
     launch: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<Option<ReviewSubmission>, SessionError> {
     let directory = tempfile::Builder::new().prefix("clankerdiff-").tempdir()?;
     let socket_path = directory.path().join("session.sock");
-    let listener = UnixListener::bind(&socket_path)?;
-    let mut snapshot = watcher.state_rx.borrow().snapshot.clone();
-    let mut revision = 1;
+    let session_listener = UnixListener::bind(&socket_path)?;
     launch(&socket_path).map_err(SessionError::Launch)?;
-
-    for connection in listener.incoming() {
-        let mut stream = connection?;
-        match handle_connection(
+    let (stream, _) = timeout(Duration::from_secs(60), session_listener.accept())
+        .await
+        .map_err(|_| SessionError::Timeout)??;
+    let mut stream = stream.into_std()?;
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(30)))?;
+    if read_request(&mut stream)? != SessionRequest::Bootstrap {
+        write_response(
             &mut stream,
-            repository,
-            watcher,
-            &mut snapshot,
-            &mut revision,
-        ) {
-            Ok(ConnectionOutcome::Continue) => {}
-            Ok(ConnectionOutcome::Submitted(submission)) => return Ok(Some(submission)),
-            Ok(ConnectionOutcome::Cancelled) => return Ok(None),
-            Err(error) => respond_to_bad_request(&mut stream, &error),
-        }
+            &SessionResponseRef::ProtocolError("expected bootstrap"),
+        )?;
+        return Err(SessionError::ServerStopped);
     }
-    Err(SessionError::ServerStopped)
-}
-
-fn respond_to_bad_request(stream: &mut UnixStream, error: &SessionError) {
-    eprintln!("review session request failed: {error}");
-    let message = error.to_string();
-    let _ = write_response(stream, &SessionResponseRef::ProtocolError(&message));
-}
-
-fn handle_connection(
-    stream: &mut UnixStream,
-    repository: &GitRepository,
-    watcher: &RepositoryWatcher,
-    snapshot: &mut Arc<RepositorySnapshot>,
-    published_revision: &mut u64,
-) -> Result<ConnectionOutcome, SessionError> {
-    match read_request(stream)? {
-        SessionRequest::Document { revision } => {
-            let retained = watcher.state_rx.borrow().clone();
-            let error = retained.error_message();
-            let background_error = error.as_deref();
-            if *snapshot != retained.snapshot {
-                *snapshot = retained.snapshot;
-                *published_revision += 1;
-            }
-            let scope = snapshot.scope;
-            let response = if *published_revision == revision {
-                SessionResponseRef::Unchanged {
-                    scope,
-                    background_error,
-                }
-            } else {
-                SessionResponseRef::Document {
-                    revision: *published_revision,
-                    document: &snapshot.document,
-                    scope,
-                    background_error,
-                }
-            };
-            write_response(stream, &response)?;
-            Ok(ConnectionOutcome::Continue)
-        }
-        SessionRequest::RepositoryAction(action) => {
-            let result = Handle::current().block_on(async {
-                repository
-                    .apply(action)
-                    .await
-                    .map_err(|error| error.to_string())
-            });
-            match result {
-                Ok(()) => write_response(stream, &SessionResponseRef::Accepted)?,
-                Err(error) => write_response(stream, &SessionResponseRef::RepositoryError(&error))?,
-            }
-            Ok(ConnectionOutcome::Continue)
-        }
-        SessionRequest::SetScope(scope) => {
-            let result = Handle::current().block_on(async {
-                let (result_tx, completion) = tokio::sync::oneshot::channel();
-                watcher
-                    .request_tx
-                    .send(RepositoryRequest::SetScope { scope, result_tx })
-                    .await
-                    .map_err(|_| "review session stopped".to_owned())?;
-                completion
-                    .await
-                    .map_err(|_| "review session stopped".to_owned())?
-                    .map_err(|error| error.to_string())
-            });
-            match result {
-                Ok(()) => write_response(stream, &SessionResponseRef::Accepted)?,
-                Err(error) => write_response(stream, &SessionResponseRef::RepositoryError(&error))?,
-            }
-            Ok(ConnectionOutcome::Continue)
-        }
-        SessionRequest::Submit(submission) => {
-            write_response(stream, &SessionResponseRef::Accepted)?;
-            Ok(ConnectionOutcome::Submitted(submission))
-        }
-        SessionRequest::Cancel => {
-            write_response(stream, &SessionResponseRef::Accepted)?;
-            Ok(ConnectionOutcome::Cancelled)
-        }
-    }
-}
-
-enum ConnectionOutcome {
-    Continue,
-    Submitted(ReviewSubmission),
-    Cancelled,
+    write_response(&mut stream, &SessionResponseRef::Bootstrap { url, scope })?;
+    stream.set_read_timeout(None)?;
+    let submission = match read_request(&mut stream)? {
+        SessionRequest::Submit(submission) => Some(submission),
+        SessionRequest::Cancel => None,
+        SessionRequest::Bootstrap => return Err(SessionError::ServerStopped),
+    };
+    write_response(&mut stream, &SessionResponseRef::Accepted)?;
+    Ok(submission)
 }
 
 #[derive(Debug, Error)]
@@ -143,277 +58,12 @@ pub enum SessionError {
     Launch(String),
     #[error("the review session stopped before receiving feedback")]
     ServerStopped,
+    #[error("timed out waiting for the review client")]
+    Timeout,
+    #[error(transparent)]
+    Server(#[from] clankerdiff_server::ServerError),
     #[error(transparent)]
     Protocol(#[from] crate::protocol::ProtocolError),
     #[error("review session I/O failed: {0}")]
     Io(#[from] io::Error),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::protocol::{SessionRequestRef, SessionResponse, read_response, write_request};
-    use clankerdiff_core::{DiffDocument, DiffScope, RepoPath, RepositoryAction, StageState};
-    use clankerdiff_git::testing::{RepoFixture, RepoFixtureBuilder};
-    use clankerdiff_watch::WatchOptions;
-    use std::{
-        fs,
-        os::unix::net::UnixStream,
-        sync::mpsc,
-        thread,
-        time::{Duration, Instant},
-    };
-
-    fn request(socket_path: &Path, request: &SessionRequestRef<'_>) -> SessionResponse {
-        let mut stream = UnixStream::connect(socket_path).expect("connect to the review service");
-        write_request(&mut stream, request).expect("write the request");
-        read_response(&mut stream).expect("read the response")
-    }
-
-    fn exercise_protocol(socket_path: &Path, repo: &RepoFixture) -> Result<(), String> {
-        let SessionResponse::Document {
-            revision, document, ..
-        } = request(socket_path, &SessionRequestRef::Document { revision: 0 })
-        else {
-            return Err("the initial request must return a document".to_owned());
-        };
-        if revision != 1 || document.files.is_empty() {
-            return Err(format!(
-                "unexpected initial document at revision {revision}"
-            ));
-        }
-
-        let unchanged = request(socket_path, &SessionRequestRef::Document { revision });
-        if unchanged
-            != (SessionResponse::Unchanged {
-                scope: DiffScope::Both,
-                background_error: None,
-            })
-        {
-            return Err(format!(
-                "polling an unchanged revision returned {unchanged:?}"
-            ));
-        }
-
-        let path = RepoPath::new("src/lib.rs").expect("valid fixture path");
-        let action = RepositoryAction::StagePaths(vec![path]);
-        if request(socket_path, &SessionRequestRef::RepositoryAction(&action))
-            != SessionResponse::Accepted
-        {
-            return Err("staging must be accepted".to_owned());
-        }
-
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            match request(socket_path, &SessionRequestRef::Document { revision }) {
-                SessionResponse::Document {
-                    revision: staged,
-                    document,
-                    ..
-                } if staged > revision => {
-                    if document
-                        .files
-                        .iter()
-                        .all(|file| file.staged == StageState::Staged)
-                        && !document.files.is_empty()
-                    {
-                        return exercise_health(socket_path, repo, staged, &document);
-                    }
-                    return Err("the published document must contain staged changes".to_owned());
-                }
-                SessionResponse::Unchanged {
-                    background_error: None,
-                    ..
-                } if Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                other => {
-                    return Err(format!(
-                        "waiting for the watched mutation returned {other:?}"
-                    ));
-                }
-            }
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn scope_switch_republishes_with_new_scope() {
-        use std::process::Command as ProcessCommand;
-        let repo = RepoFixtureBuilder::new()
-            .file("src/lib.rs", "fn main() {}\n")
-            .committed()
-            .build();
-        repo.write("src/lib.rs", "fn main() {}\nfn added() {}\n");
-        ProcessCommand::new("git")
-            .args(["add", "src/lib.rs"])
-            .current_dir(repo.root())
-            .output()
-            .expect("stage fixture change");
-        repo.write("src/other.rs", "fn other() {}\n");
-        let watcher = RepositoryWatcher::spawn(
-            repo.repository().await,
-            DiffScope::Both,
-            WatchOptions::default(),
-        )
-        .await
-        .expect("the watcher must start");
-
-        let (report, outcome) = mpsc::channel();
-        let submission = run(&repo.repository().await, &watcher, |socket_path| {
-            let socket_path = socket_path.to_path_buf();
-            thread::spawn(move || {
-                let result = (|| -> Result<(), String> {
-                    let SessionResponse::Document { scope, .. } =
-                        request(&socket_path, &SessionRequestRef::Document { revision: 0 })
-                    else {
-                        return Err("initial request must return a document".to_owned());
-                    };
-                    if scope != DiffScope::Both {
-                        return Err(format!("initial scope must be both, got {scope:?}"));
-                    }
-                    if request(
-                        &socket_path,
-                        &SessionRequestRef::SetScope(DiffScope::Staged),
-                    ) != SessionResponse::Accepted
-                    {
-                        return Err("scope switch must be accepted".to_owned());
-                    }
-                    let deadline = Instant::now() + Duration::from_secs(10);
-                    loop {
-                        match request(&socket_path, &SessionRequestRef::Document { revision: 0 }) {
-                            SessionResponse::Document {
-                                scope: DiffScope::Staged,
-                                ..
-                            } => return Ok(()),
-                            SessionResponse::Document { scope, .. } => {
-                                if Instant::now() >= deadline {
-                                    return Err(format!(
-                                        "timed out waiting for staged scope, got {scope:?}"
-                                    ));
-                                }
-                                thread::sleep(Duration::from_millis(25));
-                            }
-                            SessionResponse::Unchanged { scope, .. } => {
-                                if scope == DiffScope::Staged || Instant::now() < deadline {
-                                    if scope == DiffScope::Staged {
-                                        return Ok(());
-                                    }
-                                    thread::sleep(Duration::from_millis(25));
-                                } else {
-                                    return Err("timed out waiting for staged scope".to_owned());
-                                }
-                            }
-                            other => {
-                                return Err(format!("unexpected scope poll response: {other:?}"));
-                            }
-                        }
-                    }
-                })();
-                let _ = report.send(result);
-                request(&socket_path, &SessionRequestRef::Cancel);
-            });
-            Ok(())
-        })
-        .expect("the session must run");
-        outcome
-            .recv()
-            .expect("the client must report")
-            .expect("scope switch must republish");
-        assert!(submission.is_none());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_polling_client_only_receives_changed_documents() {
-        let repo = RepoFixtureBuilder::new()
-            .file("src/lib.rs", "fn main() {}\n")
-            .committed()
-            .build();
-        repo.write("src/lib.rs", "fn main() {}\nfn added() {}\n");
-        let watcher = RepositoryWatcher::spawn(
-            repo.repository().await,
-            DiffScope::Both,
-            WatchOptions::default(),
-        )
-        .await
-        .expect("the watcher must start");
-
-        let (report, outcome) = mpsc::channel();
-        let submission = run(&repo.repository().await, &watcher, |socket_path| {
-            let socket_path = socket_path.to_path_buf();
-            thread::spawn(move || {
-                // Cancel unconditionally so a failed assertion cannot leave
-                // the single-connection server waiting forever.
-                let _ = report.send(exercise_protocol(&socket_path, &repo));
-                request(&socket_path, &SessionRequestRef::Cancel);
-            });
-            Ok(())
-        })
-        .expect("the session must run");
-
-        outcome
-            .recv()
-            .expect("the client must report")
-            .expect("the session protocol must hold");
-        assert!(submission.is_none(), "cancelling returns no submission");
-    }
-
-    fn exercise_health(
-        socket_path: &Path,
-        repo: &RepoFixture,
-        revision: u64,
-        document: &DiffDocument,
-    ) -> Result<(), String> {
-        let index = fs::read(repo.root().join(".git/index")).map_err(|error| error.to_string())?;
-        repo.write(".git/index", "corrupt index");
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            match request(socket_path, &SessionRequestRef::Document { revision }) {
-                SessionResponse::Unchanged {
-                    background_error: Some(_),
-                    ..
-                } => break,
-                SessionResponse::Unchanged {
-                    background_error: None,
-                    ..
-                } if Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                other => return Err(format!("waiting for a background error returned {other:?}")),
-            }
-        }
-        match request(socket_path, &SessionRequestRef::Document { revision: 0 }) {
-            SessionResponse::Document {
-                revision: actual_revision,
-                document: actual,
-                background_error: Some(_),
-                ..
-            } if actual_revision == revision && &actual == document => {}
-            other => {
-                return Err(format!(
-                    "the last good document was not retained: {other:?}"
-                ));
-            }
-        }
-        repo.write(".git/index", index);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            match request(socket_path, &SessionRequestRef::Document { revision }) {
-                SessionResponse::Unchanged {
-                    background_error: None,
-                    ..
-                } => return Ok(()),
-                SessionResponse::Unchanged {
-                    background_error: Some(_),
-                    ..
-                } if Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                other => {
-                    return Err(format!(
-                        "equal-content recovery changed the document: {other:?}"
-                    ));
-                }
-            }
-        }
-    }
 }

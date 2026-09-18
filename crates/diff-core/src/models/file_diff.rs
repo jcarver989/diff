@@ -136,7 +136,7 @@ impl FileDiff {
     pub fn with_sources(mut self, old: SourceResult, new: SourceResult) -> Self {
         self.old_source = old;
         self.new_source = new;
-        if self.binary {
+        if !self.can_derive_patch() {
             return self;
         }
         if let (Some(old), Some(new)) =
@@ -147,6 +147,12 @@ impl FileDiff {
             self.no_newline_at_end = no_newline_at_end;
         }
         self
+    }
+
+    fn can_derive_patch(&self) -> bool {
+        !self.binary
+            && self.side_text(DiffSide::Old).is_some()
+            && self.side_text(DiffSide::New).is_some()
     }
 
     /// The source result recorded for a side of a file whose complete versions
