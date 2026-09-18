@@ -7,7 +7,7 @@ use clankerdiff_client::{
         shared::{Event, LIVE_PROTOCOL_VERSION},
     },
 };
-use clankerdiff_core::{DiffScope, testing::DocumentBuilder};
+use clankerdiff_core::{DiffScope, Review, testing::DocumentBuilder};
 use std::{error::Error, sync::Arc, time::Duration};
 use tokio::time::timeout;
 
@@ -42,6 +42,44 @@ async fn sent_action_is_not_replayed_and_reports_unknown_outcome() -> Result<(),
     let acting = client.clone();
     let request = tokio::spawn(async move { acting.apply(RepositoryAction::StageAll).await });
     assert!(matches!(server.recv().await?, ClientCommand::Apply(_)));
+    drop(server);
+    assert!(matches!(request.await?, Err(ClientError::OutcomeUnknown)));
+    Ok(())
+}
+
+#[tokio::test]
+async fn terminal_events_wait_for_acknowledgement() -> Result<(), Box<dyn Error>> {
+    for event in [
+        DiffReviewEvent::SubmitReview(Review::default().submission()),
+        DiffReviewEvent::Cancel,
+    ] {
+        let (client, server) = connected().await?;
+        let handling = client.clone();
+        let request = tokio::spawn(async move { handling.handle(event).await });
+        assert!(matches!(
+            server.recv().await?,
+            ClientCommand::Submit(_) | ClientCommand::Cancel
+        ));
+        assert!(!request.is_finished());
+        server.send(Event::RequestResult(Ok(()))).await?;
+        timeout(WAIT, request).await???;
+        client.close().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn sent_submission_reports_unknown_outcome_after_disconnect() -> Result<(), Box<dyn Error>> {
+    let (client, server) = connected().await?;
+    let submitting = client.clone();
+    let request = tokio::spawn(async move {
+        submitting
+            .handle(DiffReviewEvent::SubmitReview(
+                Review::default().submission(),
+            ))
+            .await
+    });
+    assert!(matches!(server.recv().await?, ClientCommand::Submit(_)));
     drop(server);
     assert!(matches!(request.await?, Err(ClientError::OutcomeUnknown)));
     Ok(())

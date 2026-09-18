@@ -1,5 +1,5 @@
 use clankerdiff_core::{
-    DiffDocument, DiffScope, RepositoryAction, SourceUnavailable, StageState,
+    DiffDocument, DiffScope, RepositoryAction, Review, SourceUnavailable, StageState,
     testing::DocumentBuilder,
 };
 use clankerdiff_protocol::{
@@ -24,6 +24,8 @@ fn commands_and_events_round_trip() -> Result<(), Box<dyn Error>> {
             message: "🦀\n".to_owned(),
         }),
         ClientCommand::Refresh,
+        ClientCommand::Submit(Review::default().submission()),
+        ClientCommand::Cancel,
     ] {
         let decoded = ClientCommand::decode(&message.encode()?)?;
         assert_eq!(format!("{decoded:?}"), format!("{message:?}"));
@@ -231,6 +233,6 @@ fn document_updates_reuse_unchanged_files() -> Result<(), Box<dyn Error>> {
     let received = cache.apply(&second)?;
     assert_eq!(received.scope, DiffScope::Staged);
     assert_eq!(received.document.files.len(), 2);
-    assert_eq!(LIVE_PROTOCOL_VERSION, 1);
+    assert_eq!(LIVE_PROTOCOL_VERSION, 2);
     Ok(())
 }

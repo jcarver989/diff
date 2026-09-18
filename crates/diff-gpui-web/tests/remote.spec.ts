@@ -11,6 +11,7 @@ test("managed Rust WebSocket connection owns documents until disconnected", { ti
       connect_remote(url: string): Promise<void>;
       disconnect_remote(): void;
       set_document_json(json: string): void;
+      dispatch_command_json(json: string): void;
     };
     const bindings = () => (frame.contentWindow as Window & { wasmBindings?: Bindings })?.wasmBindings;
     await expect.poll(() => bindings(), { timeout: 30_000 }).toBeDefined();
@@ -22,6 +23,14 @@ test("managed Rust WebSocket connection owns documents until disconnected", { ti
     await bindings()!.connect_remote(inject("remoteUrl"));
     await expect.poll(() => states.includes("connected"), { timeout: 15_000 }).toBe(true);
     expect(() => bindings()!.set_document_json(JSON.stringify({ repo_root: "/conflict", files: [] }))).toThrow();
+    const submissions: string[] = [];
+    const commandResults: string[] = [];
+    frame.contentDocument!.addEventListener("diff-review-submit", (event) => submissions.push((event as CustomEvent).detail));
+    frame.contentDocument!.addEventListener("diff-review-command-result", (event) => commandResults.push((event as CustomEvent).detail));
+    bindings()!.dispatch_command_json(JSON.stringify({ target: "diff", command: "submit_review" }));
+    await expect.poll(() => commandResults.length).toBe(1);
+    await expect.poll(() => states.includes("reconnecting"), { timeout: 15_000 }).toBe(true);
+    expect(submissions).toHaveLength(0);
     bindings()!.disconnect_remote();
     await expect.poll(() => states.at(-1)).toBe("host");
     const applied: unknown[] = [];

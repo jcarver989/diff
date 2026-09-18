@@ -9,11 +9,11 @@ use args::{
     TuiPlacement, Ui,
 };
 use clankerdiff_client::DiffClient;
-use clankerdiff_core::{DiffScope, ReviewSubmission};
+use clankerdiff_core::{DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_git::GitRepository;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission};
 use clankerdiff_protocol::{CapabilityResponse, PROTOCOL_VERSION, ReviewOutcome, ReviewResponse};
-use clankerdiff_server::{DiffServer, ServerOptions};
+use clankerdiff_server::{DiffServer, ReviewCompletion, ServerOptions};
 use clap::Parser;
 use std::{
     fs,
@@ -38,22 +38,35 @@ async fn main() -> ExitCode {
 async fn dispatch(command: Command) -> Result<ExitCode, AppError> {
     match command {
         Command::Serve(args) => {
-            let server = DiffServer::open(args.repository, ServerOptions::default()).await?;
+            let format = args.format;
+            let mut server = DiffServer::open(args.repository, ServerOptions::default()).await?;
+            let repository_root = PathBuf::from(server.repository_root());
             let listener = server.listen(args.listen).await?;
             eprintln!(
                 "Serving repository at ws://{}/ws (trusted network only; no authentication)",
                 listener.local_addr()
             );
-            tokio::signal::ctrl_c().await?;
+            let completion = tokio::select! {
+                result = server.next_review() => Some(result?),
+                result = tokio::signal::ctrl_c() => {
+                    result?;
+                    None
+                }
+            };
+            listener.shutdown().await?;
             server.shutdown().await?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Connect(args) => {
-            let format = args.format;
-            let response = connect(args).await?;
+            let Some(completion) = completion else {
+                return Ok(ExitCode::SUCCESS);
+            };
+            let (scope, submission) = match completion {
+                ReviewCompletion::Submitted { scope, submission } => (scope, Some(submission)),
+                ReviewCompletion::Cancelled { scope } => (scope, None),
+            };
+            let response = diff_response(repository_root, scope, submission);
             write_review_response(&response, format)?;
             Ok(exit_code(response.outcome()))
         }
+        Command::Connect(args) => Ok(exit_code(connect(args).await?)),
         Command::Review(args) => {
             let format = args.format;
             let response = run(args).await?;
@@ -77,7 +90,7 @@ async fn dispatch(command: Command) -> Result<ExitCode, AppError> {
     }
 }
 
-async fn connect(args: ConnectArgs) -> Result<ReviewResponse, AppError> {
+async fn connect(args: ConnectArgs) -> Result<ReviewOutcome, AppError> {
     #[cfg(not(feature = "desktop"))]
     if args.ui == Ui::Desktop {
         return Err(AppError::DesktopDisabled);
@@ -90,16 +103,12 @@ async fn connect(args: ConnectArgs) -> Result<ReviewResponse, AppError> {
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
     };
-    let state = client.state();
+    let submission = outcome?;
+    let outcome = diff_outcome(submission.as_ref());
+    let event = submission.map_or(DiffReviewEvent::Cancel, DiffReviewEvent::SubmitReview);
+    client.handle(event).await?;
     client.close().await?;
-    let snapshot = state.snapshot.as_ref();
-    Ok(diff_response(
-        snapshot.map_or_else(PathBuf::new, |snapshot| {
-            snapshot.document.repo_root.clone().into()
-        }),
-        snapshot.map_or(args.scope, |snapshot| snapshot.scope),
-        outcome?,
-    ))
+    Ok(outcome)
 }
 
 async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {

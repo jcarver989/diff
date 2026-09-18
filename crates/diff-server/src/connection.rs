@@ -1,5 +1,5 @@
 use crate::{
-    server::{Context, protocol, stopped},
+    server::{Context, ReviewCompletion, protocol, stopped},
     websocket::WebSocketTransport,
 };
 use clankerdiff_core::DiffScope;
@@ -26,6 +26,7 @@ type Command = Pin<Box<dyn Future<Output = CommandResult> + Send>>;
 struct CommandResult {
     result: Result<(), RemoteError>,
     state: Option<watch::Receiver<RepositoryState>>,
+    completion: Option<ReviewCompletion>,
 }
 
 pub(crate) enum ServerTransport {
@@ -121,7 +122,7 @@ async fn serve(
     let mut published: Option<Arc<RepositorySnapshot>> = None;
     let mut health: Option<RemoteError> = None;
     let mut running: Option<Command> = None;
-    let mut finished: Option<Result<(), RemoteError>> = None;
+    let mut finished: Option<CommandResult> = None;
     let mut heartbeat = interval(HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
     heartbeat.tick().await;
@@ -147,8 +148,15 @@ async fn serve(
             health = latest.clone();
             publish(transport, Event::Health { error: latest }).await?;
         }
-        if let Some(result) = finished.take() {
-            publish(transport, Event::RequestResult(result)).await?;
+        if let Some(finished) = finished.take() {
+            let acknowledgement =
+                publish(transport, Event::RequestResult(finished.result.clone())).await;
+            if let Some(completion) = finished.completion {
+                context.publish_completion(completion).await?;
+                acknowledgement?;
+                return Ok(());
+            }
+            acknowledgement?;
         }
         tokio::select! {
             changed = state.changed() => if changed.is_err() { return Err(stopped()); },
@@ -161,13 +169,22 @@ async fn serve(
                     None => std::future::pending().await,
                 }
             } => {
-                if let Some(next) = result.state {
+                let CommandResult {
+                    result,
+                    state: next,
+                    completion,
+                } = result;
+                if let Some(next) = next {
                     scope = next.borrow().snapshot.scope;
                     state = next;
                     published = None;
                     health = None;
                 }
-                finished = Some(result.result);
+                finished = Some(CommandResult {
+                    result,
+                    state: None,
+                    completion,
+                });
                 running = None;
             }
             _ = heartbeat.tick() => {
@@ -191,10 +208,12 @@ fn start(
                     Ok(state) => CommandResult {
                         result: Ok(()),
                         state: Some(state),
+                        completion: None,
                     },
                     Err(error) => CommandResult {
                         result: Err(watcher_error(error)),
                         state: None,
+                        completion: None,
                     },
                 }
             }))
@@ -205,6 +224,7 @@ fn start(
                 CommandResult {
                     result: watcher.refresh(current_scope).await.map_err(watcher_error),
                     state: None,
+                    completion: None,
                 }
             }))
         }
@@ -223,10 +243,36 @@ fn start(
                 CommandResult {
                     result,
                     state: None,
+                    completion: None,
                 }
             }))
         }
+        ClientCommand::Submit(submission) => Ok(complete(
+            context,
+            ReviewCompletion::Submitted {
+                scope: current_scope,
+                submission,
+            },
+        )),
+        ClientCommand::Cancel => Ok(complete(
+            context,
+            ReviewCompletion::Cancelled {
+                scope: current_scope,
+            },
+        )),
     }
+}
+
+fn complete(context: &Context, completion: ReviewCompletion) -> Command {
+    let result = context.reserve_completion();
+    Box::pin(async move {
+        let completion = result.is_ok().then_some(completion);
+        CommandResult {
+            result,
+            state: None,
+            completion,
+        }
+    })
 }
 
 async fn publish(transport: &mut ServerTransport, event: ServerEvent) -> Result<(), RemoteError> {

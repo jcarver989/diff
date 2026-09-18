@@ -14,16 +14,18 @@ ClankerDiff is a beautiful diff viewer that lets you give feedback to your codin
 Run the backend where the checkout lives, then connect from a UI machine:
 
 ```sh
-clankerdiff serve /workspace/repo --listen 0.0.0.0:7331
-clankerdiff connect ws://vm:7331/ws --ui tui --scope both --format json
+clankerdiff serve /workspace/repo --listen 0.0.0.0:7331 --format json
+clankerdiff connect ws://vm:7331/ws --ui tui --scope both
 clankerdiff connect wss://sandbox.example/ws --ui desktop
 ```
 
 The backend is **unauthenticated**: anyone who can reach it can read repository
 content and invoke Git actions. Use a trusted network boundary or an existing
 access-controlled TLS proxy. The default listener binds only to `127.0.0.1`.
-Local `review` remains in-process and does not require a listening port unless
-launching an external terminal.
+The server accepts the first submitted or cancelled review, writes the result to
+its stdout, and exits. Startup diagnostics are written to stderr. Local `review`
+remains in-process and does not require a listening port unless launching an
+external terminal.
 
 See [remote diff](docs/remote-development.md) for deployment, the Rust client
 API, and the live protocol. A renderer-free server/TUI build is available with

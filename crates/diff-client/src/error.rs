@@ -5,7 +5,7 @@ use thiserror::Error;
 pub enum ClientError {
     #[error("connection closed")]
     Disconnected,
-    #[error("action may have completed before the connection was lost; refresh before retrying")]
+    #[error("command may have completed before the connection was lost; verify before retrying")]
     OutcomeUnknown,
     #[error("protocol error: {0}")]
     Protocol(String),

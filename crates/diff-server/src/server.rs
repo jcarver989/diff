@@ -2,7 +2,7 @@ use crate::{
     connection::{self, ServerTransport},
     websocket::{self, ServerListener},
 };
-use clankerdiff_core::DiffScope;
+use clankerdiff_core::{DiffScope, ReviewSubmission};
 use clankerdiff_git::{GitError, GitRepository};
 use clankerdiff_protocol::{
     client::LocalClientTransport,
@@ -10,12 +10,32 @@ use clankerdiff_protocol::{
     shared::{RemoteError, RemoteErrorCode},
 };
 use clankerdiff_watch::{RepositoryHandle, RepositoryWatcher, WatchError, WatchOptions};
-use std::{future::Future, net::SocketAddr, path::Path, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    net::SocketAddr,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 use thiserror::Error;
-use tokio::time::timeout;
+use tokio::{sync::mpsc, time::timeout};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReviewCompletion {
+    Submitted {
+        scope: DiffScope,
+        submission: ReviewSubmission,
+    },
+    Cancelled {
+        scope: DiffScope,
+    },
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ServerOptions {
@@ -38,6 +58,38 @@ pub(crate) struct Context {
     pub repository: GitRepository,
     pub root: Arc<str>,
     pub watcher: RepositoryHandle,
+    completion: CompletionSink,
+}
+
+struct CompletionSink {
+    accepted: AtomicBool,
+    sender: mpsc::Sender<ReviewCompletion>,
+}
+
+impl CompletionSink {
+    fn reserve(&self) -> Result<(), RemoteError> {
+        self.accepted
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ())
+            .map_err(|_| RemoteError::new(RemoteErrorCode::Busy, "review already completed"))
+    }
+
+    async fn publish(&self, completion: ReviewCompletion) -> Result<(), RemoteError> {
+        self.sender.send(completion).await.map_err(|_| stopped())
+    }
+}
+
+impl Context {
+    pub fn reserve_completion(&self) -> Result<(), RemoteError> {
+        self.completion.reserve()
+    }
+
+    pub async fn publish_completion(
+        &self,
+        completion: ReviewCompletion,
+    ) -> Result<(), RemoteError> {
+        self.completion.publish(completion).await
+    }
 }
 
 #[derive(Clone)]
@@ -71,6 +123,7 @@ impl Handle {
 pub struct DiffServer {
     handle: Handle,
     watcher: Option<RepositoryWatcher>,
+    completions: mpsc::Receiver<ReviewCompletion>,
 }
 
 impl DiffServer {
@@ -78,11 +131,16 @@ impl DiffServer {
         let repository = GitRepository::discover(path).await?;
         let watcher =
             RepositoryWatcher::spawn(repository.clone(), DiffScope::Both, options.watch).await?;
+        let (completion_tx, completions) = mpsc::channel(1);
         let handle = Handle {
             context: Arc::new(Context {
                 root: Arc::from(repository.root().to_string_lossy().as_ref()),
                 repository,
                 watcher: watcher.handle(),
+                completion: CompletionSink {
+                    accepted: AtomicBool::new(false),
+                    sender: completion_tx,
+                },
             }),
             tasks: TaskTracker::new(),
             stop: CancellationToken::new(),
@@ -90,7 +148,17 @@ impl DiffServer {
         Ok(Self {
             handle,
             watcher: Some(watcher),
+            completions,
         })
+    }
+
+    #[must_use]
+    pub fn repository_root(&self) -> &str {
+        &self.handle.context.root
+    }
+
+    pub async fn next_review(&mut self) -> Result<ReviewCompletion, ServerError> {
+        self.completions.recv().await.ok_or(ServerError::Stopped)
     }
 
     pub fn connect(&self) -> Result<LocalClientTransport, ServerError> {

@@ -315,14 +315,7 @@ mod wasm {
             let viewer_subscription = cx.subscribe(
                 &viewer,
                 |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| {
-                    if MANAGED.get()
-                        && matches!(
-                            event,
-                            DiffReviewEvent::RepositoryAction(_)
-                                | DiffReviewEvent::SetScope(_)
-                                | DiffReviewEvent::Refresh
-                        )
-                    {
+                    if MANAGED.get() && !matches!(event, DiffReviewEvent::CopyFormattedReview(_)) {
                         this.remote_request(event.clone(), cx);
                         return;
                     }

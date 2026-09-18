@@ -1,8 +1,11 @@
 mod support;
 
 use clankerdiff_client::{
-    ClientOptions, ClientSubscription, ConnectionState, DiffClient, DiffScope, RepositoryAction,
+    ClientError, ClientOptions, ClientSubscription, ConnectionState, DiffClient, DiffReviewEvent,
+    DiffScope, RemoteErrorCode, RepositoryAction,
 };
+use clankerdiff_core::Review;
+use clankerdiff_server::ReviewCompletion;
 use std::{
     error::Error,
     sync::Arc,
@@ -35,6 +38,77 @@ async fn local_clients_have_independent_scopes_and_observe_actions() -> Result<(
     a.close().await?;
     b.refresh().await?;
     b.close().await?;
+    fixture.server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn submitted_review_reaches_the_server_with_the_effective_scope() -> Result<(), Box<dyn Error>>
+{
+    let mut fixture = TestServer::start().await?;
+    let client =
+        DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    client.set_scope(DiffScope::Staged).await?;
+    let submission = Review::default().submission();
+    let submitting = client.clone();
+    let expected = submission.clone();
+    let request = tokio::spawn(async move {
+        submitting
+            .handle(DiffReviewEvent::SubmitReview(submission))
+            .await
+    });
+    let completion = timeout(WAIT, fixture.server.next_review()).await??;
+    assert_eq!(
+        completion,
+        ReviewCompletion::Submitted {
+            scope: DiffScope::Staged,
+            submission: expected,
+        }
+    );
+    timeout(WAIT, request).await???;
+    fixture.server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancelled_review_reaches_the_server() -> Result<(), Box<dyn Error>> {
+    let mut fixture = TestServer::start().await?;
+    let client =
+        DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    let cancelling = client.clone();
+    let request = tokio::spawn(async move { cancelling.handle(DiffReviewEvent::Cancel).await });
+    assert_eq!(
+        timeout(WAIT, fixture.server.next_review()).await??,
+        ReviewCompletion::Cancelled {
+            scope: DiffScope::Both,
+        }
+    );
+    timeout(WAIT, request).await???;
+    fixture.server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn only_one_concurrent_review_completion_is_accepted() -> Result<(), Box<dyn Error>> {
+    let mut fixture = TestServer::start().await?;
+    let first =
+        DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    let second =
+        DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    let first_request = tokio::spawn(async move { first.handle(DiffReviewEvent::Cancel).await });
+    let second_request = tokio::spawn(async move { second.handle(DiffReviewEvent::Cancel).await });
+    assert!(matches!(
+        timeout(WAIT, fixture.server.next_review()).await??,
+        ReviewCompletion::Cancelled { .. }
+    ));
+    let first_result = timeout(WAIT, first_request).await??;
+    let second_result = timeout(WAIT, second_request).await??;
+    assert!(matches!(
+        (&first_result, &second_result),
+        (Ok(()), Err(ClientError::Remote(error)))
+            | (Err(ClientError::Remote(error)), Ok(()))
+            if error.code == RemoteErrorCode::Busy
+    ));
     fixture.server.shutdown().await?;
     Ok(())
 }

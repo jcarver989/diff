@@ -146,7 +146,9 @@ impl DiffClient {
             DiffReviewEvent::RepositoryAction(action) => ClientCommand::Apply(action),
             DiffReviewEvent::SetScope(scope) => ClientCommand::SetScope(scope),
             DiffReviewEvent::Refresh => ClientCommand::Refresh,
-            _ => return Ok(None),
+            DiffReviewEvent::SubmitReview(submission) => ClientCommand::Submit(submission),
+            DiffReviewEvent::Cancel => ClientCommand::Cancel,
+            DiffReviewEvent::CopyFormattedReview(_) => return Ok(None),
         };
         let (reply, receiver) = oneshot::channel();
         self.commands
@@ -186,7 +188,7 @@ enum ConnectionInput {
 
 struct Pending {
     reply: Reply,
-    action: bool,
+    outcome_unknown_on_disconnect: bool,
 }
 
 struct Worker {
@@ -362,22 +364,30 @@ impl Worker {
             let _ = reply.send(Err(ClientError::Disconnected));
             return Ok(());
         }
-        let action = matches!(request, ClientCommand::Apply(_));
+        let outcome_unknown_on_disconnect = matches!(
+            request,
+            ClientCommand::Apply(_) | ClientCommand::Submit(_) | ClientCommand::Cancel
+        );
         if transport.send(request).await.is_err() {
             let _ = reply.send(Err(ClientError::Disconnected));
             return Err(ClientError::Disconnected);
         }
-        self.state.pending = Some(Pending { reply, action });
+        self.state.pending = Some(Pending {
+            reply,
+            outcome_unknown_on_disconnect,
+        });
         Ok(())
     }
 
     fn abandon_request(&mut self) {
         if let Some(pending) = self.state.pending.take() {
-            let _ = pending.reply.send(Err(if pending.action {
-                ClientError::OutcomeUnknown
-            } else {
-                ClientError::Disconnected
-            }));
+            let _ = pending
+                .reply
+                .send(Err(if pending.outcome_unknown_on_disconnect {
+                    ClientError::OutcomeUnknown
+                } else {
+                    ClientError::Disconnected
+                }));
         }
     }
 

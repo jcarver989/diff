@@ -1,5 +1,5 @@
 use crate::shared::{ProtocolError, decode_json, encode_json};
-use clankerdiff_core::{DiffScope, RepositoryAction};
+use clankerdiff_core::{DiffScope, RepositoryAction, ReviewSubmission};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,6 +11,8 @@ pub enum ClientCommand {
     SetScope(DiffScope),
     Apply(RepositoryAction),
     Refresh,
+    Submit(ReviewSubmission),
+    Cancel,
 }
 
 impl ClientCommand {

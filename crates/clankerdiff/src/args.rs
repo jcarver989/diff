@@ -34,6 +34,8 @@ pub struct ServeArgs {
     pub repository: PathBuf,
     #[arg(long, default_value = "127.0.0.1:7331")]
     pub listen: std::net::SocketAddr,
+    #[arg(long, value_enum, default_value_t)]
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Clone, ClapArgs)]
@@ -43,8 +45,6 @@ pub struct ConnectArgs {
     pub ui: Ui,
     #[arg(short, long, default_value = "both")]
     pub scope: DiffScope,
-    #[arg(long, value_enum, default_value_t)]
-    pub format: OutputFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ClapArgs)]
