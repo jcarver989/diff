@@ -1,6 +1,6 @@
 [package]
 name = "clankerdiff-protocol"
-description = "Versioned machine-readable review protocol for Clankerdiff"
+description = "Versioned subprocess and live session protocols for Clankerdiff"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,8 +11,12 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+async-channel.workspace = true
 clankerdiff-core = { version = "0.2.1", path = "../diff-core" }
 clankerdiff-markdown = { version = "0.2.1", path = "../diff-markdown", features = ["review"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+clankerdiff-core = { version = "0.2.1", path = "../diff-core", features = ["test-support"] }
