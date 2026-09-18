@@ -1,0 +1,42 @@
+[package]
+name = "clankerdiff-client"
+description = "Renderer-independent local and remote diff client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["websocket"]
+websocket = ["dep:tokio-tungstenite", "dep:gloo-net", "dep:rand", "dep:js-sys"]
+
+[dependencies]
+clankerdiff-core = { version = "0.2.1", path = "../diff-core" }
+clankerdiff-protocol = { version = "0.2.1", path = "../diff-protocol" }
+async-channel.workspace = true
+futures-util = { version = "0.3.31", features = ["sink"] }
+tokio = { version = "1.47.1", default-features = false, features = ["sync"] }
+thiserror.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rand = { workspace = true, optional = true }
+tokio = { version = "1.47.1", default-features = false, features = ["rt", "time", "macros", "net"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen-futures = "0.4.70"
+gloo-timers = { version = "0.3", features = ["futures"] }
+gloo-net = { version = "0.6", features = ["websocket"], default-features = false, optional = true }
+
+[[example]]
+name = "remote_review"
+required-features = ["websocket"]
+
+[dev-dependencies]
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "time"] }
+clankerdiff-core = { version = "0.2.1", path = "../diff-core", features = ["test-support"] }
