@@ -156,7 +156,7 @@ impl GitRepository {
         let mut retries = 0;
         let mut delay = Duration::from_millis(250);
         loop {
-            match self.capture_snapshot_with_sources(scope).await {
+            match self.try_snapshot_with_sources(scope).await {
                 Err(GitError::UnstableSnapshot) if retries < 5 => {
                     retries += 1;
                     sleep(delay).await;
@@ -167,7 +167,7 @@ impl GitRepository {
         }
     }
 
-    async fn capture_snapshot_with_sources(
+    pub async fn try_snapshot_with_sources(
         &self,
         scope: DiffScope,
     ) -> Result<RepositorySnapshot, GitError> {
