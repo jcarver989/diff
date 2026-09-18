@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.2.1...clankerdiff-ratatui-v0.3.0) - 2026-09-18
+
+### Added
+
+- Support option to see full file outside of diff view.  ([#61](https://github.com/jcarver989/diff/pull/61))
+
 ## [0.2.1](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.2.0...clankerdiff-ratatui-v0.2.1) - 2026-09-14
 
 ### Other

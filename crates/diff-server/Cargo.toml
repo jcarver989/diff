@@ -11,10 +11,10 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.2.1", path = "../diff-core" }
-clankerdiff-protocol = { version = "0.2.1", path = "../diff-protocol" }
-clankerdiff-git = { version = "0.2.1", path = "../diff-git" }
-clankerdiff-watch = { version = "0.2.1", path = "../diff-watch" }
+clankerdiff-core = { version = "0.3.0", path = "../diff-core" }
+clankerdiff-protocol = { version = "0.3.0", path = "../diff-protocol" }
+clankerdiff-git = { version = "0.3.0", path = "../diff-git" }
+clankerdiff-watch = { version = "0.3.0", path = "../diff-watch" }
 axum = { version = "0.8", features = ["ws"] }
 futures-util = { version = "0.3.31", features = ["sink"] }
 thiserror.workspace = true

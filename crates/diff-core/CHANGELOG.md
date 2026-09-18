@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.2.1...clankerdiff-core-v0.3.0) - 2026-09-18
+
+### Added
+
+- Remote diff support  ([#64](https://github.com/jcarver989/diff/pull/64))
+- Support option to see full file outside of diff view.  ([#61](https://github.com/jcarver989/diff/pull/61))
+
 ## [0.1.11](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.1.10...clankerdiff-core-v0.1.11) - 2026-09-13
 
 ### Added
