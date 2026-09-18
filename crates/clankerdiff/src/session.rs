@@ -15,7 +15,6 @@ pub async fn run(
     let url = format!("ws://{}/ws", listener.local_addr());
     let result = run_session(&url, scope, launch).await;
     server.shutdown().await?;
-    listener.shutdown().await?;
     result
 }
 

@@ -25,7 +25,7 @@ desktop = ["dep:clankerdiff-gpui-desktop"]
 [dependencies]
 clankerdiff-client = { version = "0.2.1", path = "../diff-client" }
 clankerdiff-server = { version = "0.2.1", path = "../diff-server" }
-clankerdiff-protocol = { version = "0.2.1", path = "../clankerdiff-protocol" }
+clankerdiff-protocol = { version = "0.2.1", path = "../diff-protocol" }
 clap.workspace = true
 crossterm.workspace = true
 clankerdiff-core = { version = "0.2.1", path = "../diff-core" }

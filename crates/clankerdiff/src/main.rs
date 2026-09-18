@@ -46,7 +46,6 @@ async fn dispatch(command: Command) -> Result<ExitCode, AppError> {
             );
             tokio::signal::ctrl_c().await?;
             server.shutdown().await?;
-            listener.shutdown().await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Connect(args) => {
@@ -120,7 +119,7 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
         Ui::Tui => match args.tui_placement {
             TuiPlacement::Current => {
                 let server = DiffServer::open(&root, ServerOptions::default()).await?;
-                let transport = server.connect().await?;
+                let transport = server.connect()?;
                 let client = DiffClient::from_transport(transport, args.scope.into()).await?;
                 let outcome = tui::run_client(&client);
                 client.close().await?;

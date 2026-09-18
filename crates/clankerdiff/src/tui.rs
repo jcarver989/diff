@@ -21,15 +21,12 @@ use std::{
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{
-        Arc,
-        mpsc::{self, Receiver, TryRecvError},
-    },
+    sync::Arc,
     thread,
     time::Duration,
 };
 use thiserror::Error;
-use tokio::runtime::Handle;
+use tokio::sync::oneshot::{Receiver, error::TryRecvError};
 
 pub const COMMAND_ENV: &str = "CLANKERDIFF_TUI_COMMAND";
 const COMMAND_PLACEHOLDER: &str = "{command}";
@@ -127,7 +124,7 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
     state.set_theme_choices(ThemeChoice::catalog());
     let mut installed = None;
     let mut last_state: Option<Arc<ClientState>> = None;
-    let mut operation: Option<Receiver<Result<(), String>>> = None;
+    let mut operation: Option<Receiver<Result<(), clankerdiff_client::ClientError>>> = None;
     loop {
         let current = client.state();
         if last_state
@@ -142,14 +139,14 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
             state.set_capabilities(current.capabilities);
             last_state = Some(current);
         }
-        if let Some(reply) = &operation {
+        if let Some(reply) = operation.as_mut() {
             match reply.try_recv() {
                 Err(TryRecvError::Empty) => {}
                 result => {
                     operation = None;
-                    match result.unwrap_or_else(|_| Err("review command stopped".to_owned())) {
+                    match result.unwrap_or(Err(clankerdiff_client::ClientError::Disconnected)) {
                         Ok(()) => state.clear_repository_pending(),
-                        Err(error) => state.set_repository_error(error),
+                        Err(error) => state.set_repository_error(error.to_string()),
                     }
                 }
             }
@@ -182,13 +179,7 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
                 Some(DiffReviewEvent::CopyFormattedReview(_)) | None => {}
                 Some(command) if operation.is_none() => {
                     state.set_repository_pending();
-                    let client = client.clone();
-                    let (reply, receiver) = mpsc::channel();
-                    operation = Some(receiver);
-                    Handle::current().spawn(async move {
-                        let result = client.handle(command).await;
-                        let _ = reply.send(result.map_err(|error| error.to_string()));
-                    });
+                    operation = client.dispatch(command)?;
                 }
                 Some(_) => {}
             }
