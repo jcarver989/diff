@@ -119,7 +119,7 @@ impl DesktopApp {
             let server = DiffServer::open(path, ServerOptions::default())
                 .await
                 .map_err(|error| error.to_string())?;
-            let transport = server.connect().await.map_err(|error| error.to_string())?;
+            let transport = server.connect().map_err(|error| error.to_string())?;
             let client = DiffClient::from_transport(transport, scope.into())
                 .await
                 .map_err(|error| error.to_string())?;
