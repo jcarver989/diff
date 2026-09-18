@@ -15,11 +15,11 @@ dist = true
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.2.1", path = "../diff-core" }
-clankerdiff-markdown = { version = "0.2.1", path = "../diff-markdown", features = ["review"] }
-clankerdiff-theme = { version = "0.2.1", path = "../diff-theme" }
-clankerdiff-client = { version = "0.2.1", path = "../diff-client" }
-clankerdiff-server = { version = "0.2.1", path = "../diff-server" }
+clankerdiff-core = { version = "0.3.0", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.3.0", path = "../diff-markdown", features = ["review"] }
+clankerdiff-theme = { version = "0.3.0", path = "../diff-theme" }
+clankerdiff-client = { version = "0.3.0", path = "../diff-client" }
+clankerdiff-server = { version = "0.3.0", path = "../diff-server" }
 clankerdiff-gpui = { path = "../diff-gpui" }
 gpui.workspace = true
 gpui_platform.workspace = true
