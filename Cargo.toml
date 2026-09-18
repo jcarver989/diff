@@ -1,8 +1,7 @@
 [workspace]
 members = [
     "crates/clankerdiff",
-    "crates/clankerdiff-protocol",
-    "crates/clankerdiff-live-protocol",
+    "crates/diff-protocol",
     "crates/diff-core",
     "crates/diff-fingerprint",
     "crates/diff-theme",

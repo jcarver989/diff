@@ -55,11 +55,6 @@ release = true
 publish = true
 
 [[package]]
-name = "clankerdiff-live-protocol"
-release = true
-publish = true
-
-[[package]]
 name = "clankerdiff-client"
 release = true
 publish = true
