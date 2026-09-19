@@ -49,7 +49,7 @@ lru = "0.18.3"
 notify = "8.2.0"
 open = "5.4.2"
 pulldown-cmark = "0.13.0"
-rand = "0.9.5"
+rand = "0.10.2"
 crossterm = "0.29.0"
 criterion = "0.8.2"
 ratatui = { version = "0.30.0", default-features = false, features = ["std", "layout-cache"] }
