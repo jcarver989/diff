@@ -69,6 +69,24 @@ impl Transport for LocalClientTransport {
     }
 }
 
+impl ClientMessageTransport for LocalEnd<ClientCommand, ServerMessage> {
+    async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
+        LocalEnd::send(self, command)
+            .await
+            .map_err(|_| ClientError::Disconnected)
+    }
+
+    async fn recv(&mut self) -> Result<ServerMessage, ClientError> {
+        LocalEnd::recv(self)
+            .await
+            .map_err(|_| ClientError::Disconnected)
+    }
+
+    async fn close(&mut self) {
+        LocalEnd::close(self);
+    }
+}
+
 pub(crate) struct Decoded<T> {
     transport: T,
     cache: DocumentCache,

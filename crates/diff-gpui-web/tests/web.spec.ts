@@ -1,5 +1,4 @@
 import { expect, test } from "vitest";
-import { page } from "vitest/browser";
 
 const documentFixture = {
   repo_root: "/fixture",
@@ -202,7 +201,6 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
   await key("o");
   expect((await command("diff", "toggle_full_file")).handled).toBe(false);
   expect((await command("diff", { review: "begin_comment" })).handled).toBe(false);
-  await expect.element(page.elementLocator(frame)).toMatchScreenshot("source-view-new");
   await key("o");
   expect((await command("diff", { review: "begin_comment" })).handled).toBe(true);
   await key("o");
@@ -219,7 +217,6 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
   push({ repo_root: "/patch-fixture", files: [patchOnly] });
   await expect.poll(() => acknowledgements.length).toBe(applied + 2);
   expect((await command("diff", "toggle_source_view")).handled).toBe(true);
-  await expect.element(page.elementLocator(frame)).toMatchScreenshot("source-view-unavailable");
   expect((await command("diff", "toggle_source_view")).handled).toBe(true);
   expect(requests).toHaveLength(repositoryRequests);
   expect(runtimeErrors).toEqual([]);

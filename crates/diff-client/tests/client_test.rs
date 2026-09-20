@@ -137,7 +137,7 @@ async fn dropping_the_last_handle_stops_the_transport() -> Result<(), Box<dyn Er
 async fn message_transports_rebuild_documents_and_fail_on_unknown_files()
 -> Result<(), Box<dyn Error>> {
     let (transport, commands, messages) = message_channel();
-    let client = DiffClient::spawn_message_transport(transport, ClientOptions::default());
+    let client = DiffClient::spawn(transport, ClientOptions::default());
     assert!(matches!(
         commands.recv().await?,
         ClientCommand::Initialize { .. }

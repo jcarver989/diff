@@ -1,7 +1,9 @@
 use crate::server::stopped;
 use clankerdiff_protocol::{
     client::ClientCommand,
-    server::{LocalServerTransport, SentDocument, ServerEvent, ServerMessage},
+    server::{
+        LocalServerMessageTransport, LocalServerTransport, SentDocument, ServerEvent, ServerMessage,
+    },
     shared::{LocalEnd, RemoteError},
 };
 use std::future::Future;
@@ -28,6 +30,20 @@ impl Transport for LocalServerTransport {
 
     async fn send(&mut self, event: ServerEvent) -> Result<(), RemoteError> {
         LocalEnd::send(self, event).await.map_err(|_| stopped())
+    }
+
+    async fn close(&mut self) {
+        LocalEnd::close(self);
+    }
+}
+
+impl ServerMessageTransport for LocalServerMessageTransport {
+    async fn recv(&mut self) -> Result<ClientCommand, RemoteError> {
+        LocalEnd::recv(self).await.map_err(|_| stopped())
+    }
+
+    async fn send(&mut self, message: ServerMessage) -> Result<(), RemoteError> {
+        LocalEnd::send(self, message).await.map_err(|_| stopped())
     }
 
     async fn close(&mut self) {

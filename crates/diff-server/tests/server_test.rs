@@ -229,7 +229,7 @@ async fn message_transports_track_edits_and_actions_through_the_wire_form()
     let fixture = TestServer::start().await?;
     let (client_end, server_end) = message_transports();
     fixture.server.accept(server_end)?;
-    let client = DiffClient::from_message_transport(client_end, ClientOptions::default()).await?;
+    let client = DiffClient::from_messages(client_end, ClientOptions::default()).await?;
     let mut state = client.subscribe();
     wait_for(&mut state, DiffScope::Both, 0).await?;
     fixture.repo.write("a", "new\n");
