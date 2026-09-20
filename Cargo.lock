@@ -2018,6 +2018,7 @@ name = "clankerdiff-ratatui"
 version = "0.3.1"
 dependencies = [
  "bitflags 2.13.2",
+ "clankerdiff-client",
  "clankerdiff-core",
  "clankerdiff-git",
  "clankerdiff-markdown",

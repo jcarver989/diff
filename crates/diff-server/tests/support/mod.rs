@@ -2,12 +2,16 @@
 
 use async_channel::{Receiver, Sender, bounded};
 use clankerdiff_client::{
-    ClientError, ClientMessageTransport, ClientOptions, ClientSubscription, DiffClient,
+    ClientError, ClientMessageTransport, ClientSubscription,
     protocol::{client::ClientCommand, server::ServerMessage},
 };
+#[cfg(feature = "websocket")]
+use clankerdiff_client::{ClientOptions, DiffClient};
 use clankerdiff_git::testing::{RepoFixture, RepoFixtureBuilder};
 use clankerdiff_protocol::shared::{RemoteError, RemoteErrorCode};
-use clankerdiff_server::{DiffServer, ServerListener, ServerMessageTransport, ServerOptions};
+#[cfg(feature = "websocket")]
+use clankerdiff_server::ServerListener;
+use clankerdiff_server::{DiffServer, ServerMessageTransport, ServerOptions};
 use std::{error::Error, time::Duration};
 
 pub const WAIT: Duration = Duration::from_secs(10);
@@ -29,12 +33,14 @@ impl TestServer {
         Ok(Self { repo, server })
     }
 
+    #[cfg(feature = "websocket")]
     pub async fn listen(&self) -> Result<(ServerListener, String), Box<dyn Error>> {
         let listener = self.server.listen("127.0.0.1:0".parse()?).await?;
         let url = format!("ws://{}/ws", listener.local_addr());
         Ok((listener, url))
     }
 
+    #[cfg(feature = "websocket")]
     pub async fn connect_ws(
         &self,
     ) -> Result<(ServerListener, DiffClient, ClientSubscription), Box<dyn Error>> {

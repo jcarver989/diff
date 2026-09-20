@@ -10,12 +10,13 @@ publish = false
 default = []
 git = ["dep:clankerdiff-git", "dep:tempfile", "dep:tokio"]
 watch = ["git", "dep:clankerdiff-watch"]
-remote = ["git", "dep:clankerdiff-client", "dep:clankerdiff-server", "clankerdiff-git/test-support"]
+embedded = ["git", "dep:clankerdiff-client", "dep:clankerdiff-server", "clankerdiff-git/test-support"]
+remote = ["embedded", "clankerdiff-client/websocket", "clankerdiff-server/websocket"]
 crossterm-backend = ["clankerdiff-ratatui/crossterm-backend"]
 
 [dependencies]
-clankerdiff-client = { path = "../../crates/diff-client", optional = true }
-clankerdiff-server = { path = "../../crates/diff-server", optional = true }
+clankerdiff-client = { path = "../../crates/diff-client", optional = true, default-features = false }
+clankerdiff-server = { path = "../../crates/diff-server", optional = true, default-features = false }
 clankerdiff-ratatui = { path = "../../crates/diff-ratatui", default-features = false }
 clankerdiff-git = { path = "../../crates/diff-git", optional = true }
 clankerdiff-watch = { path = "../../crates/diff-watch", optional = true }

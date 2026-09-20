@@ -50,12 +50,16 @@ feature-check: consumer-check
     tree="$(cargo tree -p clankerdiff-watch -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(ratatui[^ ]*|crossterm|clankerdiff-(ratatui|syntax|markdown|gpui[^ ]*)) v'; then echo "unexpected renderer dependency in watcher graph" >&2; exit 1; fi
     cargo check -p clankerdiff-ratatui --all-features --all-targets
     tree="$(cargo tree -p clankerdiff-ratatui --no-default-features --features test-support -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(crossterm|ratatui-crossterm|syntect|two-face|clankerdiff-(git|watch|gpui[^ ]*)) v'; then echo "unexpected dependency in portable ratatui graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-server --no-default-features -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(axum|tower[^ ]*|matchit|tokio-tungstenite|tungstenite) v'; then echo "unexpected WebSocket dependency in embedded server graph" >&2; exit 1; fi
+    cargo clippy -p clankerdiff-server --no-default-features --all-targets -- -D warnings
 
 consumer-check:
     cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
     cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
+    cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
     cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
     cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
+    cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
 
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -72,6 +76,7 @@ web-test:
 # Exercise the remote backend, clients, and the headless CLI build.
 remote-test:
     cargo nextest run -p clankerdiff-client -p clankerdiff-server --all-features
+    cargo nextest run -p clankerdiff-server --no-default-features
     cargo build -p clankerdiff-cli --no-default-features --bin clankerdiff
     cargo nextest run -p clankerdiff-cli --no-default-features
     cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features remote

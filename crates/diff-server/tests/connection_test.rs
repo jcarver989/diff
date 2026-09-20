@@ -1,3 +1,5 @@
+#![cfg(feature = "websocket")]
+
 mod support;
 
 use clankerdiff_client::{ClientOptions, DiffClient};
