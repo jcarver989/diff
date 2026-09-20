@@ -236,3 +236,47 @@ fn document_updates_reuse_unchanged_files() -> Result<(), Box<dyn Error>> {
     assert_eq!(LIVE_PROTOCOL_VERSION, 2);
     Ok(())
 }
+
+#[test]
+fn encoded_events_rebuild_through_the_cache() -> Result<(), Box<dyn Error>> {
+    let mut sent = SentDocument::default();
+    let mut cache = DocumentCache::default();
+    let document = DocumentBuilder::new()
+        .changed("a", "old", "new")
+        .changed("b", "old", "new")
+        .build();
+    let snapshot = |scope| {
+        Event::Document(Arc::new(DiffSnapshot {
+            scope,
+            document: document.clone(),
+        }))
+    };
+
+    let Event::Document(first) = cache.apply_event(sent.encode_event(snapshot(DiffScope::Both)))?
+    else {
+        return Err("expected document event".into());
+    };
+    assert_eq!(first.document, document);
+
+    let second = sent.encode_event(snapshot(DiffScope::Staged));
+    let Event::Document(update) = &second else {
+        return Err("expected document event".into());
+    };
+    assert!(
+        update
+            .files
+            .iter()
+            .all(|entry| matches!(entry, FileEntry::Unchanged(_)))
+    );
+    let Event::Document(second) = cache.apply_event(second)? else {
+        return Err("expected document event".into());
+    };
+    assert_eq!(second.scope, DiffScope::Staged);
+    assert_eq!(second.document, document);
+
+    assert!(matches!(
+        cache.apply_event(sent.encode_event(Event::RequestResult(Ok(()))))?,
+        Event::RequestResult(Ok(()))
+    ));
+    Ok(())
+}

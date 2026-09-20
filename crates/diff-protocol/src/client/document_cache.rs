@@ -13,7 +13,11 @@ pub struct DocumentCache {
 
 impl DocumentCache {
     pub fn decode_event(&mut self, text: &str) -> Result<ServerEvent, ProtocolError> {
-        ServerMessage::decode(text)?.try_map(|update| Ok(Arc::new(self.apply(&update)?)))
+        self.apply_event(ServerMessage::decode(text)?)
+    }
+
+    pub fn apply_event(&mut self, message: ServerMessage) -> Result<ServerEvent, ProtocolError> {
+        message.try_map(|update| Ok(Arc::new(self.apply(&update)?)))
     }
 
     pub fn apply(&mut self, update: &DocumentUpdate) -> Result<DiffSnapshot, ProtocolError> {
