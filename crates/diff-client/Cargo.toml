@@ -15,8 +15,8 @@ default = ["websocket"]
 websocket = ["dep:tokio-tungstenite", "dep:gloo-net", "dep:rand", "dep:js-sys"]
 
 [dependencies]
-clankerdiff-core = { version = "0.3.1", path = "../diff-core" }
-clankerdiff-protocol = { version = "0.3.1", path = "../diff-protocol" }
+clankerdiff-core = { version = "0.3.2", path = "../diff-core" }
+clankerdiff-protocol = { version = "0.3.2", path = "../diff-protocol" }
 async-channel.workspace = true
 futures-util = { version = "0.3.31", features = ["sink"] }
 http.workspace = true
@@ -40,4 +40,4 @@ required-features = ["websocket"]
 
 [dev-dependencies]
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "time"] }
-clankerdiff-core = { version = "0.3.1", path = "../diff-core", features = ["test-support"] }
+clankerdiff-core = { version = "0.3.2", path = "../diff-core", features = ["test-support"] }
