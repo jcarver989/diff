@@ -6,8 +6,8 @@ use crate::{
 use clankerdiff_core::{DiffScope, ReviewSubmission};
 use clankerdiff_git::{GitError, GitRepository};
 use clankerdiff_protocol::{
-    client::LocalClientTransport,
-    server::local_transport_pair,
+    client::{LocalClientMessageTransport, LocalClientTransport},
+    server::{local_message_transport_pair, local_transport_pair},
     shared::{RemoteError, RemoteErrorCode},
 };
 use clankerdiff_watch::{RepositoryHandle, RepositoryWatcher, WatchError, WatchOptions};
@@ -165,6 +165,12 @@ impl DiffServer {
     pub fn connect(&self) -> Result<LocalClientTransport, ServerError> {
         let (client, server) = local_transport_pair(4);
         self.accept_transport(server)?;
+        Ok(client)
+    }
+
+    pub fn connect_messages(&self) -> Result<LocalClientMessageTransport, ServerError> {
+        let (client, server) = local_message_transport_pair(100);
+        self.accept(server)?;
         Ok(client)
     }
 

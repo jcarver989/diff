@@ -4,7 +4,7 @@ mod transport;
 
 pub use document_cache::DocumentCache;
 pub use message::ClientCommand;
-pub use transport::LocalClientTransport;
+pub use transport::{LocalClientMessageTransport, LocalClientTransport};
 
 use clankerdiff_core::ReviewCapabilities;
 

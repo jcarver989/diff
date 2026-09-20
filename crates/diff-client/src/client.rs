@@ -95,7 +95,7 @@ impl DiffClient {
         Self::start(transport, options).await
     }
 
-    pub async fn from_message_transport(
+    pub async fn from_messages(
         transport: impl ClientMessageTransport,
         options: ClientOptions,
     ) -> Result<Self, ClientError> {
@@ -103,10 +103,7 @@ impl DiffClient {
     }
 
     #[must_use]
-    pub fn spawn_message_transport(
-        transport: impl ClientMessageTransport,
-        options: ClientOptions,
-    ) -> Self {
+    pub fn spawn(transport: impl ClientMessageTransport, options: ClientOptions) -> Self {
         Self::start_worker(Decoded::new(transport), options).0
     }
 
