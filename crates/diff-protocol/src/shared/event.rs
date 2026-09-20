@@ -3,6 +3,7 @@ use super::{
     message::{decode_json, encode_json},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::convert::Infallible;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event<T> {
@@ -19,6 +20,11 @@ pub enum Event<T> {
 }
 
 impl<T> Event<T> {
+    pub fn map<U>(self, document: impl FnOnce(T) -> U) -> Event<U> {
+        let Ok(event) = self.try_map(|value| Ok::<_, Infallible>(document(value)));
+        event
+    }
+
     pub fn try_map<U, E>(self, document: impl FnOnce(T) -> Result<U, E>) -> Result<Event<U>, E> {
         Ok(match self {
             Self::Document(value) => Event::Document(document(value)?),

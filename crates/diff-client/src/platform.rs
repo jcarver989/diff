@@ -10,12 +10,13 @@ pub fn spawn(future: impl Future<Output = ()> + 'static) {
     wasm_bindgen_futures::spawn_local(future);
 }
 
-#[cfg(feature = "websocket")]
 pub fn reconnect_delay(base_ms: u64) -> Duration {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "websocket", not(target_arch = "wasm32")))]
     let fraction = rand::random::<f64>();
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(feature = "websocket", target_arch = "wasm32"))]
     let fraction = js_sys::Math::random();
+    #[cfg(not(feature = "websocket"))]
+    let fraction = 1.0;
     Duration::from_millis(base_ms).mul_f64(0.8 + 0.2 * fraction)
 }
 

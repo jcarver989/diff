@@ -2,10 +2,11 @@ use crate::{
     ClientError, ConnectionHeader,
     error::transport,
     protocol::{
-        client::{ClientCommand, DocumentCache},
-        server::ServerEvent,
+        client::ClientCommand,
+        server::ServerMessage,
         shared::{MAX_MESSAGE_BYTES, ProtocolError},
     },
+    transport::ClientMessageTransport,
 };
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
@@ -22,7 +23,6 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 pub struct WebSocketTransport {
     socket: Socket,
-    cache: DocumentCache,
 }
 
 impl WebSocketTransport {
@@ -46,13 +46,12 @@ impl WebSocketTransport {
         .map_err(transport)?
         .map_err(transport)?;
 
-        Ok(Self {
-            socket,
-            cache: DocumentCache::default(),
-        })
+        Ok(Self { socket })
     }
+}
 
-    pub async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
+impl ClientMessageTransport for WebSocketTransport {
+    async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
         let message = Message::text(command.encode()?);
         timeout(WRITE_TIMEOUT, self.socket.send(message))
             .await
@@ -61,7 +60,7 @@ impl WebSocketTransport {
         Ok(())
     }
 
-    pub async fn recv(&mut self) -> Result<ServerEvent, ClientError> {
+    async fn recv(&mut self) -> Result<ServerMessage, ClientError> {
         loop {
             let message = self
                 .socket
@@ -73,17 +72,13 @@ impl WebSocketTransport {
             match message {
                 Message::Close(_) => return Err(ClientError::Disconnected),
                 Message::Ping(_) | Message::Pong(_) => {}
-                Message::Text(text) => {
-                    return Ok(self.cache.decode_event(&text)?);
-                }
-                _ => {
-                    return Err(ProtocolError::MessageType.into());
-                }
+                Message::Text(text) => return Ok(ServerMessage::decode(&text)?),
+                _ => return Err(ProtocolError::MessageType.into()),
             }
         }
     }
 
-    pub async fn close(mut self) {
+    async fn close(&mut self) {
         let _ = timeout(WRITE_TIMEOUT, self.socket.close(None)).await;
     }
 }

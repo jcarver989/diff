@@ -1,56 +1,146 @@
 use crate::{
-    ClientError, ConnectionHeader,
+    ClientError,
     protocol::{
-        client::{ClientCommand, LocalClientTransport},
-        server::ServerEvent,
+        client::{ClientCommand, DocumentCache, LocalClientTransport},
+        server::{ServerEvent, ServerMessage},
+        shared::LocalEnd,
     },
 };
+use std::future::Future;
+
+#[cfg(feature = "websocket")]
+use crate::ConnectionHeader;
 
 #[cfg(feature = "websocket")]
 #[cfg_attr(not(target_arch = "wasm32"), path = "transport/native.rs")]
 #[cfg_attr(target_arch = "wasm32", path = "transport/web.rs")]
 mod ws;
 
-pub(crate) enum ClientTransport {
-    Local(LocalClientTransport),
-    #[cfg(feature = "websocket")]
-    WebSocket(Box<ws::WebSocketTransport>),
+#[cfg(not(target_arch = "wasm32"))]
+pub trait MaybeSend: Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send> MaybeSend for T {}
+#[cfg(target_arch = "wasm32")]
+pub trait MaybeSend {}
+#[cfg(target_arch = "wasm32")]
+impl<T> MaybeSend for T {}
+
+pub trait ClientMessageTransport: MaybeSend + 'static {
+    fn send(
+        &mut self,
+        command: ClientCommand,
+    ) -> impl Future<Output = Result<(), ClientError>> + MaybeSend;
+    fn recv(&mut self) -> impl Future<Output = Result<ServerMessage, ClientError>> + MaybeSend;
+    fn close(&mut self) -> impl Future<Output = ()> + MaybeSend;
 }
 
-impl ClientTransport {
-    pub async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
-        match self {
-            Self::Local(transport) => transport
-                .send(command)
-                .await
-                .map_err(|_| ClientError::Disconnected),
-            #[cfg(feature = "websocket")]
-            Self::WebSocket(transport) => transport.send(command).await,
-        }
+pub(crate) trait Transport: MaybeSend + 'static {
+    fn send(
+        &mut self,
+        command: ClientCommand,
+    ) -> impl Future<Output = Result<(), ClientError>> + MaybeSend;
+    fn recv(&mut self) -> impl Future<Output = Result<ServerEvent, ClientError>> + MaybeSend;
+    fn close(&mut self) -> impl Future<Output = ()> + MaybeSend;
+
+    fn reconnects(&self) -> bool {
+        false
     }
 
-    pub async fn recv(&mut self) -> Result<ServerEvent, ClientError> {
-        match self {
-            Self::Local(transport) => transport
-                .recv()
-                .await
-                .map_err(|_| ClientError::Disconnected),
-            #[cfg(feature = "websocket")]
-            Self::WebSocket(transport) => transport.recv().await,
-        }
+    fn reconnect(&mut self) -> impl Future<Output = Result<(), ClientError>> + MaybeSend {
+        async { Err(ClientError::Disconnected) }
+    }
+}
+
+impl Transport for LocalClientTransport {
+    async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
+        LocalEnd::send(self, command)
+            .await
+            .map_err(|_| ClientError::Disconnected)
     }
 
-    pub async fn close(self) {
-        match self {
-            Self::Local(transport) => transport.close(),
-            #[cfg(feature = "websocket")]
-            Self::WebSocket(transport) => transport.close().await,
-        }
+    async fn recv(&mut self) -> Result<ServerEvent, ClientError> {
+        LocalEnd::recv(self)
+            .await
+            .map_err(|_| ClientError::Disconnected)
     }
 
-    #[cfg(feature = "websocket")]
-    pub async fn try_connect(url: &str, headers: &[ConnectionHeader]) -> Result<Self, ClientError> {
-        let transport = ws::WebSocketTransport::try_connect(url, headers).await?;
-        Ok(Self::WebSocket(Box::new(transport)))
+    async fn close(&mut self) {
+        LocalEnd::close(self);
+    }
+}
+
+pub(crate) struct Decoded<T> {
+    transport: T,
+    cache: DocumentCache,
+}
+
+impl<T> Decoded<T> {
+    pub(crate) fn new(transport: T) -> Self {
+        Self {
+            transport,
+            cache: DocumentCache::default(),
+        }
+    }
+}
+
+impl<T: ClientMessageTransport> Transport for Decoded<T> {
+    async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
+        self.transport.send(command).await
+    }
+
+    async fn recv(&mut self) -> Result<ServerEvent, ClientError> {
+        let message = self.transport.recv().await?;
+        Ok(self.cache.apply_event(message)?)
+    }
+
+    async fn close(&mut self) {
+        self.transport.close().await;
+    }
+}
+
+#[cfg(feature = "websocket")]
+pub(crate) struct Reconnecting {
+    url: String,
+    headers: Vec<ConnectionHeader>,
+    socket: Decoded<ws::WebSocketTransport>,
+}
+
+#[cfg(feature = "websocket")]
+impl Reconnecting {
+    pub(crate) async fn connect(
+        url: &str,
+        headers: Vec<ConnectionHeader>,
+    ) -> Result<Self, ClientError> {
+        let socket = ws::WebSocketTransport::try_connect(url, &headers).await?;
+        Ok(Self {
+            url: url.to_owned(),
+            headers,
+            socket: Decoded::new(socket),
+        })
+    }
+}
+
+#[cfg(feature = "websocket")]
+impl Transport for Reconnecting {
+    async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
+        self.socket.send(command).await
+    }
+
+    async fn recv(&mut self) -> Result<ServerEvent, ClientError> {
+        self.socket.recv().await
+    }
+
+    async fn close(&mut self) {
+        self.socket.close().await;
+    }
+
+    fn reconnects(&self) -> bool {
+        true
+    }
+
+    async fn reconnect(&mut self) -> Result<(), ClientError> {
+        let socket = ws::WebSocketTransport::try_connect(&self.url, &self.headers).await?;
+        self.socket = Decoded::new(socket);
+        Ok(())
     }
 }

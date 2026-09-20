@@ -1,7 +1,7 @@
 use crate::{
     ServerError,
-    connection::ServerTransport,
     server::{Handle, protocol, stopped},
+    transport::{Encoded, ServerMessageTransport},
 };
 use axum::{
     Router,
@@ -14,7 +14,7 @@ use axum::{
 };
 use clankerdiff_protocol::{
     client::ClientCommand,
-    server::{SentDocument, ServerEvent, ServerMessage},
+    server::ServerMessage,
     shared::{MAX_MESSAGE_BYTES, ProtocolError, RemoteError},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -85,7 +85,7 @@ async fn upgrade(State(accepting): State<Accepting>, ws: WebSocketUpgrade) -> Re
         .max_frame_size(MAX_MESSAGE_BYTES)
         .on_upgrade(move |socket| async move {
             accepting.handle.accept(
-                ServerTransport::WebSocket(Box::new(WebSocketTransport::new(socket))),
+                Encoded::new(WebSocketTransport::new(socket)),
                 accepting.stop,
             );
         })
@@ -93,18 +93,16 @@ async fn upgrade(State(accepting): State<Accepting>, ws: WebSocketUpgrade) -> Re
 
 pub(crate) struct WebSocketTransport {
     socket: WebSocket,
-    sent: SentDocument,
 }
 
 impl WebSocketTransport {
     pub fn new(socket: WebSocket) -> Self {
-        Self {
-            socket,
-            sent: SentDocument::default(),
-        }
+        Self { socket }
     }
+}
 
-    pub async fn recv(&mut self) -> Result<ClientCommand, RemoteError> {
+impl ServerMessageTransport for WebSocketTransport {
+    async fn recv(&mut self) -> Result<ClientCommand, RemoteError> {
         loop {
             let message = self.socket.next().await.ok_or_else(stopped)?;
             let message = message.map_err(protocol)?;
@@ -117,16 +115,14 @@ impl WebSocketTransport {
         }
     }
 
-    pub async fn send(&mut self, event: ServerEvent) -> Result<(), RemoteError> {
-        let message =
-            event.try_map(|snapshot| Ok::<_, ProtocolError>(self.sent.encode(&snapshot)))?;
+    async fn send(&mut self, message: ServerMessage) -> Result<(), RemoteError> {
         self.socket
-            .send(Message::text(ServerMessage::encode(&message)?))
+            .send(Message::text(message.encode()?))
             .await
             .map_err(protocol)
     }
 
-    pub async fn close(&mut self) {
+    async fn close(&mut self) {
         let _ = self.socket.close().await;
     }
 }

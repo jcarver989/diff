@@ -1,8 +1,13 @@
 #![allow(dead_code)]
 
-use clankerdiff_client::{ClientOptions, ClientSubscription, DiffClient};
+use async_channel::{Receiver, Sender, bounded};
+use clankerdiff_client::{
+    ClientError, ClientMessageTransport, ClientOptions, ClientSubscription, DiffClient,
+    protocol::{client::ClientCommand, server::ServerMessage},
+};
 use clankerdiff_git::testing::{RepoFixture, RepoFixtureBuilder};
-use clankerdiff_server::{DiffServer, ServerListener, ServerOptions};
+use clankerdiff_protocol::shared::{RemoteError, RemoteErrorCode};
+use clankerdiff_server::{DiffServer, ServerListener, ServerMessageTransport, ServerOptions};
 use std::{error::Error, time::Duration};
 
 pub const WAIT: Duration = Duration::from_secs(10);
@@ -64,4 +69,64 @@ pub async fn wait_for_text(
         })
         .await?;
     Ok(())
+}
+
+pub struct Channel<Out, In> {
+    tx: Sender<Out>,
+    rx: Receiver<In>,
+}
+
+impl ClientMessageTransport for Channel<ClientCommand, ServerMessage> {
+    async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
+        self.tx
+            .send(command)
+            .await
+            .map_err(|_| ClientError::Disconnected)
+    }
+
+    async fn recv(&mut self) -> Result<ServerMessage, ClientError> {
+        self.rx.recv().await.map_err(|_| ClientError::Disconnected)
+    }
+
+    async fn close(&mut self) {
+        self.tx.close();
+        self.rx.close();
+    }
+}
+
+impl ServerMessageTransport for Channel<ServerMessage, ClientCommand> {
+    async fn recv(&mut self) -> Result<ClientCommand, RemoteError> {
+        self.rx.recv().await.map_err(|_| closed())
+    }
+
+    async fn send(&mut self, message: ServerMessage) -> Result<(), RemoteError> {
+        self.tx.send(message).await.map_err(|_| closed())
+    }
+
+    async fn close(&mut self) {
+        self.tx.close();
+        self.rx.close();
+    }
+}
+
+pub fn message_transports() -> (
+    Channel<ClientCommand, ServerMessage>,
+    Channel<ServerMessage, ClientCommand>,
+) {
+    let (commands_tx, commands_rx) = bounded(4);
+    let (messages_tx, messages_rx) = bounded(4);
+    (
+        Channel {
+            tx: commands_tx,
+            rx: messages_rx,
+        },
+        Channel {
+            tx: messages_tx,
+            rx: commands_rx,
+        },
+    )
+}
+
+fn closed() -> RemoteError {
+    RemoteError::new(RemoteErrorCode::Cancelled, "channel closed")
 }

@@ -12,3 +12,4 @@ pub use error::ClientError;
 pub use header::{ConnectionHeader, ConnectionHeaderError};
 pub use protocol::shared::{DiffSnapshot, RemoteError, RemoteErrorCode};
 pub use state::{ClientOptions, ClientState, ConnectionState, ReconnectPolicy};
+pub use transport::{ClientMessageTransport, MaybeSend};

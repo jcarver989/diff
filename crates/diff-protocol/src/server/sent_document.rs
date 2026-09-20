@@ -1,4 +1,7 @@
-use crate::shared::{DiffSnapshot, DocumentUpdate, FileEntry};
+use crate::{
+    server::{ServerEvent, ServerMessage},
+    shared::{DiffSnapshot, DocumentUpdate, FileEntry},
+};
 use clankerdiff_core::{FileDiff, RepoPath};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -8,6 +11,10 @@ pub struct SentDocument {
 }
 
 impl SentDocument {
+    pub fn encode_event(&mut self, event: ServerEvent) -> ServerMessage {
+        event.map(|snapshot| self.encode(&snapshot))
+    }
+
     pub fn encode(&mut self, snapshot: &DiffSnapshot) -> DocumentUpdate {
         let mut files = Vec::with_capacity(snapshot.document.files.len());
         let mut sent = BTreeMap::new();

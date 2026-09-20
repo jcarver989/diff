@@ -1,17 +1,14 @@
 use crate::{
     ClientError, ConnectionHeader,
     error::transport,
-    protocol::{
-        client::{ClientCommand, DocumentCache},
-        server::ServerEvent,
-        shared::ProtocolError,
-    },
+    protocol::{client::ClientCommand, server::ServerMessage, shared::ProtocolError},
+    transport::ClientMessageTransport,
 };
 use futures_util::{SinkExt, StreamExt};
 use gloo_net::websocket::{Message, futures::WebSocket};
+
 pub struct WebSocketTransport {
-    socket: WebSocket,
-    cache: DocumentCache,
+    socket: Option<WebSocket>,
 }
 
 impl WebSocketTransport {
@@ -27,21 +24,24 @@ impl WebSocketTransport {
             ))
         })?;
         Ok(Self {
-            socket,
-            cache: DocumentCache::default(),
+            socket: Some(socket),
         })
     }
 
-    pub async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
-        self.socket
-            .send(Message::Text(command.encode()?))
-            .await
-            .map_err(transport)
+    fn socket(&mut self) -> Result<&mut WebSocket, ClientError> {
+        self.socket.as_mut().ok_or(ClientError::Disconnected)
+    }
+}
+
+impl ClientMessageTransport for WebSocketTransport {
+    async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
+        let message = Message::Text(command.encode()?);
+        self.socket()?.send(message).await.map_err(transport)
     }
 
-    pub async fn recv(&mut self) -> Result<ServerEvent, ClientError> {
+    async fn recv(&mut self) -> Result<ServerMessage, ClientError> {
         let message = self
-            .socket
+            .socket()?
             .next()
             .await
             .ok_or(ClientError::Disconnected)?
@@ -49,10 +49,12 @@ impl WebSocketTransport {
         let Message::Text(text) = message else {
             return Err(ProtocolError::MessageType.into());
         };
-        Ok(self.cache.decode_event(&text)?)
+        Ok(ServerMessage::decode(&text)?)
     }
 
-    pub async fn close(self) {
-        let _ = self.socket.close(None, None);
+    async fn close(&mut self) {
+        if let Some(socket) = self.socket.take() {
+            let _ = socket.close(None, None);
+        }
     }
 }
