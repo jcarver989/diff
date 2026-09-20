@@ -1,13 +1,15 @@
 use crate::{
-    ClientError, ClientOptions, ClientState, ConnectionHeader, ConnectionState, DiffReviewEvent,
-    DiffScope, DiffSnapshot, ReconnectPolicy, RemoteError, RepositoryAction, platform,
+    ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, DiffScope,
+    DiffSnapshot, ReconnectPolicy, RemoteError, RepositoryAction, platform,
     protocol::{
         client::{ClientCommand, LocalClientTransport, capabilities},
         server::ServerEvent,
         shared::{Event, LIVE_PROTOCOL_VERSION, RemoteErrorCode},
     },
-    transport::ClientTransport,
+    transport::{ClientMessageTransport, Decoded, Transport},
 };
+#[cfg(feature = "websocket")]
+use crate::{ConnectionHeader, transport::Reconnecting};
 use async_channel::{Receiver, Sender, unbounded};
 use futures_util::FutureExt;
 use std::{sync::Arc, time::Duration};
@@ -16,6 +18,7 @@ use tokio::sync::{oneshot, watch};
 const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 
 type Reply = oneshot::Sender<Result<(), ClientError>>;
+type Ready = oneshot::Receiver<Result<(), ClientError>>;
 
 #[derive(Clone)]
 pub struct DiffClient {
@@ -81,30 +84,39 @@ impl DiffClient {
         options: ClientOptions,
         headers: Vec<ConnectionHeader>,
     ) -> Result<Self, ClientError> {
-        let transport = ClientTransport::try_connect(url, &headers).await?;
-        Self::start(
-            transport,
-            options,
-            Some(ConnectionTarget {
-                url: url.to_owned(),
-                headers,
-            }),
-        )
-        .await
+        let transport = Reconnecting::connect(url, headers).await?;
+        Self::start(transport, options).await
     }
 
     pub async fn from_transport(
         transport: LocalClientTransport,
         options: ClientOptions,
     ) -> Result<Self, ClientError> {
-        Self::start(ClientTransport::Local(transport), options, None).await
+        Self::start(transport, options).await
     }
 
-    async fn start(
-        transport: ClientTransport,
+    pub async fn from_message_transport(
+        transport: impl ClientMessageTransport,
         options: ClientOptions,
-        target: Option<ConnectionTarget>,
     ) -> Result<Self, ClientError> {
+        Self::start(Decoded::new(transport), options).await
+    }
+
+    #[must_use]
+    pub fn spawn_message_transport(
+        transport: impl ClientMessageTransport,
+        options: ClientOptions,
+    ) -> Self {
+        Self::start_worker(Decoded::new(transport), options).0
+    }
+
+    async fn start(transport: impl Transport, options: ClientOptions) -> Result<Self, ClientError> {
+        let (client, ready) = Self::start_worker(transport, options);
+        ready.await.map_err(|_| ClientError::Disconnected)??;
+        Ok(client)
+    }
+
+    fn start_worker(transport: impl Transport, options: ClientOptions) -> (Self, Ready) {
         let (commands, rx) = unbounded();
         let (state_tx, state) = watch::channel(Arc::new(ClientState::default()));
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -117,11 +129,10 @@ impl DiffClient {
                 connection: ConnectionState::Connecting,
                 closed: false,
             }
-            .run(transport, target, ready_tx)
+            .run(transport, ready_tx)
             .await;
         });
-        ready_rx.await.map_err(|_| ClientError::Disconnected)??;
-        Ok(Self { commands, state })
+        (Self { commands, state }, ready_rx)
     }
 
     #[must_use]
@@ -197,11 +208,6 @@ enum Command {
     Close(Reply),
 }
 
-struct ConnectionTarget {
-    url: String,
-    headers: Vec<ConnectionHeader>,
-}
-
 enum ConnectionInput {
     Command(Option<Command>),
     Event(Result<ServerEvent, ClientError>),
@@ -241,12 +247,7 @@ impl Worker {
         }));
     }
 
-    async fn run(
-        mut self,
-        mut transport: ClientTransport,
-        target: Option<ConnectionTarget>,
-        ready: Reply,
-    ) {
+    async fn run<T: Transport>(mut self, mut transport: T, ready: Reply) {
         let mut ready = Some(ready);
         loop {
             let result = self.connection(&mut transport, &mut ready).await;
@@ -254,7 +255,7 @@ impl Worker {
             self.abandon_request();
             let retry = !self.closed
                 && ready.is_none()
-                && target.is_some()
+                && transport.reconnects()
                 && matches!(self.options.reconnect, ReconnectPolicy::Retry)
                 && !is_terminal(&result);
             if let Some(ready) = ready.take() {
@@ -268,21 +269,17 @@ impl Worker {
             }
             self.connection = ConnectionState::Connecting;
             self.publish();
-            let Some(target) = target.as_ref() else {
+            if !self.reconnect(&mut transport).await {
                 break;
-            };
-            match self.reconnect(target).await {
-                Some(next) => transport = next,
-                None => break,
             }
         }
         self.connection = ConnectionState::Failed(ClientError::Disconnected);
         self.publish();
     }
 
-    async fn connection(
+    async fn connection<T: Transport>(
         &mut self,
-        transport: &mut ClientTransport,
+        transport: &mut T,
         ready: &mut Option<Reply>,
     ) -> Result<(), ClientError> {
         self.state.initialized = false;
@@ -384,9 +381,9 @@ impl Worker {
         }
     }
 
-    async fn request(
+    async fn request<T: Transport>(
         &mut self,
-        transport: &mut ClientTransport,
+        transport: &mut T,
         request: ClientCommand,
         reply: Reply,
     ) -> Result<(), ClientError> {
@@ -421,32 +418,26 @@ impl Worker {
         }
     }
 
-    #[cfg(not(feature = "websocket"))]
-    async fn reconnect(&mut self, _target: &ConnectionTarget) -> Option<ClientTransport> {
-        None
-    }
-
-    #[cfg(feature = "websocket")]
-    async fn reconnect(&mut self, target: &ConnectionTarget) -> Option<ClientTransport> {
+    async fn reconnect<T: Transport>(&mut self, transport: &mut T) -> bool {
         let mut delay = 250;
         loop {
             let wait = delay;
             let connecting = async {
                 platform::sleep(platform::reconnect_delay(wait)).await;
-                ClientTransport::try_connect(&target.url, &target.headers).await
+                transport.reconnect().await
             }
             .fuse();
             let command = self.commands.recv().fuse();
             futures_util::pin_mut!(connecting, command);
             futures_util::select! {
                 next = connecting => match next {
-                    Ok(next) => return Some(next),
+                    Ok(()) => return true,
                     Err(_) => delay = (delay * 2).min(5000),
                 },
                 command = command => match command {
                     Ok(Command::Request(_, reply)) => { let _ = reply.send(Err(ClientError::Disconnected)); }
-                    Ok(Command::Close(reply)) => { self.closed = true; let _ = reply.send(Ok(())); return None; }
-                    Err(_) => { self.closed = true; return None; }
+                    Ok(Command::Close(reply)) => { self.closed = true; let _ = reply.send(Ok(())); return false; }
+                    Err(_) => { self.closed = true; return false; }
                 },
             }
         }

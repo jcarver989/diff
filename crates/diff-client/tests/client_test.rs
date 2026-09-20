@@ -1,13 +1,14 @@
+use async_channel::{Receiver, Sender, bounded};
 use clankerdiff_client::{
-    ClientError, ClientOptions, ConnectionState, DiffClient, DiffReviewEvent, DiffSnapshot,
-    RepositoryAction,
+    ClientError, ClientMessageTransport, ClientOptions, ConnectionState, DiffClient,
+    DiffReviewEvent, DiffSnapshot, RepositoryAction,
     protocol::{
         client::ClientCommand,
-        server::{LocalServerTransport, ServerEvent, local_transport_pair},
-        shared::{Event, LIVE_PROTOCOL_VERSION},
+        server::{LocalServerTransport, ServerEvent, ServerMessage, local_transport_pair},
+        shared::{DocumentUpdate, Event, FileEntry, LIVE_PROTOCOL_VERSION},
     },
 };
-use clankerdiff_core::{DiffScope, Review, testing::DocumentBuilder};
+use clankerdiff_core::{DiffScope, FileDiff, Review, testing::DocumentBuilder};
 use std::{error::Error, sync::Arc, time::Duration};
 use tokio::time::timeout;
 
@@ -132,6 +133,65 @@ async fn dropping_the_last_handle_stops_the_transport() -> Result<(), Box<dyn Er
     Ok(())
 }
 
+#[tokio::test]
+async fn message_transports_rebuild_documents_and_fail_on_unknown_files()
+-> Result<(), Box<dyn Error>> {
+    let (transport, commands, messages) = message_channel();
+    let client = DiffClient::spawn_message_transport(transport, ClientOptions::default());
+    assert!(matches!(
+        commands.recv().await?,
+        ClientCommand::Initialize { .. }
+    ));
+    messages
+        .send(Event::Initialize {
+            protocol_version: LIVE_PROTOCOL_VERSION,
+            repository_root: "/remote".to_owned(),
+        })
+        .await?;
+    let mut updates = client.subscribe();
+
+    let file = Arc::new(FileDiff::from_texts("a", "old", "new")?);
+    messages
+        .send(Event::Document(update(vec![FileEntry::Changed(file)])))
+        .await?;
+    let first = updates
+        .wait_until(WAIT, |state| state.snapshot.is_some())
+        .await?;
+    let installed = first.snapshot.clone().ok_or("snapshot")?;
+    assert_eq!(installed.document.files[0].path.as_str(), "a");
+
+    messages
+        .send(Event::Document(update(vec![FileEntry::Unchanged(
+            "a".try_into()?,
+        )])))
+        .await?;
+    let second = updates
+        .wait_until(WAIT, |state| {
+            state
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| !Arc::ptr_eq(snapshot, &installed))
+        })
+        .await?;
+    assert_eq!(
+        second.snapshot.as_ref().ok_or("snapshot")?.document,
+        installed.document
+    );
+
+    messages
+        .send(Event::Document(update(vec![FileEntry::Unchanged(
+            "never-sent".try_into()?,
+        )])))
+        .await?;
+    updates
+        .wait_until(WAIT, |state| {
+            matches!(state.connection, ConnectionState::Failed(_))
+        })
+        .await?;
+    assert!(client.state().status().is_some());
+    Ok(())
+}
+
 fn document(scope: DiffScope) -> ServerEvent {
     Event::Document(Arc::new(DiffSnapshot {
         scope,
@@ -156,4 +216,49 @@ async fn connected() -> Result<(DiffClient, LocalServerTransport), Box<dyn Error
         })
         .await?;
     Ok((connecting.await??, server))
+}
+
+struct Channel<Out, In> {
+    tx: Sender<Out>,
+    rx: Receiver<In>,
+}
+
+impl ClientMessageTransport for Channel<ClientCommand, ServerMessage> {
+    async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
+        self.tx
+            .send(command)
+            .await
+            .map_err(|_| ClientError::Disconnected)
+    }
+
+    async fn recv(&mut self) -> Result<ServerMessage, ClientError> {
+        self.rx.recv().await.map_err(|_| ClientError::Disconnected)
+    }
+
+    async fn close(&mut self) {
+        self.tx.close();
+        self.rx.close();
+    }
+}
+
+fn message_channel() -> (
+    Channel<ClientCommand, ServerMessage>,
+    Receiver<ClientCommand>,
+    Sender<ServerMessage>,
+) {
+    let (commands_tx, commands_rx) = bounded(4);
+    let (messages_tx, messages_rx) = bounded(4);
+    let transport = Channel {
+        tx: commands_tx,
+        rx: messages_rx,
+    };
+    (transport, commands_rx, messages_tx)
+}
+
+fn update(files: Vec<FileEntry>) -> DocumentUpdate {
+    DocumentUpdate {
+        scope: DiffScope::Both,
+        repo_root: "/remote".to_owned(),
+        files,
+    }
 }
