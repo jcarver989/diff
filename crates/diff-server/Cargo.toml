@@ -15,10 +15,10 @@ default = ["websocket"]
 websocket = ["dep:axum", "dep:futures-util"]
 
 [dependencies]
-clankerdiff-core = { version = "0.3.1", path = "../diff-core" }
-clankerdiff-protocol = { version = "0.3.1", path = "../diff-protocol" }
-clankerdiff-git = { version = "0.3.1", path = "../diff-git" }
-clankerdiff-watch = { version = "0.3.1", path = "../diff-watch" }
+clankerdiff-core = { version = "0.3.2", path = "../diff-core" }
+clankerdiff-protocol = { version = "0.3.2", path = "../diff-protocol" }
+clankerdiff-git = { version = "0.3.2", path = "../diff-git" }
+clankerdiff-watch = { version = "0.3.2", path = "../diff-watch" }
 axum = { version = "0.8", features = ["ws"], optional = true }
 futures-util = { version = "0.3.31", features = ["sink"], optional = true }
 thiserror.workspace = true
