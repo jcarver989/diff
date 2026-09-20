@@ -192,6 +192,52 @@ async fn message_transports_rebuild_documents_and_fail_on_unknown_files()
     Ok(())
 }
 
+#[tokio::test]
+async fn a_document_before_initialization_fails_the_connection() -> Result<(), Box<dyn Error>> {
+    let (transport, _commands, messages) = message_channel();
+    let client = DiffClient::spawn(transport, ClientOptions::default());
+    let mut updates = client.subscribe();
+    let file = Arc::new(FileDiff::from_texts("a", "old", "new")?);
+    messages
+        .send(Event::Document(update(vec![FileEntry::Changed(file)])))
+        .await?;
+
+    let state = updates
+        .wait_until(WAIT, |state| {
+            matches!(state.connection, ConnectionState::Failed(_))
+        })
+        .await?;
+    assert!(matches!(
+        state.connection,
+        ConnectionState::Failed(ClientError::Protocol(_))
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unsupported_protocol_version_fails_the_connection() -> Result<(), Box<dyn Error>> {
+    let (transport, _commands, messages) = message_channel();
+    let client = DiffClient::spawn(transport, ClientOptions::default());
+    let mut updates = client.subscribe();
+    messages
+        .send(Event::Initialize {
+            protocol_version: LIVE_PROTOCOL_VERSION + 1,
+            repository_root: "/remote".to_owned(),
+        })
+        .await?;
+
+    let state = updates
+        .wait_until(WAIT, |state| {
+            matches!(state.connection, ConnectionState::Failed(_))
+        })
+        .await?;
+    assert!(matches!(
+        state.connection,
+        ConnectionState::Failed(ClientError::Remote(_))
+    ));
+    Ok(())
+}
+
 fn document(scope: DiffScope) -> ServerEvent {
     Event::Document(Arc::new(DiffSnapshot {
         scope,

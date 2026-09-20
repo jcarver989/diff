@@ -1,4 +1,7 @@
-use crate::{ClientError, DiffScope, DiffSnapshot, RemoteError, ReviewCapabilities};
+use crate::{
+    ClientError, DiffScope, DiffSnapshot, RemoteError, ReviewCapabilities,
+    protocol::{client::capabilities, server::ServerEvent, shared::Event},
+};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -23,7 +26,7 @@ impl From<DiffScope> for ClientOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionState {
     Connecting,
     Connected,
@@ -39,6 +42,48 @@ pub struct ClientState {
 }
 
 impl ClientState {
+    #[must_use]
+    pub fn apply(self, event: &ServerEvent) -> Self {
+        match event {
+            Event::Initialize { .. } => Self {
+                error: None,
+                ..self
+            }
+            .with_capabilities(),
+            Event::Document(snapshot) => Self {
+                snapshot: Some(snapshot.clone()),
+                connection: ConnectionState::Connected,
+                ..self
+            }
+            .with_capabilities(),
+            Event::Health { error } => Self {
+                error: error.clone(),
+                ..self
+            },
+            Event::Error(error) => Self {
+                connection: ConnectionState::Failed(ClientError::Remote(error.clone())),
+                ..self
+            }
+            .with_capabilities(),
+            Event::RequestResult(_) => self,
+        }
+    }
+
+    pub(crate) fn set_connection(&mut self, connection: ConnectionState) {
+        self.connection = connection;
+        self.refresh_capabilities();
+    }
+
+    fn with_capabilities(mut self) -> Self {
+        self.refresh_capabilities();
+        self
+    }
+
+    fn refresh_capabilities(&mut self) {
+        let connected = matches!(self.connection, ConnectionState::Connected);
+        self.capabilities = capabilities(connected, self.snapshot.is_some());
+    }
+
     #[must_use]
     pub fn snapshot_if_changed(
         &self,
@@ -83,8 +128,21 @@ impl Default for ClientState {
         Self {
             snapshot: None,
             connection: ConnectionState::Connecting,
-            capabilities: crate::protocol::client::capabilities(false, false),
+            capabilities: capabilities(false, false),
             error: None,
         }
+    }
+}
+
+impl PartialEq for ClientState {
+    fn eq(&self, other: &Self) -> bool {
+        self.connection == other.connection
+            && self.capabilities == other.capabilities
+            && self.error == other.error
+            && match (&self.snapshot, &other.snapshot) {
+                (Some(snapshot), Some(other)) => Arc::ptr_eq(snapshot, other),
+                (None, None) => true,
+                _ => false,
+            }
     }
 }
