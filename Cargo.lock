@@ -2028,6 +2028,7 @@ dependencies = [
 name = "clankerdiff-server"
 version = "0.3.0"
 dependencies = [
+ "async-channel",
  "axum",
  "clankerdiff-client",
  "clankerdiff-core",

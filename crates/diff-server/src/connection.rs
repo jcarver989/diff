@@ -1,12 +1,12 @@
 use crate::{
     server::{Context, ReviewCompletion, protocol, stopped},
-    websocket::WebSocketTransport,
+    transport::Transport,
 };
 use clankerdiff_core::DiffScope;
 use clankerdiff_git::RepositorySnapshot;
 use clankerdiff_protocol::{
     client::ClientCommand,
-    server::{LocalServerTransport, ServerEvent},
+    server::ServerEvent,
     shared::{DiffSnapshot, Event, LIVE_PROTOCOL_VERSION, RemoteError, RemoteErrorCode},
 };
 use clankerdiff_watch::RepositoryState;
@@ -29,37 +29,9 @@ struct CommandResult {
     completion: Option<ReviewCompletion>,
 }
 
-pub(crate) enum ServerTransport {
-    Local(LocalServerTransport),
-    WebSocket(Box<WebSocketTransport>),
-}
-
-impl ServerTransport {
-    async fn recv(&mut self) -> Result<ClientCommand, RemoteError> {
-        match self {
-            Self::Local(transport) => transport.recv().await.map_err(|_| stopped()),
-            Self::WebSocket(transport) => transport.recv().await,
-        }
-    }
-
-    async fn send(&mut self, event: ServerEvent) -> Result<(), RemoteError> {
-        match self {
-            Self::Local(transport) => transport.send(event).await.map_err(|_| stopped()),
-            Self::WebSocket(transport) => transport.send(event).await,
-        }
-    }
-
-    async fn close(&mut self) {
-        match self {
-            Self::Local(transport) => transport.close(),
-            Self::WebSocket(transport) => transport.close().await,
-        }
-    }
-}
-
-pub(crate) async fn accept(
+pub(crate) async fn accept<T: Transport>(
     context: Arc<Context>,
-    mut transport: ServerTransport,
+    mut transport: T,
     stop: CancellationToken,
 ) {
     let result = tokio::select! {
@@ -72,7 +44,7 @@ pub(crate) async fn accept(
     transport.close().await;
 }
 
-async fn session(context: &Context, transport: &mut ServerTransport) -> Result<(), RemoteError> {
+async fn session<T: Transport>(context: &Context, transport: &mut T) -> Result<(), RemoteError> {
     let scope = handshake(context, transport).await?;
     let state = context
         .watcher
@@ -82,9 +54,9 @@ async fn session(context: &Context, transport: &mut ServerTransport) -> Result<(
     serve(context, transport, state, scope).await
 }
 
-async fn handshake(
+async fn handshake<T: Transport>(
     context: &Context,
-    transport: &mut ServerTransport,
+    transport: &mut T,
 ) -> Result<DiffScope, RemoteError> {
     let hello = timeout(HANDSHAKE_TIMEOUT, transport.recv())
         .await
@@ -113,9 +85,9 @@ async fn handshake(
     Ok(scope)
 }
 
-async fn serve(
+async fn serve<T: Transport>(
     context: &Context,
-    transport: &mut ServerTransport,
+    transport: &mut T,
     mut state: watch::Receiver<RepositoryState>,
     mut scope: DiffScope,
 ) -> Result<(), RemoteError> {
@@ -275,7 +247,7 @@ fn complete(context: &Context, completion: ReviewCompletion) -> Command {
     })
 }
 
-async fn publish(transport: &mut ServerTransport, event: ServerEvent) -> Result<(), RemoteError> {
+async fn publish<T: Transport>(transport: &mut T, event: ServerEvent) -> Result<(), RemoteError> {
     timeout(SEND_TIMEOUT, transport.send(event))
         .await
         .map_err(|_| stopped())?

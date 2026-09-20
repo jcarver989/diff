@@ -1,5 +1,6 @@
 use crate::{
-    connection::{self, ServerTransport},
+    connection,
+    transport::{Encoded, ServerMessageTransport, Transport},
     websocket::{self, ServerListener},
 };
 use clankerdiff_core::{DiffScope, ReviewSubmission};
@@ -100,7 +101,7 @@ pub(crate) struct Handle {
 }
 
 impl Handle {
-    pub fn accept(&self, transport: ServerTransport, stop: CancellationToken) {
+    pub fn accept<T: Transport>(&self, transport: T, stop: CancellationToken) {
         let context = Arc::clone(&self.context);
         self.tasks
             .spawn(connection::accept(context, transport, stop));
@@ -163,12 +164,20 @@ impl DiffServer {
 
     pub fn connect(&self) -> Result<LocalClientTransport, ServerError> {
         let (client, server) = local_transport_pair(4);
+        self.accept_transport(server)?;
+        Ok(client)
+    }
+
+    pub fn accept(&self, transport: impl ServerMessageTransport) -> Result<(), ServerError> {
+        self.accept_transport(Encoded::new(transport))
+    }
+
+    fn accept_transport<T: Transport>(&self, transport: T) -> Result<(), ServerError> {
         if self.handle.stop.is_cancelled() {
             return Err(ServerError::Stopped);
         }
-        self.handle
-            .accept(ServerTransport::Local(server), self.handle.stop.clone());
-        Ok(client)
+        self.handle.accept(transport, self.handle.stop.clone());
+        Ok(())
     }
 
     pub async fn listen(&self, address: SocketAddr) -> Result<ServerListener, ServerError> {

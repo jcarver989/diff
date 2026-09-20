@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use support::{TestServer, WAIT, wait_for_text};
+use support::{TestServer, WAIT, message_transports, wait_for_text};
 use tokio::time::timeout;
 
 #[tokio::test]
@@ -218,6 +218,25 @@ async fn continuous_writes_publish_before_the_writer_stops() -> Result<(), Box<d
     let settled = format!("revision {revision}\n");
     fixture.repo.write("a", settled.clone());
     wait_for_text(&mut state, &settled).await?;
+    client.close().await?;
+    fixture.server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn message_transports_track_edits_and_actions_through_the_wire_form()
+-> Result<(), Box<dyn Error>> {
+    let fixture = TestServer::start().await?;
+    let (client_end, server_end) = message_transports();
+    fixture.server.accept(server_end)?;
+    let client = DiffClient::from_message_transport(client_end, ClientOptions::default()).await?;
+    let mut state = client.subscribe();
+    wait_for(&mut state, DiffScope::Both, 0).await?;
+    fixture.repo.write("a", "new\n");
+    wait_for_text(&mut state, "new\n").await?;
+    client.apply(RepositoryAction::StageAll).await?;
+    timeout(WAIT, client.set_scope(DiffScope::Staged)).await??;
+    wait_for(&mut state, DiffScope::Staged, 1).await?;
     client.close().await?;
     fixture.server.shutdown().await?;
     Ok(())
