@@ -1848,7 +1848,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clankerdiff-client",
  "clankerdiff-core",
@@ -1872,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-client"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -1891,7 +1891,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clankerdiff-fingerprint",
  "clankerdiff-theme",
@@ -1905,7 +1905,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-fingerprint"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "blake3",
  "serde",
@@ -1915,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-git"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1927,7 +1927,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
@@ -1939,7 +1939,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-desktop"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clankerdiff-client",
  "clankerdiff-core",
@@ -1959,7 +1959,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-gpui-web"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-channel",
  "clankerdiff-client",
@@ -1980,7 +1980,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-markdown"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
@@ -1992,7 +1992,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-protocol"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -2004,7 +2004,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ratatui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bitflags 2.13.2",
  "clankerdiff-core",
@@ -2026,7 +2026,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-channel",
  "axum",
@@ -2044,7 +2044,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-syntax"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "arborium-asm",
  "arborium-bash",
@@ -2120,7 +2120,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-theme"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-watch"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
