@@ -27,7 +27,7 @@ tokio-util = { version = "0.7.16", features = ["rt"] }
 
 [dev-dependencies]
 async-channel.workspace = true
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 tokio = { workspace = true, features = ["signal"] }
 clankerdiff-client = { path = "../diff-client" }
 clankerdiff-git = { path = "../diff-git", features = ["test-support"] }
