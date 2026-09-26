@@ -10,7 +10,9 @@ const changedFixture = {
   files: [],
 };
 
-test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () => {
+// The shared Vitest setup compiles the native CLI while this browser test starts
+// the WASM renderer. Allow the renderer enough time on contended CI runners.
+test("starts the GPUI canvas in a real browser", { timeout: 90_000 }, async () => {
   const frame = document.createElement("iframe");
   frame.src = "/index.html";
   frame.style.width = "1280px";
