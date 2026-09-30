@@ -6,6 +6,7 @@ mod markdown_app;
 mod menus;
 mod preferences;
 mod run_loop;
+mod runtime;
 mod window_chrome;
 
 use app::DesktopApp;
@@ -89,7 +90,7 @@ fn run_application(
     outcome_sender: Option<mpsc::Sender<Option<ReviewSubmission>>>,
 ) {
     gpui_platform::application().run(move |cx: &mut App| {
-        gpui_tokio::init(cx);
+        runtime::init(cx);
         load_default_fonts(cx).expect("failed to load the bundled fonts");
         DiffViewer::bind_keys(cx);
         DesktopApp::bind_keys(cx);

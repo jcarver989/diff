@@ -1,6 +1,7 @@
 use crate::run_loop;
 use clankerdiff_core::DiffScope;
 use gpui::{Action, App, KeyBinding, Menu, MenuItem, OsAction, actions};
+use gpui_base::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use serde::Deserialize;
 
 actions!(
@@ -62,13 +63,13 @@ pub(crate) fn build() -> Vec<Menu> {
             name: "Edit".into(),
             disabled: false,
             items: vec![
-                MenuItem::os_action("Undo", NoopEdit::undo(), OsAction::Undo),
-                MenuItem::os_action("Redo", NoopEdit::redo(), OsAction::Redo),
+                MenuItem::os_action("Undo", Undo, OsAction::Undo),
+                MenuItem::os_action("Redo", Redo, OsAction::Redo),
                 MenuItem::separator(),
-                MenuItem::os_action("Cut", NoopEdit::cut(), OsAction::Cut),
-                MenuItem::os_action("Copy", NoopEdit::copy(), OsAction::Copy),
-                MenuItem::os_action("Paste", NoopEdit::paste(), OsAction::Paste),
-                MenuItem::os_action("Select All", NoopEdit::select_all(), OsAction::SelectAll),
+                MenuItem::os_action("Cut", Cut, OsAction::Cut),
+                MenuItem::os_action("Copy", Copy, OsAction::Copy),
+                MenuItem::os_action("Paste", Paste, OsAction::Paste),
+                MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
             ],
         },
         Menu {
@@ -95,16 +96,6 @@ pub(crate) fn install(cx: &mut App) {
     register_actions(cx);
     cx.bind_keys([KeyBinding::new(QUIT_KEYSTROKE, Quit, None)]);
     cx.set_menus(build());
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
-enum EditKind {
-    Undo,
-    Redo,
-    Cut,
-    Copy,
-    Paste,
-    SelectAll,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
@@ -146,51 +137,6 @@ impl SetScope {
             ScopeKind::Unstaged => DiffScope::Unstaged,
             ScopeKind::Staged => DiffScope::Staged,
             ScopeKind::Both => DiffScope::Both,
-        }
-    }
-}
-
-#[derive(Clone, PartialEq, Deserialize, schemars::JsonSchema, Action)]
-#[allow(clippy::unsafe_derive_deserialize)]
-#[action(namespace = desktop_menu)]
-struct NoopEdit {
-    kind: EditKind,
-}
-
-impl NoopEdit {
-    fn undo() -> Self {
-        Self {
-            kind: EditKind::Undo,
-        }
-    }
-
-    fn redo() -> Self {
-        Self {
-            kind: EditKind::Redo,
-        }
-    }
-
-    fn cut() -> Self {
-        Self {
-            kind: EditKind::Cut,
-        }
-    }
-
-    fn copy() -> Self {
-        Self {
-            kind: EditKind::Copy,
-        }
-    }
-
-    fn paste() -> Self {
-        Self {
-            kind: EditKind::Paste,
-        }
-    }
-
-    fn select_all() -> Self {
-        Self {
-            kind: EditKind::SelectAll,
         }
     }
 }

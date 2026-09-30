@@ -22,8 +22,8 @@ clankerdiff-client = { version = "0.3.2", path = "../diff-client" }
 clankerdiff-server = { version = "0.3.2", path = "../diff-server" }
 clankerdiff-gpui = { path = "../diff-gpui" }
 gpui.workspace = true
+gpui-base.workspace = true
 gpui_platform.workspace = true
-gpui_tokio.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
