@@ -1,6 +1,10 @@
 # ClankerDiff
 
-Clankerdiff is a beautiful diff-viewer that lets you send PR-style comments to your coding agent. What makes it special?: 
+Clankerdiff is a beautiful diff-viewer that lets you send PR-style comments to your coding agent.
+
+![Clankerdiff desktop (left) and terminal UI (right), showing syntax-highlighted diffs and inline review comments.](assets/clankerdiff-desktop-tui.png)
+
+What makes it special?:
 
 - It's written in Rust (and thus blazing fast!)
 - It works across _any_ surface (Terminal, Desktop and Web). 
