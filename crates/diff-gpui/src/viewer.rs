@@ -37,6 +37,12 @@ const FONT_SIZE_STEP: f32 = 1.0;
 const DIFF_ROW_VERTICAL_SPACE: f32 = 7.0;
 const SIDEBAR_ROW_VERTICAL_SPACE: f32 = 20.0;
 
+const BROWSE_ACTIVATION: &str = "DiffViewer && mode == browse && !CommentDismissControl";
+const DIFF_ACTIVATION: &str =
+    "DiffViewer && mode == browse && pane == diff && !CommentDismissControl";
+const FILES_ACTIVATION: &str =
+    "DiffViewer && mode == browse && pane == files && !CommentDismissControl";
+
 actions!(
     diff_viewer,
     [
@@ -258,7 +264,7 @@ impl DiffViewer {
             KeyBinding::new("shift-g", LastItem, Some(BROWSE)),
             KeyBinding::new("pageup", PageUp, Some(BROWSE)),
             KeyBinding::new("pagedown", PageDown, Some(BROWSE)),
-            KeyBinding::new("tab", TogglePane, Some(BROWSE)),
+            KeyBinding::new("tab", TogglePane, Some(BROWSE_ACTIVATION)),
             KeyBinding::new("h", FocusFiles, Some(DIFF)),
             KeyBinding::new("left", SelectOldSide, Some(DIFF_SPLIT)),
             KeyBinding::new("left", FocusFiles, Some(DIFF_UNIFIED)),
@@ -267,8 +273,8 @@ impl DiffViewer {
             KeyBinding::new("left", Collapse, Some(FILES)),
             KeyBinding::new("l", ExpandOrOpen, Some(FILES)),
             KeyBinding::new("right", ExpandOrOpen, Some(FILES)),
-            KeyBinding::new("enter", ExpandOrOpen, Some(FILES)),
-            KeyBinding::new("space", ToggleStage, Some(FILES)),
+            KeyBinding::new("enter", ExpandOrOpen, Some(FILES_ACTIVATION)),
+            KeyBinding::new("space", ToggleStage, Some(FILES_ACTIVATION)),
             KeyBinding::new("a", StageAll, Some(FILES)),
             KeyBinding::new("shift-a", UnstageAll, Some(FILES)),
             KeyBinding::new("shift-c", CommitChanges, Some(BROWSE)),
@@ -297,7 +303,7 @@ impl DiffViewer {
             KeyBinding::new("o", ToggleSourceView, Some(BROWSE)),
             KeyBinding::new("shift-o", ExpandGapAll, Some(DIFF)),
             KeyBinding::new("f", ToggleFullFile, Some(DIFF)),
-            KeyBinding::new("enter", ExpandGap, Some(DIFF)),
+            KeyBinding::new("enter", ExpandGap, Some(DIFF_ACTIVATION)),
             KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
             KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
             KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
@@ -645,6 +651,23 @@ impl DiffViewer {
             cx.notify();
         }
         removed
+    }
+
+    pub(crate) fn dismiss_comment(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .session
+            .draft()
+            .is_some_and(|draft| draft.editing() == Some(id))
+        {
+            self.discard_comment(cx);
+        }
+        self.remove_comment(id, cx);
+        if let Some(editor) = &self.comment_editor {
+            editor.focus_handle(cx).focus(window, cx);
+        } else if let Some(focus) = &self.focus_handle {
+            focus.focus(window, cx);
+        }
+        cx.notify();
     }
 
     pub(crate) fn diff_row_height(&self) -> f32 {

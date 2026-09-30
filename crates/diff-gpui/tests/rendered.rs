@@ -1,7 +1,8 @@
 use clankerdiff_core::{
     DiffDocument, DiffReviewCommand, FocusPane, Layout, ViewMode, testing::DocumentBuilder,
 };
-use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
+use clankerdiff_gpui::testing::{DiffViewerHarnessBuilder, MarkdownReviewerHarnessBuilder};
+use clankerdiff_markdown::MarkdownReviewCommand;
 use gpui::{TestAppContext, px};
 use std::{error::Error, sync::Arc};
 
@@ -243,6 +244,126 @@ fn replacing_a_document_that_drops_the_anchor_closes_the_editor(cx: &mut TestApp
         harness.bounds(cx, "comment-input").is_none(),
         "a dropped draft must not leave a stale comment editor open"
     );
+}
+
+#[gpui::test]
+fn comment_card_dismissal_immediately_targets_the_clicked_comment(cx: &mut TestAppContext) {
+    for mode in [ViewMode::Unified, ViewMode::Split] {
+        DiffViewerHarnessBuilder {
+            document: DocumentBuilder::new()
+                .changed("src/lib.rs", "old\nother\n", "new\nsecond\n")
+                .build(),
+            ..Default::default()
+        }
+        .with_view_mode(mode)
+        .with_comments(["First comment", "Second comment"])
+        .run(cx, |harness, cx| {
+            let original = harness.selected_row(cx);
+            assert!(harness.dispatch_command(cx, DiffReviewCommand::MoveSelection(1))?);
+            let selected = harness.selected_row(cx);
+            assert_ne!(selected, original);
+            harness.click(cx, "dismiss-comment-0")?;
+            assert!(harness.review(cx).comment(0).is_none());
+            assert_eq!(harness.comment_bodies(cx), ["Second comment"]);
+            assert_eq!(harness.selected_row(cx), selected);
+            assert!(harness.bounds(cx, "dismiss-comment-0").is_none());
+            harness.simulate_keystrokes(cx, "u");
+            assert!(harness.review(cx).is_empty());
+            assert!(harness.bounds(cx, "dismiss-comment-1").is_none());
+            Ok(())
+        });
+    }
+}
+
+#[gpui::test]
+fn dismissing_a_queued_comment_preserves_an_active_draft(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default()
+        .with_comments(["Queued"])
+        .run(cx, |harness, cx| {
+            harness.simulate_keystrokes(cx, "c");
+            harness.simulate_input(cx, "Still writing");
+            harness.click(cx, "dismiss-comment-0")?;
+            assert!(harness.review(cx).is_empty());
+            assert_eq!(harness.draft_body(cx).as_deref(), Some("Still writing"));
+            assert!(harness.comment_focused(cx)?);
+            harness.simulate_keystrokes(cx, "escape");
+            assert!(harness.bounds(cx, "comment-input").is_none());
+            Ok(())
+        });
+}
+
+#[gpui::test]
+fn markdown_comment_cards_use_the_same_dismissal_controls(cx: &mut TestAppContext) {
+    MarkdownReviewerHarnessBuilder::default()
+        .with_comments(["First", "Second"])
+        .run(cx, |harness, cx| {
+            let target = harness
+                .read(cx, |reviewer, _| {
+                    reviewer.document().targets().get(1).map(|target| target.id)
+                })
+                .ok_or("missing other target")?;
+            assert!(harness.dispatch_command(cx, MarkdownReviewCommand::SelectTarget(target))?);
+            harness.click(cx, "dismiss-comment-0")?;
+            assert!(harness.review(cx).comment(0).is_none());
+            assert_eq!(harness.comment_bodies(cx), ["Second"]);
+            assert_eq!(harness.selected_target(cx), Some(target));
+            Ok(())
+        });
+}
+
+#[gpui::test]
+fn dismissal_controls_support_keyboard_activation_without_viewer_actions(cx: &mut TestAppContext) {
+    for key in ["enter", "space"] {
+        DiffViewerHarnessBuilder::default()
+            .with_comments(["Queued"])
+            .run(cx, |harness, cx| {
+                let selected = harness.selected_row(cx);
+                harness.focus_next(cx)?;
+                harness.press_key(cx, key)?;
+                assert!(harness.review(cx).is_empty());
+                assert_eq!(harness.selected_row(cx), selected);
+                assert!(harness.events(cx).is_empty());
+                Ok(())
+            });
+    }
+}
+
+#[gpui::test]
+fn dismissal_button_fits_a_narrow_split_pane(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default()
+        .with_window_size(700.0, 700.0)
+        .with_view_mode(ViewMode::Split)
+        .with_comments(["Queued"])
+        .run(cx, |harness, cx| {
+            harness.update(cx, |viewer, cx| viewer.set_sidebar_width(180.0, cx));
+            let card = harness
+                .bounds(cx, "review-comment-0")
+                .ok_or("missing card")?;
+            let button = harness
+                .bounds(cx, "dismiss-comment-0")
+                .ok_or("missing dismissal control")?;
+            assert!(button.origin.x >= card.origin.x);
+            assert!(button.right() <= card.right());
+            assert!(button.bottom() <= card.bottom());
+            harness.click(cx, "dismiss-comment-0")?;
+            assert!(harness.review(cx).is_empty());
+            Ok(())
+        });
+}
+
+#[gpui::test]
+fn dismissing_the_comment_being_edited_closes_its_editor(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default()
+        .with_comments(["Queued"])
+        .run(cx, |harness, cx| {
+            harness.simulate_keystrokes(cx, "e");
+            assert!(harness.bounds(cx, "comment-input").is_some());
+            harness.click(cx, "dismiss-comment-0")?;
+            assert!(harness.review(cx).is_empty());
+            assert!(harness.draft_body(cx).is_none());
+            assert!(harness.bounds(cx, "comment-input").is_none());
+            Ok(())
+        });
 }
 
 fn document_builder() -> DocumentBuilder {

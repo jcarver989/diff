@@ -9,8 +9,8 @@ pub use clankerdiff_theme::{
     SelectionState,
 };
 use gpui::{
-    AnyElement, App, ClickEvent, Div, ElementId, IntoElement, ParentElement, RenderOnce, Role,
-    SharedString, Stateful, Window, div, prelude::*, px,
+    AnyElement, App, ClickEvent, Context, Div, ElementId, IntoElement, ParentElement, Render,
+    RenderOnce, Role, SharedString, Stateful, Window, div, prelude::*, px,
 };
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -54,6 +54,9 @@ pub struct Button {
     id: ElementId,
     label: SharedString,
     aria_label: Option<SharedString>,
+    tooltip: Option<SharedString>,
+    keyboard_focusable: bool,
+    font_size: Option<f32>,
     variant: ButtonVariant,
     size: ControlSize,
     disabled: bool,
@@ -69,6 +72,9 @@ impl Button {
             id: id.into(),
             label: label.into(),
             aria_label: None,
+            tooltip: None,
+            keyboard_focusable: false,
+            font_size: None,
             variant: ButtonVariant::default(),
             size: ControlSize::default(),
             disabled: false,
@@ -93,6 +99,21 @@ impl Button {
     #[must_use]
     pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
         self.aria_label = Some(label.into());
+        self
+    }
+
+    pub(crate) fn tooltip(mut self, label: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(label.into());
+        self
+    }
+
+    pub(crate) fn font_size(mut self, font_size: f32) -> Self {
+        self.font_size = Some(font_size);
+        self
+    }
+
+    pub(crate) fn keyboard_focusable(mut self) -> Self {
+        self.keyboard_focusable = true;
         self
     }
 
@@ -143,14 +164,39 @@ impl RenderOnce for Button {
             ControlSize::Small => tokens::CONTROL_PADDING_X_SMALL,
             ControlSize::Medium => tokens::CONTROL_PADDING_X_MEDIUM,
         };
+        let selector = self.id.to_string();
         interactive(
             div()
                 .id(self.id)
+                .debug_selector(move || selector)
                 .role(Role::Button)
+                .when(self.keyboard_focusable && !self.disabled, |element| {
+                    element
+                        .focusable()
+                        .tab_stop(true)
+                        .focus_visible(move |style| {
+                            style
+                                .bg(hover
+                                    .background
+                                    .unwrap_or(self.theme.colors.surface_selected))
+                                .text_color(hover.foreground)
+                        })
+                })
+                .when_some(self.tooltip, |element, label| {
+                    let theme = self.theme;
+                    element.tooltip(move |_, cx| {
+                        cx.new(|_| ButtonTooltip {
+                            label: label.clone(),
+                            theme,
+                        })
+                        .into()
+                    })
+                })
                 .when_some(
                     self.aria_label,
                     gpui::StatefulInteractiveElement::aria_label,
                 )
+                .when_some(self.font_size, |element, size| element.text_size(px(size)))
                 .px(px(padding))
                 .py(px(tokens::CONTROL_PADDING_Y))
                 .rounded_sm(),
@@ -160,6 +206,25 @@ impl RenderOnce for Button {
             self.on_click,
         )
         .child(self.label)
+    }
+}
+
+struct ButtonTooltip {
+    label: SharedString,
+    theme: UiTheme,
+}
+
+impl Render for ButtonTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded_sm()
+            .border_1()
+            .border_color(self.theme.colors.border)
+            .bg(self.theme.colors.surface)
+            .text_color(self.theme.colors.text)
+            .child(self.label.clone())
     }
 }
 
