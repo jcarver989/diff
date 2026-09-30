@@ -1,5 +1,6 @@
+use crate::run_loop;
 use clankerdiff_core::DiffScope;
-use gpui::{Action, App, Menu, MenuItem, OsAction, actions};
+use gpui::{Action, App, KeyBinding, Menu, MenuItem, OsAction, actions};
 use serde::Deserialize;
 
 actions!(
@@ -7,8 +8,13 @@ actions!(
     [About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom]
 );
 
+#[cfg(target_os = "macos")]
+const QUIT_KEYSTROKE: &str = "cmd-q";
+#[cfg(not(target_os = "macos"))]
+const QUIT_KEYSTROKE: &str = "ctrl-q";
+
 fn quit(_: &Quit, cx: &mut App) {
-    cx.quit();
+    run_loop::stop(cx);
 }
 
 fn hide(_: &Hide, cx: &mut App) {
@@ -87,6 +93,7 @@ pub(crate) fn build() -> Vec<Menu> {
 
 pub(crate) fn install(cx: &mut App) {
     register_actions(cx);
+    cx.bind_keys([KeyBinding::new(QUIT_KEYSTROKE, Quit, None)]);
     cx.set_menus(build());
 }
 
