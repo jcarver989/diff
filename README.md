@@ -10,10 +10,11 @@ Clankerdiff is a beautiful diff-viewer that lets you send PR-style comments to y
 
 ![Clankerdiff terminal diff view with syntax highlighting and an inline review comment.](assets/clankerdiff-tui.png)
 
-What makes it special?:
+What makes ClankerDiff special?:
 
-- It's written in Rust (and thus blazing fast!)
-- It works across _any_ surface (Terminal, Desktop and Web). 
+- It's written in Rust (blazing fast!)
+- It's multi-surface (Terminal, Desktop and Web). 
+- It's local _and_ remote (e.g. view a git diff on machine A via a local client on machine B)  
 - It offers AST-powered syntax highlighting and theme support.
 - It has vim-style keyboard shortcuts and git commit support built-in
 
@@ -28,7 +29,11 @@ Prefer a manual install? Grab a binary from [Releases](https://github.com/jcarve
 
 ## How do I use it?
 
-You or your agent invoke the `clankerdiff` CLI, it blocks while you review, and when you submit your comments they get written to stdout for your agent. For example:
+1. You or your agent invoke the `clankerdiff` CLI
+2. It blocks while you review the diff
+3. Submit your comments, `clankerdiff` exits, prints your comments to stdout and your agent addresses your feedback
+
+### Manually
 
 **Desktop**
 ```bash
@@ -42,9 +47,9 @@ CLANKERDIFF_TUI_COMMAND='ghostty +new-window -e' clankerdiff review . --ui tui -
 
 Note: `CLANKERDIFF_TUI_COMMAND` changes based on your terminal of choice. In the example above, this command tells Ghostty to open clankerdiff in a new terminal window.
 
-### As a Skill 
+### Skill 
 
-If your harness supports bash interpolation within `SKILL.md` files, you can create a user invocable slash command, e.g. `/diff` that opens Clankerdiff and sends your feedback straight to your agent. For example:
+If your harness supports bash interpolation within `SKILL.md` files, you can create a user invocable skill (e.g. `/diff`) that calls `clankerdiff` and sends feedback straight to your agent. For example:
 
 ```markdown
 ---
@@ -54,7 +59,7 @@ user-invocable: true
 agent-invocable: false
 ---
 
-The user invoked a desktop review of the current workspace changes.
+The user reviewed the current workspace changes.
 
 Interpret the review result below:
 - changes_requested: address the user's submitted comments.
@@ -70,7 +75,7 @@ Review result:
 !`clankerdiff review . --ui desktop --scope both --format json`
 ```
 
-If your harness _doesn't_ support this and you're feeling like a sad, jealous panda, checkout [aether](https://aether-agent.io), which is also written in Rust and has clankerdiff built-in.
+If your harness _doesn't_ support this, you might feel like a sad panda. If you do, checkout [aether](https://aether-agent.io), which is also written in Rust and has clankerdiff built-in.
 
 ### Keyboard shortcuts
 
@@ -88,6 +93,4 @@ comments and addresses them. Press `y` to copy the feedback instead.
 | `t` | Change theme |
 | `?` | Show all shortcuts |
 
-To review without an agent, run `clankerdiff review --ui desktop` or
-`clankerdiff review --tui-placement current` from your repository.
-See `clankerdiff review --help` for all options.
+Point your clanker at `clankerdiff --help` for additional information.
