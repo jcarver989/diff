@@ -115,7 +115,7 @@ impl DesktopApp {
         let path = self.repository_path.clone();
         let scope = self.scope;
         self.state = LoadState::Loading;
-        let operation = gpui_tokio::Tokio::spawn(cx, async move {
+        let operation = crate::runtime::spawn(cx, async move {
             let server = DiffServer::open(path, ServerOptions::default())
                 .await
                 .map_err(|error| error.to_string())?;
@@ -185,7 +185,7 @@ impl DesktopApp {
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
         }
-        let operation = gpui_tokio::Tokio::spawn(cx, async move {
+        let operation = crate::runtime::spawn(cx, async move {
             client
                 .handle(event)
                 .await
