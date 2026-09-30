@@ -8,10 +8,12 @@ use crate::{DiffViewer, DiffViewerEvent, DiffViewerOptions};
 use clankerdiff_core::{DiffDocument, DiffReviewCommand, testing::DocumentBuilder};
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    Action, AnyWindowHandle, App, Bounds, Context, Entity, InputEvent, ListOffset, Pixels, Point,
-    Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, Window,
-    WindowHandle, WindowOptions, div, prelude::*,
+    Action, AnyWindowHandle, App, Bounds, Context, ElementInputHandler, Entity, Focusable,
+    InputEvent, InputHandler, ListOffset, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent,
+    TestAppContext, TouchPhase, VisualTestContext, Window, WindowHandle, WindowOptions, div,
+    prelude::*,
 };
+use gpui_base::input::TextareaState;
 use std::{error::Error, sync::Arc};
 
 struct HarnessRoot {
@@ -165,6 +167,80 @@ impl DiffViewerHarness {
     pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str) {
         cx.simulate_keystrokes(*self.window, keystrokes);
         self.draw(cx);
+    }
+
+    pub fn simulate_input(&self, cx: &mut TestAppContext, text: &str) {
+        cx.simulate_input(*self.window, text);
+        self.draw(cx);
+    }
+
+    pub fn simulate_event(
+        &self,
+        cx: &mut TestAppContext,
+        event: impl InputEvent,
+    ) -> Result<(), Box<dyn Error>> {
+        cx.update_window(*self.window, |_, window, cx| {
+            window.dispatch_event(event.to_platform_input(), cx);
+        })?;
+        self.draw(cx);
+        Ok(())
+    }
+
+    pub fn with_comment_input<T>(
+        &self,
+        cx: &mut TestAppContext,
+        update: impl FnOnce(&mut dyn InputHandler, &mut Window, &mut App) -> T,
+    ) -> Result<T, Box<dyn Error>> {
+        self.draw(cx);
+        let editor = self
+            .read(cx, |viewer, _| viewer.comment_editor.clone())
+            .ok_or("no comment editor")?;
+
+        let input = editor.read_with(cx, |editor, _| editor.input());
+        let bounds = input
+            .read_with(cx, |input, _| input.text_bounds())
+            .ok_or("comment text not painted")?;
+        let result = cx.update_window(*self.window, |_, window, cx| {
+            update(&mut ElementInputHandler::new(bounds, input), window, cx)
+        })?;
+        self.draw(cx);
+        Ok(result)
+    }
+
+    pub fn with_comment_state<T>(
+        &self,
+        cx: &mut TestAppContext,
+        update: impl FnOnce(&mut TextareaState, &mut Window, &mut Context<TextareaState>) -> T,
+    ) -> Result<T, Box<dyn Error>> {
+        let input = self
+            .read(cx, |viewer, cx| {
+                viewer
+                    .comment_editor
+                    .as_ref()
+                    .map(|editor| editor.read(cx).input())
+            })
+            .ok_or("no comment editor")?;
+        let result = cx.update_window(*self.window, |_, window, cx| {
+            input.update(cx, |input, cx| update(input, window, cx))
+        })?;
+        self.draw(cx);
+        Ok(result)
+    }
+
+    pub fn comment_focused(&self, cx: &mut TestAppContext) -> Result<bool, Box<dyn Error>> {
+        self.with_comment_state(cx, |input, window, cx| {
+            input.focus_handle(cx).is_focused(window)
+        })
+    }
+
+    #[must_use]
+    pub fn comment_text_bounds(&self, cx: &TestAppContext) -> Option<Bounds<Pixels>> {
+        self.read(cx, |viewer, cx| {
+            viewer
+                .comment_editor
+                .as_ref()
+                .and_then(|editor| editor.read(cx).input().read(cx).text_bounds())
+        })
     }
 
     /// Dispatches a synthetic scroll-wheel event, then settles the frame.

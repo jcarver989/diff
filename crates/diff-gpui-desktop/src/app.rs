@@ -1,6 +1,6 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
-use crate::{args::CliArgs, menus::SetScope, preferences, window_chrome};
+use crate::{args::CliArgs, menus::SetScope, preferences, run_loop, window_chrome};
 use clankerdiff_client::{ClientState, DiffClient, DiffSnapshot};
 use clankerdiff_core::{
     DiffReviewCommand, DiffReviewEvent, DiffScope, ReviewCapabilities, ReviewSubmission,
@@ -115,7 +115,7 @@ impl DesktopApp {
         let path = self.repository_path.clone();
         let scope = self.scope;
         self.state = LoadState::Loading;
-        let operation = gpui_tokio::Tokio::spawn(cx, async move {
+        let operation = crate::runtime::spawn(cx, async move {
             let server = DiffServer::open(path, ServerOptions::default())
                 .await
                 .map_err(|error| error.to_string())?;
@@ -185,7 +185,7 @@ impl DesktopApp {
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
         }
-        let operation = gpui_tokio::Tokio::spawn(cx, async move {
+        let operation = crate::runtime::spawn(cx, async move {
             client
                 .handle(event)
                 .await
@@ -293,11 +293,11 @@ impl DesktopApp {
                 }
                 DiffReviewEvent::SubmitReview(submission) => {
                     let _ = sender.send(Some(submission.clone()));
-                    cx.quit();
+                    run_loop::stop(cx);
                 }
                 DiffReviewEvent::Cancel => {
                     let _ = sender.send(None);
-                    cx.quit();
+                    run_loop::stop(cx);
                 }
             }
             return;
@@ -307,7 +307,7 @@ impl DesktopApp {
             HostEventEffect::None => {}
             HostEventEffect::Copy(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
             HostEventEffect::PrintSubmission(json) => println!("{json}"),
-            HostEventEffect::Quit => cx.quit(),
+            HostEventEffect::Quit => run_loop::stop(cx),
         }
     }
 

@@ -823,7 +823,7 @@ impl DiffViewer {
             .session
             .draft()
             .map_or_else(String::new, |draft| draft.body().to_owned());
-        let editor = cx.new(|cx| CommentEditor::new(body, self.theme.clone(), cx));
+        let editor = cx.new(|cx| CommentEditor::new(body, self.theme.clone(), window, cx));
         self.comment_editor_subscription = Some(cx.subscribe_in(
             &editor,
             window,
@@ -1226,6 +1226,7 @@ impl DiffViewer {
                 String::new(),
                 self.theme.clone(),
                 "Commit message…",
+                window,
                 cx,
             )
         });

@@ -5,6 +5,8 @@ pub mod args;
 mod markdown_app;
 mod menus;
 mod preferences;
+mod run_loop;
+mod runtime;
 mod window_chrome;
 
 use app::DesktopApp;
@@ -64,6 +66,7 @@ pub fn run_markdown_review(document: MarkdownDocument) -> Option<MarkdownReviewS
         load_default_fonts(cx).expect("failed to load the bundled fonts");
         MarkdownReviewer::bind_keys(cx);
         menus::install(cx);
+        run_loop::install(cx);
         let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
         cx.open_window(window_options(bounds), |_window, cx| {
             cx.new(|cx| MarkdownDesktopApp::new(std::sync::Arc::new(document), sender, cx))
@@ -87,11 +90,12 @@ fn run_application(
     outcome_sender: Option<mpsc::Sender<Option<ReviewSubmission>>>,
 ) {
     gpui_platform::application().run(move |cx: &mut App| {
-        gpui_tokio::init(cx);
+        runtime::init(cx);
         load_default_fonts(cx).expect("failed to load the bundled fonts");
         DiffViewer::bind_keys(cx);
         DesktopApp::bind_keys(cx);
         menus::install(cx);
+        run_loop::install(cx);
 
         let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
         cx.open_window(window_options(bounds), |window, cx| {
