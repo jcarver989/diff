@@ -26,7 +26,7 @@ thiserror.workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rand = { workspace = true, optional = true }
 tokio = { version = "1.47.1", default-features = false, features = ["rt", "time", "macros", "net"] }
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"], optional = true }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3", optional = true }
