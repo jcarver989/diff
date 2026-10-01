@@ -187,13 +187,11 @@ impl SvgRenderer {
     }
 
     /// Parses SVG data into a [`ParsedSvg`] that can be rasterized at any scale.
-    #[ztracing::instrument(skip_all)]
     pub fn parse_svg(&self, bytes: &[u8]) -> Result<ParsedSvg, usvg::Error> {
         usvg::Tree::from_data(bytes, &self.usvg_options).map(ParsedSvg)
     }
 
     /// Rasterizes a previously parsed SVG into an image buffer.
-    #[ztracing::instrument(skip_all)]
     pub fn render_parsed(
         &self,
         svg: &ParsedSvg,
@@ -360,7 +358,8 @@ mod tests {
     use super::*;
     use usvg::fontdb::{Database, Family, Query};
 
-    const IBM_PLEX_REGULAR: &[u8] = include_bytes!("../test-assets/IBMPlexSans-Regular.ttf");
+    const IBM_PLEX_REGULAR: &[u8] =
+        include_bytes!("../test-assets/IBMPlexSans-Regular.ttf");
     const LILEX_REGULAR: &[u8] = include_bytes!("../test-assets/Lilex-Regular.ttf");
 
     #[test]

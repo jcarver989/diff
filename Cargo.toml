@@ -20,7 +20,7 @@ exclude = ["patches/gpui"]
 resolver = "3"
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 rust-version = "1.98.0"
 license = "MIT"
@@ -38,10 +38,10 @@ blake3 = "1.8.7"
 clap = { version = "4.6.6", features = ["derive"] }
 diffy = "0.5.1"
 console_error_panic_hook = "0.1.7"
-gpui = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
-gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
-gpui_tokio = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d" }
-gpui_web = { git = "https://github.com/zed-industries/zed.git", rev = "797e5dc95c3859f7926681c91398c4d9e993865d", default-features = false }
+gpui = { package = "gpui-pre", version = "=0.3.7", default-features = false }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.7", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
+gpui_web = { package = "gpui-pre-web", version = "=0.3.7", default-features = false }
+gpui-base = "=0.7.0"
 http = "1.3.1"
 ignore = "0.4.25"
 imbl = "7.0.1"
@@ -76,6 +76,6 @@ pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = { level = "allow", priority = 0 }
 missing_panics_doc = { level = "allow", priority = 0 }
 
-[patch."https://github.com/zed-industries/zed.git"]
-gpui = { path = "patches/gpui" }
+[patch.crates-io]
+gpui-pre = { path = "patches/gpui" }
 

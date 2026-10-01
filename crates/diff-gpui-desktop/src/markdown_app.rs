@@ -1,4 +1,4 @@
-use crate::{preferences, window_chrome};
+use crate::{preferences, run_loop, window_chrome};
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_gpui::{
     DEFAULT_FONT_FAMILY, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
@@ -41,14 +41,14 @@ impl MarkdownDesktopApp {
             move |_this, _reviewer, event: &MarkdownReviewEvent, cx| match event {
                 MarkdownReviewEvent::Submit(submission) => {
                     let _ = outcome.send(Some(submission.clone()));
-                    cx.quit();
+                    run_loop::stop(cx);
                 }
                 MarkdownReviewEvent::CopyFormatted(text) => {
                     cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
                 }
                 MarkdownReviewEvent::Cancel => {
                     let _ = outcome.send(None);
-                    cx.quit();
+                    run_loop::stop(cx);
                 }
             },
         );
