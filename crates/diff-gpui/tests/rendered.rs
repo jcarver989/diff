@@ -1,9 +1,10 @@
 use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand, FocusPane, Layout, ViewMode, testing::DocumentBuilder,
+    DiffDocument, DiffReviewCommand, DiffReviewEvent, FocusPane, Layout, RepoPath,
+    RepositoryAction, StageState, ViewMode, testing::DocumentBuilder,
 };
 use clankerdiff_gpui::testing::{DiffViewerHarnessBuilder, MarkdownReviewerHarnessBuilder};
 use clankerdiff_markdown::MarkdownReviewCommand;
-use gpui::{TestAppContext, px};
+use gpui::{TestAppContext, px, size};
 use std::{error::Error, sync::Arc};
 
 #[gpui::test]
@@ -318,7 +319,9 @@ fn dismissal_controls_support_keyboard_activation_without_viewer_actions(cx: &mu
             .with_comments(["Queued"])
             .run(cx, |harness, cx| {
                 let selected = harness.selected_row(cx);
-                harness.focus_next(cx)?;
+                for _ in 0..3 {
+                    harness.focus_next(cx)?;
+                }
                 harness.press_key(cx, key)?;
                 assert!(harness.review(cx).is_empty());
                 assert_eq!(harness.selected_row(cx), selected);
@@ -364,6 +367,136 @@ fn dismissing_the_comment_being_edited_closes_its_editor(cx: &mut TestAppContext
             assert!(harness.bounds(cx, "comment-input").is_none());
             Ok(())
         });
+}
+
+#[gpui::test]
+fn sidebar_defaults_to_a_responsive_quarter_of_the_window(cx: &mut TestAppContext) {
+    for (width, expected) in [
+        (600.0, 280.0),
+        (1_000.0, 320.0),
+        (1_600.0, 400.0),
+        (2_800.0, 700.0),
+        (4_000.0, 960.0),
+    ] {
+        DiffViewerHarnessBuilder::default()
+            .with_window_size(width, 700.0)
+            .run(cx, |harness, cx| {
+                let sidebar = harness
+                    .bounds(cx, "diff-sidebar")
+                    .ok_or("missing sidebar")?;
+                assert_eq!(sidebar.size.width, px(expected));
+                assert!(
+                    (harness.read(cx, |viewer, _| viewer.sidebar_width()) - expected).abs()
+                        < f32::EPSILON
+                );
+                harness.update(cx, |viewer, cx| viewer.set_sidebar_width(240.0, cx));
+                harness.draw(cx);
+                assert_eq!(
+                    harness
+                        .bounds(cx, "diff-sidebar")
+                        .ok_or("missing sidebar")?
+                        .size
+                        .width,
+                    px(240.0)
+                );
+                Ok(())
+            });
+    }
+}
+
+#[gpui::test]
+fn sidebar_tracks_window_resizes_until_manually_sized(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default()
+        .with_window_size(1_600.0, 700.0)
+        .run(cx, |harness, cx| {
+            cx.simulate_window_resize(harness.window(), size(px(2_000.0), px(700.0)));
+            harness.draw(cx);
+            assert!(
+                (harness.read(cx, |viewer, _| viewer.sidebar_width()) - 500.0).abs() < f32::EPSILON
+            );
+            harness.update(cx, |viewer, cx| viewer.set_sidebar_width(450.0, cx));
+            for (width, expected) in [(600.0, 280.0), (2_000.0, 450.0)] {
+                cx.simulate_window_resize(harness.window(), size(px(width), px(700.0)));
+                harness.draw(cx);
+                assert!(
+                    (harness.read(cx, |viewer, _| viewer.sidebar_width()) - expected).abs()
+                        < f32::EPSILON
+                );
+            }
+            Ok(())
+        });
+}
+
+#[gpui::test]
+fn staging_checkboxes_keep_their_geometry_and_do_not_activate_rows(cx: &mut TestAppContext) {
+    for stage in [
+        StageState::Unstaged,
+        StageState::Staged,
+        StageState::PartiallyStaged,
+    ] {
+        DiffViewerHarnessBuilder {
+            document: DocumentBuilder::new()
+                .changed_staged("src/lib.rs", "old", "new", stage)
+                .changed("z.rs", "old", "new")
+                .build(),
+            ..Default::default()
+        }
+        .run(cx, |harness, cx| {
+            harness.dispatch_command(cx, DiffReviewCommand::SelectFile(1))?;
+            let file = harness
+                .bounds(cx, "diff-file-checkbox:0")
+                .ok_or("missing file checkbox")?;
+            let directory = harness
+                .bounds(cx, "diff-directory-checkbox:src")
+                .ok_or("missing directory checkbox")?;
+            assert_eq!(file.size.width, px(18.0));
+            assert_eq!(file.size.height, px(18.0));
+            assert_eq!(file.size, directory.size);
+            harness.click(cx, "diff-file-checkbox:0")?;
+            assert_eq!(
+                harness.read(cx, |viewer, _| viewer.selected_file()),
+                Some(1)
+            );
+            let expected = if stage == StageState::Staged {
+                RepositoryAction::UnstagePaths(vec![RepoPath::new("src/lib.rs")?])
+            } else {
+                RepositoryAction::StagePaths(vec![RepoPath::new("src/lib.rs")?])
+            };
+            assert_eq!(
+                harness.events(cx),
+                vec![DiffReviewEvent::RepositoryAction(expected)]
+            );
+            harness.update(cx, |viewer, cx| viewer.set_repository_pending(false, cx));
+            harness.click(cx, "diff-directory-checkbox:src")?;
+            assert!(harness.bounds(cx, "diff-file-checkbox:0").is_some());
+            assert_eq!(harness.events(cx).len(), 2);
+            Ok(())
+        });
+    }
+}
+
+#[gpui::test]
+fn staging_checkboxes_support_keyboard_activation_without_viewer_shortcuts(
+    cx: &mut TestAppContext,
+) {
+    for key in ["enter", "space"] {
+        DiffViewerHarnessBuilder {
+            document: DocumentBuilder::new().changed("a.rs", "old", "new").build(),
+            ..Default::default()
+        }
+        .run(cx, |harness, cx| {
+            harness.dispatch_command(cx, DiffReviewCommand::Focus(FocusPane::Files))?;
+            harness.focus_next(cx)?;
+            harness.press_key(cx, key)?;
+            assert_eq!(
+                harness.events(cx),
+                vec![DiffReviewEvent::RepositoryAction(
+                    RepositoryAction::StagePaths(vec![RepoPath::new("a.rs")?])
+                )]
+            );
+            Ok(())
+        });
+    }
 }
 
 fn document_builder() -> DocumentBuilder {

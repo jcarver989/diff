@@ -28,7 +28,9 @@ use gpui::{
 use std::sync::Arc;
 
 const MIN_SIDEBAR_WIDTH: f32 = 180.0;
-const MAX_SIDEBAR_WIDTH: f32 = 600.0;
+const MAX_SIDEBAR_WIDTH: f32 = 960.0;
+const DEFAULT_SIDEBAR_FRACTION: f32 = 0.25;
+const DEFAULT_MIN_SIDEBAR_WIDTH: f32 = 320.0;
 const MIN_DIFF_WIDTH: f32 = 320.0;
 const SIDEBAR_DIVIDER_WIDTH: f32 = 1.0;
 const MIN_FONT_SIZE: f32 = 10.0;
@@ -37,11 +39,12 @@ const FONT_SIZE_STEP: f32 = 1.0;
 const DIFF_ROW_VERTICAL_SPACE: f32 = 7.0;
 const SIDEBAR_ROW_VERTICAL_SPACE: f32 = 20.0;
 
-const BROWSE_ACTIVATION: &str = "DiffViewer && mode == browse && !CommentDismissControl";
+const BROWSE_ACTIVATION: &str =
+    "DiffViewer && mode == browse && !CommentDismissControl && !StageCheckbox";
 const DIFF_ACTIVATION: &str =
-    "DiffViewer && mode == browse && pane == diff && !CommentDismissControl";
+    "DiffViewer && mode == browse && pane == diff && !CommentDismissControl && !StageCheckbox";
 const FILES_ACTIVATION: &str =
-    "DiffViewer && mode == browse && pane == files && !CommentDismissControl";
+    "DiffViewer && mode == browse && pane == files && !CommentDismissControl && !StageCheckbox";
 
 actions!(
     diff_viewer,
@@ -103,8 +106,8 @@ actions!(
 /// Renderer-specific sizing and virtualization settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DiffViewerOptions {
-    /// Width of the changed-files sidebar, in logical pixels.
-    pub sidebar_width: f32,
+    /// Initial sidebar width in logical pixels, or None for responsive sizing.
+    pub sidebar_width: Option<f32>,
     /// Initial viewer font size, in logical pixels.
     pub font_size: f32,
     /// Minimum height of a diff row, in logical pixels.
@@ -118,7 +121,7 @@ pub struct DiffViewerOptions {
 impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
-            sidebar_width: 280.0,
+            sidebar_width: None,
             font_size: DEFAULT_FONT_SIZE,
             row_height: 20.0,
             auto_split_width: 900.0,
@@ -158,6 +161,7 @@ pub struct DiffViewer {
     highlighter: SyntaxHighlighter,
     options: DiffViewerOptions,
     sidebar_width: f32,
+    preferred_sidebar_width: Option<f32>,
     font_size: f32,
     diff_list_state: ListState,
     diff_list_file: Option<usize>,
@@ -202,6 +206,7 @@ impl DiffViewer {
         let sidebar_tree = SidebarTree::new(&document);
         let sidebar_width = options
             .sidebar_width
+            .unwrap_or(DEFAULT_MIN_SIDEBAR_WIDTH)
             .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
         let font_size = clamp_font_size(options.font_size);
         let row_height = effective_diff_row_height(options.row_height, font_size);
@@ -219,6 +224,7 @@ impl DiffViewer {
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
             sidebar_width,
+            preferred_sidebar_width: options.sidebar_width,
             font_size,
             diff_list_state: ListState::new(0, ListAlignment::Top, px(row_height * 8.0)),
             diff_list_file: None,
@@ -695,7 +701,8 @@ impl DiffViewer {
     }
 
     pub(crate) fn reset_sidebar_width(&mut self, cx: &mut Context<Self>) {
-        self.set_sidebar_width(self.options.sidebar_width, cx);
+        self.preferred_sidebar_width = self.options.sidebar_width;
+        cx.notify();
     }
 
     fn resize_sidebar(
@@ -710,6 +717,7 @@ impl DiffViewer {
     }
 
     fn update_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
+        self.preferred_sidebar_width = Some(width);
         if (self.sidebar_width - width).abs() <= f32::EPSILON {
             return;
         }
@@ -1569,7 +1577,10 @@ impl Render for DiffViewer {
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let viewport_width = f32::from(window.viewport_size().width);
-        let sidebar_width = clamp_sidebar_width(self.sidebar_width, viewport_width);
+        let preferred_width = self.preferred_sidebar_width.unwrap_or_else(|| {
+            (viewport_width * DEFAULT_SIDEBAR_FRACTION).max(DEFAULT_MIN_SIDEBAR_WIDTH)
+        });
+        let sidebar_width = clamp_sidebar_width(preferred_width, viewport_width);
         if (self.sidebar_width - sidebar_width).abs() > f32::EPSILON {
             self.sidebar_width = sidebar_width;
             self.diff_list_state.remeasure();
@@ -1739,7 +1750,7 @@ mod tests {
     fn sidebar_width_is_clamped_to_preserve_the_diff_pane() {
         assert_close(clamp_sidebar_width(100.0, 1_000.0), 180.0);
         assert_close(clamp_sidebar_width(400.0, 1_000.0), 400.0);
-        assert_close(clamp_sidebar_width(900.0, 1_000.0), 600.0);
+        assert_close(clamp_sidebar_width(900.0, 1_000.0), 680.0);
         assert_close(clamp_sidebar_width(400.0, 600.0), 280.0);
     }
 
