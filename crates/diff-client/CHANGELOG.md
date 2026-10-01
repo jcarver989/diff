@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4](https://github.com/jcarver989/diff/compare/clankerdiff-client-v0.3.3...clankerdiff-client-v0.3.4) - 2026-10-01
+
+### Other
+
+- *(deps)* bump gloo-timers from 0.3.0 to 0.4.0 ([#69](https://github.com/jcarver989/diff/pull/69))
+- *(deps)* bump tokio-tungstenite from 0.29.0 to 0.30.0 ([#78](https://github.com/jcarver989/diff/pull/78))
+
 ## [0.3.2](https://github.com/jcarver989/diff/compare/clankerdiff-client-v0.3.1...clankerdiff-client-v0.3.2) - 2026-09-20
 
 ### Added
