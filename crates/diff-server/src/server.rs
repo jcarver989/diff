@@ -1,7 +1,8 @@
+#[cfg(feature = "websocket")]
+use crate::websocket::{self, ServerListener};
 use crate::{
     connection,
     transport::{Encoded, ServerMessageTransport, Transport},
-    websocket::{self, ServerListener},
 };
 use clankerdiff_core::{DiffScope, ReviewSubmission};
 use clankerdiff_git::{GitError, GitRepository};
@@ -11,9 +12,11 @@ use clankerdiff_protocol::{
     shared::{RemoteError, RemoteErrorCode},
 };
 use clankerdiff_watch::{RepositoryHandle, RepositoryWatcher, WatchError, WatchOptions};
+#[cfg(feature = "websocket")]
+use std::future::Future;
+#[cfg(feature = "websocket")]
+use std::net::SocketAddr;
 use std::{
-    future::Future,
-    net::SocketAddr,
     path::Path,
     sync::{
         Arc,
@@ -107,11 +110,13 @@ impl Handle {
             .spawn(connection::accept(context, transport, stop));
     }
 
+    #[cfg(feature = "websocket")]
     #[must_use]
     pub fn child_token(&self) -> CancellationToken {
         self.stop.child_token()
     }
 
+    #[cfg(feature = "websocket")]
     pub fn spawn<T>(&self, future: T) -> tokio::task::JoinHandle<T::Output>
     where
         T: Future + Send + 'static,
@@ -186,6 +191,7 @@ impl DiffServer {
         Ok(())
     }
 
+    #[cfg(feature = "websocket")]
     pub async fn listen(&self, address: SocketAddr) -> Result<ServerListener, ServerError> {
         websocket::listen(self.handle.clone(), address).await
     }

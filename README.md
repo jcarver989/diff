@@ -1,49 +1,96 @@
 # ClankerDiff
 
-ClankerDiff is a beautiful diff viewer that lets you give feedback to your coding agent as PR style comments. It's written in Rust and works in your TUI, desktop and web.
+Clankerdiff is a beautiful diff-viewer that lets you send PR-style comments to your coding agent.
 
-## Why should I use ClankerDiff?
+### Desktop
 
-- It makes it easier to review the code your agent generates, and give it targeted feedback.
-- It's written in Rust, so it's "blazing fast" (tm) and doesn't have the "JS flicker". 
-- It's retro (runs in your TUI) _and_ modern (native, gpu accelerated rendering on Desktop; WASM on web)
-- It's renders really nice looking diffs, with theme support.
+![Clankerdiff desktop diff view with syntax highlighting and an inline review comment.](assets/clankerdiff-desktop.png)
 
-## Remote repositories
+### TUI
 
-Run the backend where the checkout lives, then connect from a UI machine:
+![Clankerdiff terminal diff view with syntax highlighting and an inline review comment.](assets/clankerdiff-tui.png)
 
-```sh
-clankerdiff serve /workspace/repo --listen 0.0.0.0:7331 --format json
-clankerdiff connect ws://vm:7331/ws --ui tui --scope both
-clankerdiff connect wss://sandbox.example/ws --ui desktop
-```
+What makes ClankerDiff special?:
 
-The backend is **unauthenticated**: anyone who can reach it can read repository
-content and invoke Git actions. Use a trusted network boundary or an existing
-access-controlled TLS proxy. The default listener binds only to `127.0.0.1`.
-The server accepts the first submitted or cancelled review, writes the result to
-its stdout, and exits. Startup diagnostics are written to stderr. Local `review`
-remains in-process and does not require a listening port unless launching an
-external terminal.
+- It's written in Rust (blazing fast!)
+- It's multi-surface (Terminal, Desktop and Web). 
+- It's local _and_ remote (e.g. view a git diff on machine A via a local client on machine B)  
+- It offers AST-powered syntax highlighting and theme support.
+- It has vim-style keyboard shortcuts and git commit support built-in
 
-See [remote diff](docs/remote-development.md) for deployment, the Rust client
-API, and the live protocol. A renderer-free server/TUI build is available with
-`cargo build -p clankerdiff-cli --no-default-features --bin clankerdiff`.
+## How do I install it?
 
-## Running tests
-
-Install the pinned tools with `mise install`, or install
-[cargo-nextest](https://nexte.st/docs/installation/) 0.9.144 or newer directly:
+For **macOS (Apple Silicon)** and **Linux (x86_64 / ARM64)**:
 
 ```sh
-cargo install cargo-nextest --locked
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jcarver989/diff/releases/download/clankerdiff-cli-v0.3.2/clankerdiff-cli-installer.sh | sh
+```
+Prefer a manual install? Grab a binary from [Releases](https://github.com/jcarver989/diff/releases).
+
+## How do I use it?
+
+1. You or your agent invoke the `clankerdiff` CLI
+2. It blocks while you review the diff
+3. Submit your comments, `clankerdiff` exits, prints your comments to stdout and your agent addresses your feedback
+
+### Manually
+
+**Desktop**
+```bash
+clankerdiff review . --ui desktop --scope both --format json
 ```
 
-Run `just test` for workspace tests, `just watch-test` for watcher tests, or
-`just consumer-check` for the consumer feature combinations. These recipes use
-nextest for unit and integration tests and retain `cargo test --doc` for doctests,
-which nextest does not support. Run doctests alone with `just doctest`.
+**TUI** 
+```bash
+CLANKERDIFF_TUI_COMMAND='ghostty +new-window -e' clankerdiff review . --ui tui --tui-placement external --scope both --format json
+```
 
-`just test-ci` uses the nextest CI profile and writes a JUnit report to
-`target/nextest/ci/junit.xml`.
+Note: `CLANKERDIFF_TUI_COMMAND` changes based on your terminal of choice. In the example above, this command tells Ghostty to open clankerdiff in a new terminal window.
+
+### Skill 
+
+If your harness supports bash interpolation within `SKILL.md` files, you can create a user invocable skill (e.g. `/diff`) that calls `clankerdiff` and sends feedback straight to your agent. For example:
+
+```markdown
+---
+name: diff
+description: Review current changes in the desktop Diff UI and submit feedback
+user-invocable: true
+agent-invocable: false
+---
+
+The user reviewed the current workspace changes.
+
+Interpret the review result below:
+- changes_requested: address the user's submitted comments.
+- approved: acknowledge approval without making additional changes.
+- cancelled: do not make changes.
+- If the result is missing or invalid, report that no review result was received.
+  Do not infer approval or make changes based on missing feedback.
+
+Do not launch another review automatically.
+
+Review result:
+
+!`clankerdiff review . --ui desktop --scope both --format json`
+```
+
+If your harness _doesn't_ support this, you might feel like a sad panda. If you do, checkout [aether](https://aether-agent.io), which is also written in Rust and has clankerdiff built-in.
+
+### Keyboard shortcuts
+
+Select a file, move to a line, and press `c` to add a comment.
+When you’re done, press `s` in the diff pane to submit. The agent receives your
+comments and addresses them. Press `y` to copy the feedback instead.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` or `j` / `k` | Navigate |
+| `Tab` | Switch between files and diff |
+| `c` | Comment on the selected line |
+| `e` / `x` | Edit / delete a comment |
+| `s` / `y` | Submit / copy feedback (in the diff pane) |
+| `t` | Change theme |
+| `?` | Show all shortcuts |
+
+Point your clanker at `clankerdiff --help` for additional information.

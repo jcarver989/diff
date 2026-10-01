@@ -5,6 +5,7 @@ use crate::{
     patch_layout::{PatchContentLayout, PatchVisualLayout, PatchVisualRow},
     theme_picker::ThemePicker,
 };
+use clankerdiff_client::{ClientState, ConnectionState, DiffSnapshot};
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, Layout, RepositoryAction,
     RevealAmount, Review, ReviewCapabilities, ReviewSession, RowId, SourceLocation, StageState,
@@ -404,6 +405,27 @@ impl DiffReviewState {
             self.background_error = message;
             self.mark_dirty();
         }
+    }
+
+    pub fn apply_client_state(
+        &mut self,
+        client: &ClientState,
+        installed: &mut Option<Arc<DiffSnapshot>>,
+    ) {
+        if let Some(snapshot) = client.snapshot_if_changed(installed) {
+            self.set_scope(snapshot.scope);
+            self.set_document(Arc::clone(&snapshot.document));
+        }
+        match client.status() {
+            Some(error)
+                if client.snapshot.is_none()
+                    && matches!(client.connection, ConnectionState::Failed(_)) =>
+            {
+                self.set_error(error);
+            }
+            status => self.set_background_error(status),
+        }
+        self.set_capabilities(client.capabilities);
     }
 
     /// Whether a host command is still in flight.

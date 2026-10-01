@@ -1,14 +1,17 @@
 mod support;
 
+#[cfg(feature = "websocket")]
+use clankerdiff_client::ConnectionState;
 use clankerdiff_client::{
-    ClientError, ClientOptions, ClientSubscription, ConnectionState, DiffClient, DiffReviewEvent,
-    DiffScope, RemoteErrorCode, RepositoryAction,
+    ClientError, ClientOptions, ClientSubscription, DiffClient, DiffReviewEvent, DiffScope,
+    RemoteErrorCode, RepositoryAction,
 };
 use clankerdiff_core::Review;
 use clankerdiff_server::ReviewCompletion;
+#[cfg(feature = "websocket")]
+use std::sync::Arc;
 use std::{
     error::Error,
-    sync::Arc,
     time::{Duration, Instant},
 };
 use support::{TestServer, WAIT, message_transports, wait_for_text};
@@ -113,6 +116,7 @@ async fn only_one_concurrent_review_completion_is_accepted() -> Result<(), Box<d
     Ok(())
 }
 
+#[cfg(feature = "websocket")]
 #[tokio::test]
 async fn websocket_client_bootstraps_and_tracks_real_edits() -> Result<(), Box<dyn Error>> {
     let fixture = TestServer::start().await?;
@@ -139,6 +143,7 @@ async fn websocket_client_bootstraps_and_tracks_real_edits() -> Result<(), Box<d
     Ok(())
 }
 
+#[cfg(feature = "websocket")]
 #[tokio::test]
 async fn listener_shutdown_disconnects_and_client_reconnects() -> Result<(), Box<dyn Error>> {
     let fixture = TestServer::start().await?;
@@ -168,6 +173,7 @@ async fn listener_shutdown_disconnects_and_client_reconnects() -> Result<(), Box
     Ok(())
 }
 
+#[cfg(feature = "websocket")]
 #[tokio::test]
 async fn server_shutdown_closes_active_websocket_connections() -> Result<(), Box<dyn Error>> {
     let fixture = TestServer::start().await?;

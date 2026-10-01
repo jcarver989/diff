@@ -1,8 +1,8 @@
 use crate::{
     ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, DiffScope,
-    DiffSnapshot, ReconnectPolicy, RemoteError, RepositoryAction, platform,
+    ReconnectPolicy, RemoteError, RepositoryAction, platform,
     protocol::{
-        client::{ClientCommand, LocalClientTransport, capabilities},
+        client::{ClientCommand, LocalClientTransport},
         server::ServerEvent,
         shared::{Event, LIVE_PROTOCOL_VERSION, RemoteErrorCode},
     },
@@ -122,8 +122,9 @@ impl DiffClient {
                 commands: rx,
                 state_tx,
                 options,
-                state: WorkerState::default(),
-                connection: ConnectionState::Connecting,
+                client: ClientState::default(),
+                handshake: Handshake::default(),
+                pending: None,
                 closed: false,
             }
             .run(transport, ready_tx)
@@ -220,28 +221,50 @@ struct Worker {
     commands: Receiver<Command>,
     state_tx: watch::Sender<Arc<ClientState>>,
     options: ClientOptions,
-    state: WorkerState,
-    connection: ConnectionState,
+    client: ClientState,
+    handshake: Handshake,
+    pending: Option<Pending>,
     closed: bool,
 }
 
 #[derive(Default)]
-struct WorkerState {
-    snapshot: Option<Arc<DiffSnapshot>>,
-    error: Option<RemoteError>,
-    pending: Option<Pending>,
+struct Handshake {
     initialized: bool,
+}
+
+impl Handshake {
+    fn reset(&mut self) {
+        self.initialized = false;
+    }
+
+    fn check(&mut self, event: &ServerEvent) -> Result<(), ClientError> {
+        match event {
+            Event::Initialize {
+                protocol_version, ..
+            } => {
+                if *protocol_version != LIVE_PROTOCOL_VERSION {
+                    return Err(ClientError::Remote(RemoteError::new(
+                        RemoteErrorCode::UnsupportedVersion,
+                        "unsupported live protocol version",
+                    )));
+                }
+                if std::mem::replace(&mut self.initialized, true) {
+                    return Err(ClientError::Protocol("repeated initialization".to_owned()));
+                }
+                Ok(())
+            }
+            Event::Error(_) => Ok(()),
+            _ if !self.initialized => {
+                Err(ClientError::Protocol("expected initialization".to_owned()))
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 impl Worker {
     fn publish(&self) {
-        let connected = matches!(self.connection, ConnectionState::Connected);
-        self.state_tx.send_replace(Arc::new(ClientState {
-            capabilities: capabilities(connected, self.state.snapshot.is_some()),
-            snapshot: self.state.snapshot.clone(),
-            connection: self.connection.clone(),
-            error: self.state.error.clone(),
-        }));
+        self.state_tx.send_replace(Arc::new(self.client.clone()));
     }
 
     async fn run<T: Transport>(mut self, mut transport: T, ready: Reply) {
@@ -259,18 +282,20 @@ impl Worker {
                 let _ = ready.send(result.clone());
             }
             if !retry {
-                self.connection =
-                    ConnectionState::Failed(result.err().unwrap_or(ClientError::Disconnected));
+                self.client.set_connection(ConnectionState::Failed(
+                    result.err().unwrap_or(ClientError::Disconnected),
+                ));
                 self.publish();
                 return;
             }
-            self.connection = ConnectionState::Connecting;
+            self.client.set_connection(ConnectionState::Connecting);
             self.publish();
             if !self.reconnect(&mut transport).await {
                 break;
             }
         }
-        self.connection = ConnectionState::Failed(ClientError::Disconnected);
+        self.client
+            .set_connection(ConnectionState::Failed(ClientError::Disconnected));
         self.publish();
     }
 
@@ -279,7 +304,7 @@ impl Worker {
         transport: &mut T,
         ready: &mut Option<Reply>,
     ) -> Result<(), ClientError> {
-        self.state.initialized = false;
+        self.handshake.reset();
         transport
             .send(ClientCommand::Initialize {
                 protocol_version: LIVE_PROTOCOL_VERSION,
@@ -292,7 +317,7 @@ impl Worker {
         loop {
             let input = {
                 let command = async {
-                    if self.state.pending.is_none() {
+                    if self.pending.is_none() {
                         self.commands.recv().await.ok()
                     } else {
                         futures_util::future::pending().await
@@ -321,8 +346,8 @@ impl Worker {
                     self.request(transport, request, reply).await?;
                 }
                 ConnectionInput::Event(event) => {
-                    self.event(event?)?;
-                    if self.state.initialized
+                    self.event(&event?)?;
+                    if self.handshake.initialized
                         && let Some(ready) = ready.take()
                     {
                         let _ = ready.send(Ok(()));
@@ -334,48 +359,25 @@ impl Worker {
         }
     }
 
-    fn event(&mut self, event: ServerEvent) -> Result<(), ClientError> {
-        match event {
-            Event::Initialize {
-                protocol_version, ..
-            } => {
-                if protocol_version != LIVE_PROTOCOL_VERSION {
-                    return Err(ClientError::Remote(RemoteError::new(
-                        RemoteErrorCode::UnsupportedVersion,
-                        "unsupported live protocol version",
-                    )));
-                }
-                if std::mem::replace(&mut self.state.initialized, true) {
-                    return Err(ClientError::Protocol("repeated initialization".to_owned()));
-                }
-                self.state.error = None;
-                self.publish();
-                Ok(())
+    fn event(&mut self, event: &ServerEvent) -> Result<(), ClientError> {
+        self.handshake.check(event)?;
+        if let Event::RequestResult(result) = event {
+            if let Some(pending) = self.pending.take() {
+                let _ = pending
+                    .reply
+                    .send(result.clone().map_err(ClientError::Remote));
             }
-            Event::Error(error) => Err(ClientError::Remote(error)),
-            _ if !self.state.initialized => {
-                Err(ClientError::Protocol("expected initialization".to_owned()))
-            }
-            Event::Document(snapshot) => {
-                self.state.snapshot = Some(snapshot);
-                self.connection = ConnectionState::Connected;
-                self.publish();
-                Ok(())
-            }
-            Event::RequestResult(result) => {
-                if let Some(pending) = self.state.pending.take() {
-                    let _ = pending.reply.send(result.map_err(ClientError::Remote));
-                }
-                Ok(())
-            }
-            Event::Health { error } => {
-                if self.state.error != error {
-                    self.state.error = error;
-                    self.publish();
-                }
-                Ok(())
-            }
+            return Ok(());
         }
+        let next = self.client.clone().apply(event);
+        if next != self.client {
+            self.client = next;
+            self.publish();
+        }
+        if let Event::Error(error) = event {
+            return Err(ClientError::Remote(error.clone()));
+        }
+        Ok(())
     }
 
     async fn request<T: Transport>(
@@ -384,7 +386,7 @@ impl Worker {
         request: ClientCommand,
         reply: Reply,
     ) -> Result<(), ClientError> {
-        if !self.state.initialized {
+        if !self.handshake.initialized {
             let _ = reply.send(Err(ClientError::Disconnected));
             return Ok(());
         }
@@ -396,7 +398,7 @@ impl Worker {
             let _ = reply.send(Err(ClientError::Disconnected));
             return Err(ClientError::Disconnected);
         }
-        self.state.pending = Some(Pending {
+        self.pending = Some(Pending {
             reply,
             outcome_unknown_on_disconnect,
         });
@@ -404,7 +406,7 @@ impl Worker {
     }
 
     fn abandon_request(&mut self) {
-        if let Some(pending) = self.state.pending.take() {
+        if let Some(pending) = self.pending.take() {
             let _ = pending
                 .reply
                 .send(Err(if pending.outcome_unknown_on_disconnect {

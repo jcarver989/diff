@@ -1,7 +1,7 @@
 use crate::protocol::shared::{ProtocolError, RemoteError};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ClientError {
     #[error("connection closed")]
     Disconnected,

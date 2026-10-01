@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/jcarver989/diff/compare/clankerdiff-client-v0.3.1...clankerdiff-client-v0.3.2) - 2026-09-20
+
+### Added
+
+- *(diff-ratatui)* Add apply_client_state ([#74](https://github.com/jcarver989/diff/pull/74))
+
+### Other
+
+- *(deps)* bump tokio-tungstenite from 0.28.0 to 0.29.0 ([#68](https://github.com/jcarver989/diff/pull/68))
+- *(deps)* bump gloo-net from 0.6.0 to 0.7.0 ([#67](https://github.com/jcarver989/diff/pull/67))
+
 ## [0.3.1](https://github.com/jcarver989/diff/compare/clankerdiff-client-v0.3.0...clankerdiff-client-v0.3.1) - 2026-09-20
 
 ### Added
