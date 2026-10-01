@@ -15,17 +15,22 @@ dist = true
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.3.2", path = "../diff-core" }
-clankerdiff-markdown = { version = "0.3.2", path = "../diff-markdown", features = ["review"] }
-clankerdiff-theme = { version = "0.3.2", path = "../diff-theme" }
-clankerdiff-client = { version = "0.3.2", path = "../diff-client" }
-clankerdiff-server = { version = "0.3.2", path = "../diff-server" }
+clankerdiff-core = { version = "0.3.3", path = "../diff-core" }
+clankerdiff-markdown = { version = "0.3.3", path = "../diff-markdown", features = ["review"] }
+clankerdiff-theme = { version = "0.3.3", path = "../diff-theme" }
+clankerdiff-client = { version = "0.3.3", path = "../diff-client" }
+clankerdiff-server = { version = "0.3.3", path = "../diff-server" }
 clankerdiff-gpui = { path = "../diff-gpui" }
 gpui.workspace = true
+gpui-base.workspace = true
 gpui_platform.workspace = true
-gpui_tokio.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSGraphicsContext", "NSResponder", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }

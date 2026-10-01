@@ -1,6 +1,10 @@
 use crate::{DiffViewer, ViewerPane, style::color};
 use clankerdiff_core::{DiffDocument, DiffReviewCommand, FileStatus, RepoPath, StageState};
-use gpui::{ClickEvent, Context, Div, Empty, Role, Stateful, div, prelude::*, px};
+use gpui::{
+    ClickEvent, Context, Div, Empty, PathBuilder, Role, Stateful, canvas, div, point, prelude::*,
+    px,
+};
+use gpui_base::{Checkbox, CheckboxIndicator, CheckboxState};
 use std::collections::{BTreeMap, HashSet};
 
 const HEADER_HEIGHT: f32 = 52.0;
@@ -326,15 +330,91 @@ fn sidebar_row(depth: u16, height: f32) -> Div {
         .cursor_pointer()
 }
 
-fn stage_checkbox(stage: &'static str) -> Div {
-    div()
-        .w(px(STAGE_CHECKBOX_WIDTH))
-        .flex_shrink_0()
-        .text_center()
-        .child(stage)
-}
-
 impl DiffViewer {
+    fn stage_checkbox(
+        &self,
+        id: String,
+        stage: StageState,
+        entry: SidebarEntry,
+        cx: &mut Context<Self>,
+    ) -> Checkbox {
+        let palette = &self.theme().diff;
+        let checkbox_state = match stage {
+            StageState::Staged => CheckboxState::Checked,
+            StageState::PartiallyStaged => CheckboxState::Indeterminate,
+            StageState::Unstaged => CheckboxState::Unchecked,
+        };
+        let viewer = cx.entity().downgrade();
+        let label = match &entry {
+            SidebarEntry::Directory(path) => format!("Toggle staging for {path}"),
+            SidebarEntry::File(index) => {
+                format!("Toggle staging for {}", self.document().files[*index].path)
+            }
+        };
+        let mark_color = color(palette.foreground);
+        let checkbox_id = match &entry {
+            SidebarEntry::Directory(path) => format!("diff-directory-checkbox:{path}"),
+            SidebarEntry::File(index) => {
+                format!("diff-file-checkbox:{}", self.document().files[*index].path)
+            }
+        };
+        Checkbox::new(checkbox_id)
+            .debug_selector(move || id.clone())
+            .state(checkbox_state)
+            .key_context("StageCheckbox")
+            .accessibility_label(label)
+            .w(px(STAGE_CHECKBOX_WIDTH))
+            .h(px(STAGE_CHECKBOX_WIDTH))
+            .flex_shrink_0()
+            .cursor_pointer()
+            .rounded(px(3.0))
+            .border_1()
+            .border_color(color(palette.muted))
+            .bg(color(palette.background))
+            .hover(|style| style.border_color(color(palette.accent)))
+            .focus_visible(|style| style.border_color(color(palette.accent)))
+            .on_change(move |_, _, window, cx| {
+                let _ = viewer.update(cx, |viewer, cx| {
+                    viewer.toggle_stage_entry(entry.clone(), window, cx);
+                });
+                cx.stop_propagation();
+            })
+            .child(
+                CheckboxIndicator::new()
+                    .state(checkbox_state)
+                    .size_full()
+                    .child(
+                        canvas(
+                            |_, _, _| (),
+                            move |bounds, (), window, _| {
+                                if checkbox_state == CheckboxState::Unchecked {
+                                    return;
+                                }
+                                let mut path = PathBuilder::stroke(px(2.0));
+                                let at = |x: f32, y: f32| {
+                                    point(
+                                        bounds.left() + bounds.size.width * x,
+                                        bounds.top() + bounds.size.height * y,
+                                    )
+                                };
+                                if checkbox_state == CheckboxState::Checked {
+                                    path.move_to(at(0.2, 0.5));
+                                    path.line_to(at(0.43, 0.73));
+                                    path.line_to(at(0.8, 0.27));
+                                } else {
+                                    path.move_to(at(0.2, 0.5));
+                                    path.line_to(at(0.8, 0.5));
+                                }
+                                if let Ok(path) = path.build() {
+                                    window.paint_path(path, mark_color);
+                                }
+                            },
+                        )
+                        .size_full(),
+                    ),
+            )
+    }
+
     pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
         let palette = &self.theme().diff;
         let mut rows = div()
@@ -427,8 +507,7 @@ impl DiffViewer {
         let path = directory.path.clone();
         let selected = self.sidebar_selection == SidebarEntry::Directory(path.clone());
         let entry = SidebarEntry::Directory(path.clone());
-        let stage = stage_marker(SidebarTree::stage_state_for_entry(self.document(), &entry));
-        let checkbox_path = path.clone();
+        let stage = SidebarTree::stage_state_for_entry(self.document(), &entry);
         sidebar_row(depth, self.sidebar_row_height())
             .id(format!("diff-directory:{path}"))
             .role(Role::TreeItem)
@@ -456,18 +535,12 @@ impl DiffViewer {
                     .whitespace_nowrap()
                     .child(directory.name.clone()),
             )
-            .child(
-                stage_checkbox(stage)
-                    .id(format!("diff-directory-checkbox:{checkbox_path}"))
-                    .on_click(cx.listener(move |viewer, _, window, cx| {
-                        viewer.toggle_stage_entry(
-                            SidebarEntry::Directory(checkbox_path.clone()),
-                            window,
-                            cx,
-                        );
-                        cx.stop_propagation();
-                    })),
-            )
+            .child(self.stage_checkbox(
+                format!("diff-directory-checkbox:{}", directory.path),
+                stage,
+                entry,
+                cx,
+            ))
     }
 
     fn render_file_row(
@@ -486,10 +559,10 @@ impl DiffViewer {
         };
         let opened = self.selected_file() == Some(index);
         let selected = self.sidebar_selection == SidebarEntry::File(index);
-        let stage = stage_marker(diff.staged);
+        let stage = diff.staged;
         Some(
             sidebar_row(depth, self.sidebar_row_height())
-                .id(("diff-file", index))
+                .id(format!("diff-file:{}", diff.path))
                 .role(Role::TreeItem)
                 .aria_label(diff.path.to_string())
                 .aria_level(usize::from(depth) + 1)
@@ -530,23 +603,13 @@ impl DiffViewer {
                         .text_color(color(palette.muted))
                         .child(format!("+{} −{}", diff.additions(), diff.deletions())),
                 )
-                .child(
-                    stage_checkbox(stage)
-                        .id(("diff-file-checkbox", index))
-                        .on_click(cx.listener(move |viewer, _, window, cx| {
-                            viewer.toggle_stage_entry(SidebarEntry::File(index), window, cx);
-                            cx.stop_propagation();
-                        })),
-                ),
+                .child(self.stage_checkbox(
+                    format!("diff-file-checkbox:{index}"),
+                    stage,
+                    SidebarEntry::File(index),
+                    cx,
+                )),
         )
-    }
-}
-
-const fn stage_marker(state: StageState) -> &'static str {
-    match state {
-        StageState::Staged => "☑",
-        StageState::PartiallyStaged => "◩",
-        StageState::Unstaged => "☐",
     }
 }
 

@@ -7,7 +7,7 @@ use crate::{
     comment_editor::{CommentEditor, CommentEditorEvent},
     style,
     ui::{
-        comments::{CommentCard, CommentComposer, CommentCount},
+        comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
         prelude::{
             ActionBar, Button, ButtonVariant, ControlSize, ThemePicker, ThemePickerItem, UiTheme,
         },
@@ -150,8 +150,16 @@ impl MarkdownReviewer {
             KeyBinding::new("end", MarkdownLastTarget, Some(BROWSE)),
             KeyBinding::new("pageup", MarkdownPageUp, Some(BROWSE)),
             KeyBinding::new("pagedown", MarkdownPageDown, Some(BROWSE)),
-            KeyBinding::new("tab", MarkdownToggleFocus, Some(BROWSE)),
-            KeyBinding::new("enter", MarkdownOpenSelected, Some(BROWSE)),
+            KeyBinding::new(
+                "tab",
+                MarkdownToggleFocus,
+                Some("MarkdownReviewer && mode == browse && !CommentDismissControl"),
+            ),
+            KeyBinding::new(
+                "enter",
+                MarkdownOpenSelected,
+                Some("MarkdownReviewer && mode == browse && !CommentDismissControl"),
+            ),
             KeyBinding::new("y", MarkdownCopyReview, Some(BROWSE)),
             KeyBinding::new("cmd-shift-c", MarkdownCopyReview, Some(BROWSE)),
             KeyBinding::new("n", MarkdownNextHeading, Some(BROWSE)),
@@ -270,7 +278,7 @@ impl MarkdownReviewer {
             .session
             .draft()
             .map_or_else(String::new, |draft| draft.body().to_owned());
-        let editor = cx.new(|cx| CommentEditor::new(body, self.theme.clone(), cx));
+        let editor = cx.new(|cx| CommentEditor::new(body, self.theme.clone(), window, cx));
         self.editor_subscription = Some(cx.subscribe_in(
             &editor,
             window,
@@ -309,6 +317,23 @@ impl MarkdownReviewer {
     fn discard_comment(&mut self, cx: &mut Context<Self>) {
         self.session.cancel_draft();
         self.close_editor();
+        cx.notify();
+    }
+
+    fn dismiss_comment(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .session
+            .draft()
+            .is_some_and(|draft| draft.editing() == Some(id))
+        {
+            self.discard_comment(cx);
+        }
+        self.session.review_mut().remove_comment(id);
+        if let Some(editor) = &self.editor {
+            editor.focus_handle(cx).focus(window, cx);
+        } else if let Some(focus) = &self.focus_handle {
+            focus.focus(window, cx);
+        }
         cx.notify();
     }
 
@@ -497,6 +522,18 @@ impl MarkdownReviewer {
                     &self.ui_theme(),
                     index + 1 == comment_count,
                 )
+                .header_actions(comment_dismiss_button(
+                    comment.id,
+                    self.font_size(),
+                    &self.ui_theme(),
+                    cx,
+                    {
+                        let id = comment.id;
+                        move |reviewer, window, cx| {
+                            reviewer.dismiss_comment(id, window, cx);
+                        }
+                    },
+                ))
             }))
             .children(editor.map(|editor| {
                 let can_submit = !editor.read(cx).is_blank();
