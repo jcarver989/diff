@@ -352,7 +352,13 @@ impl DiffViewer {
             }
         };
         let mark_color = color(palette.foreground);
-        Checkbox::new(id.clone())
+        let checkbox_id = match &entry {
+            SidebarEntry::Directory(path) => format!("diff-directory-checkbox:{path}"),
+            SidebarEntry::File(index) => {
+                format!("diff-file-checkbox:{}", self.document().files[*index].path)
+            }
+        };
+        Checkbox::new(checkbox_id)
             .debug_selector(move || id.clone())
             .state(checkbox_state)
             .key_context("StageCheckbox")
@@ -556,7 +562,7 @@ impl DiffViewer {
         let stage = diff.staged;
         Some(
             sidebar_row(depth, self.sidebar_row_height())
-                .id(("diff-file", index))
+                .id(format!("diff-file:{}", diff.path))
                 .role(Role::TreeItem)
                 .aria_label(diff.path.to_string())
                 .aria_level(usize::from(depth) + 1)

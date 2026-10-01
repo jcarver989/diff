@@ -499,6 +499,90 @@ fn staging_checkboxes_support_keyboard_activation_without_viewer_shortcuts(
     }
 }
 
+#[gpui::test]
+fn staging_refresh_preserves_selected_collapsed_directory(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder {
+        document: DocumentBuilder::new()
+            .changed("src/lib.rs", "old", "new")
+            .changed("z.rs", "old", "new")
+            .build(),
+        ..Default::default()
+    }
+    .run(cx, |harness, cx| {
+        harness.dispatch_command(cx, DiffReviewCommand::Focus(FocusPane::Files))?;
+        harness.dispatch_command(cx, DiffReviewCommand::First)?;
+        harness.dispatch_command(cx, DiffReviewCommand::CollapseSelected)?;
+        harness.click(cx, "diff-directory-checkbox:src")?;
+        harness.update(cx, |viewer, cx| {
+            viewer.set_document(
+                DocumentBuilder::new()
+                    .changed("z.rs", "old", "new")
+                    .changed_staged("src/lib.rs", "old", "new", StageState::Staged)
+                    .build(),
+                cx,
+            );
+            viewer.set_repository_pending(false, cx);
+        });
+        harness.draw(cx);
+        assert_eq!(
+            harness.read(cx, |viewer, _| viewer.selected_file()),
+            Some(1)
+        );
+        assert!(harness.bounds(cx, "diff-file-checkbox:1").is_none());
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::ToggleStage)?);
+        assert_eq!(
+            harness.events(cx).last(),
+            Some(&DiffReviewEvent::RepositoryAction(
+                RepositoryAction::UnstagePaths(vec![RepoPath::new("src/lib.rs")?])
+            ))
+        );
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn staging_refresh_preserves_file_selection_and_checkbox_focus_by_path(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder {
+        document: DocumentBuilder::new()
+            .changed("a.rs", "old", "new")
+            .changed("b.rs", "old", "new")
+            .build(),
+        ..Default::default()
+    }
+    .run(cx, |harness, cx| {
+        harness.focus_next(cx)?;
+        harness.press_key(cx, "space")?;
+        harness.update(cx, |viewer, cx| {
+            viewer.set_document(
+                DocumentBuilder::new()
+                    .changed("b.rs", "old", "new")
+                    .changed_staged("a.rs", "old", "new", StageState::Staged)
+                    .build(),
+                cx,
+            );
+            viewer.set_repository_pending(false, cx);
+        });
+        harness.draw(cx);
+        assert_eq!(
+            harness.read(cx, |viewer, _| viewer.selected_file()),
+            Some(1)
+        );
+        harness.press_key(cx, "space")?;
+        assert_eq!(
+            harness.events(cx),
+            vec![
+                DiffReviewEvent::RepositoryAction(RepositoryAction::StagePaths(vec![
+                    RepoPath::new("a.rs")?
+                ])),
+                DiffReviewEvent::RepositoryAction(RepositoryAction::UnstagePaths(vec![
+                    RepoPath::new("a.rs")?
+                ])),
+            ]
+        );
+        Ok(())
+    });
+}
+
 fn document_builder() -> DocumentBuilder {
     DocumentBuilder::new()
         .changed_with_hunk_window(

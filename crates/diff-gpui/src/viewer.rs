@@ -5,7 +5,7 @@ mod commands;
 use crate::{
     DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DiffViewerEvent, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
-    sidebar::{SidebarResizeDrag, SidebarTree},
+    sidebar::{SidebarEntry, SidebarResizeDrag, SidebarTree},
     style::color,
     ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
 };
@@ -480,12 +480,25 @@ impl DiffViewer {
 
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         let revision = self.session.projection_revision();
+        let selection = match &self.sidebar_selection {
+            SidebarEntry::File(index) => self
+                .document()
+                .files
+                .get(*index)
+                .and_then(|file| document.file_index(&file.path))
+                .map(SidebarEntry::File),
+            SidebarEntry::Directory(path) => Some(SidebarEntry::Directory(path.clone())),
+        };
         self.sidebar_tree.rebuild(&document);
         self.session.set_document(document);
 
-        self.sidebar_selection =
-            crate::sidebar::SidebarEntry::File(self.session.selected_file().unwrap_or(0));
-        if let Some(index) = self.selected_file() {
+        self.sidebar_selection = selection
+            .filter(|entry| match entry {
+                SidebarEntry::File(_) => true,
+                SidebarEntry::Directory(_) => self.sidebar_tree.position_of(entry).is_some(),
+            })
+            .unwrap_or_else(|| SidebarEntry::File(self.session.selected_file().unwrap_or(0)));
+        if let SidebarEntry::File(index) = self.sidebar_selection {
             self.sidebar_tree
                 .expand_file(self.session.document(), index);
         }
