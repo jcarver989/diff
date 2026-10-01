@@ -4,7 +4,7 @@ use crate::{
     comment_editor::CommentEditor,
     style,
     ui::{
-        comments::{CommentCard, CommentComposer, CommentCount},
+        comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
         prelude::{Button, ButtonVariant, ControlSize, icon_button},
     },
 };
@@ -378,7 +378,7 @@ impl DiffViewer {
         } else {
             let comments = self.comments_for_row(row, None);
             if !comments.is_empty() {
-                element = element.child(self.render_comment_thread(index, comments));
+                element = element.child(self.render_comment_thread(index, comments, cx));
             }
             if let Some((side, editor)) = active_editor {
                 element = element.child(self.render_comment_dialog(index, row, side, editor, cx));
@@ -561,7 +561,7 @@ impl DiffViewer {
             .border_r_1()
             .border_color(style::color(palette.border))
             .when(!old_comments.is_empty(), |column| {
-                column.child(self.render_comment_thread(index, old_comments))
+                column.child(self.render_comment_thread(index, old_comments, cx))
             })
             .when_some(old_editor, |column, editor| {
                 column.child(self.render_comment_dialog(index, row, DiffSide::Old, editor, cx))
@@ -572,7 +572,7 @@ impl DiffViewer {
             .flex()
             .flex_col()
             .when(!new_comments.is_empty(), |column| {
-                column.child(self.render_comment_thread(index, new_comments))
+                column.child(self.render_comment_thread(index, new_comments, cx))
             })
             .when_some(new_editor, |column, editor| {
                 column.child(self.render_comment_dialog(index, row, DiffSide::New, editor, cx))
@@ -589,7 +589,12 @@ impl DiffViewer {
             .into_any_element()
     }
 
-    fn render_comment_thread(&self, index: usize, comments: Vec<ReviewComment>) -> AnyElement {
+    fn render_comment_thread(
+        &self,
+        index: usize,
+        comments: Vec<ReviewComment>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let palette = self.theme().diff.clone();
         let last_comment = comments.len().saturating_sub(1);
         div()
@@ -625,6 +630,15 @@ impl DiffViewer {
                             &self.ui_theme(),
                             offset == last_comment,
                         )
+                        .header_actions(comment_dismiss_button(
+                            comment.id,
+                            self.font_size(),
+                            &self.ui_theme(),
+                            cx,
+                            move |viewer, window, cx| {
+                                viewer.dismiss_comment(comment.id, window, cx);
+                            },
+                        ))
                     })),
             )
             .into_any_element()

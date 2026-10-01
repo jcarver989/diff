@@ -5,7 +5,7 @@ mod commands;
 use crate::{
     DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DiffViewerEvent, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
-    sidebar::{SidebarResizeDrag, SidebarTree},
+    sidebar::{SidebarEntry, SidebarResizeDrag, SidebarTree},
     style::color,
     ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
 };
@@ -28,7 +28,9 @@ use gpui::{
 use std::sync::Arc;
 
 const MIN_SIDEBAR_WIDTH: f32 = 180.0;
-const MAX_SIDEBAR_WIDTH: f32 = 600.0;
+const MAX_SIDEBAR_WIDTH: f32 = 960.0;
+const DEFAULT_SIDEBAR_FRACTION: f32 = 0.25;
+const DEFAULT_MIN_SIDEBAR_WIDTH: f32 = 320.0;
 const MIN_DIFF_WIDTH: f32 = 320.0;
 const SIDEBAR_DIVIDER_WIDTH: f32 = 1.0;
 const MIN_FONT_SIZE: f32 = 10.0;
@@ -36,6 +38,13 @@ const MAX_FONT_SIZE: f32 = 24.0;
 const FONT_SIZE_STEP: f32 = 1.0;
 const DIFF_ROW_VERTICAL_SPACE: f32 = 7.0;
 const SIDEBAR_ROW_VERTICAL_SPACE: f32 = 20.0;
+
+const BROWSE_ACTIVATION: &str =
+    "DiffViewer && mode == browse && !CommentDismissControl && !StageCheckbox";
+const DIFF_ACTIVATION: &str =
+    "DiffViewer && mode == browse && pane == diff && !CommentDismissControl && !StageCheckbox";
+const FILES_ACTIVATION: &str =
+    "DiffViewer && mode == browse && pane == files && !CommentDismissControl && !StageCheckbox";
 
 actions!(
     diff_viewer,
@@ -97,8 +106,8 @@ actions!(
 /// Renderer-specific sizing and virtualization settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DiffViewerOptions {
-    /// Width of the changed-files sidebar, in logical pixels.
-    pub sidebar_width: f32,
+    /// Initial sidebar width in logical pixels, or None for responsive sizing.
+    pub sidebar_width: Option<f32>,
     /// Initial viewer font size, in logical pixels.
     pub font_size: f32,
     /// Minimum height of a diff row, in logical pixels.
@@ -112,7 +121,7 @@ pub struct DiffViewerOptions {
 impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
-            sidebar_width: 280.0,
+            sidebar_width: None,
             font_size: DEFAULT_FONT_SIZE,
             row_height: 20.0,
             auto_split_width: 900.0,
@@ -152,6 +161,7 @@ pub struct DiffViewer {
     highlighter: SyntaxHighlighter,
     options: DiffViewerOptions,
     sidebar_width: f32,
+    preferred_sidebar_width: Option<f32>,
     font_size: f32,
     diff_list_state: ListState,
     diff_list_file: Option<usize>,
@@ -196,6 +206,7 @@ impl DiffViewer {
         let sidebar_tree = SidebarTree::new(&document);
         let sidebar_width = options
             .sidebar_width
+            .unwrap_or(DEFAULT_MIN_SIDEBAR_WIDTH)
             .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
         let font_size = clamp_font_size(options.font_size);
         let row_height = effective_diff_row_height(options.row_height, font_size);
@@ -213,6 +224,7 @@ impl DiffViewer {
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
             sidebar_width,
+            preferred_sidebar_width: options.sidebar_width,
             font_size,
             diff_list_state: ListState::new(0, ListAlignment::Top, px(row_height * 8.0)),
             diff_list_file: None,
@@ -258,7 +270,7 @@ impl DiffViewer {
             KeyBinding::new("shift-g", LastItem, Some(BROWSE)),
             KeyBinding::new("pageup", PageUp, Some(BROWSE)),
             KeyBinding::new("pagedown", PageDown, Some(BROWSE)),
-            KeyBinding::new("tab", TogglePane, Some(BROWSE)),
+            KeyBinding::new("tab", TogglePane, Some(BROWSE_ACTIVATION)),
             KeyBinding::new("h", FocusFiles, Some(DIFF)),
             KeyBinding::new("left", SelectOldSide, Some(DIFF_SPLIT)),
             KeyBinding::new("left", FocusFiles, Some(DIFF_UNIFIED)),
@@ -267,8 +279,8 @@ impl DiffViewer {
             KeyBinding::new("left", Collapse, Some(FILES)),
             KeyBinding::new("l", ExpandOrOpen, Some(FILES)),
             KeyBinding::new("right", ExpandOrOpen, Some(FILES)),
-            KeyBinding::new("enter", ExpandOrOpen, Some(FILES)),
-            KeyBinding::new("space", ToggleStage, Some(FILES)),
+            KeyBinding::new("enter", ExpandOrOpen, Some(FILES_ACTIVATION)),
+            KeyBinding::new("space", ToggleStage, Some(FILES_ACTIVATION)),
             KeyBinding::new("a", StageAll, Some(FILES)),
             KeyBinding::new("shift-a", UnstageAll, Some(FILES)),
             KeyBinding::new("shift-c", CommitChanges, Some(BROWSE)),
@@ -297,7 +309,7 @@ impl DiffViewer {
             KeyBinding::new("o", ToggleSourceView, Some(BROWSE)),
             KeyBinding::new("shift-o", ExpandGapAll, Some(DIFF)),
             KeyBinding::new("f", ToggleFullFile, Some(DIFF)),
-            KeyBinding::new("enter", ExpandGap, Some(DIFF)),
+            KeyBinding::new("enter", ExpandGap, Some(DIFF_ACTIVATION)),
             KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
             KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
             KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
@@ -468,12 +480,25 @@ impl DiffViewer {
 
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         let revision = self.session.projection_revision();
+        let selection = match &self.sidebar_selection {
+            SidebarEntry::File(index) => self
+                .document()
+                .files
+                .get(*index)
+                .and_then(|file| document.file_index(&file.path))
+                .map(SidebarEntry::File),
+            SidebarEntry::Directory(path) => Some(SidebarEntry::Directory(path.clone())),
+        };
         self.sidebar_tree.rebuild(&document);
         self.session.set_document(document);
 
-        self.sidebar_selection =
-            crate::sidebar::SidebarEntry::File(self.session.selected_file().unwrap_or(0));
-        if let Some(index) = self.selected_file() {
+        self.sidebar_selection = selection
+            .filter(|entry| match entry {
+                SidebarEntry::File(_) => true,
+                SidebarEntry::Directory(_) => self.sidebar_tree.position_of(entry).is_some(),
+            })
+            .unwrap_or_else(|| SidebarEntry::File(self.session.selected_file().unwrap_or(0)));
+        if let SidebarEntry::File(index) = self.sidebar_selection {
             self.sidebar_tree
                 .expand_file(self.session.document(), index);
         }
@@ -647,6 +672,23 @@ impl DiffViewer {
         removed
     }
 
+    pub(crate) fn dismiss_comment(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .session
+            .draft()
+            .is_some_and(|draft| draft.editing() == Some(id))
+        {
+            self.discard_comment(cx);
+        }
+        self.remove_comment(id, cx);
+        if let Some(editor) = &self.comment_editor {
+            editor.focus_handle(cx).focus(window, cx);
+        } else if let Some(focus) = &self.focus_handle {
+            focus.focus(window, cx);
+        }
+        cx.notify();
+    }
+
     pub(crate) fn diff_row_height(&self) -> f32 {
         effective_diff_row_height(self.options.row_height, self.font_size)
     }
@@ -672,7 +714,8 @@ impl DiffViewer {
     }
 
     pub(crate) fn reset_sidebar_width(&mut self, cx: &mut Context<Self>) {
-        self.set_sidebar_width(self.options.sidebar_width, cx);
+        self.preferred_sidebar_width = self.options.sidebar_width;
+        cx.notify();
     }
 
     fn resize_sidebar(
@@ -687,6 +730,7 @@ impl DiffViewer {
     }
 
     fn update_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
+        self.preferred_sidebar_width = Some(width);
         if (self.sidebar_width - width).abs() <= f32::EPSILON {
             return;
         }
@@ -1546,7 +1590,10 @@ impl Render for DiffViewer {
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let viewport_width = f32::from(window.viewport_size().width);
-        let sidebar_width = clamp_sidebar_width(self.sidebar_width, viewport_width);
+        let preferred_width = self.preferred_sidebar_width.unwrap_or_else(|| {
+            (viewport_width * DEFAULT_SIDEBAR_FRACTION).max(DEFAULT_MIN_SIDEBAR_WIDTH)
+        });
+        let sidebar_width = clamp_sidebar_width(preferred_width, viewport_width);
         if (self.sidebar_width - sidebar_width).abs() > f32::EPSILON {
             self.sidebar_width = sidebar_width;
             self.diff_list_state.remeasure();
@@ -1716,7 +1763,7 @@ mod tests {
     fn sidebar_width_is_clamped_to_preserve_the_diff_pane() {
         assert_close(clamp_sidebar_width(100.0, 1_000.0), 180.0);
         assert_close(clamp_sidebar_width(400.0, 1_000.0), 400.0);
-        assert_close(clamp_sidebar_width(900.0, 1_000.0), 600.0);
+        assert_close(clamp_sidebar_width(900.0, 1_000.0), 680.0);
         assert_close(clamp_sidebar_width(400.0, 600.0), 280.0);
     }
 
