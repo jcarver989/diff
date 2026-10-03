@@ -218,7 +218,7 @@ fn document_clicks_open_new_comments_on_semantic_targets() -> Result<(), Box<dyn
         let draft = state.session().draft().ok_or("no draft")?;
         assert_eq!(Some(draft.target()), state.selected_target());
         let anchor = draft.anchor().clone();
-        assert!(draft.body().is_empty());
+        assert_eq!(draft.body(), "");
         type_text(&mut state, "Mouse comment");
         state.handle_input(key(KeyCode::Enter))?;
         assert_eq!(state.review().len(), 1);
@@ -226,7 +226,7 @@ fn document_clicks_open_new_comments_on_semantic_targets() -> Result<(), Box<dyn
         state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 60, row))?;
         let draft = state.session().draft().ok_or("no new draft")?;
         assert_eq!(draft.anchor(), &anchor);
-        assert!(draft.body().is_empty());
+        assert_eq!(draft.body(), "");
         assert_eq!(draft.editing(), None);
     }
     Ok(())
@@ -251,7 +251,7 @@ fn empty_markdown_comments_move_but_nonempty_comments_stay() -> Result<(), Box<d
     state.handle_input(mouse(MouseEventKind::Down(MouseButton::Left), 60, second))?;
     let draft = state.session().draft().ok_or("no moved draft")?;
     assert_ne!(draft.anchor(), &original);
-    assert!(draft.body().is_empty());
+    assert_eq!(draft.body(), "");
     assert_eq!(Some(draft.target()), state.selected_target());
     let moved = draft.anchor().clone();
     assert!(state.review().is_empty());

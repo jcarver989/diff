@@ -781,10 +781,6 @@ mod tests {
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].body, "Keep this visible");
         assert_eq!(viewer.comments_for_row(&row, Some(side)).len(), 1);
-        assert!(
-            viewer
-                .comments_for_row(&row, Some(side.opposite()))
-                .is_empty()
-        );
+        assert_eq!(viewer.comments_for_row(&row, Some(side.opposite())), []);
     }
 }

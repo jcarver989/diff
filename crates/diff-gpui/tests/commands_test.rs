@@ -105,7 +105,7 @@ fn direct_commands_and_shortcuts_obey_the_same_host_capabilities(cx: &mut TestAp
             assert!(!harness.dispatch_command(cx, command)?);
         }
         harness.simulate_keystrokes(cx, "h a shift-a shift-c d shift-s tab s y");
-        assert!(harness.events(cx).is_empty());
+        assert_eq!(harness.events(cx), []);
         assert!(harness.dispatch_command(cx, ReviewCommand::Cancel)?);
         assert_eq!(harness.events(cx), vec![DiffReviewEvent::Cancel]);
         Ok(())
@@ -167,7 +167,7 @@ fn direct_comment_commands_close_blank_drafts_and_preserve_edits(cx: &mut TestAp
         harness.simulate_keystrokes(cx, "c n e w enter");
         assert!(harness.dispatch_command(cx, ReviewCommand::UndoComment)?);
         assert!(harness.read(cx, |viewer, _| viewer.review().is_empty()));
-        assert!(harness.events(cx).is_empty());
+        assert_eq!(harness.events(cx), []);
         Ok(())
     })();
     if let Err(error) = result {
@@ -251,7 +251,7 @@ fn help_and_repository_modals_block_commands_and_cancel_locally(cx: &mut TestApp
                 harness.read(cx, |viewer, _| viewer.command_context().phase),
                 InteractionPhase::Browse
             );
-            assert!(harness.events(cx).is_empty());
+            assert_eq!(harness.events(cx), []);
         }
         assert!(harness.dispatch_command(cx, ReviewCommand::Cancel)?);
         assert_eq!(harness.events(cx), vec![DiffReviewEvent::Cancel]);
@@ -317,7 +317,7 @@ fn menu_navigation_actions_cannot_bypass_a_draft(cx: &mut TestAppContext) {
             harness.read(cx, |viewer, _| viewer.command_context().phase),
             InteractionPhase::Draft
         );
-        assert!(harness.events(cx).is_empty());
+        assert_eq!(harness.events(cx), []);
         harness.dispatch_command(cx, ReviewCommand::Cancel)?;
         harness.dispatch_action(cx, &NextFile)?;
         assert_ne!(
@@ -359,7 +359,7 @@ fn theme_keyboard_preview_and_commit_match_shared_commands(cx: &mut TestAppConte
             keyboard.read(cx, |viewer, _| viewer.command_context().phase),
             InteractionPhase::Browse
         );
-        assert!(keyboard.events(cx).is_empty());
+        assert_eq!(keyboard.events(cx), []);
         Ok(())
     })();
     if let Err(error) = result {
@@ -446,7 +446,7 @@ fn theme_preview_cancellation_is_shared_and_does_not_cancel_the_review(cx: &mut 
             original
         );
         assert!(!harness.read(cx, |viewer, _| viewer.theme_picker_open()));
-        assert!(harness.events(cx).is_empty());
+        assert_eq!(harness.events(cx), []);
         assert!(harness.dispatch_command(cx, ReviewCommand::OpenThemePicker)?);
         assert!(harness.dispatch_command(cx, ReviewCommand::CommitTheme)?);
         assert!(!harness.read(cx, |viewer, _| viewer.theme_picker_open()));

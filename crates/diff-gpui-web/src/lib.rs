@@ -1097,14 +1097,14 @@ mod tests {
     fn bundled_demo_is_the_captured_workspace_diff() {
         let document = demo_document();
         assert_eq!(document.repo_root, ".");
-        assert!(!document.files.is_empty());
+        assert_ne!(document.files, []);
     }
 
     #[test]
     fn decodes_host_document_boundary() {
         let document = decode_document(r#"{"repo_root":"/fixture","files":[]}"#).unwrap();
         assert_eq!(document.repo_root, "/fixture");
-        assert!(document.files.is_empty());
+        assert_eq!(document.files, []);
     }
 
     #[test]

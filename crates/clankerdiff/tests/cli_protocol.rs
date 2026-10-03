@@ -8,7 +8,7 @@ fn capabilities_are_one_clean_json_line() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, [] as [u8; 0]);
     assert_eq!(
         output
             .stdout
@@ -32,7 +32,7 @@ fn process_failures_keep_stdout_protocol_clean() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, [] as [u8; 0]);
     assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
 }
 
@@ -40,7 +40,7 @@ fn process_failures_keep_stdout_protocol_clean() {
 fn version_uses_the_executable_name() -> io::Result<()> {
     let output = clankerdiff().arg("--version").output()?;
     assert!(output.status.success());
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, [] as [u8; 0]);
     assert_eq!(
         output.stdout,
         format!("clankerdiff {}\n", env!("CARGO_PKG_VERSION")).as_bytes()

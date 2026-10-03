@@ -456,7 +456,7 @@ mod tests {
 
         let files = parse_git_diff(patch.as_bytes()).unwrap();
         assert_eq!(files.len(), 1);
-        assert!(files[0].hunks.is_empty());
+        assert_eq!(files[0].hunks, []);
         assert!(files[0].omitted_bytes.is_some());
         assert!(!files[0].binary);
     }
@@ -550,7 +550,7 @@ mod tests {
         .unwrap();
         assert!(document.files[0].binary);
         assert_eq!(document.files[0].omitted_bytes, Some(10_000_000));
-        assert!(document.files[0].hunks.is_empty());
+        assert_eq!(document.files[0].hunks, []);
     }
 
     #[test]
