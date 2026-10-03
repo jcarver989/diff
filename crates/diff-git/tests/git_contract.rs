@@ -97,7 +97,7 @@ async fn snapshot_reads_do_not_refresh_the_index_stat_cache() {
         .snapshot_with_sources(DiffScope::Both)
         .await
         .expect("load snapshot");
-    assert!(snapshot.document.files.is_empty());
+    assert_eq!(snapshot.document.files, []);
     assert_eq!(fs::read(index).expect("read index after load"), before);
 }
 
@@ -419,7 +419,7 @@ async fn unborn_repository_snapshots_and_unstaging_work() {
         .snapshot(DiffScope::Staged)
         .await
         .expect("empty staged snapshot");
-    assert!(staged.files.is_empty());
+    assert_eq!(staged.files, []);
     assert!(
         repo.root().join("staged.txt").exists(),
         "unstaging must preserve worktree files"
@@ -476,7 +476,7 @@ async fn oversized_untracked_content_is_omitted_from_snapshots() {
     let large = file(&document, "large.bin");
     assert!(large.binary);
     assert_eq!(large.omitted_bytes, Some(9 * 1024 * 1024));
-    assert!(large.hunks.is_empty());
+    assert_eq!(large.hunks, []);
 }
 
 #[cfg(unix)]
@@ -560,13 +560,13 @@ async fn stage_unstage_commit_and_empty_message_contracts() {
         })
         .await
         .expect("commit");
-    assert!(
+    assert_eq!(
         repository
             .snapshot(DiffScope::Both)
             .await
             .expect("clean snapshot")
-            .files
-            .is_empty()
+            .files,
+        []
     );
 }
 
@@ -664,13 +664,13 @@ async fn discard_restores_tracked_files_and_removes_untracked_files() {
     assert!(!repo.root().join("untracked.txt").exists());
     assert!(repo.root().join("rename-me.txt").exists());
     assert!(!repo.root().join("renamed.txt").exists());
-    assert!(
+    assert_eq!(
         repository
             .snapshot(DiffScope::Both)
             .await
             .expect("clean snapshot")
-            .files
-            .is_empty()
+            .files,
+        []
     );
 }
 

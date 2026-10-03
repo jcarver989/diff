@@ -139,13 +139,9 @@ fn clicking_diff_content_opens_a_new_comment() -> Result<(), Box<dyn Error>> {
         assert_eq!(state.review().len(), 1);
         let _ = state.handle_input(click(row));
         assert_eq!(state.interaction_phase(), InteractionPhase::Draft);
-        assert!(
-            state
-                .session()
-                .draft()
-                .ok_or("missing new draft")?
-                .body()
-                .is_empty()
+        assert_eq!(
+            state.session().draft().ok_or("missing new draft")?.body(),
+            ""
         );
     }
     Ok(())
@@ -190,7 +186,7 @@ fn empty_comment_moves_to_clicked_line_but_nonempty_comment_stays() -> Result<()
         let _ = state.handle_input(click(second));
         let moved = state.session().draft().ok_or("missing moved draft")?;
         assert_ne!(moved.anchor(), &original);
-        assert!(moved.body().is_empty());
+        assert_eq!(moved.body(), "");
         let anchor = moved.anchor().clone();
         assert_eq!(Some(anchor.clone()), state.session().selected_anchor());
         assert_eq!(state.interaction_phase(), InteractionPhase::Draft);

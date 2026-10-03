@@ -105,7 +105,7 @@ async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
         .await?;
 
     let discarded = wait_for_snapshot(&mut snapshots).await?;
-    assert!(discarded.document.files.is_empty());
+    assert_eq!(discarded.document.files, []);
 
     repo.write("file.txt", "committed\n");
     wait_for_snapshot(&mut snapshots).await?;
@@ -120,7 +120,7 @@ async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
         })
         .await?;
     let committed = wait_for_snapshot(&mut snapshots).await?;
-    assert!(committed.document.files.is_empty());
+    assert_eq!(committed.document.files, []);
     Ok(())
 }
 
@@ -253,14 +253,14 @@ async fn linked_worktree_index_head_and_shared_refs_are_watched() -> TestResult 
     assert_eq!(stage_state(&staged, "file.txt"), Some(StageState::Staged));
     repo.git(&["commit", "-m", "linked change"]);
     let committed = wait_for_snapshot(&mut state).await?;
-    assert!(committed.document.files.is_empty());
+    assert_eq!(committed.document.files, []);
     main.git(&["branch", "saved-review", "review"]);
     main.git(&["update-ref", "refs/heads/review", "main"]);
     let reset = wait_for_snapshot(&mut state).await?;
     assert_eq!(stage_state(&reset, "file.txt"), Some(StageState::Staged));
     repo.git(&["symbolic-ref", "HEAD", "refs/heads/saved-review"]);
     let switched = wait_for_snapshot(&mut state).await?;
-    assert!(switched.document.files.is_empty());
+    assert_eq!(switched.document.files, []);
     Ok(())
 }
 
@@ -414,7 +414,7 @@ async fn watched_snapshots_are_immutable_and_scope_requests_publish_before_ackno
             vec![contents.trim_end()]
         );
     }
-    assert!(original.document.files.is_empty());
+    assert_eq!(original.document.files, []);
     assert!(!snapshots.has_changed()?);
     let expected = repository.snapshot_with_sources(DiffScope::Both).await?;
     assert_eq!(*healthy(&snapshots.borrow())?, expected);
@@ -428,7 +428,7 @@ async fn watched_snapshots_are_immutable_and_scope_requests_publish_before_ackno
         .await?;
     wait_for("raw scope acknowledgement", completion).await??;
     assert_eq!(healthy(&snapshots.borrow())?.scope, DiffScope::Staged);
-    assert!(healthy(&snapshots.borrow())?.document.files.is_empty());
+    assert_eq!(healthy(&snapshots.borrow())?.document.files, []);
     Ok(())
 }
 

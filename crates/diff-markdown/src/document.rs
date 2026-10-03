@@ -1284,13 +1284,13 @@ mod tests {
             document.blocks()[0].kind,
             MarkdownBlockKind::HtmlFallback { .. }
         ));
-        assert!(document.targets().is_empty());
+        assert_eq!(document.targets(), []);
     }
 
     #[test]
     fn empty_and_malformed_documents_are_safe() {
-        assert!(MarkdownDocument::parse("").targets().is_empty());
+        assert_eq!(MarkdownDocument::parse("").targets(), []);
         let document = MarkdownDocument::parse("# unclosed **emphasis\n\n```rust\ncode");
-        assert!(!document.blocks().is_empty());
+        assert_ne!(document.blocks(), []);
     }
 }

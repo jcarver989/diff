@@ -15,7 +15,7 @@ fn shares_upstream_runtime_with_ast_grep() -> TestResult {
     let source = "fn main() {}";
     let mut fixture = CacheBuilder::default().build();
     let highlights = fixture.highlight(source)?;
-    assert!(!line(&highlights, 0)?.is_empty());
+    assert_ne!(line(&highlights, 0)?, []);
     let document = StrDoc::try_new(source, Rust)?;
     let ast = AstGrep::doc(document);
     let pattern = Pattern::try_new(source, Rust)?;
@@ -165,7 +165,7 @@ fn complete_document_is_parsed_once_then_reused_without_loading_source() -> Test
     }
     let mut fixture = CacheBuilder::default().entries(4).build();
     let highlights = fixture.highlight(&text)?;
-    assert!(!line(&highlights, 9_000)?.is_empty());
+    assert_ne!(line(&highlights, 9_000)?, []);
     let first = fixture.highlighter.take_stats();
     assert_eq!(first.calls, 1);
     assert_eq!(first.misses, 1);
@@ -252,7 +252,7 @@ fn aliases_and_utf8_ranges_share_a_cache_entry() -> TestResult {
     let mut fixture = CacheBuilder::default().language("rs").build();
     let source = "let café = 1;\n";
     let highlights = fixture.highlight(source)?;
-    assert!(!line(&highlights, 0)?.is_empty());
+    assert_ne!(line(&highlights, 0)?, []);
     assert!(
         line(&highlights, 0)?
             .iter()
@@ -285,7 +285,7 @@ fn paths_and_shebangs_resolve_before_the_first_parse() -> TestResult {
             .highlight_document(Fingerprint::of([source]), hint, || source)?;
         assert_eq!(highlights.line_count(), source.lines().count());
         for (index, text) in source.lines().enumerate() {
-            assert!(!line(&highlights, index)?.is_empty());
+            assert_ne!(line(&highlights, index)?, []);
             assert!(
                 line(&highlights, index)?
                     .iter()
@@ -302,8 +302,8 @@ fn unknown_language_is_plain_text_and_cached() -> TestResult {
     for _ in 0..2 {
         let highlights = fixture.highlight("abc\n\n")?;
         assert_eq!(highlights.line_count(), 2);
-        assert!(line(&highlights, 0)?.is_empty());
-        assert!(line(&highlights, 1)?.is_empty());
+        assert_eq!(line(&highlights, 0)?, []);
+        assert_eq!(line(&highlights, 1)?, []);
     }
     assert_eq!(fixture.highlighter.stats().hits, 1);
     assert_eq!(fixture.highlighter.stats().bytes, 0);
@@ -371,7 +371,7 @@ fn injections_highlight_embedded_languages() -> TestResult {
     ] {
         let mut fixture = CacheBuilder::default().language(language).build();
         fixture.append(source)?;
-        assert!(!line(fixture.stream.highlights(), index)?.is_empty());
+        assert_ne!(line(fixture.stream.highlights(), index)?, []);
         fixture.assert_equivalent()?;
     }
     Ok(())

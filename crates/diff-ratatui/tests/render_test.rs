@@ -347,7 +347,7 @@ fn modal_text_composites_against_the_rendered_surface() {
         .iter()
         .filter(|cell| cell.bg == Color::Rgb(128, 128, 128) && cell.symbol() != " ")
         .collect();
-    assert!(!modal_cells.is_empty());
+    assert_ne!(modal_cells, Vec::<&ratatui::buffer::Cell>::new());
     for cell in modal_cells {
         assert_eq!(cell.fg, Color::Rgb(64, 64, 64), "{}", cell.symbol());
     }

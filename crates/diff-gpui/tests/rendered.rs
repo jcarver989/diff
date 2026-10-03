@@ -325,7 +325,7 @@ fn dismissal_controls_support_keyboard_activation_without_viewer_actions(cx: &mu
                 harness.press_key(cx, key)?;
                 assert!(harness.review(cx).is_empty());
                 assert_eq!(harness.selected_row(cx), selected);
-                assert!(harness.events(cx).is_empty());
+                assert_eq!(harness.events(cx), []);
                 Ok(())
             });
     }
