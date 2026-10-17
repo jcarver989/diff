@@ -84,4 +84,4 @@ clankerdiff-theme = { version = "0.3.3", path = "../diff-theme" }
 cc = "1.4.5"
 
 [dev-dependencies]
-ast-grep-core = "0.45.3"
+ast-grep-core = "0.50.0"
