@@ -141,7 +141,6 @@ impl MarkdownReview {
     }
 
     /// Returns comments associated with an exact durable anchor.
-    #[must_use]
     pub fn comments_for_anchor<'a>(
         &'a self,
         anchor: &MarkdownAnchor,

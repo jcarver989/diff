@@ -316,7 +316,7 @@ fn cloned_streams_append_independently() -> TestResult {
     fixture.append("still comment\n")?;
     assert!(!fixture.stream.source().contains("closed"));
     assert_eq!(speculative.source(), "/* stable\nclosed */\n");
-    assert!(!line(fixture.stream.highlights(), 1)?.is_empty());
+    assert_ne!(line(fixture.stream.highlights(), 1)?, []);
     fixture.assert_equivalent()
 }
 
@@ -341,7 +341,7 @@ fn split_shebangs_can_enable_syntax_after_plain_text() -> TestResult {
         fixture.assert_equivalent()?;
     }
     assert_eq!(fixture.stream.work_stats().full_parses, 1);
-    assert!(!line(fixture.stream.highlights(), 1)?.is_empty());
+    assert_ne!(line(fixture.stream.highlights(), 1)?, []);
     Ok(())
 }
 

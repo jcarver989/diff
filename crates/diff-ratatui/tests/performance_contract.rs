@@ -251,7 +251,7 @@ fn moving_back_to_a_cached_row_does_not_rehighlight_it() {
     assert_eq!(back.highlight_misses, 0);
     assert_eq!(back.highlight_calls, back.highlight_hits);
     assert!(harness.state().selected_row().is_some());
-    assert!(!harness.buffer().content().is_empty());
+    assert_ne!(harness.buffer().content(), []);
 }
 
 #[test]
