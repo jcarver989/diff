@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4](https://github.com/jcarver989/diff/compare/clankerdiff-syntax-v0.3.3...clankerdiff-syntax-v0.3.4) - 2026-10-17
+
+### Other
+
+- *(deps)* bump ast-grep-core from 0.45.3 to 0.50.0 ([#94](https://github.com/jcarver989/diff/pull/94))
+
 ## [0.1.3](https://github.com/jcarver989/diff/compare/clankerdiff-syntax-v0.1.2...clankerdiff-syntax-v0.1.3) - 2026-09-10
 
 ### Fixed
