@@ -117,7 +117,6 @@ impl Review {
             .filter(move |comment| &comment.context.path == path || &comment.anchor.path == path)
     }
 
-    #[must_use]
     pub fn comments_for_anchor<'a>(
         &'a self,
         anchor: &'a LineAnchor,
