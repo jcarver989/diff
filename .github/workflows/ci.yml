@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5.0.1
+      - uses: jdx/mise-action@v5.1.1
       - name: Check formatting
         run: just fmt-check
 
@@ -30,7 +30,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5.0.1
+      - uses: jdx/mise-action@v5.1.1
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -46,7 +46,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5.0.1
+      - uses: jdx/mise-action@v5.1.1
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -71,7 +71,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5.0.1
+      - uses: jdx/mise-action@v5.1.1
       - uses: Swatinem/rust-cache@v2
       - name: Check portable adapter features
         run: just feature-check
@@ -85,7 +85,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5.0.1
+      - uses: jdx/mise-action@v5.1.1
       - uses: jetli/trunk-action@v0.5.1
         with:
           version: v0.21.14
@@ -106,7 +106,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5.0.1
+      - uses: jdx/mise-action@v5.1.1
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
