@@ -111,7 +111,7 @@ fn malformed_connection_headers_fail_before_network_connection() -> Result<(), B
             .args(["connect", "ws://127.0.0.1:1/ws", "-H", header])
             .output()?;
         assert!(!output.status.success());
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout.len(), 0);
         let stderr = String::from_utf8(output.stderr)?;
         assert!(stderr.contains("invalid value"), "{stderr}");
         assert!(!stderr.contains("connection refused"), "{stderr}");

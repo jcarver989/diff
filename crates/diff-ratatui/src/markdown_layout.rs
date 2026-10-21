@@ -124,7 +124,6 @@ impl MarkdownRows {
             range: self.range.start + range.start..self.range.start + range.end,
         }
     }
-    #[must_use]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Arc<MarkdownRow>> {
         self.range.clone().map(move |index| &self.store.rows[index])
     }

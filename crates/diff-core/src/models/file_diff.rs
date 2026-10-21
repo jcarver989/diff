@@ -179,6 +179,7 @@ impl FileDiff {
     }
 
     /// Returns the complete source result for one side.
+    #[must_use]
     pub const fn source(&self, side: DiffSide) -> &SourceResult {
         match side {
             DiffSide::Old => &self.old_source,
