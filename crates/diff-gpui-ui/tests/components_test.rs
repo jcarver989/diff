@@ -1,6 +1,7 @@
 use clankerdiff_gpui_ui::{
     prelude::{Button, ListRow, UiTheme},
     testing::ComponentHarnessBuilder,
+    tokens::TREE_INDENT,
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{IntoElement, ParentElement, TestAppContext, div, prelude::*, px};
@@ -40,6 +41,43 @@ fn clicking_a_list_row_runs_its_handler(cx: &mut TestAppContext) {
         |harness, cx| {
             harness.click(cx, "row")?;
             assert_eq!(clicks.get(), 1);
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn a_nested_row_indents_its_content_but_keeps_its_full_width(cx: &mut TestAppContext) {
+    ComponentHarnessBuilder::default().run(
+        cx,
+        |_, _| {
+            let row = |id: &'static str, depth| {
+                ListRow::new(id, theme()).depth(depth).child(
+                    div()
+                        .debug_selector(move || format!("{id}-content"))
+                        .child(id),
+                )
+            };
+            div()
+                .w(px(240.0))
+                .child(row("parent", 0))
+                .child(row("child", 2))
+                .into_any_element()
+        },
+        |harness, cx| {
+            let parent = harness.bounds(cx, "parent").ok_or("missing parent")?;
+            let child = harness.bounds(cx, "child").ok_or("missing child")?;
+            let parent_content = harness
+                .bounds(cx, "parent-content")
+                .ok_or("missing parent content")?;
+            let child_content = harness
+                .bounds(cx, "child-content")
+                .ok_or("missing child content")?;
+            assert_eq!(child.size.width, parent.size.width);
+            assert_eq!(
+                child_content.left() - parent_content.left(),
+                px(2.0 * TREE_INDENT)
+            );
             Ok(())
         },
     );

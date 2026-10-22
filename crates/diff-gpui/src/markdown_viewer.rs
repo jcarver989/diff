@@ -896,11 +896,14 @@ impl Focusable for MarkdownReviewer {
 }
 
 impl Render for MarkdownReviewer {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focus = self
             .focus_handle
             .get_or_insert_with(|| cx.focus_handle())
             .clone();
+        if window.focused(cx).is_none() && self.editor.is_none() {
+            focus.focus(window, cx);
+        }
         let palette = &self.theme.diff;
         let targets = self
             .document()

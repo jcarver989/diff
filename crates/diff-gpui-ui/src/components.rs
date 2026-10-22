@@ -4,6 +4,7 @@ use super::{
     icon::{Icon, IconName},
     theme::{UiStyle, UiTheme},
     tokens::{self, rem},
+    tree::indent,
     typography::{Typography, TypographyExt},
 };
 pub use clankerdiff_theme::{
@@ -455,6 +456,7 @@ pub struct ListRow {
     id: ElementId,
     theme: UiTheme,
     state: SelectionState,
+    depth: usize,
     children: Vec<AnyElement>,
     on_click: Option<ClickHandler>,
 }
@@ -466,6 +468,7 @@ impl ListRow {
             id: id.into(),
             theme,
             state: SelectionState::None,
+            depth: 0,
             children: Vec::new(),
             on_click: None,
         }
@@ -476,6 +479,13 @@ impl ListRow {
         format!("{id}-hover").into()
     }
 
+    /// Indents the row's content one [`tokens::TREE_INDENT`] per level of
+    /// `depth`, while its hover and selection background stays full width.
+    #[must_use]
+    pub const fn depth(mut self, depth: usize) -> Self {
+        self.depth = depth;
+        self
+    }
     #[must_use]
     pub const fn state(mut self, state: SelectionState) -> Self {
         self.state = state;
@@ -542,7 +552,8 @@ impl RenderOnce for ListRow {
                 .debug_selector(move || selector)
                 .min_h(rem(tokens::ROW_HEIGHT))
                 .w_full()
-                .px_2()
+                .pl(indent(self.depth))
+                .pr_2()
                 .flex()
                 .items_center()
                 .gap_2()

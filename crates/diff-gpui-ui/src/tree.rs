@@ -5,8 +5,8 @@ use crate::{
     typography::{Typography, TypographyExt},
 };
 use gpui::{
-    AnyElement, App, ClickEvent, ElementId, Hsla, IntoElement, ParentElement, RenderOnce, Role,
-    SharedString, Window, div, prelude::*,
+    AnyElement, App, ClickEvent, ElementId, Hsla, IntoElement, ParentElement, Rems, RenderOnce,
+    Role, SharedString, Window, div, prelude::*,
 };
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -100,7 +100,6 @@ impl RenderOnce for TreeRow {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let colors = self.theme.colors;
         let selector = self.id.to_string();
-        let depth = f32::from(u16::try_from(self.depth).unwrap_or(u16::MAX));
         let chevron = self.expanded.map(|expanded| {
             if expanded {
                 IconName::ChevronDown
@@ -123,9 +122,7 @@ impl RenderOnce for TreeRow {
             .min_w_0()
             .h(rem(tokens::ROW_HEIGHT))
             .flex_none()
-            .pl(rem(
-                tokens::CONTROL_PADDING_X_SMALL + depth * tokens::TREE_INDENT
-            ))
+            .pl(indent(self.depth))
             .pr_2()
             .flex()
             .items_center()
@@ -158,4 +155,10 @@ impl RenderOnce for TreeRow {
             .child(div().flex_1().min_w_0().ml_1().truncate().child(self.label))
             .children(self.children)
     }
+}
+
+/// The leading padding of a row nested `depth` levels deep.
+pub(crate) fn indent(depth: usize) -> Rems {
+    let depth = f32::from(u16::try_from(depth).unwrap_or(u16::MAX));
+    rem(tokens::CONTROL_PADDING_X_SMALL + depth * tokens::TREE_INDENT)
 }
