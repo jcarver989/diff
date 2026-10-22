@@ -5,7 +5,7 @@ use crate::{
         prelude::{
             CODE_FONT, IconName, PanelSide, ResizablePanel, TreeRow, Typography, TypographyExt, rem,
         },
-        tokens::{BAR_HEIGHT, CHECKBOX_SIZE, RADIUS_CONTROL},
+        tokens::{BAR_HEIGHT, CHECKBOX_SIZE},
     },
     viewer::{MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH},
 };
@@ -42,7 +42,6 @@ impl DiffViewer {
             .size(rem(CHECKBOX_SIZE))
             .flex_shrink_0()
             .cursor_pointer()
-            .rounded(rem(RADIUS_CONTROL))
             .border_1()
             .border_color(colors.text_muted)
             .bg(colors.canvas)
