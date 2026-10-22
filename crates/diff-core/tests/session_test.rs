@@ -1,8 +1,7 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffSide, Layout, RevealAmount, ReviewSession, RowKind, SessionOptions, ViewMode,
-    testing::DocumentBuilder,
+    DiffSide, Layout, RevealAmount, ReviewSession, RowKind, ViewMode, testing::DocumentBuilder,
 };
 use std::{error::Error, sync::Arc};
 
@@ -30,12 +29,7 @@ fn source_side_follows_file_status() -> Result<(), Box<dyn Error>> {
         (DocumentBuilder::new().binary("a.rs"), DiffSide::New),
     ] {
         let document = builder.build();
-        let mut session = ReviewSession::with_options(
-            document.clone(),
-            SessionOptions {
-                include_file_headers: false,
-            },
-        );
+        let mut session = ReviewSession::new(document.clone());
         assert!(session.toggle_source_view());
         assert_eq!(
             session.source_view().ok_or("source target")?,
@@ -43,7 +37,7 @@ fn source_side_follows_file_status() -> Result<(), Box<dyn Error>> {
         );
         let row = session.selected_presented_row().ok_or("source row")?;
         if document.files[0].binary {
-            assert_eq!(row.kind, RowKind::Meta);
+            assert_eq!(row.kind, RowKind::FileHeader);
         } else {
             assert_eq!(row.kind, RowKind::ExpandedContext);
             assert_eq!(session.selected_side(), side);
@@ -310,6 +304,92 @@ fn hunk_targets_can_be_queried_without_changing_selection() -> Result<(), Box<dy
     let empty = ReviewSession::new(DocumentBuilder::new().build());
     assert_eq!(empty.hunk_target(1), None);
     Ok(())
+}
+
+#[test]
+fn selecting_a_row_in_another_file_updates_the_file_without_clearing_the_draft()
+-> Result<(), Box<dyn Error>> {
+    let mut session = ReviewSession::new(
+        DocumentBuilder::new()
+            .changed("a.rs", "old", "new")
+            .changed("b.rs", "before", "after")
+            .build(),
+    );
+    assert!(session.begin_draft(None));
+    session.draft_mut().ok_or("draft")?.set_body("unfinished");
+    let anchor = session.draft().ok_or("draft")?.anchor().clone();
+    let row = session
+        .presentation()
+        .file_range(1)
+        .and_then(|range| session.presentation().first_navigable(range))
+        .ok_or("second file row")?;
+    assert!(session.select_row(row));
+    assert_eq!(session.selected_file(), Some(1));
+    assert_eq!(
+        session.selected_anchor().ok_or("anchor")?.path.as_str(),
+        "b.rs"
+    );
+    assert_eq!(session.draft().ok_or("draft")?.anchor(), &anchor);
+    assert_eq!(session.draft().ok_or("draft")?.body(), "unfinished");
+    session.cancel_draft();
+    assert!(session.toggle_source_view());
+    let other = session
+        .presentation()
+        .file_range(0)
+        .and_then(|range| session.presentation().first_navigable(range))
+        .ok_or("other file row")?;
+    assert!(!session.select_row(other));
+    assert_eq!(session.selected_file(), Some(1));
+    assert!(!session.select_row(usize::MAX));
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::format_collect)]
+fn files_open_on_their_first_line_rather_than_the_leading_gap() -> Result<(), Box<dyn Error>> {
+    let old = (1..=20)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    let mut session = ReviewSession::new(
+        DocumentBuilder::new()
+            .changed("a.rs", &old, &old.replace("line 15\n", "changed\n"))
+            .changed("b.rs", &old, &old.replace("line 15\n", "changed\n"))
+            .build(),
+    );
+    for file in [0, 1] {
+        assert!(session.select_file(file));
+        let range = session.selected_file_range().ok_or("range")?;
+        let gap = range
+            .clone()
+            .find(|&row| session.presentation().gap_info(row).is_some())
+            .ok_or("leading gap")?;
+        assert!(session.selected_row().ok_or("selection")? > gap);
+        assert_eq!(
+            session.selected_presented_row().map(|row| row.kind),
+            Some(RowKind::Code)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn rows_and_files_are_laid_out_and_navigated_in_tree_order() {
+    let mut session = ReviewSession::new(
+        DocumentBuilder::new()
+            .changed("z.rs", "old\n", "new\n")
+            .binary("b.bin")
+            .changed("src/a.rs", "before\n", "after\n")
+            .build(),
+    );
+    assert_eq!(session.presentation().file_order(), [2, 1, 0]);
+    assert_eq!(session.selected_file(), Some(2));
+    assert!(session.select_boundary(true));
+    assert_eq!(session.selected_file(), Some(0));
+    assert!(!session.move_row(5));
+    assert!(session.move_row(-2));
+    assert_eq!(session.selected_file(), Some(2));
+    assert_eq!(session.move_file(1), Some(1));
+    assert_eq!(session.move_file(9), Some(0));
 }
 
 fn session() -> ReviewSession {

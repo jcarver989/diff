@@ -260,6 +260,11 @@ impl FileDiff {
         Fingerprint::of(fields)
     }
 
+    #[must_use]
+    pub fn renamed_from(&self) -> Option<&RepoPath> {
+        self.old_path.as_ref().filter(|old| **old != self.path)
+    }
+
     /// Number of added lines.
     #[must_use]
     pub fn additions(&self) -> usize {

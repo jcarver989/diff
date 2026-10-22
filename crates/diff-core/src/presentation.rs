@@ -3,7 +3,7 @@
 use crate::{
     DiffDocument, DiffSide, FileDiff, FileStatus, Fingerprint, Hunk, LineAnchor, PatchLine,
     PatchLineKind, RepoPath, SourceDocument, SourceLineRef, SourceLocation, SourceSequenceId,
-    SourceUnavailable, join_lines,
+    SourceUnavailable, file_tree::tree_order, join_lines,
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
@@ -99,7 +99,6 @@ impl PresentationOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RowKind {
     FileHeader,
-    HunkHeader,
     Meta,
     Code,
     ExpandedContext,
@@ -145,18 +144,37 @@ pub struct GapInfo {
     pub id: GapId,
     pub hidden_lines: usize,
     pub unavailable: Option<SourceUnavailable>,
+    pub function_context: Option<Arc<str>>,
 }
 
 impl GapInfo {
     /// Returns the deterministic renderer-independent gap label.
     #[must_use]
     pub fn message(&self) -> String {
-        match &self.unavailable {
+        let message = match &self.unavailable {
             None => format!("⋯ {} unchanged lines", self.hidden_lines),
             Some(SourceUnavailable::TooLarge { .. }) => {
                 "⋯ source is too large to expand".to_owned()
             }
             Some(reason) => format!("⋯ {reason}"),
+        };
+        match &self.function_context {
+            Some(context) => format!("{message} · {context}"),
+            None => message,
+        }
+    }
+
+    #[must_use]
+    pub const fn is_expandable(&self) -> bool {
+        self.unavailable.is_none()
+    }
+
+    #[must_use]
+    pub fn hint(&self) -> String {
+        if self.is_expandable() {
+            format!("{} — Enter expand · O expand all", self.message())
+        } else {
+            self.message()
         }
     }
 }
@@ -350,7 +368,7 @@ impl PresentedRow {
         match self.kind {
             RowKind::Code | RowKind::ExpandedContext => self.source_lines().next().is_some(),
             RowKind::ExpandGap => true,
-            RowKind::FileHeader | RowKind::HunkHeader | RowKind::Meta => false,
+            RowKind::FileHeader | RowKind::Meta => false,
         }
     }
 }
@@ -365,6 +383,7 @@ pub struct DiffPresentation {
     anchor_rows: HashMap<(usize, DiffSide, usize), usize>,
     source_rows: HashMap<(usize, DiffSide, usize), usize>,
     gap_info: HashMap<usize, GapInfo>,
+    file_order: Vec<usize>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
     /// Lazily fingerprinted per hunk so presentations that never fall back to
@@ -390,17 +409,18 @@ impl DiffPresentation {
         let layout = projection.layout(options);
         let mut rows = Vec::new();
         let mut gap_info = HashMap::new();
-        let mut file_ranges = Vec::with_capacity(document.files.len());
-        let mut hunk_ranges = Vec::with_capacity(document.files.len());
-        for (file_index, file) in document.files.iter().enumerate() {
+        let file_order = tree_order(&document);
+        let mut file_ranges = vec![0..0; document.files.len()];
+        let mut hunk_ranges = vec![Vec::new(); document.files.len()];
+        for &file_index in &file_order {
+            let file = &document.files[file_index];
             let file_start = rows.len();
             if options.include_file_headers {
                 rows.push(header_row(file_index, file));
             }
             if projection.source_view() == Some(&file.path) {
                 append_source_rows(&mut rows, file_index, file);
-                file_ranges.push(file_start..rows.len());
-                hunk_ranges.push(Vec::new());
+                file_ranges[file_index] = file_start..rows.len();
                 continue;
             }
             let old_count = file
@@ -411,7 +431,7 @@ impl DiffPresentation {
                 .map_or(0, |source| source.line_count());
             let gaps = gaps_for_file(file, old_count, new_count);
             let mut file_hunks = Vec::with_capacity(file.hunks.len());
-            for (hunk_index, hunk) in file.hunks.iter().enumerate() {
+            for (hunk_index, gap) in gaps.iter().enumerate().take(file.hunks.len()) {
                 append_gap_projection(
                     &mut rows,
                     &mut gap_info,
@@ -419,13 +439,12 @@ impl DiffPresentation {
                         file_index,
                         gap_index: hunk_index,
                         file,
-                        gap: &gaps[hunk_index],
+                        gap,
                         layout,
                         projection,
                     },
                 );
                 let hunk_start = rows.len();
-                rows.push(hunk_header_row(file_index, hunk_index, hunk, &file.path));
                 match layout {
                     Layout::Unified => append_unified_rows(&mut rows, file_index, hunk_index, file),
                     Layout::Split => append_split_rows(&mut rows, file_index, hunk_index, file),
@@ -470,8 +489,8 @@ impl DiffPresentation {
                     },
                 );
             }
-            file_ranges.push(file_start..rows.len());
-            hunk_ranges.push(file_hunks);
+            file_ranges[file_index] = file_start..rows.len();
+            hunk_ranges[file_index] = file_hunks;
         }
         let anchor_rows = rows
             .iter()
@@ -508,6 +527,7 @@ impl DiffPresentation {
             anchor_rows,
             source_rows,
             gap_info,
+            file_order,
             file_ranges,
             hunk_ranges,
             sequence_ids,
@@ -548,6 +568,24 @@ impl DiffPresentation {
         let start = range.start.min(self.rows.len());
         let end = range.end.max(start).min(self.rows.len());
         &self.rows[start..end]
+    }
+
+    #[must_use]
+    pub fn file_order(&self) -> &[usize] {
+        &self.file_order
+    }
+
+    #[must_use]
+    pub fn offset_file(&self, file: usize, delta: isize) -> Option<usize> {
+        let position = self.file_order.iter().position(|&index| index == file)?;
+        let target = if delta.is_negative() {
+            position.saturating_sub(delta.unsigned_abs())
+        } else {
+            position
+                .saturating_add(delta.unsigned_abs())
+                .min(self.file_order.len() - 1)
+        };
+        Some(self.file_order[target])
     }
 
     /// Returns the row range occupied by a file.
@@ -768,17 +806,49 @@ impl DiffPresentation {
     }
 
     #[must_use]
-    pub fn step_navigable(
-        &self,
-        from: usize,
-        backward: bool,
-        range: &Range<usize>,
-    ) -> Option<usize> {
-        if backward {
-            self.last_navigable(range.start..from.min(range.end))
-        } else {
-            self.first_navigable(from.saturating_add(1).max(range.start)..range.end)
-        }
+    pub fn first_source_row(&self, range: Range<usize>) -> Option<usize> {
+        range.into_iter().find(|index| {
+            self.row(*index)
+                .is_some_and(|row| row.source_lines().next().is_some())
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewportAnchor {
+    row: RowId,
+    source: Option<SourceLocation>,
+    path: RepoPath,
+}
+
+impl ViewportAnchor {
+    #[must_use]
+    pub fn capture(presentation: &DiffPresentation, row: usize) -> Option<Self> {
+        let presented = presentation.row(row)?;
+        Some(Self {
+            row: presented.id,
+            source: presented
+                .primary_cell()
+                .and_then(|cell| presentation.source_location(presented, cell)),
+            path: presentation
+                .document()
+                .files
+                .get(presented.file_index)?
+                .path
+                .clone(),
+        })
+    }
+
+    #[must_use]
+    pub fn resolve(&self, presentation: &DiffPresentation, range: Range<usize>) -> Option<usize> {
+        presentation
+            .row_with_id(self.row)
+            .or_else(|| presentation.row_showing_source(self.source.as_ref()?))
+            .or_else(|| {
+                let file = presentation.document().file_index(&self.path)?;
+                Some(presentation.file_range(file)?.start)
+            })
+            .filter(|row| range.contains(row))
     }
 }
 
@@ -890,15 +960,14 @@ fn append_gap_projection(
         file_index,
         gap_index,
     };
-    let expansion = projection.expansions.get(&id).copied();
+    let expansion = projection.expansions.get(&id).copied().unwrap_or_default();
     let full_file = projection.is_full_file(&file.path);
-    if expansion.is_none() && !full_file {
-        return;
-    }
-    let expansion = expansion.unwrap_or_default();
     let old = file.source_document(DiffSide::Old);
     let new = file.source_document(DiffSide::New);
     let total = gap.old.len().max(gap.new.len());
+    if total == 0 && !file.hunks.is_empty() {
+        return;
+    }
     let loaded = gap_required_sides(layout, file.status)
         .iter()
         .all(|side| match side {
@@ -936,6 +1005,17 @@ fn append_gap_projection(
     }
     if hidden != 0 || !loaded {
         let unavailable = gap_unavailable(file, layout);
+        let function_context = file
+            .hunks
+            .get(gap_index)
+            .and_then(|hunk| hunk.function_context.as_deref())
+            .map(Arc::<str>::from);
+        let info = GapInfo {
+            id,
+            hidden_lines: hidden,
+            unavailable,
+            function_context,
+        };
         let row_index = rows.len();
         rows.push(PresentedRow {
             id: row_id(&file.path, "expand-gap", Some(gap_index), None, None),
@@ -943,21 +1023,9 @@ fn append_gap_projection(
             file_index,
             hunk_index: None,
             left: None,
-            right: Some(cell(
-                None,
-                None,
-                Arc::<str>::from("unchanged lines"),
-                DiffTone::Meta,
-            )),
+            right: Some(cell(None, None, info.message(), DiffTone::Meta)),
         });
-        gap_info.insert(
-            row_index,
-            GapInfo {
-                id,
-                hidden_lines: hidden,
-                unavailable,
-            },
-        );
+        gap_info.insert(row_index, info);
     }
     if loaded {
         let start = total.saturating_sub(suffix).max(prefix);
@@ -1111,22 +1179,6 @@ fn header_row(file_index: usize, file: &FileDiff) -> PresentedRow {
         hunk_index: None,
         left: None,
         right: Some(cell(None, None, text, DiffTone::Meta)),
-    }
-}
-
-fn hunk_header_row(
-    file_index: usize,
-    hunk_index: usize,
-    hunk: &crate::Hunk,
-    path: &RepoPath,
-) -> PresentedRow {
-    PresentedRow {
-        id: row_id(path, "hunk", Some(hunk_index), None, None),
-        kind: RowKind::HunkHeader,
-        file_index,
-        hunk_index: Some(hunk_index),
-        left: None,
-        right: Some(cell(None, None, hunk.header.as_str(), DiffTone::Meta)),
     }
 }
 

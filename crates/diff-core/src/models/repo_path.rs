@@ -38,6 +38,20 @@ impl RepoPath {
     pub fn as_str(&self) -> &str {
         self.0.as_ref()
     }
+
+    #[must_use]
+    pub fn file_name(&self) -> &str {
+        self.as_str()
+            .rsplit_once('/')
+            .map_or(self.as_str(), |(_, name)| name)
+    }
+
+    #[must_use]
+    pub fn directory(&self) -> Option<&str> {
+        self.as_str()
+            .rsplit_once('/')
+            .map(|(directory, _)| directory)
+    }
 }
 
 impl AsRef<str> for RepoPath {

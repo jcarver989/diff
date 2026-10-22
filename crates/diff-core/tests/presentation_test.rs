@@ -2,7 +2,7 @@
 
 use clankerdiff_core::{
     ContentProjection, DiffPresentation, DiffSide, DiffTone, Layout, MAX_HUNK_SEQUENCE_LINES,
-    PresentationOptions, RowKind, SourceDocument, SourceUnavailable, ViewMode,
+    PresentationOptions, RowKind, SourceDocument, SourceUnavailable, ViewMode, ViewportAnchor,
     testing::DocumentBuilder,
 };
 use std::{borrow::Cow, error::Error};
@@ -230,4 +230,78 @@ fn oversized_hunks_and_synthetic_cells_use_only_the_cell_text() {
             assert!(matches!(context.text(), Cow::Borrowed(_)));
         }
     }
+}
+
+#[test]
+#[allow(clippy::format_collect)]
+fn unchanged_gaps_separate_hunks_and_carry_function_context() -> Result<(), Box<dyn Error>> {
+    let old = (1..=60)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    let new = old
+        .replace("line 10\n", "changed 10\n")
+        .replace("line 50\n", "changed 50\n");
+    let presentation = DiffPresentation::new(
+        DocumentBuilder::new()
+            .changed_with("a.rs", &old, &new, |mut file| {
+                file.hunks[1].function_context = Some("fn later()".to_owned());
+                file
+            })
+            .build(),
+        PresentationOptions {
+            view_mode: ViewMode::Unified,
+            ..Default::default()
+        },
+    );
+    let gaps = (0..presentation.row_count())
+        .filter_map(|index| presentation.gap_info(index).map(|info| (index, info)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        gaps.iter()
+            .map(|(_, info)| info.id.gap_index)
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    let (between, info) = gaps[1];
+    assert_eq!(info.hidden_lines, 33);
+    assert_eq!(info.message(), "⋯ 33 unchanged lines · fn later()");
+    let row = presentation.row(between).ok_or("gap row")?;
+    assert_eq!(row.kind, RowKind::ExpandGap);
+    assert_eq!(
+        row.primary_cell().map(|cell| cell.text.as_ref()),
+        Some(info.message().as_str())
+    );
+    let hunk = presentation.hunk_range(0, 1).ok_or("second hunk")?;
+    assert_eq!(hunk.start, between + 1);
+    assert_eq!(
+        presentation.row(hunk.start).map(|row| row.kind),
+        Some(RowKind::Code)
+    );
+    Ok(())
+}
+
+#[test]
+fn viewport_anchors_fall_back_to_their_file_start() -> Result<(), Box<dyn Error>> {
+    let presentation = DiffPresentation::new(
+        DocumentBuilder::new()
+            .changed("a.rs", "old\n", "new\n")
+            .build(),
+        PresentationOptions::default(),
+    );
+    let all = 0..presentation.row_count();
+    let row = presentation.last_navigable(all.clone()).ok_or("row")?;
+    let anchor = ViewportAnchor::capture(&presentation, row).ok_or("anchor")?;
+    assert_eq!(anchor.resolve(&presentation, all), Some(row));
+    assert_eq!(anchor.resolve(&presentation, 0..row), None);
+    let changed = DiffPresentation::new(
+        DocumentBuilder::new().binary("a.rs").build(),
+        PresentationOptions::default(),
+    );
+    assert_eq!(anchor.resolve(&changed, 0..changed.row_count()), Some(0));
+    let removed = DiffPresentation::new(
+        DocumentBuilder::new().changed("z.rs", "a\n", "b\n").build(),
+        PresentationOptions::default(),
+    );
+    assert_eq!(anchor.resolve(&removed, 0..removed.row_count()), None);
+    Ok(())
 }
