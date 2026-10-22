@@ -14,7 +14,7 @@ pub const CODE_ROW_HEIGHT: f32 = 20.0;
 pub const ICON_BUTTON_SIZE: f32 = 24.0;
 pub const ICON_SIZE: f32 = 16.0;
 pub const ICON_SIZE_SMALL: f32 = 12.0;
-pub const CHECKBOX_SIZE: f32 = 16.0;
+pub const CHECKBOX_SIZE: f32 = 12.0;
 pub const TREE_INDENT: f32 = 12.0;
 pub const RESIZE_HANDLE_WIDTH: f32 = 6.0;
 
