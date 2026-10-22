@@ -43,7 +43,7 @@ pub enum GitError {
     ///
     /// `stderr` is retained for diagnostics, but omitted from `Display` to
     /// avoid leaking file contents or other sensitive command output.
-    #[error("git operation `{operation}` failed with status {status:?}")]
+    #[error("git operation `{operation}` failed with status {status:?}{detail}", detail = command_failure_detail(.stderr))]
     CommandFailed {
         /// A non-sensitive operation label.
         operation: &'static str,
@@ -70,4 +70,14 @@ pub enum GitError {
     /// Core diff normalization failed.
     #[error("could not normalize Git snapshot: {0}")]
     Diff(#[from] DiffError),
+}
+
+fn command_failure_detail(stderr: &str) -> &'static str {
+    if stderr.contains("pathspec") && stderr.contains("did not match any files") {
+        ": a selected path no longer exists in the worktree or index; refresh and retry"
+    } else if stderr.contains("index.lock") && stderr.contains("File exists") {
+        ": the Git index is locked by another operation; retry when it finishes"
+    } else {
+        ""
+    }
 }
