@@ -5,14 +5,14 @@ mod commands;
 use crate::{
     DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DiffViewerEvent, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
-    sidebar::{SidebarEntry, SidebarResizeDrag, SidebarTree},
+    sidebar::SidebarResizeDrag,
     style::color,
     ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
 };
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, Layout, LineAnchor,
+    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, LineAnchor,
     PresentedCell, PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession,
-    RowId, SessionOptions, SourceLocation, StageState, ViewMode,
+    StageState, ViewMode, ViewportAnchor,
 };
 use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
 use clankerdiff_syntax::{
@@ -21,9 +21,9 @@ use clankerdiff_syntax::{
 use clankerdiff_theme::ReviewTheme;
 use clankerdiff_theme::ThemeSelection;
 use gpui::{
-    App, Context, DragMoveEvent, Entity, EventEmitter, Focusable, KeyBinding, KeyContext,
-    ListAlignment, ListOffset, ListState, ScrollHandle, Subscription, Window, actions, div,
-    prelude::*, px,
+    App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding,
+    KeyContext, ListAlignment, ListOffset, ListState, ScrollHandle, Subscription, Window, actions,
+    div, prelude::*, px,
 };
 use std::sync::Arc;
 
@@ -146,8 +146,7 @@ pub use clankerdiff_core::FocusPane as ViewerPane;
 
 struct DiffViewportBookmark {
     offset: ListOffset,
-    row: Option<RowId>,
-    source: Option<SourceLocation>,
+    anchor: Option<ViewportAnchor>,
 }
 
 /// Shared GPUI diff review view.
@@ -163,19 +162,19 @@ pub struct DiffViewer {
     sidebar_width: f32,
     preferred_sidebar_width: Option<f32>,
     font_size: f32,
-    diff_list_state: ListState,
-    diff_list_file: Option<usize>,
+    pub(crate) diff_list_state: ListState,
+    diff_list_revision: Option<u64>,
+    followed_file: Option<usize>,
     diff_list_split: bool,
-    diff_list_revision: u64,
     diff_viewport: Option<DiffViewportBookmark>,
-    pub(crate) sidebar_tree: SidebarTree,
-    pub(crate) sidebar_selection: crate::sidebar::SidebarEntry,
+    pub(crate) sidebar_tree: FileTree,
     pub(crate) sidebar_scroll_handle: ScrollHandle,
     pub(crate) pane: ViewerPane,
     shortcuts_open: bool,
     pub(crate) comment_target: Option<CommentTarget>,
     pub(crate) comment_editor: Option<Entity<CommentEditor>>,
     comment_editor_subscription: Option<Subscription>,
+    comment_editor_focus: Option<FocusHandle>,
     repository_prompt: Option<RepositoryPrompt>,
     repository_editor: Option<Entity<CommentEditor>>,
     repository_editor_subscription: Option<Subscription>,
@@ -203,20 +202,17 @@ impl DiffViewer {
         theme: ReviewTheme,
         options: DiffViewerOptions,
     ) -> Self {
-        let sidebar_tree = SidebarTree::new(&document);
+        let mut sidebar_tree = FileTree::new(&document);
         let sidebar_width = options
             .sidebar_width
             .unwrap_or(DEFAULT_MIN_SIDEBAR_WIDTH)
             .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
         let font_size = clamp_font_size(options.font_size);
         let row_height = effective_diff_row_height(options.row_height, font_size);
-        Self {
-            session: ReviewSession::with_options(
-                document,
-                SessionOptions {
-                    include_file_headers: false,
-                },
-            ),
+        let session = ReviewSession::new(document);
+        sidebar_tree.reveal_file(session.selected_file().unwrap_or(0));
+        let mut viewer = Self {
+            session,
             scope: DiffScope::Both,
             capabilities: ReviewCapabilities::default(),
             theme_selection: None,
@@ -227,18 +223,18 @@ impl DiffViewer {
             preferred_sidebar_width: options.sidebar_width,
             font_size,
             diff_list_state: ListState::new(0, ListAlignment::Top, px(row_height * 8.0)),
-            diff_list_file: None,
+            diff_list_revision: None,
+            followed_file: None,
             diff_list_split: false,
-            diff_list_revision: 0,
             diff_viewport: None,
             sidebar_tree,
-            sidebar_selection: crate::sidebar::SidebarEntry::File(0),
             sidebar_scroll_handle: ScrollHandle::new(),
             pane: ViewerPane::Diff,
             shortcuts_open: false,
             comment_target: None,
             comment_editor: None,
             comment_editor_subscription: None,
+            comment_editor_focus: None,
             repository_prompt: None,
             repository_editor: None,
             repository_editor_subscription: None,
@@ -246,7 +242,9 @@ impl DiffViewer {
             background_error: None,
             repository_pending: false,
             focus_handle: None,
-        }
+        };
+        viewer.sync_diff_list();
+        viewer
     }
 
     /// Installs the actions' default keyboard shortcuts on an application.
@@ -438,7 +436,6 @@ impl DiffViewer {
         self.diff_list_state.logical_scroll_top()
     }
 
-    /// Scrolls the diff list to the end of the selected file.
     pub fn scroll_diff_to_end(&mut self, cx: &mut Context<Self>) {
         self.diff_list_state.scroll_to_end();
         cx.notify();
@@ -479,85 +476,45 @@ impl DiffViewer {
     }
 
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
-        let revision = self.session.projection_revision();
-        let selection = match &self.sidebar_selection {
-            SidebarEntry::File(index) => self
-                .document()
-                .files
-                .get(*index)
-                .and_then(|file| document.file_index(&file.path))
-                .map(SidebarEntry::File),
-            SidebarEntry::Directory(path) => Some(SidebarEntry::Directory(path.clone())),
-        };
         self.sidebar_tree.rebuild(&document);
-        self.session.set_document(document);
-
-        self.sidebar_selection = selection
-            .filter(|entry| match entry {
-                SidebarEntry::File(_) => true,
-                SidebarEntry::Directory(_) => self.sidebar_tree.position_of(entry).is_some(),
-            })
-            .unwrap_or_else(|| SidebarEntry::File(self.session.selected_file().unwrap_or(0)));
-        if let SidebarEntry::File(index) = self.sidebar_selection {
+        self.change_layout(|session| {
+            session.set_document(document);
+            true
+        });
+        if self.sidebar_tree.selected().is_none() {
             self.sidebar_tree
-                .expand_file(self.session.document(), index);
+                .reveal_file(self.session.selected_file().unwrap_or(0));
         }
-        self.settle_comment_editor();
         self.diff_list_state.remeasure();
-        if revision != self.session.projection_revision() {
-            self.diff_list_file = None;
-        }
         cx.notify();
     }
 
     fn settle_comment_editor(&mut self) {
-        if self.session.draft().is_none() {
+        if let Some(draft) = self.session.draft() {
+            let row = self.presentation().row_showing_anchor(draft.anchor());
+            if let (Some(row), Some(target)) = (row, self.comment_target.as_mut()) {
+                target.row_index = row;
+                self.set_comment_row_focus(row, self.comment_editor_focus.clone());
+            }
+        } else {
             self.clear_comment_editor();
         }
     }
 
-    fn finish_layout_change(&mut self, changed: bool, cx: &mut Context<Self>) -> bool {
-        if changed {
-            self.diff_list_file = None;
-            cx.notify();
+    pub(crate) fn change_layout(
+        &mut self,
+        change: impl FnOnce(&mut ReviewSession) -> bool,
+    ) -> bool {
+        let bookmark = self.diff_viewport_bookmark();
+        let changed = change(&mut self.session);
+        if self.sync_diff_list() {
+            self.restore_diff_viewport(bookmark);
         }
         changed
     }
 
     pub(crate) fn expand_selected_gap(&mut self, amount: RevealAmount, cx: &mut Context<Self>) {
-        let selected = self.session.selected_row();
-        let file = self.session.selected_file();
-        let old_range = file.and_then(|file| self.session.presentation().file_range(file));
-        let selected_gap =
-            selected.is_some_and(|row| self.session.presentation().gap_info(row).is_some());
-        let side = self.session.selected_side();
-        self.session.reveal_selected_gap(amount);
-        if (old_range.clone(), selected, side)
-            != (
-                self.session.selected_file_range(),
-                self.session.selected_row(),
-                self.session.selected_side(),
-            )
-        {
-            let new_range = file.and_then(|file| self.session.presentation().file_range(file));
-            let can_splice = selected_gap
-                && self.diff_list_file == file
-                && old_range
-                    .as_ref()
-                    .is_some_and(|range| self.diff_list_state.item_count() == range.len());
-            if let (true, Some(selected), Some(old_range), Some(new_range)) =
-                (can_splice, selected, old_range, new_range)
-            {
-                let local = selected.saturating_sub(old_range.start);
-                let replacement_count = new_range
-                    .len()
-                    .saturating_sub(old_range.len())
-                    .saturating_add(1);
-                self.diff_list_state
-                    .splice(local..local.saturating_add(1), replacement_count);
-            } else {
-                self.diff_list_file = None;
-            }
+        if self.change_layout(|session| session.reveal_selected_gap(amount)) {
             cx.notify();
         }
     }
@@ -618,8 +575,9 @@ impl DiffViewer {
 
     /// Selects automatic, unified, or split layout.
     pub fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
-        let changed = self.session.set_view_mode(mode);
-        self.finish_layout_change(changed, cx);
+        if self.change_layout(|session| session.set_view_mode(mode)) {
+            cx.notify();
+        }
     }
 
     /// Clears queued comments and the active draft.
@@ -739,53 +697,110 @@ impl DiffViewer {
         cx.notify();
     }
 
-    pub(crate) fn sync_diff_list(
-        &mut self,
-        file_index: usize,
-        row_count: usize,
-        split: bool,
-    ) -> ListState {
-        if self.diff_list_file != Some(file_index)
-            || self.diff_list_state.item_count() != row_count
-            || self.diff_list_revision != self.session.projection_revision()
-        {
-            self.diff_list_state
-                .reset_with_uniform_height(row_count, px(self.diff_row_height()));
-            self.diff_list_file = Some(file_index);
-            self.diff_list_split = split;
-        } else if self.diff_list_split != split {
-            self.diff_list_state.remeasure();
-            self.diff_list_split = split;
+    #[must_use]
+    pub fn active_file(&self) -> Option<usize> {
+        let range = self.session.visible_range();
+        let row = range.start + self.diff_list_state.logical_scroll_top().item_ix;
+        Some(
+            self.presentation()
+                .row(row.min(range.end.checked_sub(1)?))?
+                .file_index,
+        )
+    }
+
+    pub(crate) fn list_item(&self, row: usize) -> Option<usize> {
+        let range = self.session.visible_range();
+        range.contains(&row).then(|| row - range.start)
+    }
+
+    fn follow_active_file(&mut self) {
+        let active = self.active_file();
+        if active == self.followed_file {
+            return;
         }
-        self.diff_list_revision = self.session.projection_revision();
-        self.diff_list_state.clone()
+        self.followed_file = active;
+        if let Some(file) = active {
+            self.sidebar_tree.follow_file(file);
+            self.reveal_sidebar_selection();
+        }
+    }
+
+    pub(crate) fn sync_diff_list(&mut self) -> bool {
+        let revision = self.session.projection_revision();
+        let rebuild = self.diff_list_revision != Some(revision);
+        if rebuild {
+            self.diff_list_state.reset_with_uniform_height(
+                self.session.visible_range().len(),
+                px(self.diff_row_height()),
+            );
+            self.diff_list_revision = Some(revision);
+            self.settle_comment_editor();
+        }
+        if self.diff_list_split != self.layout().is_split() {
+            self.diff_list_state.remeasure();
+            self.diff_list_split = self.layout().is_split();
+        }
+        rebuild
+    }
+
+    fn diff_viewport_bookmark(&self) -> DiffViewportBookmark {
+        let offset = self.diff_list_state.logical_scroll_top();
+        let row = self.session.visible_range().start + offset.item_ix;
+        DiffViewportBookmark {
+            offset,
+            anchor: ViewportAnchor::capture(self.presentation(), row),
+        }
+    }
+
+    fn restore_diff_viewport(&self, bookmark: DiffViewportBookmark) {
+        let range = self.session.visible_range();
+        self.diff_list_state.scroll_to(
+            match bookmark
+                .anchor
+                .and_then(|anchor| anchor.resolve(self.presentation(), range.clone()))
+            {
+                Some(row) => ListOffset {
+                    item_ix: row - range.start,
+                    ..bookmark.offset
+                },
+                None => ListOffset {
+                    item_ix: bookmark.offset.item_ix.min(range.len().saturating_sub(1)),
+                    offset_in_item: px(0.0),
+                },
+            },
+        );
     }
 
     pub(crate) fn select_file(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.sidebar_selection = crate::sidebar::SidebarEntry::File(index);
+        self.sidebar_tree.reveal_file(index);
         if self.session.select_file(index) {
-            let document = self.session.document().clone();
-            self.sidebar_tree.expand_file(&document, index);
+            self.sync_diff_list();
             self.clear_comment_editor();
+            if let Some(item_ix) = self
+                .presentation()
+                .file_range(index)
+                .and_then(|range| self.list_item(range.start))
+            {
+                self.diff_list_state.scroll_to(ListOffset {
+                    item_ix,
+                    offset_in_item: px(0.0),
+                });
+            }
             cx.notify();
         }
     }
 
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "GPUI click handlers construct owned entries"
-    )]
-    pub(crate) fn toggle_stage_entry(
+    pub(crate) fn toggle_stage_path(
         &mut self,
-        entry: crate::sidebar::SidebarEntry,
+        path: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.repository_pending {
             return;
         }
-        let state = SidebarTree::stage_state_for_entry(self.document(), &entry);
-        let paths = SidebarTree::paths_for_entry(self.document(), &entry);
+        let state = FileTree::stage_state_for(self.document(), path);
+        let paths = FileTree::paths_for(self.document(), path);
         if paths.is_empty() {
             return;
         }
@@ -799,6 +814,7 @@ impl DiffViewer {
 
     pub(crate) fn toggle_directory(
         &mut self,
+        position: usize,
         path: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -806,7 +822,7 @@ impl DiffViewer {
         if !self.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx) {
             return;
         }
-        self.sidebar_selection = crate::sidebar::SidebarEntry::Directory(path.to_owned());
+        self.sidebar_tree.select(position);
         self.sidebar_tree.toggle(path);
         cx.notify();
     }
@@ -887,26 +903,36 @@ impl DiffViewer {
                 }
             },
         ));
+        if let Some(previous_row) = previous_row {
+            self.set_comment_row_focus(previous_row, None);
+        }
         self.pane = ViewerPane::Diff;
         self.comment_target = Some(CommentTarget { row_index, side });
         self.comment_editor = Some(editor.clone());
         self.remeasure_row(previous_row);
         self.remeasure_row(Some(row_index));
-        editor.focus_handle(cx).focus(window, cx);
+        let focus = editor.focus_handle(cx);
+        self.comment_editor_focus = Some(focus.clone());
+        self.set_comment_row_focus(row_index, Some(focus.clone()));
+        focus.focus(window, cx);
         cx.notify();
     }
 
-    fn remeasure_row(&self, row_index: Option<usize>) {
-        let (Some(row_index), Some(file_index)) = (row_index, self.selected_file()) else {
-            return;
-        };
-        let Some(range) = self.presentation().file_range(file_index) else {
-            return;
-        };
-        if range.contains(&row_index) {
-            let local_index = row_index - range.start;
+    fn set_comment_row_focus(&self, row: usize, focus: Option<FocusHandle>) {
+        if let Some(item) = self
+            .list_item(row)
+            .filter(|&item| item < self.diff_list_state.item_count())
+        {
+            let offset = self.diff_list_state.logical_scroll_top();
             self.diff_list_state
-                .remeasure_items(local_index..local_index + 1);
+                .splice_focusable(item..item + 1, [focus]);
+            self.diff_list_state.scroll_to(offset);
+        }
+    }
+
+    fn remeasure_row(&self, row_index: Option<usize>) {
+        if let Some(item) = row_index.and_then(|row| self.list_item(row)) {
+            self.diff_list_state.remeasure_items(item..item + 1);
         }
     }
 
@@ -915,6 +941,10 @@ impl DiffViewer {
     }
 
     fn clear_comment_editor(&mut self) {
+        if let Some(target) = &self.comment_target {
+            self.set_comment_row_focus(target.row_index, None);
+        }
+        self.comment_editor_focus = None;
         self.comment_target = None;
         self.comment_editor = None;
         self.comment_editor_subscription = None;
@@ -975,57 +1005,16 @@ impl DiffViewer {
 
     pub fn toggle_source_view(&mut self, cx: &mut Context<Self>) -> bool {
         let entering = self.session.source_view().is_none();
-        let bookmark = if entering {
-            let offset = self.diff_list_state.logical_scroll_top();
-            let row = self
-                .session
-                .selected_file_range()
-                .and_then(|range| self.presentation().row(range.start + offset.item_ix));
-            Some(DiffViewportBookmark {
-                offset,
-                row: row.map(|row| row.id),
-                source: row.and_then(|row| {
-                    self.presentation()
-                        .source_location(row, row.primary_cell()?)
-                }),
-            })
-        } else {
-            None
-        };
+        let bookmark = self.diff_viewport_bookmark();
         if !self.session.toggle_source_view() {
             return false;
         }
-        if let (Some(file), Some(range)) =
-            (self.selected_file(), self.session.selected_file_range())
-        {
-            self.sync_diff_list(file, range.len(), self.layout().is_split());
-        }
+        self.sync_diff_list();
         if entering {
-            self.diff_viewport = bookmark;
+            self.diff_viewport = Some(bookmark);
             self.reveal_selected_row();
-        } else if let Some(mut bookmark) = self.diff_viewport.take() {
-            let restored = bookmark
-                .row
-                .and_then(|id| self.presentation().row_with_id(id))
-                .or_else(|| {
-                    bookmark
-                        .source
-                        .as_ref()
-                        .and_then(|source| self.presentation().row_showing_source(source))
-                })
-                .zip(self.session.selected_file_range())
-                .and_then(|(row, range)| range.contains(&row).then(|| row - range.start));
-            if let Some(item_ix) = restored {
-                bookmark.offset.item_ix = item_ix;
-            }
-            bookmark.offset.item_ix = bookmark
-                .offset
-                .item_ix
-                .min(self.diff_list_state.item_count().saturating_sub(1));
-            self.diff_list_state.scroll_to(bookmark.offset);
-            if restored.is_none() {
-                self.reveal_selected_row();
-            }
+        } else if let Some(bookmark) = self.diff_viewport.take() {
+            self.restore_diff_viewport(bookmark);
         }
         cx.notify();
         true
@@ -1058,7 +1047,7 @@ impl DiffViewer {
         let Some(current) = self.selected_file() else {
             return;
         };
-        if let Some(index) = self.sidebar_tree.offset_file(current, delta) {
+        if let Some(index) = self.presentation().offset_file(current, delta) {
             self.handle_command(DiffReviewCommand::SelectFile(index), window, cx);
         }
     }
@@ -1070,15 +1059,29 @@ impl DiffViewer {
     }
 
     fn reveal_selected_row(&self) {
-        let Some(selected) = self.session.selected_row() else {
+        let Some(item) = self
+            .session
+            .selected_row()
+            .and_then(|row| self.list_item(row))
+        else {
             return;
         };
-        let Some(range) = self.session.selected_file_range() else {
-            return;
-        };
-        if range.contains(&selected) {
-            self.diff_list_state
-                .scroll_to_reveal_item(selected - range.start);
+        let divider_height = px(self.file_divider_height());
+        let under_divider = item <= self.diff_list_state.logical_scroll_top().item_ix
+            || self
+                .diff_list_state
+                .bounds_for_item(item)
+                .is_some_and(|bounds| {
+                    bounds.top() < self.diff_list_state.viewport_bounds().top() + divider_height
+                });
+        if under_divider {
+            self.diff_list_state.scroll_to(ListOffset {
+                item_ix: item,
+                offset_in_item: px(0.0),
+            });
+            self.diff_list_state.scroll_by(-divider_height);
+        } else {
+            self.diff_list_state.scroll_to_reveal_item(item);
         }
     }
 
@@ -1089,25 +1092,27 @@ impl DiffViewer {
                 self.reveal_selected_row();
             }
             ViewerPane::Files => {
-                if let Some(selection) = self
+                let file = self
                     .sidebar_tree
-                    .offset_entry(&self.sidebar_selection, delta)
-                {
-                    self.sidebar_selection = selection.clone();
-                    if let crate::sidebar::SidebarEntry::File(index) = selection {
-                        self.select_file(index, cx);
-                    }
-                    self.reveal_sidebar_selection();
-                }
+                    .move_selection(delta)
+                    .map(|entry| entry.file);
+                self.open_sidebar_file(file.flatten(), cx);
             }
         }
         cx.notify();
     }
 
     fn reveal_sidebar_selection(&self) {
-        if let Some(index) = self.sidebar_tree.position_of(&self.sidebar_selection) {
+        if let Some(index) = self.sidebar_tree.selected_position() {
             self.sidebar_scroll_handle.scroll_to_item(index);
         }
+    }
+
+    fn open_sidebar_file(&mut self, file: Option<usize>, cx: &mut Context<Self>) {
+        if let Some(file) = file {
+            self.select_file(file, cx);
+        }
+        self.reveal_sidebar_selection();
     }
 
     fn select_boundary(&mut self, end: bool, cx: &mut Context<Self>) {
@@ -1117,13 +1122,11 @@ impl DiffViewer {
                 self.reveal_selected_row();
             }
             ViewerPane::Files => {
-                if let Some(selection) = self.sidebar_tree.boundary_entry(end) {
-                    self.sidebar_selection = selection.clone();
-                    if let crate::sidebar::SidebarEntry::File(index) = selection {
-                        self.select_file(index, cx);
-                    }
-                    self.reveal_sidebar_selection();
-                }
+                let file = self
+                    .sidebar_tree
+                    .select_boundary(end)
+                    .map(|entry| entry.file);
+                self.open_sidebar_file(file.flatten(), cx);
             }
         }
         cx.notify();
@@ -1220,9 +1223,12 @@ impl DiffViewer {
     }
 
     fn open_selected_entry(&mut self, cx: &mut Context<Self>) {
-        match self.sidebar_selection.clone() {
-            crate::sidebar::SidebarEntry::Directory(path) => self.sidebar_tree.expand(&path),
-            crate::sidebar::SidebarEntry::File(index) => {
+        let Some(entry) = self.sidebar_tree.selected().cloned() else {
+            return;
+        };
+        match entry.file {
+            None => self.sidebar_tree.set_expanded(&entry.path, true),
+            Some(index) => {
                 self.select_file(index, cx);
                 self.pane = ViewerPane::Diff;
             }
@@ -1236,8 +1242,10 @@ impl DiffViewer {
     }
 
     fn collapse_selected_entry(&mut self, cx: &mut Context<Self>) {
-        if let crate::sidebar::SidebarEntry::Directory(path) = self.sidebar_selection.clone() {
-            self.sidebar_tree.collapse(&path);
+        if let Some(entry) = self.sidebar_tree.selected().cloned()
+            && entry.file.is_none()
+        {
+            self.sidebar_tree.set_expanded(&entry.path, false);
             self.reveal_sidebar_selection();
             cx.notify();
         }
@@ -1599,12 +1607,11 @@ impl Render for DiffViewer {
             self.diff_list_state.remeasure();
         }
         let diff_width = viewport_width - sidebar_width - SIDEBAR_DIVIDER_WIDTH;
-        if self
-            .session
-            .set_split_when_auto(diff_width >= self.options.auto_split_width)
-        {
-            self.diff_list_file = None;
+        let split_when_auto = diff_width >= self.options.auto_split_width;
+        if self.session.split_when_auto() != split_when_auto {
+            self.change_layout(|session| session.set_split_when_auto(split_when_auto));
         }
+        self.follow_active_file();
         let palette = self.theme.diff.clone();
         let focus_handle = self
             .focus_handle

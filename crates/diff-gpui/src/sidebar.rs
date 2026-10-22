@@ -1,11 +1,13 @@
-use crate::{DiffViewer, ViewerPane, style::color};
-use clankerdiff_core::{DiffDocument, DiffReviewCommand, FileStatus, RepoPath, StageState};
+use crate::{
+    DiffViewer, ViewerPane,
+    style::{color, file_status_color},
+};
+use clankerdiff_core::{DiffReviewCommand, FileTree, FileTreeEntry, StageState};
 use gpui::{
     ClickEvent, Context, Div, Empty, PathBuilder, Role, Stateful, canvas, div, point, prelude::*,
     px,
 };
 use gpui_base::{Checkbox, CheckboxIndicator, CheckboxState};
-use std::collections::{BTreeMap, HashSet};
 
 const HEADER_HEIGHT: f32 = 52.0;
 const INDENT_WIDTH: f32 = 16.0;
@@ -16,347 +18,39 @@ const RESIZE_HANDLE_WIDTH: f32 = 8.0;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SidebarResizeDrag;
 
-#[derive(Debug, Default)]
-pub(crate) struct SidebarTree {
-    roots: Vec<TreeNode>,
-    collapsed: HashSet<String>,
-}
-
-#[derive(Debug)]
-enum TreeNode {
-    Directory(DirectoryNode),
-    File(FileNode),
-}
-
-#[derive(Debug)]
-struct DirectoryNode {
-    path: String,
-    name: String,
-    children: Vec<TreeNode>,
-}
-
-#[derive(Debug)]
-struct FileNode {
-    index: usize,
-    name: String,
-}
-
-#[derive(Debug, Default)]
-struct DirectoryBuilder {
-    directories: BTreeMap<String, DirectoryBuilder>,
-    files: Vec<FileNode>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum VisibleNode<'a> {
-    Directory {
-        directory: &'a DirectoryNode,
-        depth: u16,
-        expanded: bool,
-    },
-    File {
-        file: &'a FileNode,
-        depth: u16,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SidebarEntry {
-    Directory(String),
-    File(usize),
-}
-
-impl VisibleNode<'_> {
-    fn entry(&self) -> SidebarEntry {
-        match self {
-            Self::Directory { directory, .. } => SidebarEntry::Directory(directory.path.clone()),
-            Self::File { file, .. } => SidebarEntry::File(file.index),
-        }
-    }
-}
-
-impl SidebarTree {
-    pub(crate) fn new(document: &DiffDocument) -> Self {
-        let mut tree = Self::default();
-        tree.rebuild(document);
-        tree
-    }
-
-    pub(crate) fn rebuild(&mut self, document: &DiffDocument) {
-        let mut root = DirectoryBuilder::default();
-        for (index, file) in document.files.iter().enumerate() {
-            let mut components = file.path.as_str().split('/').peekable();
-            let mut directory = &mut root;
-            while let Some(component) = components.next() {
-                if components.peek().is_none() {
-                    directory.files.push(FileNode {
-                        index,
-                        name: component.to_owned(),
-                    });
-                } else {
-                    directory = directory
-                        .directories
-                        .entry(component.to_owned())
-                        .or_default();
-                }
-            }
-        }
-
-        self.roots = build_nodes(root, "");
-        let mut directory_paths = HashSet::new();
-        collect_directory_paths(&self.roots, &mut directory_paths);
-        self.collapsed
-            .retain(|path| directory_paths.contains(path.as_str()));
-    }
-
-    pub(crate) fn expand(&mut self, path: &str) {
-        self.collapsed.remove(path);
-    }
-
-    pub(crate) fn collapse(&mut self, path: &str) {
-        self.collapsed.insert(path.to_owned());
-    }
-
-    pub(crate) fn toggle(&mut self, path: &str) {
-        if !self.collapsed.remove(path) {
-            self.collapsed.insert(path.to_owned());
-        }
-    }
-
-    pub(crate) fn expand_file(&mut self, document: &DiffDocument, file_index: usize) {
-        let Some(file) = document.files.get(file_index) else {
-            return;
-        };
-        let mut path = String::new();
-        let mut components = file.path.as_str().split('/').peekable();
-        while let Some(component) = components.next() {
-            if components.peek().is_none() {
-                break;
-            }
-            if !path.is_empty() {
-                path.push('/');
-            }
-            path.push_str(component);
-            self.collapsed.remove(&path);
-        }
-    }
-
-    fn visible_nodes(&self) -> Vec<VisibleNode<'_>> {
-        let mut visible = Vec::new();
-        collect_visible_nodes(&self.roots, 0, &self.collapsed, &mut visible);
-        visible
-    }
-
-    fn file_order(&self) -> Vec<usize> {
-        let mut indices = Vec::new();
-        collect_file_indices(&self.roots, &mut indices);
-        indices
-    }
-
-    pub(crate) fn position_of(&self, selected: &SidebarEntry) -> Option<usize> {
-        self.visible_nodes()
-            .iter()
-            .position(|node| node.entry() == *selected)
-    }
-
-    pub(crate) fn offset_entry(
-        &self,
-        current: &SidebarEntry,
-        delta: isize,
-    ) -> Option<SidebarEntry> {
-        let nodes = self.visible_nodes();
-        let position = nodes
-            .iter()
-            .position(|node| node.entry() == *current)
-            .unwrap_or(0);
-        let target = if delta.is_negative() {
-            position.saturating_sub(delta.unsigned_abs())
-        } else {
-            position
-                .saturating_add(delta.unsigned_abs())
-                .min(nodes.len().saturating_sub(1))
-        };
-        nodes.get(target).map(VisibleNode::entry)
-    }
-
-    pub(crate) fn boundary_entry(&self, end: bool) -> Option<SidebarEntry> {
-        let nodes = self.visible_nodes();
-        if end { nodes.last() } else { nodes.first() }.map(VisibleNode::entry)
-    }
-
-    pub(crate) fn paths_for_entry(document: &DiffDocument, entry: &SidebarEntry) -> Vec<RepoPath> {
-        match entry {
-            SidebarEntry::File(index) => document
-                .files
-                .get(*index)
-                .map(|file| vec![file.path.clone()])
-                .unwrap_or_default(),
-            SidebarEntry::Directory(path) => {
-                let prefix = format!("{path}/");
-                document
-                    .files
-                    .iter()
-                    .filter(|file| file.path.as_str().starts_with(&prefix))
-                    .map(|file| file.path.clone())
-                    .collect()
-            }
-        }
-    }
-
-    pub(crate) fn stage_state_for_entry(
-        document: &DiffDocument,
-        entry: &SidebarEntry,
-    ) -> StageState {
-        match entry {
-            SidebarEntry::File(index) => document
-                .files
-                .get(*index)
-                .map_or(StageState::Unstaged, |file| file.staged),
-            SidebarEntry::Directory(path) => {
-                let prefix = format!("{path}/");
-                aggregate_stage_states(
-                    document
-                        .files
-                        .iter()
-                        .filter(|file| file.path.as_str().starts_with(&prefix))
-                        .map(|file| file.staged),
-                )
-            }
-        }
-    }
-
-    pub(crate) fn offset_file(&self, current: usize, delta: isize) -> Option<usize> {
-        let order = self.file_order();
-        let position = order.iter().position(|index| *index == current)?;
-        let target = if delta.is_negative() {
-            position.saturating_sub(delta.unsigned_abs())
-        } else {
-            position
-                .saturating_add(delta.unsigned_abs())
-                .min(order.len().saturating_sub(1))
-        };
-        order.get(target).copied()
-    }
-}
-
-fn aggregate_stage_states(states: impl IntoIterator<Item = StageState>) -> StageState {
-    let mut states = states.into_iter();
-    let Some(first) = states.next() else {
-        return StageState::Unstaged;
-    };
-    if first == StageState::PartiallyStaged || states.any(|state| state != first) {
-        StageState::PartiallyStaged
-    } else {
-        first
-    }
-}
-
-fn build_nodes(builder: DirectoryBuilder, parent_path: &str) -> Vec<TreeNode> {
-    let mut nodes = Vec::with_capacity(builder.directories.len() + builder.files.len());
-    for (name, child) in builder.directories {
-        let path = if parent_path.is_empty() {
-            name.clone()
-        } else {
-            format!("{parent_path}/{name}")
-        };
-        let children = build_nodes(child, &path);
-        nodes.push(TreeNode::Directory(DirectoryNode {
-            path,
-            name,
-            children,
-        }));
-    }
-
-    let mut files = builder.files;
-    files.sort_by(|left, right| {
-        left.name
-            .cmp(&right.name)
-            .then_with(|| left.index.cmp(&right.index))
-    });
-    nodes.extend(files.into_iter().map(TreeNode::File));
-    nodes
-}
-
-fn collect_directory_paths<'a>(nodes: &'a [TreeNode], paths: &mut HashSet<&'a str>) {
-    for node in nodes {
-        if let TreeNode::Directory(directory) = node {
-            paths.insert(&directory.path);
-            collect_directory_paths(&directory.children, paths);
-        }
-    }
-}
-
-fn collect_visible_nodes<'a>(
-    nodes: &'a [TreeNode],
-    depth: u16,
-    collapsed: &HashSet<String>,
-    visible: &mut Vec<VisibleNode<'a>>,
-) {
-    for node in nodes {
-        match node {
-            TreeNode::Directory(directory) => {
-                let expanded = !collapsed.contains(&directory.path);
-                visible.push(VisibleNode::Directory {
-                    directory,
-                    depth,
-                    expanded,
-                });
-                if expanded {
-                    collect_visible_nodes(&directory.children, depth + 1, collapsed, visible);
-                }
-            }
-            TreeNode::File(file) => visible.push(VisibleNode::File { file, depth }),
-        }
-    }
-}
-
-fn collect_file_indices(nodes: &[TreeNode], indices: &mut Vec<usize>) {
-    for node in nodes {
-        match node {
-            TreeNode::Directory(directory) => collect_file_indices(&directory.children, indices),
-            TreeNode::File(file) => indices.push(file.index),
-        }
-    }
-}
-
-fn sidebar_row(depth: u16, height: f32) -> Div {
+fn sidebar_row(depth: usize, height: f32) -> Div {
     div()
         .h(px(height))
         .flex()
         .items_center()
         .gap_2()
         .pr_3()
-        .pl(px(12.0 + f32::from(depth) * INDENT_WIDTH))
+        .pl(px(12.0
+            + f32::from(u16::try_from(depth).unwrap_or(u16::MAX))
+                * INDENT_WIDTH))
         .cursor_pointer()
 }
 
 impl DiffViewer {
-    fn stage_checkbox(
-        &self,
-        id: String,
-        stage: StageState,
-        entry: SidebarEntry,
-        cx: &mut Context<Self>,
-    ) -> Checkbox {
+    fn stage_checkbox(&self, entry: &FileTreeEntry, cx: &mut Context<Self>) -> Checkbox {
         let palette = &self.theme().diff;
-        let checkbox_state = match stage {
+        let checkbox_state = match FileTree::stage_state_for(self.document(), &entry.path) {
             StageState::Staged => CheckboxState::Checked,
             StageState::PartiallyStaged => CheckboxState::Indeterminate,
             StageState::Unstaged => CheckboxState::Unchecked,
         };
         let viewer = cx.entity().downgrade();
-        let label = match &entry {
-            SidebarEntry::Directory(path) => format!("Toggle staging for {path}"),
-            SidebarEntry::File(index) => {
-                format!("Toggle staging for {}", self.document().files[*index].path)
-            }
-        };
+        let path = entry.path.clone();
+        let label = format!("Toggle staging for {path}");
         let mark_color = color(palette.foreground);
-        let checkbox_id = match &entry {
-            SidebarEntry::Directory(path) => format!("diff-directory-checkbox:{path}"),
-            SidebarEntry::File(index) => {
-                format!("diff-file-checkbox:{}", self.document().files[*index].path)
-            }
+        let (checkbox_id, id) = if let Some(index) = entry.file {
+            (
+                format!("diff-file-checkbox:{path}"),
+                format!("diff-file-checkbox:{index}"),
+            )
+        } else {
+            let id = format!("diff-directory-checkbox:{path}");
+            (id.clone(), id)
         };
         Checkbox::new(checkbox_id)
             .debug_selector(move || id.clone())
@@ -375,7 +69,7 @@ impl DiffViewer {
             .focus_visible(|style| style.border_color(color(palette.accent)))
             .on_change(move |_, _, window, cx| {
                 let _ = viewer.update(cx, |viewer, cx| {
-                    viewer.toggle_stage_entry(entry.clone(), window, cx);
+                    viewer.toggle_stage_path(&path, window, cx);
                 });
                 cx.stop_propagation();
             })
@@ -426,15 +120,13 @@ impl DiffViewer {
             .track_scroll(&self.sidebar_scroll_handle)
             .py_2();
 
-        for node in self.sidebar_tree.visible_nodes() {
-            match node {
-                VisibleNode::Directory {
-                    directory,
-                    depth,
-                    expanded,
-                } => rows = rows.child(self.render_directory_row(directory, depth, expanded, cx)),
-                VisibleNode::File { file, depth } => {
-                    if let Some(row) = self.render_file_row(file, depth, cx) {
+        let selected = self.sidebar_tree.selected_position();
+        for (position, entry) in self.sidebar_tree.entries().iter().enumerate() {
+            let selected = selected == Some(position);
+            match entry.file {
+                None => rows = rows.child(self.render_directory_row(position, entry, selected, cx)),
+                Some(index) => {
+                    if let Some(row) = self.render_file_row(index, entry, selected, cx) {
                         rows = rows.child(row);
                     }
                 }
@@ -498,79 +190,61 @@ impl DiffViewer {
 
     fn render_directory_row(
         &self,
-        directory: &DirectoryNode,
-        depth: u16,
-        expanded: bool,
+        position: usize,
+        entry: &FileTreeEntry,
+        selected: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let palette = &self.theme().diff;
-        let path = directory.path.clone();
-        let selected = self.sidebar_selection == SidebarEntry::Directory(path.clone());
-        let entry = SidebarEntry::Directory(path.clone());
-        let stage = SidebarTree::stage_state_for_entry(self.document(), &entry);
-        sidebar_row(depth, self.sidebar_row_height())
+        let path = entry.path.clone();
+        sidebar_row(entry.depth, self.sidebar_row_height())
             .id(format!("diff-directory:{path}"))
             .role(Role::TreeItem)
-            .aria_label(directory.name.clone())
-            .aria_level(usize::from(depth) + 1)
-            .aria_expanded(expanded)
+            .aria_label(entry.name.clone())
+            .aria_level(entry.depth + 1)
+            .aria_expanded(entry.expanded)
             .aria_selected(selected)
             .when(selected, |row| row.bg(color(palette.selection)))
             .text_color(color(palette.muted))
             .hover(|row| row.bg(color(palette.selection)))
             .on_click(cx.listener(move |viewer, _, window, cx| {
-                viewer.toggle_directory(&path, window, cx);
+                viewer.toggle_directory(position, &path, window, cx);
             }))
             .child(
                 div()
                     .w(px(DISCLOSURE_WIDTH))
                     .flex_shrink_0()
                     .text_center()
-                    .child(if expanded { "▾" } else { "▸" }),
+                    .child(if entry.expanded { "▾" } else { "▸" }),
             )
             .child(
                 div()
                     .flex_1()
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .child(directory.name.clone()),
+                    .child(entry.name.clone()),
             )
-            .child(self.stage_checkbox(
-                format!("diff-directory-checkbox:{}", directory.path),
-                stage,
-                entry,
-                cx,
-            ))
+            .child(self.stage_checkbox(entry, cx))
     }
 
     fn render_file_row(
         &self,
-        file: &FileNode,
-        depth: u16,
+        index: usize,
+        entry: &FileTreeEntry,
+        selected: bool,
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
         let palette = &self.theme().diff;
-        let index = file.index;
         let diff = self.document().files.get(index)?;
-        let status_color = match diff.status {
-            FileStatus::Added | FileStatus::Untracked => palette.addition,
-            FileStatus::Deleted => palette.deletion,
-            FileStatus::Modified | FileStatus::Renamed | FileStatus::Copied => palette.accent,
-        };
-        let opened = self.selected_file() == Some(index);
-        let selected = self.sidebar_selection == SidebarEntry::File(index);
-        let stage = diff.staged;
+        let status_color = file_status_color(diff.status, palette);
         Some(
-            sidebar_row(depth, self.sidebar_row_height())
+            sidebar_row(entry.depth, self.sidebar_row_height())
                 .id(format!("diff-file:{}", diff.path))
                 .role(Role::TreeItem)
                 .aria_label(diff.path.to_string())
-                .aria_level(usize::from(depth) + 1)
+                .aria_level(entry.depth + 1)
                 .aria_selected(selected)
                 .when(selected, |row| row.bg(color(palette.selection)))
-                .when(opened && !selected, |row| {
-                    row.border_l_2().border_color(color(palette.accent))
-                })
                 .hover(|row| row.bg(color(palette.selection)))
                 .on_click(cx.listener(move |viewer, _, window, cx| {
                     if viewer.handle_command(
@@ -594,7 +268,7 @@ impl DiffViewer {
                         .flex_1()
                         .overflow_hidden()
                         .whitespace_nowrap()
-                        .child(file.name.clone()),
+                        .child(entry.name.clone()),
                 )
                 .child(
                     div()
@@ -603,173 +277,7 @@ impl DiffViewer {
                         .text_color(color(palette.muted))
                         .child(format!("+{} −{}", diff.additions(), diff.deletions())),
                 )
-                .child(self.stage_checkbox(
-                    format!("diff-file-checkbox:{index}"),
-                    stage,
-                    SidebarEntry::File(index),
-                    cx,
-                )),
+                .child(self.stage_checkbox(entry, cx)),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clankerdiff_core::testing::DocumentBuilder;
-
-    fn nested_document() -> std::sync::Arc<DiffDocument> {
-        DocumentBuilder::new()
-            .changed("README.md", "old\n", "new\n")
-            .changed("crates/z/src/lib.rs", "old\n", "new\n")
-            .changed("crates/a.rs", "old\n", "new\n")
-            .changed("src/main.rs", "old\n", "new\n")
-            .changed("src/lib.rs", "old\n", "new\n")
-            .build()
-    }
-
-    fn visible_labels(tree: &SidebarTree) -> Vec<String> {
-        tree.visible_nodes()
-            .into_iter()
-            .map(|node| match node {
-                VisibleNode::Directory {
-                    directory, depth, ..
-                } => format!("{depth}:d:{}", directory.path),
-                VisibleNode::File { file, depth } => {
-                    format!("{depth}:f:{}:{}", file.index, file.name)
-                }
-            })
-            .collect()
-    }
-
-    #[test]
-    fn builds_a_sorted_tree_while_preserving_document_indices() {
-        let document = nested_document();
-        let tree = SidebarTree::new(&document);
-
-        assert_eq!(
-            visible_labels(&tree),
-            [
-                "0:d:crates",
-                "1:d:crates/z",
-                "2:d:crates/z/src",
-                "3:f:1:lib.rs",
-                "1:f:2:a.rs",
-                "0:d:src",
-                "1:f:4:lib.rs",
-                "1:f:3:main.rs",
-                "0:f:0:README.md",
-            ]
-        );
-        assert_eq!(tree.file_order(), [1, 2, 4, 3, 0]);
-    }
-
-    #[test]
-    fn collapsing_a_directory_hides_only_its_descendants() {
-        let document = nested_document();
-        let mut tree = SidebarTree::new(&document);
-
-        tree.toggle("crates");
-
-        assert_eq!(
-            visible_labels(&tree),
-            [
-                "0:d:crates",
-                "0:d:src",
-                "1:f:4:lib.rs",
-                "1:f:3:main.rs",
-                "0:f:0:README.md",
-            ]
-        );
-    }
-
-    #[test]
-    fn rebuild_retains_existing_collapse_state_and_prunes_removed_paths() {
-        let document = nested_document();
-        let mut tree = SidebarTree::new(&document);
-        tree.toggle("src");
-        tree.toggle("crates/z");
-
-        let replacement = DocumentBuilder::new()
-            .changed("src/new.rs", "old\n", "new\n")
-            .changed("docs/guide.md", "old\n", "new\n")
-            .build();
-        tree.rebuild(&replacement);
-
-        assert!(tree.collapsed.contains("src"));
-        assert!(!tree.collapsed.contains("crates/z"));
-        assert!(!tree.collapsed.contains("docs"));
-    }
-
-    #[test]
-    fn directories_aggregate_and_include_collapsed_descendants() {
-        let mut document = (*nested_document()).clone();
-        document.files[3].staged = StageState::Staged;
-        document.files[4].staged = StageState::Unstaged;
-        let mut tree = SidebarTree::new(&document);
-        let entry = SidebarEntry::Directory("src".to_owned());
-        tree.collapse("src");
-
-        assert_eq!(
-            SidebarTree::stage_state_for_entry(&document, &entry),
-            StageState::PartiallyStaged
-        );
-        assert_eq!(
-            SidebarTree::paths_for_entry(&document, &entry)
-                .iter()
-                .map(RepoPath::as_str)
-                .collect::<Vec<_>>(),
-            ["src/main.rs", "src/lib.rs"]
-        );
-    }
-
-    #[test]
-    fn expanding_a_file_opens_all_of_its_ancestors() {
-        let document = nested_document();
-        let mut tree = SidebarTree::new(&document);
-        tree.toggle("crates");
-        tree.toggle("crates/z");
-        tree.toggle("crates/z/src");
-
-        tree.expand_file(&document, 1);
-
-        assert!(tree.collapsed.is_empty());
-    }
-
-    #[test]
-    fn offsets_files_in_display_order_and_clamps_at_the_edges() {
-        let document = nested_document();
-        let tree = SidebarTree::new(&document);
-
-        assert_eq!(tree.offset_file(1, -1), Some(1));
-        assert_eq!(tree.offset_file(1, 1), Some(2));
-        assert_eq!(tree.offset_file(3, 1), Some(0));
-        assert_eq!(tree.offset_file(0, 1), Some(0));
-    }
-
-    #[test]
-    fn keyboard_entries_include_directories_and_follow_collapses() {
-        let document = nested_document();
-        let mut tree = SidebarTree::new(&document);
-        let crates = SidebarEntry::Directory("crates".to_owned());
-
-        assert_eq!(tree.boundary_entry(false), Some(crates.clone()));
-        assert_eq!(
-            tree.offset_entry(&crates, 1),
-            Some(SidebarEntry::Directory("crates/z".to_owned()))
-        );
-
-        tree.collapse("crates");
-        assert_eq!(
-            tree.offset_entry(&crates, 1),
-            Some(SidebarEntry::Directory("src".to_owned()))
-        );
-        assert_eq!(tree.position_of(&crates), Some(0));
-
-        tree.expand("crates");
-        assert_eq!(
-            tree.offset_entry(&crates, 1),
-            Some(SidebarEntry::Directory("crates/z".to_owned()))
-        );
     }
 }

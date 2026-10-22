@@ -1,6 +1,7 @@
 //! Conversion from renderer-neutral diff styles to GPUI styles.
 
-use clankerdiff_theme::{FontStyle, Rgba};
+use clankerdiff_core::FileStatus;
+use clankerdiff_theme::{DiffPalette, FontStyle, Rgba};
 use gpui::{FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, Hsla, UnderlineStyle, px};
 
 /// Converts a renderer-neutral sRGB color to GPUI's HSLA color.
@@ -28,5 +29,13 @@ pub fn highlight_style(foreground: Rgba, style: FontStyle) -> HighlightStyle {
             wavy: false,
         }),
         ..Default::default()
+    }
+}
+
+pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette) -> Rgba {
+    match status {
+        FileStatus::Added | FileStatus::Untracked => palette.addition,
+        FileStatus::Deleted => palette.deletion,
+        FileStatus::Modified | FileStatus::Renamed | FileStatus::Copied => palette.accent,
     }
 }

@@ -23,6 +23,10 @@ gpui.workspace = true
 gpui-base.workspace = true
 
 [[test]]
+name = "diff_view_test"
+required-features = ["test-support"]
+
+[[test]]
 name = "rendered"
 required-features = ["test-support"]
 

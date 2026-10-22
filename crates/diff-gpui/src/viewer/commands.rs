@@ -1,8 +1,8 @@
 use super::{DiffViewer, ViewerPane};
-use crate::{DiffViewerEvent, ThemeChanged, sidebar::SidebarEntry};
+use crate::{DiffViewerEvent, ThemeChanged};
 use clankerdiff_core::{
     CommandContext, DiffReviewCommand, InteractionPhase, RepositoryAction, ReviewCapabilities,
-    ReviewCommand,
+    ReviewCommand, ReviewSession,
 };
 use clankerdiff_theme::{ThemeChoice, ThemeSelection};
 use gpui::{Context, ListOffset, Window, px};
@@ -88,12 +88,7 @@ impl DiffViewer {
             }
             C::SelectRow(index) => {
                 let previous = (self.session.selected_row(), self.session.selected_side());
-                if !self
-                    .session
-                    .selected_file_range()
-                    .is_some_and(|range| range.contains(&index))
-                    || !self.session.select_row(index)
-                {
+                if !self.session.select_row(index) {
                     return false;
                 }
                 if previous == (self.session.selected_row(), self.session.selected_side()) {
@@ -135,7 +130,8 @@ impl DiffViewer {
             }
             C::ToggleSourceView => {
                 if self.session.source_view().is_none() && self.pane == ViewerPane::Files {
-                    let SidebarEntry::File(index) = self.sidebar_selection else {
+                    let Some(index) = self.sidebar_tree.selected().and_then(|entry| entry.file)
+                    else {
                         return false;
                     };
                     if self.session.selected_file() != Some(index) {
@@ -149,22 +145,18 @@ impl DiffViewer {
                 return true;
             }
             C::ToggleFullFile => {
-                let changed = self.session.toggle_full_file();
-                self.finish_layout_change(changed, cx);
-                return true;
+                self.change_layout(ReviewSession::toggle_full_file);
             }
             C::SetViewMode(mode) => {
-                let changed = self.session.set_view_mode(mode);
-                self.finish_layout_change(changed, cx);
-                return true;
+                self.change_layout(|session| session.set_view_mode(mode));
             }
             C::CycleViewMode => {
-                let changed = self.session.cycle_view_mode();
-                self.finish_layout_change(changed, cx);
-                return true;
+                self.change_layout(ReviewSession::cycle_view_mode);
             }
             C::ToggleStage => {
-                self.toggle_stage_entry(self.sidebar_selection.clone(), window, cx);
+                if let Some(path) = self.sidebar_tree.selected().map(|entry| entry.path.clone()) {
+                    self.toggle_stage_path(&path, window, cx);
+                }
                 return true;
             }
             C::BeginCommit => {
