@@ -9,6 +9,7 @@ members = [
     "crates/diff-markdown",
     "crates/diff-git",
     "crates/diff-gpui",
+    "crates/diff-gpui-ui",
     "crates/diff-gpui-desktop",
     "crates/diff-gpui-web",
     "crates/diff-ratatui",

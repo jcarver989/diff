@@ -1930,6 +1930,7 @@ name = "clankerdiff-gpui"
 version = "0.3.3"
 dependencies = [
  "clankerdiff-core",
+ "clankerdiff-gpui-ui",
  "clankerdiff-markdown",
  "clankerdiff-syntax",
  "clankerdiff-theme",
@@ -1959,6 +1960,15 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "clankerdiff-gpui-ui"
+version = "0.3.3"
+dependencies = [
+ "clankerdiff-theme",
+ "gpui-base",
+ "gpui-pre",
 ]
 
 [[package]]
