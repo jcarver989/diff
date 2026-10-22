@@ -7,19 +7,24 @@ mod menus;
 mod preferences;
 mod run_loop;
 mod runtime;
-mod window_chrome;
 
 use app::DesktopApp;
 use args::CliArgs;
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::ReviewSubmission;
-use clankerdiff_gpui::{DiffViewer, MarkdownReviewer, load_default_fonts};
+use clankerdiff_gpui::{
+    DiffViewer, MarkdownReviewer,
+    ui::{InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE},
+};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use gpui::{
     App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
 use markdown_app::MarkdownDesktopApp;
 use std::sync::mpsc;
+
+/// The title the client-side title bar shows.
+const WINDOW_TITLE: &str = "Diff Review";
 
 fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
     WindowOptions {
@@ -63,7 +68,8 @@ pub fn run_review(args: CliArgs) -> Option<ReviewSubmission> {
 pub fn run_markdown_review(document: MarkdownDocument) -> Option<MarkdownReviewSubmission> {
     let (sender, receiver) = mpsc::channel();
     gpui_platform::application().run(move |cx: &mut App| {
-        load_default_fonts(cx).expect("failed to load the bundled fonts");
+        load_fonts(cx).expect("failed to load the bundled fonts");
+        InterfaceSize::init(DEFAULT_INTERFACE_SIZE, cx);
         MarkdownReviewer::bind_keys(cx);
         menus::install(cx);
         run_loop::install(cx);
@@ -91,7 +97,8 @@ fn run_application(
 ) {
     gpui_platform::application().run(move |cx: &mut App| {
         runtime::init(cx);
-        load_default_fonts(cx).expect("failed to load the bundled fonts");
+        load_fonts(cx).expect("failed to load the bundled fonts");
+        InterfaceSize::init(DEFAULT_INTERFACE_SIZE, cx);
         DiffViewer::bind_keys(cx);
         DesktopApp::bind_keys(cx);
         menus::install(cx);

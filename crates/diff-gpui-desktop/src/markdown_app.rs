@@ -1,7 +1,12 @@
-use crate::{preferences, run_loop, window_chrome};
+use crate::{WINDOW_TITLE, preferences, run_loop};
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_gpui::{
-    DEFAULT_FONT_FAMILY, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
+    MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
+    ui::{
+        InterfaceSize,
+        prelude::{UI_FONT, UiTheme},
+        window_chrome,
+    },
 };
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
 use gpui::{AppContext, ClipboardItem, Context, Entity, Subscription, Window, div, prelude::*};
@@ -66,11 +71,13 @@ impl MarkdownDesktopApp {
 
 impl Render for MarkdownDesktopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        InterfaceSize::apply(window, cx);
         let content = div()
             .size_full()
-            .font_family(DEFAULT_FONT_FAMILY)
+            .font_family(UI_FONT)
             .child(self.reviewer.clone())
             .into_any_element();
-        window_chrome::decorate(content, window, cx)
+        let theme = UiTheme::new(self.reviewer.read(cx).theme());
+        window_chrome::decorate(content, WINDOW_TITLE, &theme, window, cx)
     }
 }

@@ -1,13 +1,17 @@
 #![allow(missing_docs)] // GPUI action declarations cannot carry per-action documentation.
 
-use crate::{args::CliArgs, menus::SetScope, preferences, run_loop, window_chrome};
+use crate::{WINDOW_TITLE, args::CliArgs, menus::SetScope, preferences, run_loop};
 use clankerdiff_client::{ClientState, DiffClient, DiffSnapshot};
 use clankerdiff_core::{
     DiffReviewCommand, DiffReviewEvent, DiffScope, ReviewCapabilities, ReviewSubmission,
 };
 use clankerdiff_gpui::{
-    DEFAULT_FONT_FAMILY, DiffViewer, DiffViewerOptions, StageAll, ThemeChanged, UnstageAll,
-    ui::prelude::{EmptyState, NoticeTone, UiTheme},
+    DiffViewer, DiffViewerOptions, StageAll, ThemeChanged, UnstageAll,
+    ui::{
+        InterfaceSize,
+        prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme},
+        window_chrome,
+    },
 };
 use clankerdiff_server::{DiffServer, ServerOptions};
 use clankerdiff_theme::ReviewTheme;
@@ -385,13 +389,15 @@ impl DesktopApp {
 
 impl Render for DesktopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        InterfaceSize::apply(window, cx);
         let content = div()
             .key_context("DesktopDiff")
             .on_action(cx.listener(Self::menu_set_scope))
             .on_action(cx.listener(Self::stage_all))
             .on_action(cx.listener(Self::unstage_all))
             .size_full()
-            .font_family(DEFAULT_FONT_FAMILY)
+            .bg(UiTheme::new(&self.theme).colors.canvas)
+            .font_family(UI_FONT)
             .child(match &self.state {
                 LoadState::Loading => self
                     .status_panel(
@@ -422,7 +428,11 @@ impl Render for DesktopApp {
             })
             .into_any_element();
 
-        window_chrome::decorate(content, window, cx)
+        let theme = self.viewer.as_ref().map_or_else(
+            || UiTheme::new(&self.theme),
+            |viewer| UiTheme::new(viewer.read(cx).theme()),
+        );
+        window_chrome::decorate(content, WINDOW_TITLE, &theme, window, cx)
     }
 }
 
