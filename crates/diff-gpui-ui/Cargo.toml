@@ -1,0 +1,44 @@
+[package]
+name = "clankerdiff-gpui-ui"
+publish = false
+description = "Shared GPUI design system: fonts, rem-based tokens, icons, and components"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+test-support = ["gpui/test-support", "gpui-base/test-support"]
+
+[lints]
+workspace = true
+
+[dependencies]
+clankerdiff-theme = { version = "0.3.3", path = "../diff-theme" }
+gpui.workspace = true
+gpui-base.workspace = true
+
+[[test]]
+name = "interface_size_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "resizable_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "tree_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "components_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "menu_test"
+required-features = ["test-support"]
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+gpui-base = { workspace = true, features = ["test-support"] }

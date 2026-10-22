@@ -1,0 +1,116 @@
+//! GPUI-facing semantic theme tokens.
+
+use clankerdiff_theme::{
+    ButtonVariant, ControlState, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle,
+    UiPalette,
+};
+use gpui::Hsla;
+
+/// Converts a renderer-neutral sRGB color to GPUI's HSLA color.
+#[must_use]
+pub fn color(value: Rgba) -> Hsla {
+    gpui::rgba(
+        (u32::from(value.r) << 24)
+            | (u32::from(value.g) << 16)
+            | (u32::from(value.b) << 8)
+            | u32::from(value.a),
+    )
+    .into()
+}
+
+/// Semantic colors consumed by reusable GPUI components.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UiColors {
+    pub canvas: Hsla,
+    pub surface: Hsla,
+    pub surface_hover: Hsla,
+    pub surface_selected: Hsla,
+    pub text: Hsla,
+    pub text_secondary: Hsla,
+    pub text_muted: Hsla,
+    pub border: Hsla,
+    pub accent: Hsla,
+    pub accent_foreground: Hsla,
+    pub info: Hsla,
+    pub positive: Hsla,
+    pub warning: Hsla,
+    pub destructive: Hsla,
+    pub destructive_foreground: Hsla,
+    pub scrim: Hsla,
+}
+
+impl UiColors {
+    #[must_use]
+    pub fn from_palette(palette: &UiPalette) -> Self {
+        Self {
+            canvas: color(palette.canvas),
+            surface: color(palette.surface),
+            surface_hover: color(palette.surface_hover),
+            surface_selected: color(palette.surface_selected),
+            text: color(palette.text),
+            text_secondary: color(palette.text_secondary),
+            text_muted: color(palette.text_muted),
+            border: color(palette.border),
+            accent: color(palette.accent),
+            accent_foreground: color(palette.accent_foreground),
+            info: color(palette.info),
+            positive: color(palette.positive),
+            warning: color(palette.warning),
+            destructive: color(palette.destructive),
+            destructive_foreground: color(palette.destructive_foreground),
+            scrim: color(palette.scrim),
+        }
+    }
+}
+
+/// GPUI-native result of resolving a semantic component state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UiStyle {
+    pub foreground: Hsla,
+    pub background: Option<Hsla>,
+    pub emphasized: bool,
+}
+
+impl From<SemanticStyle> for UiStyle {
+    fn from(style: SemanticStyle) -> Self {
+        Self {
+            foreground: color(style.foreground),
+            background: style.background.map(color),
+            emphasized: style.emphasized,
+        }
+    }
+}
+
+/// Semantic GPUI theme derived from a [`ReviewTheme`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UiTheme {
+    palette: UiPalette,
+    pub colors: UiColors,
+}
+
+impl UiTheme {
+    /// Creates component tokens from a diff theme.
+    #[must_use]
+    pub fn new(theme: &ReviewTheme) -> Self {
+        let palette = theme.ui;
+        Self {
+            colors: UiColors::from_palette(&palette),
+            palette,
+        }
+    }
+
+    #[must_use]
+    pub fn control_style(self, variant: ButtonVariant, state: ControlState) -> UiStyle {
+        self.palette.control_style(variant, state).into()
+    }
+
+    #[must_use]
+    pub fn selection_style(self, state: SelectionState) -> UiStyle {
+        self.palette.selection_style(state).into()
+    }
+
+    #[must_use]
+    pub fn notice_style(self, tone: NoticeTone) -> UiStyle {
+        self.palette.notice_style(tone).into()
+    }
+}
