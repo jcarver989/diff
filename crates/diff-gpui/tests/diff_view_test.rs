@@ -8,6 +8,25 @@ use clankerdiff_gpui::testing::{DiffViewerHarness, DiffViewerHarnessBuilder};
 use gpui::{TestAppContext, point, px};
 
 #[gpui::test]
+fn a_wheel_notch_scrolls_six_code_rows_at_any_interface_size(cx: &mut TestAppContext) {
+    for interface_size in [16.0, 20.0] {
+        DiffViewerHarnessBuilder {
+            interface_size,
+            ..multi_file_builder()
+        }
+        .run(cx, |harness, cx| {
+            let position = harness.scroll_center(cx, "diff-pane");
+            let top = harness.diff_scroll_top(cx);
+            harness.simulate_wheel(cx, position, -3.0);
+            let scrolled = harness.diff_scroll_top(cx);
+            assert_eq!(scrolled.item_ix, top.item_ix + 1 + 4);
+            assert_eq!(scrolled.offset_in_item, top.offset_in_item);
+            Ok(())
+        });
+    }
+}
+
+#[gpui::test]
 fn wheel_scrolling_crosses_files_without_changing_selection_or_draft(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
         let selected = harness.selected_row(cx);

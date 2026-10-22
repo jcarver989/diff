@@ -1,20 +1,9 @@
 //! Conversion from renderer-neutral diff styles to GPUI styles.
 
 use clankerdiff_core::FileStatus;
+pub(crate) use clankerdiff_gpui_ui::theme::color;
 use clankerdiff_theme::{DiffPalette, FontStyle, Rgba};
-use gpui::{FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, Hsla, UnderlineStyle, px};
-
-/// Converts a renderer-neutral sRGB color to GPUI's HSLA color.
-#[must_use]
-pub fn color(value: Rgba) -> Hsla {
-    gpui::rgba(
-        (u32::from(value.r) << 24)
-            | (u32::from(value.g) << 16)
-            | (u32::from(value.b) << 8)
-            | u32::from(value.a),
-    )
-    .into()
-}
+use gpui::{FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, UnderlineStyle, px};
 
 /// Converts a syntax-highlight modifier and color to a GPUI highlight style.
 #[must_use]

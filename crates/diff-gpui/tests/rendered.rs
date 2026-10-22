@@ -2,7 +2,10 @@ use clankerdiff_core::{
     DiffDocument, DiffReviewCommand, DiffReviewEvent, FocusPane, Layout, RepoPath,
     RepositoryAction, StageState, ViewMode, testing::DocumentBuilder,
 };
-use clankerdiff_gpui::testing::{DiffViewerHarnessBuilder, MarkdownReviewerHarnessBuilder};
+use clankerdiff_gpui::{
+    testing::{DiffViewerHarnessBuilder, MarkdownReviewerHarnessBuilder},
+    ui::tokens::{BASE_SIZE, CHECKBOX_SIZE, ROW_HEIGHT, rem},
+};
 use clankerdiff_markdown::MarkdownReviewCommand;
 use gpui::{TestAppContext, px, size};
 use std::{error::Error, sync::Arc};
@@ -87,7 +90,7 @@ fn source_round_trip_preserves_independent_scroll_across_snapshots_and_resize(
             harness.update(cx, |viewer, cx| {
                 viewer.set_document(replacement, cx);
                 if resize {
-                    viewer.set_sidebar_width(400.0, cx);
+                    viewer.set_sidebar_width(rem(400.0), cx);
                 }
             });
             harness.draw(cx);
@@ -338,7 +341,7 @@ fn dismissal_button_fits_a_narrow_split_pane(cx: &mut TestAppContext) {
         .with_view_mode(ViewMode::Split)
         .with_comments(["Queued"])
         .run(cx, |harness, cx| {
-            harness.update(cx, |viewer, cx| viewer.set_sidebar_width(180.0, cx));
+            harness.update(cx, |viewer, cx| viewer.set_sidebar_width(rem(180.0), cx));
             let card = harness
                 .bounds(cx, "review-comment-0")
                 .ok_or("missing card")?;
@@ -386,10 +389,11 @@ fn sidebar_defaults_to_a_responsive_quarter_of_the_window(cx: &mut TestAppContex
                     .ok_or("missing sidebar")?;
                 assert_eq!(sidebar.size.width, px(expected));
                 assert!(
-                    (harness.read(cx, |viewer, _| viewer.sidebar_width()) - expected).abs()
+                    (harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(expected).0)
+                        .abs()
                         < f32::EPSILON
                 );
-                harness.update(cx, |viewer, cx| viewer.set_sidebar_width(240.0, cx));
+                harness.update(cx, |viewer, cx| viewer.set_sidebar_width(rem(240.0), cx));
                 harness.draw(cx);
                 assert_eq!(
                     harness
@@ -412,19 +416,92 @@ fn sidebar_tracks_window_resizes_until_manually_sized(cx: &mut TestAppContext) {
             cx.simulate_window_resize(harness.window(), size(px(2_000.0), px(700.0)));
             harness.draw(cx);
             assert!(
-                (harness.read(cx, |viewer, _| viewer.sidebar_width()) - 500.0).abs() < f32::EPSILON
+                (harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(500.0).0).abs()
+                    < f32::EPSILON
             );
-            harness.update(cx, |viewer, cx| viewer.set_sidebar_width(450.0, cx));
+            harness.update(cx, |viewer, cx| viewer.set_sidebar_width(rem(450.0), cx));
             for (width, expected) in [(600.0, 280.0), (2_000.0, 450.0)] {
                 cx.simulate_window_resize(harness.window(), size(px(width), px(700.0)));
                 harness.draw(cx);
                 assert!(
-                    (harness.read(cx, |viewer, _| viewer.sidebar_width()) - expected).abs()
+                    (harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(expected).0)
+                        .abs()
                         < f32::EPSILON
                 );
             }
             Ok(())
         });
+}
+
+#[gpui::test]
+fn dragging_the_drawer_edge_resizes_it(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default()
+        .with_window_size(1_600.0, 700.0)
+        .run(cx, |harness, cx| {
+            let handle = harness
+                .bounds(cx, "diff-sidebar-resize-handle")
+                .ok_or("missing resize handle")?;
+            harness.drag(
+                cx,
+                "diff-sidebar-resize-handle",
+                gpui::point(px(500.0), handle.center().y),
+            )?;
+            let width = harness.read(cx, |viewer, _| viewer.sidebar_width());
+            assert!((width.0 - rem(500.0).0).abs() < 0.01);
+            cx.simulate_window_resize(harness.window(), size(px(2_400.0), px(700.0)));
+            harness.draw(cx);
+            let width = harness.read(cx, |viewer, _| viewer.sidebar_width());
+            assert!((width.0 - rem(500.0).0).abs() < 0.01);
+            Ok(())
+        });
+}
+
+#[gpui::test]
+fn the_drawer_scales_with_the_interface_size(cx: &mut TestAppContext) {
+    for interface_size in [16.0, 20.0] {
+        DiffViewerHarnessBuilder {
+            interface_size,
+            ..DiffViewerHarnessBuilder::default()
+        }
+        .with_window_size(1_600.0, 700.0)
+        .run(cx, |harness, cx| {
+            let scale = interface_size / BASE_SIZE;
+            let row = harness
+                .bounds(cx, "diff-file:src/lib.rs")
+                .ok_or("missing file row")?;
+            assert_eq!(row.size.height, px(ROW_HEIGHT * scale));
+            let checkbox = harness
+                .bounds(cx, "diff-file-checkbox:0")
+                .ok_or("missing file checkbox")?;
+            assert_eq!(checkbox.size.width, px(CHECKBOX_SIZE * scale));
+            let directory = harness
+                .bounds(cx, "diff-directory:src")
+                .ok_or("missing directory row")?;
+            assert_eq!(directory.size.height, row.size.height);
+            Ok(())
+        });
+    }
+}
+
+#[gpui::test]
+fn toolbar_controls_change_the_interface_size(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default().run(cx, |harness, cx| {
+        let before = harness
+            .bounds(cx, "diff-file:src/lib.rs")
+            .ok_or("missing file row")?;
+        harness.click(cx, "increase-interface-size")?;
+        harness.click(cx, "increase-interface-size")?;
+        let after = harness
+            .bounds(cx, "diff-file:src/lib.rs")
+            .ok_or("missing file row")?;
+        assert_eq!(after.size.height, before.size.height * (18.0 / 16.0));
+        harness.click(cx, "reset-interface-size")?;
+        let reset = harness
+            .bounds(cx, "diff-file:src/lib.rs")
+            .ok_or("missing file row")?;
+        assert_eq!(reset.size.height, before.size.height);
+        Ok(())
+    });
 }
 
 #[gpui::test]
@@ -449,8 +526,8 @@ fn staging_checkboxes_keep_their_geometry_and_do_not_activate_rows(cx: &mut Test
             let directory = harness
                 .bounds(cx, "diff-directory-checkbox:src")
                 .ok_or("missing directory checkbox")?;
-            assert_eq!(file.size.width, px(18.0));
-            assert_eq!(file.size.height, px(18.0));
+            assert_eq!(file.size.width, px(CHECKBOX_SIZE));
+            assert_eq!(file.size.height, px(CHECKBOX_SIZE));
             assert_eq!(file.size, directory.size);
             harness.click(cx, "diff-file-checkbox:0")?;
             assert_eq!(

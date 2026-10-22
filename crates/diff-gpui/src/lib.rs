@@ -5,8 +5,8 @@
 
 mod annotation;
 mod comment_editor;
+mod comments;
 mod diff_view;
-mod fonts;
 mod markdown_viewer;
 mod review_bar;
 mod shortcuts;
@@ -14,12 +14,11 @@ mod sidebar;
 pub mod style;
 #[cfg(feature = "test-support")]
 pub mod testing;
-pub mod ui;
 mod viewer;
 
 pub use clankerdiff_core::DiffReviewEvent as DiffViewerEvent;
+pub use clankerdiff_gpui_ui as ui;
 pub use clankerdiff_markdown::MarkdownReviewEvent as MarkdownReviewerEvent;
-pub use fonts::{DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, load_default_fonts};
 
 /// Emitted when an in-app theme selection is committed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,11 +37,10 @@ pub use markdown_viewer::{
 pub use viewer::{
     ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse,
     CommitChanges, CommitTheme, ConfirmDiscard, CopyReview, CycleScope, CycleViewMode,
-    DecreaseFontSize, DeleteComment, DiffViewer, DiffViewerOptions, DiscardChanges, EditComment,
-    ExpandGap, ExpandGapAll, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts,
-    HideThemePicker, IncreaseFontSize, LastItem, NextFile, NextHunk, NextItem, NextTheme, PageDown,
-    PageUp, PreviousFile, PreviousHunk, PreviousItem, PreviousTheme, Refresh, ResetFontSize,
-    SelectNewSide, SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment,
-    SubmitReview, ToggleFullFile, TogglePane, ToggleSourceView, ToggleStage, UndoComment,
-    UnstageAll, ViewerPane,
+    DeleteComment, DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap,
+    ExpandGapAll, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, HideThemePicker,
+    LastItem, NextFile, NextHunk, NextItem, NextTheme, PageDown, PageUp, PreviousFile,
+    PreviousHunk, PreviousItem, PreviousTheme, Refresh, SelectNewSide, SelectOldSide,
+    ShowShortcuts, ShowThemePicker, StageAll, SubmitComment, SubmitReview, ToggleFullFile,
+    TogglePane, ToggleSourceView, ToggleStage, UndoComment, UnstageAll, ViewerPane,
 };

@@ -2,10 +2,15 @@ use crate::{
     DiffViewer, ViewerPane,
     annotation::add_comment_button,
     comment_editor::CommentEditor,
+    comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
     style,
     ui::{
-        comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
-        prelude::{Button, ButtonVariant, ControlSize, icon_button},
+        interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
+        prelude::{
+            Button, ButtonVariant, ControlSize, IconButton, IconName, Typography, TypographyExt,
+            rem,
+        },
+        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT},
     },
 };
 use clankerdiff_core::{
@@ -14,18 +19,19 @@ use clankerdiff_core::{
 };
 use clankerdiff_theme::DiffPalette;
 use gpui::{
-    AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState, MouseButton,
-    MouseDownEvent, Pixels, SharedString, Stateful, StyledText, Window, div, list, point,
-    prelude::*, px,
+    Action, AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState,
+    MouseButton, MouseDownEvent, Pixels, SharedString, Stateful, StyledText, Window, div, list,
+    point, prelude::*, px,
 };
 use std::cell::Cell;
 
-const CHANGE_INDICATOR_WIDTH: f32 = 5.0;
-const GUTTER_WIDTH: f32 = 54.0;
-const HEADER_HEIGHT: f32 = 52.0;
+const CHANGE_INDICATOR_WIDTH: f32 = 4.0;
+const GUTTER_WIDTH: f32 = 52.0;
+const FILE_DIVIDER_HEIGHT: f32 = 40.0;
 const FILE_DIVIDER_INSET: f32 = 4.0;
-const SCROLLBAR_WIDTH: f32 = 20.0;
-const MIN_THUMB_HEIGHT: f32 = 30.0;
+const SCROLLBAR_WIDTH: f32 = 12.0;
+const MIN_THUMB_HEIGHT: f32 = 32.0;
+const WHEEL_ROWS_PER_LINE: f32 = 2.0;
 
 #[derive(Clone, Copy)]
 enum FileDividerPlacement {
@@ -35,6 +41,7 @@ enum FileDividerPlacement {
 
 struct DiffScrollbarDrag {
     thumb_offset: Cell<Pixels>,
+    min_thumb_height: Pixels,
     list_state: ListState,
     started: Cell<bool>,
 }
@@ -60,6 +67,7 @@ impl DiffViewer {
         let palette = self.theme().diff.clone();
         self.sync_diff_list();
         let list_state = self.diff_list_state.clone();
+        list_state.set_wheel_line_height(self.diff_row_height() * WHEEL_ROWS_PER_LINE);
         let Some(file_index) = self.active_file() else {
             return div()
                 .debug_selector(|| "diff-pane".to_owned())
@@ -79,7 +87,7 @@ impl DiffViewer {
         });
         let scrollbar = self.render_scrollbar(&list_state, window, cx);
         let viewport = list_state.viewport_bounds();
-        let divider_height = px(self.file_divider_height());
+        let divider_height = self.file_divider_height();
         let sticky_top = self
             .presentation()
             .file_range(file_index)
@@ -107,7 +115,7 @@ impl DiffViewer {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .child(self.render_diff_toolbar(cx))
+            .child(self.render_diff_toolbar(window, cx))
             .child(
                 div()
                     .flex_1()
@@ -133,11 +141,11 @@ impl DiffViewer {
             )
     }
 
-    pub(crate) fn file_divider_height(&self) -> f32 {
-        (self.diff_row_height() * 1.5).round() + FILE_DIVIDER_INSET * 2.0
+    pub(crate) fn file_divider_height(&self) -> Pixels {
+        rem(FILE_DIVIDER_HEIGHT).to_pixels(self.rem_size())
     }
 
-    fn render_diff_toolbar(&self, cx: &mut Context<Self>) -> Div {
+    fn render_diff_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> Div {
         let palette = &self.theme().diff;
         let files = &self.document().files;
         let additions: usize = files.iter().map(FileDiff::additions).sum();
@@ -147,12 +155,12 @@ impl DiffViewer {
             count => format!("{count} files changed"),
         };
         div()
-            .h(px(HEADER_HEIGHT))
+            .h(rem(BAR_HEIGHT))
             .flex_shrink_0()
             .flex()
             .items_center()
             .gap_2()
-            .px_4()
+            .px_3()
             .border_b_1()
             .border_color(style::color(palette.border))
             .child(
@@ -164,10 +172,10 @@ impl DiffViewer {
                     .gap_2()
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(summary))
+                    .child(div().typography(Typography::BodyStrong).child(summary))
                     .children(stat_badges(palette, additions, deletions)),
             )
-            .child(self.render_font_controls(cx))
+            .child(self.render_interface_size_controls(window, cx))
     }
 
     fn render_file_divider(
@@ -192,10 +200,10 @@ impl DiffViewer {
         div()
             .id((id, file_index))
             .debug_selector(move || format!("{selector}:{file_index}"))
-            .h(px(self.file_divider_height()))
+            .h(rem(FILE_DIVIDER_HEIGHT))
             .w_full()
             .px_2()
-            .py(px(FILE_DIVIDER_INSET))
+            .py(rem(FILE_DIVIDER_INSET))
             .bg(style::color(palette.background))
             .cursor_pointer()
             .on_click(cx.listener(move |viewer, _, window, cx| {
@@ -212,11 +220,13 @@ impl DiffViewer {
                     .border_1()
                     .border_color(style::color(palette.border))
                     .bg(style::color(surface))
+                    .typography(Typography::Body)
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .child(
                         div()
                             .flex_shrink_0()
+                            .typography(Typography::Code)
                             .text_color(style::color(style::file_status_color(
                                 file.status,
                                 palette,
@@ -226,7 +236,7 @@ impl DiffViewer {
                     .child(
                         div()
                             .flex_shrink_0()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .typography(Typography::BodyStrong)
                             .text_color(style::color(palette.foreground))
                             .child(file.path.file_name().to_owned()),
                     )
@@ -254,28 +264,46 @@ impl DiffViewer {
             )
     }
 
-    fn render_font_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_interface_size_controls(&self, window: &Window, _cx: &mut Context<Self>) -> Div {
         let theme = self.ui_theme();
         div()
-            .mr_4()
             .flex()
             .items_center()
             .gap_1()
-            .text_size(px(self.metadata_font_size()))
             .child(
-                icon_button("decrease-font-size", "A−", "Decrease font size", theme)
-                    .on_click(cx.listener(|viewer, _, _, cx| viewer.adjust_font_size(-1.0, cx))),
+                IconButton::new(
+                    "decrease-interface-size",
+                    IconName::Minus,
+                    "Decrease interface size",
+                    theme,
+                )
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(DecreaseInterfaceSize.boxed_clone(), cx);
+                }),
             )
             .child(
-                Button::new("reset-font-size", format!("{:.0}", self.font_size()), theme)
-                    .variant(ButtonVariant::Secondary)
-                    .size(ControlSize::Small)
-                    .aria_label("Reset font size")
-                    .on_click(cx.listener(|viewer, _, _, cx| viewer.reset_font_size(cx))),
+                Button::new(
+                    "reset-interface-size",
+                    format!("{:.0}", f32::from(window.rem_size())),
+                    theme,
+                )
+                .variant(ButtonVariant::Secondary)
+                .size(ControlSize::Small)
+                .aria_label("Reset interface size")
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(ResetInterfaceSize.boxed_clone(), cx);
+                }),
             )
             .child(
-                icon_button("increase-font-size", "A+", "Increase font size", theme)
-                    .on_click(cx.listener(|viewer, _, _, cx| viewer.adjust_font_size(1.0, cx))),
+                IconButton::new(
+                    "increase-interface-size",
+                    IconName::Plus,
+                    "Increase interface size",
+                    theme,
+                )
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(IncreaseInterfaceSize.boxed_clone(), cx);
+                }),
             )
     }
 
@@ -298,13 +326,15 @@ impl DiffViewer {
         }
 
         let current_offset = -list_state.scroll_px_offset_for_scrollbar().y;
-        let thumb_height = scrollbar_thumb_height(viewport_height);
+        let min_thumb_height = rem(MIN_THUMB_HEIGHT).to_pixels(self.rem_size());
+        let thumb_height = scrollbar_thumb_height(viewport_height, min_thumb_height);
         let track_space = viewport_height - thumb_height;
         let scroll_fraction = (current_offset / max_offset).clamp(0.0, 1.0);
         let thumb_top = track_space * scroll_fraction;
         let palette = &self.theme().diff;
         let drag = DiffScrollbarDrag {
             thumb_offset: Cell::new(px(0.0)),
+            min_thumb_height,
             list_state: list_state.clone(),
             started: Cell::new(false),
         };
@@ -315,7 +345,7 @@ impl DiffViewer {
             div()
                 .id("diff-scrollbar")
                 .debug_selector(|| "diff-scrollbar".to_owned())
-                .w(px(SCROLLBAR_WIDTH))
+                .w(rem(SCROLLBAR_WIDTH))
                 .h_full()
                 .flex_shrink_0()
                 .relative()
@@ -327,6 +357,7 @@ impl DiffViewer {
                             &click_state,
                             event.position.y,
                             thumb_height / 2.0,
+                            min_thumb_height,
                         );
                         cx.stop_propagation();
                         cx.notify();
@@ -334,11 +365,12 @@ impl DiffViewer {
                 )
                 .on_drag_move(cx.listener(
                     move |_, event: &DragMoveEvent<DiffScrollbarDrag>, _, cx| {
-                        let thumb_offset = event.drag(cx).thumb_offset.get();
+                        let drag = event.drag(cx);
                         set_scrollbar_from_pointer(
                             &drag_state,
                             event.event.position.y,
-                            thumb_offset,
+                            drag.thumb_offset.get(),
+                            drag.min_thumb_height,
                         );
                         cx.notify();
                     },
@@ -351,7 +383,7 @@ impl DiffViewer {
                         .top(thumb_top)
                         .w_full()
                         .h(thumb_height)
-                        .rounded_sm()
+                        .rounded_full()
                         .cursor_pointer()
                         .bg(style::color(palette.muted))
                         .hover(|thumb| thumb.bg(style::color(palette.accent)))
@@ -392,7 +424,7 @@ impl DiffViewer {
         div()
             .id(("diff-row", row.id.0))
             .debug_selector(move || format!("diff-gap:{index}"))
-            .h(px(self.diff_row_height()))
+            .h(rem(CODE_ROW_HEIGHT))
             .w_full()
             .flex()
             .items_center()
@@ -404,19 +436,21 @@ impl DiffViewer {
             )
             .child(
                 div()
-                    .w(px(CHANGE_INDICATOR_WIDTH + GUTTER_WIDTH))
+                    .w(rem(CHANGE_INDICATOR_WIDTH + GUTTER_WIDTH))
                     .flex_shrink_0()
                     .flex()
                     .justify_center()
                     .when(expandable, |gutter| {
                         gutter.child(
-                            icon_button(
+                            IconButton::new(
                                 ("diff-gap-expand", index),
-                                "↕",
-                                "Expand unchanged lines",
+                                IconName::ChevronsUpDown,
+                                info.map_or_else(
+                                    || "Expand unchanged lines".to_owned(),
+                                    GapInfo::message,
+                                ),
                                 self.ui_theme(),
                             )
-                            .tooltip(info.map(GapInfo::message).unwrap_or_default())
                             .on_click(cx.listener(
                                 move |viewer, _, window, cx| {
                                     if viewer.handle_command(
@@ -436,12 +470,12 @@ impl DiffViewer {
                     }),
             )
             .when_some(info.filter(|_| selected), |gap, info| {
-                gap.child(line().w(px(12.0)).flex_shrink_0()).child(
+                gap.child(line().w(rem(12.0)).flex_shrink_0()).child(
                     div()
                         .px_2()
                         .flex_shrink_0()
                         .whitespace_nowrap()
-                        .text_size(px(self.metadata_font_size()))
+                        .typography(Typography::Caption)
                         .text_color(style::color(palette.muted))
                         .child(info.hint()),
                 )
@@ -457,11 +491,12 @@ impl DiffViewer {
             .map_or_else(SharedString::default, |cell| cell.text.to_string().into());
         div()
             .id(("diff-row", row.id.0))
-            .h(px(self.diff_row_height()))
+            .h(rem(CODE_ROW_HEIGHT))
             .w_full()
             .flex()
             .items_center()
             .px_3()
+            .typography(Typography::Code)
             .bg(style::color(palette.selection))
             .border_b_1()
             .border_color(style::color(palette.border))
@@ -477,7 +512,7 @@ impl DiffViewer {
         row: &PresentedRow,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let row_height = px(self.diff_row_height());
+        let row_height = rem(CODE_ROW_HEIGHT);
         match row.kind {
             RowKind::FileHeader => {
                 return self
@@ -566,7 +601,7 @@ impl DiffViewer {
         let Some(cell) = cell else {
             return div()
                 .w_1_2()
-                .min_h(px(self.diff_row_height()))
+                .min_h(rem(CODE_ROW_HEIGHT))
                 .bg(style::color(palette.background))
                 .when(left, |value| value.border_r_1().border_color(border_color))
                 .into_any_element();
@@ -591,7 +626,8 @@ impl DiffViewer {
             .group(hover_group.clone())
             .when(split, gpui::Styled::w_1_2)
             .when(!split, gpui::Styled::w_full)
-            .min_h(px(self.diff_row_height()))
+            .min_h(rem(CODE_ROW_HEIGHT))
+            .typography(Typography::Code)
             .flex()
             .items_start()
             .overflow_hidden()
@@ -618,8 +654,8 @@ impl DiffViewer {
         element
             .child(
                 div()
-                    .w(px(CHANGE_INDICATOR_WIDTH))
-                    .min_h(px(self.diff_row_height()))
+                    .w(rem(CHANGE_INDICATOR_WIDTH))
+                    .min_h(rem(CODE_ROW_HEIGHT))
                     .self_stretch()
                     .flex_shrink_0()
                     .when_some(indicator_color, |indicator, color| {
@@ -636,11 +672,7 @@ impl DiffViewer {
                     .child(styled),
             )
             .when(comments != 0, |value| {
-                value.child(CommentCount::new(
-                    comments,
-                    self.metadata_font_size(),
-                    &self.ui_theme(),
-                ))
+                value.child(CommentCount::new(comments, &self.ui_theme()))
             })
             .into_any_element()
     }
@@ -661,8 +693,8 @@ impl DiffViewer {
             DiffTone::Context | DiffTone::Meta => palette.gutter,
         };
         div()
-            .w(px(GUTTER_WIDTH))
-            .min_h(px(20.0))
+            .w(rem(GUTTER_WIDTH))
+            .min_h(rem(CODE_ROW_HEIGHT))
             .flex_shrink_0()
             .relative()
             .text_color(style::color(foreground))
@@ -790,13 +822,11 @@ impl DiffViewer {
                             comment.id,
                             format!("Your comment on {side} {line}"),
                             comment.body,
-                            self.metadata_font_size(),
                             &self.ui_theme(),
                             offset == last_comment,
                         )
                         .header_actions(comment_dismiss_button(
                             comment.id,
-                            self.font_size(),
                             &self.ui_theme(),
                             cx,
                             move |viewer, window, cx| {
@@ -864,16 +894,21 @@ impl DiffViewer {
     }
 }
 
-fn scrollbar_thumb_height(viewport_height: Pixels) -> Pixels {
+fn scrollbar_thumb_height(viewport_height: Pixels, min_thumb_height: Pixels) -> Pixels {
     // Variable-list content height is estimated until every row has been measured. A fixed thumb
     // avoids visibly shrinking as wrapped rows are discovered while preserving useful drag space.
-    px(MIN_THUMB_HEIGHT).min(viewport_height / 2.0)
+    min_thumb_height.min(viewport_height / 2.0)
 }
 
-fn set_scrollbar_from_pointer(list_state: &ListState, pointer_y: Pixels, thumb_offset: Pixels) {
+fn set_scrollbar_from_pointer(
+    list_state: &ListState,
+    pointer_y: Pixels,
+    thumb_offset: Pixels,
+    min_thumb_height: Pixels,
+) {
     let viewport = list_state.viewport_bounds();
     let max_offset = list_state.max_offset_for_scrollbar().y;
-    let thumb_height = scrollbar_thumb_height(viewport.size.height);
+    let thumb_height = scrollbar_thumb_height(viewport.size.height, min_thumb_height);
     let track_space = viewport.size.height - thumb_height;
     if max_offset <= px(0.0) || track_space <= px(0.0) {
         return;
@@ -887,10 +922,12 @@ fn stat_badges(palette: &DiffPalette, additions: usize, deletions: usize) -> [Di
     [
         div()
             .flex_shrink_0()
+            .typography(Typography::Code)
             .text_color(style::color(palette.addition))
             .child(format!("+{additions}")),
         div()
             .flex_shrink_0()
+            .typography(Typography::Code)
             .text_color(style::color(palette.deletion))
             .child(format!("−{deletions}")),
     ]
@@ -906,6 +943,7 @@ mod tests {
         let list_state = ListState::new(10, gpui::ListAlignment::Top, px(0.0));
         let drag = DiffScrollbarDrag {
             thumb_offset: Cell::new(px(0.0)),
+            min_thumb_height: px(30.0),
             list_state: list_state.clone(),
             started: Cell::new(false),
         };
@@ -920,12 +958,12 @@ mod tests {
 
     #[test]
     fn scrollbar_thumb_stays_stable_while_rows_are_measured() {
-        assert_eq!(scrollbar_thumb_height(px(100.0)), px(30.0));
+        assert_eq!(scrollbar_thumb_height(px(100.0), px(30.0)), px(30.0));
     }
 
     #[test]
     fn scrollbar_thumb_leaves_drag_space_in_a_short_viewport() {
-        assert_eq!(scrollbar_thumb_height(px(20.0)), px(10.0));
+        assert_eq!(scrollbar_thumb_height(px(20.0), px(30.0)), px(10.0));
     }
 
     #[test]

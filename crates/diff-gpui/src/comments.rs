@@ -1,28 +1,24 @@
 //! Shared comment presentation components.
 
 use crate::comment_editor::CommentEditor;
+use clankerdiff_gpui_ui::prelude::{
+    IconButton, IconName, Surface, Typography, TypographyExt, UiTheme,
+};
 use gpui::{
     AnyElement, App, Context, Entity, IntoElement, MouseButton, RenderOnce, SharedString, Window,
-    div, prelude::*, px,
-};
-
-use super::{
-    components::{Surface, icon_button},
-    theme::UiTheme,
+    div, prelude::*,
 };
 
 /// Compact saved-comment count.
 #[derive(IntoElement)]
 pub(crate) struct CommentCount {
     count: usize,
-    font_size: f32,
     theme: UiTheme,
 }
 impl CommentCount {
-    pub(crate) fn new(count: usize, font_size: f32, theme: &UiTheme) -> Self {
+    pub(crate) fn new(count: usize, theme: &UiTheme) -> Self {
         Self {
             count,
-            font_size,
             theme: *theme,
         }
     }
@@ -32,7 +28,7 @@ impl RenderOnce for CommentCount {
         div()
             .flex_shrink_0()
             .px_2()
-            .text_size(px(self.font_size))
+            .typography(Typography::Caption)
             .text_color(self.theme.colors.accent)
             .child(format!("{} 💬", self.count))
     }
@@ -44,7 +40,6 @@ pub(crate) struct CommentCard {
     id: u64,
     title: SharedString,
     body: SharedString,
-    font_size: f32,
     theme: UiTheme,
     last: bool,
     header_actions: Option<AnyElement>,
@@ -54,7 +49,6 @@ impl CommentCard {
         id: u64,
         title: impl Into<SharedString>,
         body: impl Into<SharedString>,
-        font_size: f32,
         theme: &UiTheme,
         last: bool,
     ) -> Self {
@@ -62,7 +56,6 @@ impl CommentCard {
             id,
             title: title.into(),
             body: body.into(),
-            font_size,
             theme: *theme,
             last,
             header_actions: None,
@@ -91,8 +84,7 @@ impl RenderOnce for CommentCard {
                     .px_3()
                     .py_2()
                     .bg(colors.surface_selected)
-                    .text_size(px(self.font_size))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .typography(Typography::Label)
                     .text_color(colors.text_muted)
                     .flex()
                     .flex_wrap()
@@ -106,6 +98,7 @@ impl RenderOnce for CommentCard {
                 div()
                     .p_3()
                     .bg(colors.surface)
+                    .typography(Typography::Body)
                     .text_color(colors.text)
                     .whitespace_normal()
                     .child(self.body),
@@ -115,7 +108,6 @@ impl RenderOnce for CommentCard {
 
 pub(crate) fn comment_dismiss_button<T: 'static>(
     id: u64,
-    font_size: f32,
     theme: &UiTheme,
     cx: &mut Context<T>,
     handler: impl Fn(&mut T, &mut Window, &mut Context<T>) + 'static,
@@ -140,14 +132,16 @@ pub(crate) fn comment_dismiss_button<T: 'static>(
         })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
-            icon_button(("dismiss-comment", id), "×", "Dismiss comment", *theme)
-                .font_size(font_size * 1.25)
-                .tooltip("Dismiss comment")
-                .keyboard_focusable()
-                .on_click(cx.listener(move |viewer, _, window, cx| {
-                    cx.stop_propagation();
-                    handler(viewer, window, cx);
-                })),
+            IconButton::new(
+                ("dismiss-comment", id),
+                IconName::X,
+                "Dismiss comment",
+                *theme,
+            )
+            .keyboard_focusable()
+            .on_click(cx.listener(move |viewer, _, window, cx| {
+                handler(viewer, window, cx);
+            })),
         )
         .into_any_element()
 }
@@ -188,7 +182,7 @@ impl RenderOnce for CommentComposer {
                 .gap_3()
                 .child(
                     div()
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .typography(Typography::BodyStrong)
                         .text_color(colors.text)
                         .child(self.title),
                 )

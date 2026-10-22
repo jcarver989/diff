@@ -3,11 +3,16 @@
 mod commands;
 
 use crate::{
-    DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, DiffViewerEvent, ThemeChanged,
+    DiffViewerEvent, ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
-    sidebar::SidebarResizeDrag,
     style::color,
-    ui::prelude::{Modal, Notification, ThemePicker, ThemePickerItem, UiTheme},
+    ui::{
+        prelude::{
+            Modal, Notification, ThemePicker, ThemePickerItem, Typography, TypographyExt, UI_FONT,
+            UiTheme, rem,
+        },
+        tokens::{BASE_SIZE, CODE_ROW_HEIGHT},
+    },
 };
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, LineAnchor,
@@ -21,23 +26,17 @@ use clankerdiff_syntax::{
 use clankerdiff_theme::ReviewTheme;
 use clankerdiff_theme::ThemeSelection;
 use gpui::{
-    App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding,
-    KeyContext, ListAlignment, ListOffset, ListState, ScrollHandle, Subscription, Window, actions,
-    div, prelude::*, px,
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext,
+    ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollHandle, Subscription, Window,
+    actions, div, prelude::*, px, rems,
 };
 use std::sync::Arc;
 
-const MIN_SIDEBAR_WIDTH: f32 = 180.0;
-const MAX_SIDEBAR_WIDTH: f32 = 960.0;
+pub(crate) const MIN_SIDEBAR_WIDTH: Rems = rem(180.0);
+pub(crate) const MAX_SIDEBAR_WIDTH: Rems = rem(960.0);
 const DEFAULT_SIDEBAR_FRACTION: f32 = 0.25;
-const DEFAULT_MIN_SIDEBAR_WIDTH: f32 = 320.0;
-const MIN_DIFF_WIDTH: f32 = 320.0;
-const SIDEBAR_DIVIDER_WIDTH: f32 = 1.0;
-const MIN_FONT_SIZE: f32 = 10.0;
-const MAX_FONT_SIZE: f32 = 24.0;
-const FONT_SIZE_STEP: f32 = 1.0;
-const DIFF_ROW_VERTICAL_SPACE: f32 = 7.0;
-const SIDEBAR_ROW_VERTICAL_SPACE: f32 = 20.0;
+const DEFAULT_MIN_SIDEBAR_WIDTH: Rems = rem(320.0);
+const MIN_DIFF_WIDTH: Rems = rem(320.0);
 
 const BROWSE_ACTIVATION: &str =
     "DiffViewer && mode == browse && !CommentDismissControl && !StageCheckbox";
@@ -88,9 +87,6 @@ actions!(
         PreviousTheme,
         CommitTheme,
         Refresh,
-        IncreaseFontSize,
-        DecreaseFontSize,
-        ResetFontSize,
         ToggleStage,
         StageAll,
         UnstageAll,
@@ -106,14 +102,10 @@ actions!(
 /// Renderer-specific sizing and virtualization settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DiffViewerOptions {
-    /// Initial sidebar width in logical pixels, or None for responsive sizing.
-    pub sidebar_width: Option<f32>,
-    /// Initial viewer font size, in logical pixels.
-    pub font_size: f32,
-    /// Minimum height of a diff row, in logical pixels.
-    pub row_height: f32,
+    /// Initial sidebar width, or None for responsive sizing.
+    pub sidebar_width: Option<Rems>,
     /// Diff-pane width at which automatic mode switches to split layout.
-    pub auto_split_width: f32,
+    pub auto_split_width: Rems,
     /// Maximum number of syntax-highlight cache entries.
     pub highlight_cache_capacity: usize,
 }
@@ -122,9 +114,7 @@ impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
             sidebar_width: None,
-            font_size: DEFAULT_FONT_SIZE,
-            row_height: 20.0,
-            auto_split_width: 900.0,
+            auto_split_width: rem(900.0),
             highlight_cache_capacity: 512,
         }
     }
@@ -159,9 +149,9 @@ pub struct DiffViewer {
     theme: ReviewTheme,
     highlighter: SyntaxHighlighter,
     options: DiffViewerOptions,
-    sidebar_width: f32,
-    preferred_sidebar_width: Option<f32>,
-    font_size: f32,
+    sidebar_width: Rems,
+    preferred_sidebar_width: Option<Rems>,
+    rem_size: Pixels,
     pub(crate) diff_list_state: ListState,
     diff_list_revision: Option<u64>,
     followed_file: Option<usize>,
@@ -203,12 +193,13 @@ impl DiffViewer {
         options: DiffViewerOptions,
     ) -> Self {
         let mut sidebar_tree = FileTree::new(&document);
-        let sidebar_width = options
-            .sidebar_width
-            .unwrap_or(DEFAULT_MIN_SIDEBAR_WIDTH)
-            .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
-        let font_size = clamp_font_size(options.font_size);
-        let row_height = effective_diff_row_height(options.row_height, font_size);
+        let sidebar_width = clamp_rems(
+            options.sidebar_width.unwrap_or(DEFAULT_MIN_SIDEBAR_WIDTH),
+            MIN_SIDEBAR_WIDTH,
+            MAX_SIDEBAR_WIDTH,
+        );
+        let rem_size = px(BASE_SIZE);
+        let row_height = rem(CODE_ROW_HEIGHT).to_pixels(rem_size);
         let session = ReviewSession::new(document);
         sidebar_tree.reveal_file(session.selected_file().unwrap_or(0));
         let mut viewer = Self {
@@ -221,8 +212,8 @@ impl DiffViewer {
             options,
             sidebar_width,
             preferred_sidebar_width: options.sidebar_width,
-            font_size,
-            diff_list_state: ListState::new(0, ListAlignment::Top, px(row_height * 8.0)),
+            rem_size,
+            diff_list_state: ListState::new(0, ListAlignment::Top, row_height * 8.0),
             diff_list_revision: None,
             followed_file: None,
             diff_list_split: false,
@@ -337,14 +328,6 @@ impl DiffViewer {
             KeyBinding::new("escape", CancelComment, Some(DRAFT)),
             KeyBinding::new("cmd-shift-c", CopyReview, Some(BROWSE)),
             KeyBinding::new("cmd-shift-enter", SubmitReview, Some(BROWSE)),
-            KeyBinding::new("cmd-=", IncreaseFontSize, Some("DiffViewer")),
-            KeyBinding::new("cmd-+", IncreaseFontSize, Some("DiffViewer")),
-            KeyBinding::new("ctrl-=", IncreaseFontSize, Some("DiffViewer")),
-            KeyBinding::new("ctrl-+", IncreaseFontSize, Some("DiffViewer")),
-            KeyBinding::new("cmd--", DecreaseFontSize, Some("DiffViewer")),
-            KeyBinding::new("ctrl--", DecreaseFontSize, Some("DiffViewer")),
-            KeyBinding::new("cmd-0", ResetFontSize, Some("DiffViewer")),
-            KeyBinding::new("ctrl-0", ResetFontSize, Some("DiffViewer")),
         ]);
     }
 
@@ -443,30 +426,13 @@ impl DiffViewer {
 
     /// Returns the current changed-files sidebar width.
     #[must_use]
-    pub const fn sidebar_width(&self) -> f32 {
+    pub const fn sidebar_width(&self) -> Rems {
         self.sidebar_width
     }
 
     /// Changes the changed-files sidebar width.
-    pub fn set_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
-        self.update_sidebar_width(width.clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH), cx);
-    }
-
-    /// Returns the current viewer font size.
-    #[must_use]
-    pub const fn font_size(&self) -> f32 {
-        self.font_size
-    }
-
-    /// Changes the viewer font size.
-    pub fn set_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
-        let size = clamp_font_size(size);
-        if (self.font_size - size).abs() <= f32::EPSILON {
-            return;
-        }
-        self.font_size = size;
-        self.diff_list_state.remeasure();
-        cx.notify();
+    pub fn set_sidebar_width(&mut self, width: Rems, cx: &mut Context<Self>) {
+        self.update_sidebar_width(clamp_rems(width, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH), cx);
     }
 
     /// Returns highlighter cache/work counters.
@@ -647,28 +613,12 @@ impl DiffViewer {
         cx.notify();
     }
 
-    pub(crate) fn diff_row_height(&self) -> f32 {
-        effective_diff_row_height(self.options.row_height, self.font_size)
+    pub(crate) fn diff_row_height(&self) -> Pixels {
+        rem(CODE_ROW_HEIGHT).to_pixels(self.rem_size)
     }
 
-    pub(crate) fn sidebar_row_height(&self) -> f32 {
-        36.0_f32.max(self.font_size + SIDEBAR_ROW_VERTICAL_SPACE)
-    }
-
-    pub(crate) fn metadata_font_size(&self) -> f32 {
-        (self.font_size - 1.0).max(MIN_FONT_SIZE)
-    }
-
-    pub(crate) fn heading_font_size(&self) -> f32 {
-        (self.font_size + 1.0).min(MAX_FONT_SIZE)
-    }
-
-    pub(crate) fn adjust_font_size(&mut self, delta: f32, cx: &mut Context<Self>) {
-        self.set_font_size(self.font_size + delta, cx);
-    }
-
-    pub(crate) fn reset_font_size(&mut self, cx: &mut Context<Self>) {
-        self.set_font_size(self.options.font_size, cx);
+    pub(crate) fn rem_size(&self) -> Pixels {
+        self.rem_size
     }
 
     pub(crate) fn reset_sidebar_width(&mut self, cx: &mut Context<Self>) {
@@ -676,20 +626,14 @@ impl DiffViewer {
         cx.notify();
     }
 
-    fn resize_sidebar(
-        &mut self,
-        event: &DragMoveEvent<SidebarResizeDrag>,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let pointer = f32::from(event.event.position.x - event.bounds.left());
-        let available = f32::from(event.bounds.size.width);
-        self.update_sidebar_width(clamp_sidebar_width(pointer, available), cx);
+    pub(crate) fn resize_sidebar(&mut self, width: Rems, window: &Window, cx: &mut Context<Self>) {
+        let available = rems(window.viewport_size().width / window.rem_size());
+        self.update_sidebar_width(clamp_sidebar_width(width, available), cx);
     }
 
-    fn update_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
+    fn update_sidebar_width(&mut self, width: Rems, cx: &mut Context<Self>) {
         self.preferred_sidebar_width = Some(width);
-        if (self.sidebar_width - width).abs() <= f32::EPSILON {
+        if self.sidebar_width == width {
             return;
         }
         self.sidebar_width = width;
@@ -731,7 +675,7 @@ impl DiffViewer {
         if rebuild {
             self.diff_list_state.reset_with_uniform_height(
                 self.session.visible_range().len(),
-                px(self.diff_row_height()),
+                self.diff_row_height(),
             );
             self.diff_list_revision = Some(revision);
             self.settle_comment_editor();
@@ -1066,7 +1010,7 @@ impl DiffViewer {
         else {
             return;
         };
-        let divider_height = px(self.file_divider_height());
+        let divider_height = self.file_divider_height();
         let under_divider = item <= self.diff_list_state.logical_scroll_top().item_ix
             || self
                 .diff_list_state
@@ -1139,7 +1083,7 @@ impl DiffViewer {
     fn page_items(&mut self, direction: isize, cx: &mut Context<Self>) {
         let rows = match self.pane {
             ViewerPane::Diff => {
-                let height = f32::from(self.diff_list_state.viewport_bounds().size.height);
+                let height = self.diff_list_state.viewport_bounds().size.height;
                 (height / self.diff_row_height()).floor().max(1.0) as isize
             }
             ViewerPane::Files => self
@@ -1383,23 +1327,6 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::CycleViewMode, window, cx);
     }
 
-    fn increase_font_size(&mut self, _: &IncreaseFontSize, _: &mut Window, cx: &mut Context<Self>) {
-        self.adjust_font_size(FONT_SIZE_STEP, cx);
-    }
-
-    fn decrease_font_size(&mut self, _: &DecreaseFontSize, _: &mut Window, cx: &mut Context<Self>) {
-        self.adjust_font_size(-FONT_SIZE_STEP, cx);
-    }
-
-    fn reset_font_size_action(
-        &mut self,
-        _: &ResetFontSize,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.reset_font_size(cx);
-    }
-
     fn add_comment_action(&mut self, _: &AddComment, window: &mut Window, cx: &mut Context<Self>) {
         self.handle_command(ReviewCommand::BeginComment, window, cx);
     }
@@ -1498,7 +1425,7 @@ impl DiffViewer {
         }
     }
 
-    fn render_theme_picker(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_theme_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let current = self.theme.id().to_string();
         let items = ReviewTheme::catalog().into_iter().map(|descriptor| {
             let id = descriptor.id.clone();
@@ -1510,14 +1437,7 @@ impl DiffViewer {
                 cx.listener(move |viewer, _, window, cx| viewer.select_theme(&id, window, cx)),
             )
         });
-        let viewport = window.viewport_size();
-        ThemePicker::new(
-            "theme-picker",
-            self.ui_theme(),
-            f32::from(viewport.width),
-            f32::from(viewport.height),
-        )
-        .items(items)
+        ThemePicker::new("theme-picker", self.ui_theme()).items(items)
     }
 
     pub(crate) fn submit_review(
@@ -1574,20 +1494,20 @@ impl DiffViewer {
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
 impl EventEmitter<ThemeChanged> for DiffViewer {}
 
-fn clamp_font_size(size: f32) -> f32 {
-    size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)
+fn clamp_rems(width: Rems, min: Rems, max: Rems) -> Rems {
+    rems(width.0.clamp(min.0, max.0))
 }
 
-fn effective_diff_row_height(configured: f32, font_size: f32) -> f32 {
-    configured.max(font_size + DIFF_ROW_VERTICAL_SPACE)
-}
-
-fn clamp_sidebar_width(width: f32, available: f32) -> f32 {
-    let maximum = MAX_SIDEBAR_WIDTH.min((available - MIN_DIFF_WIDTH).max(0.0));
-    if maximum < MIN_SIDEBAR_WIDTH {
-        width.clamp(0.0, maximum)
+fn clamp_sidebar_width(width: Rems, available: Rems) -> Rems {
+    let maximum = rems(
+        MAX_SIDEBAR_WIDTH
+            .0
+            .min((available - MIN_DIFF_WIDTH).0.max(0.0)),
+    );
+    if maximum.0 < MIN_SIDEBAR_WIDTH.0 {
+        clamp_rems(width, Rems::ZERO, maximum)
     } else {
-        width.clamp(MIN_SIDEBAR_WIDTH, maximum)
+        clamp_rems(width, MIN_SIDEBAR_WIDTH, maximum)
     }
 }
 
@@ -1597,17 +1517,22 @@ impl Render for DiffViewer {
         reason = "GPUI action and overlay wiring is declarative"
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let viewport_width = f32::from(window.viewport_size().width);
+        let rem_size = window.rem_size();
+        if self.rem_size != rem_size {
+            self.rem_size = rem_size;
+            self.diff_list_state.remeasure();
+        }
+        let viewport_width = rems(window.viewport_size().width / rem_size);
         let preferred_width = self.preferred_sidebar_width.unwrap_or_else(|| {
-            (viewport_width * DEFAULT_SIDEBAR_FRACTION).max(DEFAULT_MIN_SIDEBAR_WIDTH)
+            rems((viewport_width.0 * DEFAULT_SIDEBAR_FRACTION).max(DEFAULT_MIN_SIDEBAR_WIDTH.0))
         });
         let sidebar_width = clamp_sidebar_width(preferred_width, viewport_width);
-        if (self.sidebar_width - sidebar_width).abs() > f32::EPSILON {
+        if self.sidebar_width != sidebar_width {
             self.sidebar_width = sidebar_width;
             self.diff_list_state.remeasure();
         }
-        let diff_width = viewport_width - sidebar_width - SIDEBAR_DIVIDER_WIDTH;
-        let split_when_auto = diff_width >= self.options.auto_split_width;
+        let diff_width = viewport_width - sidebar_width;
+        let split_when_auto = diff_width.0 >= self.options.auto_split_width.0;
         if self.session.split_when_auto() != split_when_auto {
             self.change_layout(|session| session.set_split_when_auto(split_when_auto));
         }
@@ -1684,9 +1609,6 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::expand_gap_all_action))
             .on_action(cx.listener(Self::toggle_full_file_action))
             .on_action(cx.listener(Self::toggle_source_view_action))
-            .on_action(cx.listener(Self::increase_font_size))
-            .on_action(cx.listener(Self::decrease_font_size))
-            .on_action(cx.listener(Self::reset_font_size_action))
             .on_action(cx.listener(Self::toggle_stage))
             .on_action(cx.listener(Self::stage_all))
             .on_action(cx.listener(Self::unstage_all))
@@ -1717,8 +1639,8 @@ impl Render for DiffViewer {
             .flex_col()
             .bg(color(palette.background))
             .text_color(color(palette.foreground))
-            .font_family(DEFAULT_FONT_FAMILY)
-            .text_size(px(self.font_size))
+            .font_family(UI_FONT)
+            .typography(Typography::Body)
             .child(
                 div()
                     .id("diff-viewer-content")
@@ -1726,9 +1648,7 @@ impl Render for DiffViewer {
                     .flex_1()
                     .overflow_hidden()
                     .flex()
-                    .on_drag_move::<SidebarResizeDrag>(cx.listener(Self::resize_sidebar))
                     .child(self.render_sidebar(cx))
-                    .child(self.render_sidebar_resize_handle(cx))
                     .child(self.render_diff(window, cx)),
             )
             .child(self.render_review_bar(cx))
@@ -1736,7 +1656,7 @@ impl Render for DiffViewer {
                 viewer.child(self.render_shortcuts())
             })
             .when(self.theme_selection.is_some(), |viewer| {
-                viewer.child(self.render_theme_picker(window, cx))
+                viewer.child(self.render_theme_picker(cx))
             })
             .when(self.repository_prompt.is_some(), |viewer| {
                 viewer.child(self.render_repository_prompt())
@@ -1762,36 +1682,22 @@ mod tests {
     use super::*;
     use clankerdiff_core::testing::DocumentBuilder;
 
-    fn assert_close(actual: f32, expected: f32) {
-        assert!((actual - expected).abs() < f32::EPSILON);
+    fn assert_close(actual: Rems, expected_px: f32) {
+        assert!((actual.0 - rem(expected_px).0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn sidebar_width_is_clamped_to_preserve_the_diff_pane() {
-        assert_close(clamp_sidebar_width(100.0, 1_000.0), 180.0);
-        assert_close(clamp_sidebar_width(400.0, 1_000.0), 400.0);
-        assert_close(clamp_sidebar_width(900.0, 1_000.0), 680.0);
-        assert_close(clamp_sidebar_width(400.0, 600.0), 280.0);
+        assert_close(clamp_sidebar_width(rem(100.0), rem(1_000.0)), 180.0);
+        assert_close(clamp_sidebar_width(rem(400.0), rem(1_000.0)), 400.0);
+        assert_close(clamp_sidebar_width(rem(900.0), rem(1_000.0)), 680.0);
+        assert_close(clamp_sidebar_width(rem(400.0), rem(600.0)), 280.0);
     }
 
     #[test]
     fn sidebar_can_shrink_below_its_normal_minimum_in_a_narrow_viewport() {
-        assert_close(clamp_sidebar_width(280.0, 450.0), 130.0);
-        assert_close(clamp_sidebar_width(280.0, 300.0), 0.0);
-    }
-
-    #[test]
-    fn font_size_is_clamped_to_the_supported_range() {
-        assert_close(clamp_font_size(8.0), 10.0);
-        assert_close(clamp_font_size(16.0), 16.0);
-        assert_close(clamp_font_size(30.0), 24.0);
-    }
-
-    #[test]
-    fn diff_rows_grow_to_fit_larger_fonts() {
-        assert_close(effective_diff_row_height(20.0, 13.0), 20.0);
-        assert_close(effective_diff_row_height(20.0, 16.0), 23.0);
-        assert_close(effective_diff_row_height(20.0, 20.0), 27.0);
+        assert_close(clamp_sidebar_width(rem(280.0), rem(450.0)), 130.0);
+        assert_close(clamp_sidebar_width(rem(280.0), rem(300.0)), 0.0);
     }
 
     #[test]

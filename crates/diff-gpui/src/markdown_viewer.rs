@@ -3,14 +3,13 @@
 mod commands;
 
 use crate::{
-    DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, ThemeChanged,
+    ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent},
+    comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
     style,
-    ui::{
-        comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
-        prelude::{
-            ActionBar, Button, ButtonVariant, ControlSize, ThemePicker, ThemePickerItem, UiTheme,
-        },
+    ui::prelude::{
+        ActionBar, Button, ButtonVariant, ControlSize, ThemePicker, ThemePickerItem, Typography,
+        TypographyExt, UI_FONT, UiTheme, rem,
     },
 };
 use clankerdiff_core::{ReviewCapabilities, ReviewCommand, SourceSequenceId, join_lines};
@@ -23,8 +22,8 @@ use clankerdiff_syntax::{DocumentHighlights, HighlightSpan, LanguageHint, Syntax
 use clankerdiff_theme::ReviewTheme;
 use clankerdiff_theme::ThemeSelection;
 use gpui::{
-    App, Context, Entity, EventEmitter, Focusable, HighlightStyle, KeyBinding, KeyContext,
-    ScrollHandle, SharedString, StyledText, Subscription, Window, actions, div, prelude::*, px,
+    App, Context, Entity, EventEmitter, Focusable, HighlightStyle, KeyBinding, KeyContext, Rems,
+    ScrollHandle, SharedString, StyledText, Subscription, Window, actions, div, prelude::*,
 };
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
@@ -62,16 +61,14 @@ actions!(
 /// Renderer-specific Markdown reviewer options.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MarkdownReviewerOptions {
-    pub font_size: f32,
-    pub outline_width: f32,
+    pub outline_width: Rems,
     pub show_outline: bool,
 }
 
 impl Default for MarkdownReviewerOptions {
     fn default() -> Self {
         Self {
-            font_size: DEFAULT_FONT_SIZE,
-            outline_width: 260.0,
+            outline_width: rem(260.0),
             show_outline: true,
         }
     }
@@ -96,7 +93,6 @@ pub struct MarkdownReviewer {
     highlighter: RefCell<SyntaxHighlighter>,
     code_infos: HashMap<MarkdownTargetId, CodeInfo>,
     options: MarkdownReviewerOptions,
-    font_size: f32,
     editor: Option<Entity<CommentEditor>>,
     editor_subscription: Option<Subscription>,
     focus_handle: Option<gpui::FocusHandle>,
@@ -129,7 +125,6 @@ impl MarkdownReviewer {
             theme,
             highlighter: RefCell::new(SyntaxHighlighter::default()),
             options,
-            font_size: options.font_size,
             editor: None,
             editor_subscription: None,
             focus_handle: None,
@@ -236,8 +231,10 @@ impl MarkdownReviewer {
         cx.notify();
     }
 
-    fn font_size(&self) -> f32 {
-        self.font_size
+    /// Returns the current theme.
+    #[must_use]
+    pub const fn theme(&self) -> &ReviewTheme {
+        &self.theme
     }
 
     /// Returns semantic component tokens for the current theme.
@@ -343,7 +340,7 @@ impl MarkdownReviewer {
         div()
             .id("markdown-outline-pane")
             .track_scroll(&self.outline_scroll)
-            .w(px(self.options.outline_width))
+            .w(self.options.outline_width)
             .h_full()
             .flex_shrink_0()
             .overflow_y_scroll()
@@ -353,7 +350,8 @@ impl MarkdownReviewer {
             .child(
                 div()
                     .mb_3()
-                    .font_weight(gpui::FontWeight::BOLD)
+                    .typography(Typography::Label)
+                    .text_color(style::color(palette.muted))
                     .child("Outline"),
             )
             .children(headings.into_iter().map(|heading| {
@@ -361,8 +359,10 @@ impl MarkdownReviewer {
                 let selected = self.session.selected_target() == Some(target);
                 div()
                     .id(("markdown-outline", target.index()))
-                    .pl(px(f32::from(heading.level.saturating_sub(1)) * 12.0))
+                    .pl(rem(f32::from(heading.level.saturating_sub(1)) * 12.0))
                     .py_1()
+                    .px_2()
+                    .rounded_sm()
                     .cursor_pointer()
                     .when(selected, |row| row.bg(style::color(palette.selection)))
                     .child(heading.title)
@@ -450,8 +450,9 @@ impl MarkdownReviewer {
             .gap_3()
             .child(
                 div()
-                    .w(px(78.0))
+                    .w(rem(78.0))
                     .flex_shrink_0()
+                    .typography(Typography::Code)
                     .text_color(style::color(palette.muted))
                     .child(if lines.start == lines.end {
                         format!("{}", lines.start)
@@ -464,18 +465,14 @@ impl MarkdownReviewer {
                     .min_w_0()
                     .flex_1()
                     .when(is_code, |code| {
-                        code.font_family(DEFAULT_FONT_FAMILY)
+                        code.typography(Typography::Code)
                             .bg(style::color(palette.selection))
                     })
                     .whitespace_normal()
                     .child(rendered),
             )
             .when(comment_count > 0, |row| {
-                row.child(CommentCount::new(
-                    comment_count,
-                    self.font_size() - 2.0,
-                    &self.ui_theme(),
-                ))
+                row.child(CommentCount::new(comment_count, &self.ui_theme()))
             });
 
         div()
@@ -504,7 +501,7 @@ impl MarkdownReviewer {
             }))
             .child(
                 div()
-                    .text_size(px(self.font_size() - 3.0))
+                    .typography(Typography::Caption)
                     .text_color(style::color(palette.muted))
                     .child(label),
             )
@@ -518,13 +515,11 @@ impl MarkdownReviewer {
                         "Comment"
                     },
                     comment.body.clone(),
-                    self.font_size() - 3.0,
                     &self.ui_theme(),
                     index + 1 == comment_count,
                 )
                 .header_actions(comment_dismiss_button(
                     comment.id,
-                    self.font_size(),
                     &self.ui_theme(),
                     cx,
                     {
@@ -736,7 +731,7 @@ impl MarkdownReviewer {
         }
     }
 
-    fn render_theme_picker(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_theme_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let current = self.theme.id().to_string();
         let items = ReviewTheme::catalog().into_iter().map(|descriptor| {
             let id = descriptor.id.clone();
@@ -748,14 +743,7 @@ impl MarkdownReviewer {
                 cx.listener(move |reviewer, _, window, cx| reviewer.select_theme(&id, window, cx)),
             )
         });
-        let viewport = window.viewport_size();
-        ThemePicker::new(
-            "markdown-theme-picker",
-            self.ui_theme(),
-            f32::from(viewport.width),
-            f32::from(viewport.height),
-        )
-        .items(items)
+        ThemePicker::new("markdown-theme-picker", self.ui_theme()).items(items)
     }
 
     fn next_theme(&mut self, _: &MarkdownNextTheme, window: &mut Window, cx: &mut Context<Self>) {
@@ -908,7 +896,7 @@ impl Focusable for MarkdownReviewer {
 }
 
 impl Render for MarkdownReviewer {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focus = self
             .focus_handle
             .get_or_insert_with(|| cx.focus_handle())
@@ -962,8 +950,8 @@ impl Render for MarkdownReviewer {
             .size_full()
             .flex()
             .flex_col()
-            .font_family(DEFAULT_FONT_FAMILY)
-            .text_size(px(self.font_size()))
+            .font_family(UI_FONT)
+            .typography(Typography::Body)
             .bg(style::color(palette.background))
             .text_color(style::color(palette.foreground))
             .child(
@@ -999,7 +987,7 @@ impl Render for MarkdownReviewer {
             )
             .child(self.render_bar(cx))
             .when(self.theme_selection.is_some(), |reviewer| {
-                reviewer.child(self.render_theme_picker(window, cx))
+                reviewer.child(self.render_theme_picker(cx))
             })
     }
 }

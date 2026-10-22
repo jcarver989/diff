@@ -6,6 +6,7 @@
 
 use crate::{
     DiffViewer, DiffViewerEvent, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions,
+    ui::{InterfaceSize, tokens::BASE_SIZE},
 };
 use clankerdiff_core::{
     DiffDocument, DiffReviewCommand, Review, ReviewCommand, ViewMode, testing::DocumentBuilder,
@@ -16,9 +17,10 @@ use clankerdiff_markdown::{
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
     Action, AnyWindowHandle, App, Bounds, Context, ElementInputHandler, Entity, Focusable,
-    InputEvent, InputHandler, KeyDownEvent, KeyUpEvent, Keystroke, ListOffset, Modifiers, Pixels,
-    Point, Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext,
-    Window, WindowBounds, WindowHandle, WindowOptions, div, point, prelude::*, px, size,
+    InputEvent, InputHandler, KeyDownEvent, KeyUpEvent, Keystroke, ListOffset, Modifiers,
+    MouseButton, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase,
+    VisualTestContext, Window, WindowBounds, WindowHandle, WindowOptions, div, point, prelude::*,
+    px, size,
 };
 use gpui_base::input::TextareaState;
 use std::{error::Error, sync::Arc};
@@ -48,7 +50,8 @@ impl HarnessRoot {
 }
 
 impl Render for HarnessRoot {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        InterfaceSize::apply(window, cx);
         div().size_full().child(self.viewer.clone())
     }
 }
@@ -74,6 +77,7 @@ pub struct DiffViewerHarnessBuilder {
     pub window_options: WindowOptions,
     pub comments: Vec<String>,
     pub view_mode: Option<ViewMode>,
+    pub interface_size: f32,
 }
 
 impl Default for DiffViewerHarnessBuilder {
@@ -87,6 +91,7 @@ impl Default for DiffViewerHarnessBuilder {
             window_options: WindowOptions::default(),
             comments: Vec::new(),
             view_mode: None,
+            interface_size: BASE_SIZE,
         }
     }
 }
@@ -136,7 +141,9 @@ impl DiffViewerHarnessBuilder {
             window_options,
             comments,
             view_mode,
+            interface_size,
         } = self;
+        cx.update(|cx| InterfaceSize::init(interface_size, cx));
         let window = cx.update(|cx| {
             cx.open_window(window_options, |_, cx| {
                 cx.new(|cx| HarnessRoot::new(document, theme, options, cx))
@@ -250,6 +257,29 @@ impl DiffViewerHarness {
 
     pub fn press_key(&self, cx: &mut TestAppContext, key: &str) -> Result<(), Box<dyn Error>> {
         press_key(cx, self.window(), key)
+    }
+
+    pub fn drag(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+        to: Point<Pixels>,
+    ) -> Result<(), Box<dyn Error>> {
+        draw_window(cx, self.window())?;
+        let mut visual = VisualTestContext::from_window(self.window(), cx);
+        let from = visual
+            .debug_bounds(selector)
+            .ok_or_else(|| format!("missing {selector}"))?
+            .center();
+        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(
+            from + point(px(4.0), px(0.0)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+        draw_window(cx, self.window())
     }
 
     pub fn focus_next(&self, cx: &mut TestAppContext) -> Result<(), Box<dyn Error>> {
@@ -395,6 +425,22 @@ impl DiffViewerHarness {
     /// # Panics
     ///
     /// Panics if the selector was never painted.
+    pub fn simulate_wheel(&self, cx: &mut TestAppContext, position: Point<Pixels>, lines: f32) {
+        cx.update_window(*self.window, |_, window, cx| {
+            window.dispatch_event(
+                ScrollWheelEvent {
+                    position,
+                    delta: ScrollDelta::Lines(point(0.0, lines)),
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        })
+        .expect("dispatch test scroll wheel event");
+        self.draw(cx);
+    }
+
     #[must_use]
     pub fn scroll_center(&self, cx: &mut TestAppContext, selector: &'static str) -> Point<Pixels> {
         let bounds = self

@@ -1,9 +1,9 @@
 use crate::{
     DiffViewer,
     style::color,
-    ui::prelude::{Modal, ModalSize},
+    ui::prelude::{CODE_FONT, Modal, ModalSize, Typography, TypographyExt, rem},
 };
-use gpui::{div, prelude::*, px};
+use gpui::{div, prelude::*};
 
 const NAVIGATION: &[(&str, &str)] = &[
     ("j / k, ↑ / ↓", "move selection"),
@@ -45,7 +45,7 @@ impl DiffViewer {
             let mut content = div().flex_1().flex().flex_col().gap_1().child(
                 div()
                     .mb_1()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .typography(Typography::Label)
                     .text_color(color(palette.accent))
                     .child(title),
             );
@@ -56,8 +56,9 @@ impl DiffViewer {
                         .gap_3()
                         .child(
                             div()
-                                .w(px(100.0))
+                                .w(rem(120.0))
                                 .flex_shrink_0()
+                                .font_family(CODE_FONT)
                                 .text_color(color(palette.foreground))
                                 .child(*keys),
                         )
