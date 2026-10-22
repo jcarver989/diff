@@ -4,16 +4,17 @@ use crate::{
     DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme, RepositoryOperationStatus,
     annotation::render_annotation_line,
     color::page_color,
-    drawer::{DrawerEntry, DrawerTree},
     patch_layout::{PatchContentLayout, PatchVisualRow},
     state::{HitLayout, RepositoryPrompt},
-    style::{diff_indicator, syntax_style},
+    style::{diff_indicator, file_status_color, syntax_style},
     text::{FitOptions, fit_spans_from},
     theme_picker::render_theme_picker,
     ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use clankerdiff_core::{DiffSide, DiffTone, PresentedCell, PresentedRow, RowKind};
+use clankerdiff_core::{
+    DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PresentedCell, PresentedRow, RowKind,
+};
 use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
 use ratatui::{
@@ -21,10 +22,11 @@ use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Paragraph, StatefulWidget, Widget},
+    widgets::{Clear, Paragraph, StatefulWidget, Widget},
 };
 
 const DRAWER_BREAKPOINT: u16 = 72;
+pub(crate) const GAP_EXPAND_WIDTH: u16 = 3;
 const DRAWER_MIN_WIDTH: u16 = 20;
 const DRAWER_MAX_WIDTH: u16 = 36;
 
@@ -128,19 +130,21 @@ fn render_document(
         ])
         .areas(area);
         render_separator(separator, buffer, theme);
-        let drawer_hit = render_drawer(drawer, buffer, state, theme);
-        (drawer_hit, patch)
+        (drawer, patch)
     } else {
         (Rect::default(), area)
     };
-    state.hit_layout.drawer = drawer;
-    if drawer.is_empty() {
-        state.hit_layout.drawer_stage_column = None;
-    }
     state.hit_layout.patch = patch;
     let (patch_rows, patch_track) = rows_and_track(patch, true);
     state.ensure_presentation(patch_rows.width);
     render_patch(patch_rows, patch_track, buffer, state, theme);
+    state.follow_active_file();
+    state.hit_layout.drawer = if drawer.is_empty() {
+        state.hit_layout.drawer_stage_column = None;
+        drawer
+    } else {
+        render_drawer(drawer, buffer, state, theme)
+    };
 }
 
 fn render_separator(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
@@ -151,7 +155,6 @@ fn render_separator(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     }
 }
 
-#[expect(clippy::too_many_lines, reason = "tree row rendering is kept together")]
 fn render_drawer(
     area: Rect,
     buffer: &mut Buffer,
@@ -168,13 +171,14 @@ fn render_drawer(
     state.drawer_scroll = state
         .drawer_scroll
         .min(entry_count.saturating_sub(state.drawer_height));
-    if state.take_drawer_follow_request() {
-        if state.drawer_selected < state.drawer_scroll {
-            state.drawer_scroll = state.drawer_selected;
-        } else if state.drawer_selected >= state.drawer_scroll.saturating_add(state.drawer_height) {
-            state.drawer_scroll = state
-                .drawer_selected
-                .saturating_sub(state.drawer_height.saturating_sub(1));
+    let selected = state.drawer.selected_position();
+    if state.take_drawer_follow_request()
+        && let Some(selected) = selected
+    {
+        if selected < state.drawer_scroll {
+            state.drawer_scroll = selected;
+        } else if selected >= state.drawer_scroll.saturating_add(state.drawer_height) {
+            state.drawer_scroll = selected.saturating_sub(state.drawer_height.saturating_sub(1));
         }
     }
     for (offset, entry) in state
@@ -201,44 +205,28 @@ fn render_drawer(
             stage_area.width.min(1),
             1,
         );
-        let entry_stage = match entry {
-            DrawerEntry::Directory {
-                name,
-                depth,
-                expanded,
-                ..
-            } => {
-                let marker = if *expanded { "▾" } else { "▸" };
+        let indent = "  ".repeat(entry.depth);
+        let entry_stage = match entry.file {
+            None => {
+                let marker = if entry.expanded { "▾" } else { "▸" };
                 Paragraph::new(Line::from(vec![
-                    Span::raw(format!("{}{} ", "  ".repeat(*depth), marker)),
-                    Span::styled(format!("{name}/"), Style::new().fg(theme.ui.accent)),
+                    Span::raw(format!("{indent}{marker} ")),
+                    Span::styled(format!("{}/", entry.name), Style::new().fg(theme.ui.accent)),
                 ]))
                 .render(content, buffer);
-                DrawerTree::stage_state_for_entry(state.document(), entry)
+                FileTree::stage_state_for(state.document(), &entry.path)
             }
-            DrawerEntry::File {
-                index: file_index,
-                name,
-                depth,
-            } => {
-                let Some(file) = state.document().files.get(*file_index) else {
+            Some(file_index) => {
+                let Some(file) = state.document().files.get(file_index) else {
                     continue;
                 };
-                let status_color = match file.status {
-                    clankerdiff_core::FileStatus::Added
-                    | clankerdiff_core::FileStatus::Untracked => theme.addition,
-                    clankerdiff_core::FileStatus::Deleted => theme.deletion,
-                    clankerdiff_core::FileStatus::Modified
-                    | clankerdiff_core::FileStatus::Renamed
-                    | clankerdiff_core::FileStatus::Copied => theme.ui.accent,
-                };
                 Paragraph::new(Line::from(vec![
-                    Span::raw("  ".repeat(*depth)),
+                    Span::raw(indent),
                     Span::styled(
                         file.status.code().to_string(),
-                        Style::new().fg(status_color),
+                        Style::new().fg(file_status_color(file.status, theme)),
                     ),
-                    Span::raw(format!(" {name}")),
+                    Span::raw(format!(" {}", entry.name)),
                     Span::styled(
                         format!(" +{} -{}", file.additions(), file.deletions()),
                         Style::new().fg(theme.ui.text_muted),
@@ -250,7 +238,7 @@ fn render_drawer(
         };
         Paragraph::new(stage_marker(entry_stage)).render(checkbox, buffer);
 
-        if state.drawer_selected == index {
+        if selected == Some(index) {
             buffer.set_style(
                 row,
                 Style::new()
@@ -283,6 +271,10 @@ const fn stage_marker(state: clankerdiff_core::StageState) -> &'static str {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "visible-row rendering is kept together"
+)]
 fn render_patch(
     area: Rect,
     track: Rect,
@@ -294,14 +286,14 @@ fn render_patch(
         return;
     }
     state.last_height = usize::from(area.height).max(1);
-    if state.take_follow_request() {
-        state.follow_selection();
-    }
+    state.apply_pending_scroll();
     let Some(visual_layout) = state.patch_visual_layout() else {
         return;
     };
-    let last_scroll = visual_layout.len().saturating_sub(state.last_height);
-    state.scroll = state.scroll.min(last_scroll);
+    state.scroll = state
+        .scroll
+        .min(visual_layout.len().saturating_sub(state.last_height));
+    let active_file = state.active_file();
 
     let DiffReviewState {
         session,
@@ -319,6 +311,7 @@ fn render_patch(
     let selected_row = session.selected_row();
     let selected_side = session.selected_side();
     let layout = session.layout();
+    let source_label = session.source_view_label();
     let mut visual_index = *scroll;
     let mut y = area.y;
     while y < area.bottom() {
@@ -354,8 +347,7 @@ fn render_patch(
                         selected,
                         selected_side,
                         layout,
-                        file_stats: file_stats(session, row),
-                        source_label: session.source_view_label(),
+                        source_label,
                     },
                 );
                 visible_rows.extend((y..y + height).map(|screen_y| (screen_y, index)));
@@ -381,6 +373,21 @@ fn render_patch(
         visual_index += usize::from(height);
         y += height;
     }
+    let top = visual_layout.row(*scroll).map(|row| row.source());
+    if let Some(file) = active_file
+        && let Some(header) = presentation.file_range(file).map(|range| range.start)
+        && top != Some(header)
+    {
+        render_file_divider(
+            Rect::new(area.x, area.y, area.width, 1),
+            buffer,
+            theme,
+            &presentation.document().files[file],
+            source_label,
+        );
+        visible_rows.retain(|(screen_y, _)| *screen_y != area.y);
+        visible_rows.push((area.y, header));
+    }
     render_vertical_scrollbar(
         track,
         buffer,
@@ -390,21 +397,104 @@ fn render_patch(
     );
 }
 
-fn file_stats(
-    session: &clankerdiff_core::ReviewSession,
-    row: &PresentedRow,
-) -> Option<(usize, usize)> {
-    (row.kind == RowKind::FileHeader)
-        .then(|| session.document().files.get(row.file_index))
-        .flatten()
-        .map(|file| (file.additions(), file.deletions()))
+fn render_gap_row(area: Rect, buffer: &mut Buffer, context: &CellContext<'_>, selected: bool) {
+    let theme = context.theme;
+    let info = context.presentation.gap_info(context.source);
+    let rule = Style::new().fg(if selected {
+        theme.ui.accent
+    } else {
+        theme.ui.border
+    });
+    let mut spans = vec![Span::styled(
+        if info.is_some_and(GapInfo::is_expandable) {
+            " ↕ "
+        } else {
+            "   "
+        },
+        Style::new().fg(theme.ui.accent),
+    )];
+    if selected && let Some(info) = info {
+        spans.push(Span::styled("── ", rule));
+        spans.push(Span::styled(
+            info.hint(),
+            Style::new().fg(theme.ui.text_muted),
+        ));
+        spans.push(Span::raw(" "));
+    }
+    let used = spans.iter().map(Span::width).sum::<usize>();
+    spans.push(Span::styled(
+        "─".repeat(usize::from(area.width).saturating_sub(used)),
+        rule,
+    ));
+    Paragraph::new(Line::from(spans))
+        .style(Style::new().bg(if selected {
+            theme.ui.surface_selected
+        } else {
+            theme.ui.canvas
+        }))
+        .render(area, buffer);
+}
+
+fn render_file_divider(
+    area: Rect,
+    buffer: &mut Buffer,
+    theme: &RatatuiTheme,
+    file: &FileDiff,
+    source_label: Option<&str>,
+) {
+    Clear.render(area, buffer);
+    buffer.set_style(area, Style::new().bg(theme.ui.surface));
+    let mut left = vec![
+        Span::styled(
+            format!(" {} ", file.status.code()),
+            Style::new().fg(file_status_color(file.status, theme)),
+        ),
+        Span::styled(
+            file.path.file_name().to_owned(),
+            Style::new().fg(theme.ui.text).add_modifier(Modifier::BOLD),
+        ),
+    ];
+    if let Some(directory) = file.path.directory() {
+        left.push(Span::styled(
+            format!(" {directory}/"),
+            Style::new().fg(theme.ui.text_muted),
+        ));
+    }
+    if let Some(old) = file.renamed_from() {
+        left.push(Span::styled(
+            format!(" ← {old}"),
+            Style::new().fg(theme.ui.text_muted),
+        ));
+    }
+    let right = source_label.map_or_else(
+        || {
+            Line::from(vec![
+                Span::styled(
+                    format!("+{}", file.additions()),
+                    Style::new().fg(theme.addition),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    format!("-{} ", file.deletions()),
+                    Style::new().fg(theme.deletion),
+                ),
+            ])
+        },
+        |label| Line::styled(format!("{label} "), Style::new().fg(theme.ui.text_muted)),
+    );
+    let right_width = u16::try_from(right.width())
+        .unwrap_or(u16::MAX)
+        .min(area.width);
+    let [left_area, right_area] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(area);
+    Paragraph::new(Line::from(left)).render(left_area, buffer);
+    Paragraph::new(right).render(right_area, buffer);
 }
 
 struct RowStyle {
     selected: bool,
     selected_side: DiffSide,
     layout: clankerdiff_core::Layout,
-    file_stats: Option<(usize, usize)>,
     source_label: Option<&'static str>,
 }
 
@@ -423,26 +513,14 @@ struct CellContext<'a> {
 fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, style: &RowStyle) {
     let row = context.row;
     match row.kind {
-        RowKind::FileHeader => {
-            let text = row.primary_cell().map_or("", |cell| cell.text.as_ref());
-            let (additions, deletions) = style.file_stats.unwrap_or_default();
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    format!(" {text} "),
-                    Style::new()
-                        .fg(context.theme.ui.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    style
-                        .source_label
-                        .map_or_else(|| format!("+{additions} -{deletions}"), ToOwned::to_owned),
-                    Style::new().fg(context.theme.ui.text_muted),
-                ),
-            ]))
-            .render(area, buffer);
-        }
-        RowKind::HunkHeader | RowKind::Meta => {
+        RowKind::FileHeader => render_file_divider(
+            area,
+            buffer,
+            context.theme,
+            &context.presentation.document().files[row.file_index],
+            style.source_label,
+        ),
+        RowKind::Meta => {
             Paragraph::new(row.primary_cell().map_or("", |cell| cell.text.as_ref()))
                 .style(
                     Style::new()
@@ -451,30 +529,7 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
                 )
                 .render(area, buffer);
         }
-        RowKind::ExpandGap => {
-            let text = context.presentation.gap_info(context.source).map_or_else(
-                || " ⋯ unchanged lines".to_owned(),
-                |info| {
-                    let message = if info.unavailable.is_none() {
-                        format!("{} — Enter expand · O expand all", info.message())
-                    } else {
-                        info.message()
-                    };
-                    format!(" {message}")
-                },
-            );
-            Paragraph::new(text)
-                .style(
-                    Style::new()
-                        .fg(context.theme.ui.text_muted)
-                        .bg(if style.selected {
-                            context.theme.ui.surface_selected
-                        } else {
-                            context.theme.ui.canvas
-                        }),
-                )
-                .render(area, buffer);
-        }
+        RowKind::ExpandGap => render_gap_row(area, buffer, context, style.selected),
         RowKind::Code | RowKind::ExpandedContext if style.layout.is_split() => {
             let geometry = context.patch_layout.geometry();
             let separator_width = u16::from(area.width > 0);

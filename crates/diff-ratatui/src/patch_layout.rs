@@ -164,6 +164,15 @@ pub(crate) enum PatchVisualRow<'a> {
     },
 }
 
+impl PatchVisualRow<'_> {
+    pub(crate) const fn source(&self) -> usize {
+        match *self {
+            Self::Source { index, .. } => index,
+            Self::Annotation { source, .. } => source,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct PatchVisualLayout {
     content: Arc<PatchContentLayout>,

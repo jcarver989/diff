@@ -268,7 +268,9 @@ fn deep_scrolling_preserves_source_content_and_logical_selection() -> Result<(),
     let offset = u16::try_from(state.scroll_offset())?;
     assert!(offset > area.height);
     assert_eq!(state.selected_row(), selected);
-    for y in 0..area.height {
+    let sticky: String = (0..area.width).map(|x| buffer[(x, 0)].symbol()).collect();
+    assert!(sticky.contains("long.rs"), "{sticky}");
+    for y in 1..area.height {
         for x in 26..39 {
             assert_eq!(
                 buffer[(x, y)].symbol(),

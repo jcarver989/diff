@@ -1,15 +1,15 @@
 use crate::{
     DiffReviewCommand, InteractionPhase, KeyBinding, NavigationPane, ReviewOptions, ThemeChoice,
     default_diff_keybindings,
-    drawer::{DrawerEntry, DrawerTree},
-    patch_layout::{PatchContentLayout, PatchVisualLayout, PatchVisualRow},
+    patch_layout::{PatchContentLayout, PatchVisualLayout},
+    render::GAP_EXPAND_WIDTH,
     theme_picker::ThemePicker,
 };
 use clankerdiff_client::{ClientState, ConnectionState, DiffSnapshot};
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, Layout, RepositoryAction,
-    RevealAmount, Review, ReviewCapabilities, ReviewSession, RowId, SourceLocation, StageState,
-    ViewMode,
+    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout,
+    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, RowKind, StageState,
+    ViewMode, ViewportAnchor,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -84,9 +84,14 @@ struct CachedPatchContent {
 #[derive(Debug)]
 struct DiffViewportBookmark {
     scroll: usize,
-    row: Option<RowId>,
-    source: Option<SourceLocation>,
+    anchor: ViewportAnchor,
     segment: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PendingScroll {
+    Follow,
+    Jump(usize),
 }
 
 /// Persistent state for [`crate::DiffReviewWidget`].
@@ -102,8 +107,7 @@ pub struct DiffReviewState {
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) status: DiffReviewStatus,
     pub(crate) focus: FocusPane,
-    pub(crate) drawer: DrawerTree,
-    pub(crate) drawer_selected: usize,
+    pub(crate) drawer: FileTree,
     pub(crate) drawer_scroll: usize,
     pub(crate) drawer_height: usize,
     drawer_follow: DrawerFollow,
@@ -113,6 +117,8 @@ pub struct DiffReviewState {
     patch_content: Option<CachedPatchContent>,
     patch_layout: Option<CachedPatchLayout>,
     diff_viewport: Option<DiffViewportBookmark>,
+    pending_scroll: Option<PendingScroll>,
+    followed_file: Option<usize>,
     pub(crate) help: bool,
     pub(crate) help_scroll: usize,
     pub(crate) theme_picker: Option<ThemePicker>,
@@ -124,7 +130,6 @@ pub struct DiffReviewState {
     pub(crate) hit_layout: HitLayout,
     pub(crate) visible_rows: Vec<(u16, usize)>,
     pub(crate) cursor_position: Option<Position>,
-    pub(crate) follow_pending: bool,
     pub(crate) dirty: bool,
 }
 
@@ -138,10 +143,11 @@ impl DiffReviewState {
     /// Creates ready state with a shared neutral theme.
     #[must_use]
     pub fn with_theme(document: Arc<DiffDocument>, theme: ReviewTheme) -> Self {
-        let drawer = DrawerTree::new(&document);
-        let drawer_selected = drawer.position_of_file(0).unwrap_or(0);
+        let mut drawer = FileTree::new(&document);
+        let session = ReviewSession::new(document);
+        drawer.reveal_file(session.selected_file().unwrap_or(0));
         let mut state = Self {
-            session: ReviewSession::new(document),
+            session,
             scope: DiffScope::Both,
             options: ReviewOptions::default(),
             capabilities: ReviewCapabilities::default(),
@@ -152,7 +158,6 @@ impl DiffReviewState {
             status: DiffReviewStatus::Ready,
             focus: FocusPane::Files,
             drawer,
-            drawer_selected,
             drawer_scroll: 0,
             drawer_height: 1,
             drawer_follow: DrawerFollow::Pending,
@@ -162,6 +167,8 @@ impl DiffReviewState {
             patch_content: None,
             patch_layout: None,
             diff_viewport: None,
+            pending_scroll: Some(PendingScroll::Follow),
+            followed_file: None,
             help: false,
             help_scroll: 0,
             theme_picker: None,
@@ -173,7 +180,6 @@ impl DiffReviewState {
             hit_layout: HitLayout::default(),
             visible_rows: Vec::new(),
             cursor_position: None,
-            follow_pending: true,
             dirty: true,
         };
         state.scroll_to_selected_file();
@@ -274,10 +280,17 @@ impl DiffReviewState {
         self.highlighter.stats()
     }
 
-    /// Returns the first visible rendered-row index in the selected file.
+    /// Returns the first visible rendered-row index in the continuous diff.
     #[must_use]
     pub const fn scroll_offset(&self) -> usize {
         self.scroll
+    }
+
+    /// Returns the file whose section is at the top of the diff viewport.
+    #[must_use]
+    pub fn active_file(&mut self) -> Option<usize> {
+        let source = self.patch_visual_layout()?.row(self.scroll)?.source();
+        Some(self.presentation().row(source)?.file_index)
     }
 
     /// Returns whether anything since the last frame changed what a redraw
@@ -338,24 +351,23 @@ impl DiffReviewState {
     }
 
     fn install_document(&mut self, document: Arc<DiffDocument>) {
-        let revision = self.session.projection_revision();
+        let bookmark = matches!(self.status, DiffReviewStatus::Ready)
+            .then(|| self.viewport_bookmark())
+            .flatten();
         self.session.set_document(document);
-        let follow = revision != self.session.projection_revision()
-            || !matches!(self.status, DiffReviewStatus::Ready);
         self.status = DiffReviewStatus::Ready;
         self.cursor_position = None;
         self.mark_dirty();
         let document = self.document().clone();
         self.drawer.rebuild(&document);
-        if let Some(selected) = self.session.selected_file() {
-            self.drawer.expand_file(&document, selected);
-            self.drawer_selected = self.drawer.position_of_file(selected).unwrap_or(0);
-        } else {
-            self.drawer_selected = 0;
+        if self.drawer.selected().is_none() {
+            self.drawer
+                .reveal_file(self.session.selected_file().unwrap_or(0));
         }
         self.follow_drawer_selection();
-        if follow {
-            self.request_follow();
+        match bookmark {
+            Some(bookmark) => self.restore_viewport(&bookmark),
+            None => self.request_follow(),
         }
     }
 
@@ -444,10 +456,9 @@ impl DiffReviewState {
     }
 
     pub(crate) fn toggle_stage_action(&self) -> Option<RepositoryAction> {
-        let entry = self.drawer.entry(self.drawer_selected)?;
-        let document = self.document();
-        let state = DrawerTree::stage_state_for_entry(document, entry);
-        let paths = DrawerTree::paths_for_entry(document, entry);
+        let path = &self.drawer.selected()?.path;
+        let state = FileTree::stage_state_for(self.document(), path);
+        let paths = FileTree::paths_for(self.document(), path);
         if paths.is_empty() {
             return None;
         }
@@ -532,18 +543,10 @@ impl DiffReviewState {
         if !self.session.select_file(index) {
             return false;
         }
-        self.drawer.expand_file(self.session.document(), index);
-        self.drawer_selected = self.drawer.position_of_file(index).unwrap_or(0);
+        self.drawer.reveal_file(index);
         self.follow_drawer_selection();
         self.scroll_to_selected_file();
         true
-    }
-
-    fn finish_projection_change(&mut self, changed: bool) -> bool {
-        if changed {
-            self.request_follow();
-        }
-        changed
     }
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
@@ -559,35 +562,15 @@ impl DiffReviewState {
                 self.session.selected_row(),
                 self.session.selected_side(),
             );
-        self.finish_projection_change(changed)
+        if changed {
+            self.request_follow();
+        }
+        changed
     }
 
     pub fn toggle_source_view(&mut self) -> bool {
         let entering = self.session.source_view().is_none();
-        let bookmark = if entering {
-            let layout = self.patch_visual_layout();
-            let index = match layout.as_ref().and_then(|layout| layout.row(self.scroll)) {
-                Some(PatchVisualRow::Source { index, .. }) => Some(index),
-                Some(PatchVisualRow::Annotation { source, .. }) => Some(source),
-                None => None,
-            };
-            let segment = index
-                .zip(layout.as_ref())
-                .and_then(|(index, layout)| layout.focused_visual_row(index, false))
-                .map_or(0, |first| self.scroll.saturating_sub(first));
-            let row = index.and_then(|index| self.presentation().row(index));
-            Some(DiffViewportBookmark {
-                scroll: self.scroll,
-                row: row.map(|row| row.id),
-                source: row.and_then(|row| {
-                    self.presentation()
-                        .source_location(row, row.primary_cell()?)
-                }),
-                segment,
-            })
-        } else {
-            None
-        };
+        let bookmark = entering.then(|| self.viewport_bookmark()).flatten();
         if !self.session.toggle_source_view() {
             return false;
         }
@@ -596,45 +579,58 @@ impl DiffReviewState {
             self.scroll = 0;
             self.request_follow();
         } else if let Some(bookmark) = self.diff_viewport.take() {
-            self.scroll = bookmark.scroll;
-            let row = bookmark
-                .row
-                .and_then(|id| self.presentation().row_with_id(id))
-                .or_else(|| {
-                    bookmark
-                        .source
-                        .as_ref()
-                        .and_then(|source| self.presentation().row_showing_source(source))
-                });
-            if let (Some(row), Some(layout)) = (row, self.patch_visual_layout()) {
-                self.scroll = layout
-                    .focused_visual_row(row, false)
-                    .unwrap_or(0)
-                    .saturating_add(bookmark.segment);
-            } else {
-                self.follow_selection();
-            }
-            if let Some(layout) = self.patch_visual_layout() {
-                self.scroll = self
-                    .scroll
-                    .min(layout.len().saturating_sub(self.last_height));
-            }
-            self.follow_pending = false;
-            self.mark_dirty();
+            self.restore_viewport(&bookmark);
         }
         true
     }
 
+    fn viewport_bookmark(&mut self) -> Option<DiffViewportBookmark> {
+        let layout = self.patch_visual_layout()?;
+        let index = layout.row(self.scroll)?.source();
+        Some(DiffViewportBookmark {
+            scroll: self.scroll,
+            anchor: ViewportAnchor::capture(self.presentation(), index)?,
+            segment: layout
+                .focused_visual_row(index, false)
+                .map_or(0, |first| self.scroll.saturating_sub(first)),
+        })
+    }
+
+    fn restore_viewport(&mut self, bookmark: &DiffViewportBookmark) {
+        self.pending_scroll = None;
+        self.mark_dirty();
+        let Some(layout) = self.patch_visual_layout() else {
+            return;
+        };
+        let target = bookmark
+            .anchor
+            .resolve(self.presentation(), self.session.visible_range())
+            .and_then(|row| layout.focused_visual_row(row, false))
+            .map(|first| first.saturating_add(bookmark.segment));
+        self.scroll = target
+            .unwrap_or(bookmark.scroll)
+            .min(layout.len().saturating_sub(self.last_height));
+    }
+
+    pub(crate) fn change_layout(&mut self, change: impl FnOnce(&mut Self) -> bool) -> bool {
+        let bookmark = self.viewport_bookmark();
+        let changed = change(self);
+        if changed {
+            match bookmark {
+                Some(bookmark) => self.restore_viewport(&bookmark),
+                None => self.request_follow(),
+            }
+        }
+        changed
+    }
+
     pub fn toggle_full_file(&mut self) -> bool {
-        let changed = self.session.toggle_full_file();
-        self.finish_projection_change(changed)
+        self.change_layout(|state| state.session.toggle_full_file())
     }
 
     /// Selects automatic, unified, or split presentation.
     pub fn set_view_mode(&mut self, mode: ViewMode) {
-        if self.session.set_view_mode(mode) {
-            self.scroll_to_selected_file();
-        }
+        self.change_layout(|state| state.session.set_view_mode(mode));
     }
 
     /// Clears all queued comments and any active draft.
@@ -645,42 +641,42 @@ impl DiffReviewState {
     }
 
     pub(crate) fn ensure_presentation(&mut self, width: u16) {
-        let width_changed = self.presentation_width != width;
-        self.presentation_width = width;
-        if self.session.set_split_when_auto(width >= SPLIT_BREAKPOINT) {
-            self.scroll_to_selected_file();
-        } else if width_changed {
-            self.request_follow();
+        if self.presentation_width == width {
+            return;
         }
+        self.change_layout(|state| {
+            state.presentation_width = width;
+            state.session.set_split_when_auto(width >= SPLIT_BREAKPOINT);
+            true
+        });
     }
 
     pub(crate) fn scroll_to_selected_file(&mut self) {
-        self.scroll = 0;
-        self.request_follow();
+        if let Some(file) = self.session.selected_file() {
+            self.request_scroll(PendingScroll::Jump(file));
+        }
     }
 
     pub(crate) fn move_drawer_entry(&mut self, delta: isize) {
-        let last = self.drawer.entries().len().saturating_sub(1);
-        self.drawer_selected = offset(self.drawer_selected, delta, last);
-        if let Some(DrawerEntry::File { index, .. }) = self.drawer.entry(self.drawer_selected) {
-            let index = *index;
-            if self.session.select_file(index) {
-                self.scroll_to_selected_file();
-            }
-        }
-        self.follow_drawer_selection();
+        let file = self
+            .drawer
+            .move_selection(delta)
+            .and_then(|entry| entry.file);
+        self.open_drawer_file(file);
     }
 
-    pub(crate) fn select_drawer_entry(&mut self, index: usize) {
-        if index >= self.drawer.entries().len() {
-            return;
+    pub(crate) fn select_drawer_entry(&mut self, position: usize) {
+        if let Some(entry) = self.drawer.select(position) {
+            let file = entry.file;
+            self.open_drawer_file(file);
         }
-        self.drawer_selected = index;
-        if let Some(DrawerEntry::File { index, .. }) = self.drawer.entry(index) {
-            let index = *index;
-            if self.session.select_file(index) {
-                self.scroll_to_selected_file();
-            }
+    }
+
+    fn open_drawer_file(&mut self, file: Option<usize>) {
+        if let Some(file) = file
+            && self.session.select_file(file)
+        {
+            self.scroll_to_selected_file();
         }
         self.follow_drawer_selection();
     }
@@ -688,18 +684,13 @@ impl DiffReviewState {
     /// Expands the selected directory, or selects the current file. Returns
     /// whether the selected entry was a directory.
     pub(crate) fn expand_or_open_drawer_entry(&mut self) -> bool {
-        match self.drawer.entry(self.drawer_selected).cloned() {
-            Some(DrawerEntry::Directory { path, .. }) => {
-                self.drawer.expand(&path);
-                self.drawer_selected = self.drawer.position_of_directory(&path).unwrap_or(0);
-                self.follow_drawer_selection();
-                self.mark_dirty();
+        match self.drawer.selected().cloned() {
+            Some(entry) if entry.file.is_none() => {
+                self.set_drawer_expanded(&entry.path, true);
                 true
             }
-            Some(DrawerEntry::File { index, .. }) => {
-                if self.session.select_file(index) {
-                    self.scroll_to_selected_file();
-                }
+            Some(entry) => {
+                self.open_drawer_file(entry.file);
                 false
             }
             None => false,
@@ -707,25 +698,38 @@ impl DiffReviewState {
     }
 
     pub(crate) fn collapse_drawer_entry(&mut self) {
-        let Some(DrawerEntry::Directory { path, .. }) =
-            self.drawer.entry(self.drawer_selected).cloned()
-        else {
-            return;
-        };
-        self.drawer.collapse(&path);
-        self.drawer_selected = self.drawer.position_of_directory(&path).unwrap_or(0);
+        if let Some(entry) = self.drawer.selected().cloned()
+            && entry.file.is_none()
+        {
+            self.set_drawer_expanded(&entry.path, false);
+        }
+    }
+
+    fn set_drawer_expanded(&mut self, path: &str, expanded: bool) {
+        self.drawer.set_expanded(path, expanded);
         self.follow_drawer_selection();
         self.mark_dirty();
     }
 
+    pub(crate) fn follow_active_file(&mut self) {
+        let active = self.active_file();
+        if active == self.followed_file {
+            return;
+        }
+        self.followed_file = active;
+        if let Some(file) = active {
+            self.drawer.follow_file(file);
+            self.follow_drawer_selection();
+        }
+    }
+
     fn follow_drawer_selection(&mut self) {
         self.drawer_follow = DrawerFollow::Pending;
-        if self.drawer_selected < self.drawer_scroll {
-            self.drawer_scroll = self.drawer_selected;
-        } else if self.drawer_selected >= self.drawer_scroll.saturating_add(self.drawer_height) {
-            self.drawer_scroll = self
-                .drawer_selected
-                .saturating_sub(self.drawer_height.saturating_sub(1));
+        let selected = self.drawer.selected_position().unwrap_or(0);
+        if selected < self.drawer_scroll {
+            self.drawer_scroll = selected;
+        } else if selected >= self.drawer_scroll.saturating_add(self.drawer_height) {
+            self.drawer_scroll = selected.saturating_sub(self.drawer_height.saturating_sub(1));
         }
     }
 
@@ -737,10 +741,7 @@ impl DiffReviewState {
     }
 
     pub(crate) fn move_row(&mut self, delta: isize) {
-        let selected = self.session.selected_row();
-        let side = self.session.selected_side();
-        self.session.move_row(delta);
-        if self.session.selected_row() != selected || self.session.selected_side() != side {
+        if self.session.move_row(delta) {
             self.request_follow();
         }
     }
@@ -764,9 +765,8 @@ impl DiffReviewState {
         } else {
             self.scroll.saturating_add(delta.unsigned_abs())
         };
-        let last = layout.len().saturating_sub(self.last_height.max(1));
-        let clamped = target.min(last);
-        self.follow_pending = false;
+        let clamped = target.min(layout.len().saturating_sub(self.last_height.max(1)));
+        self.pending_scroll = None;
         if clamped != self.scroll {
             self.scroll = clamped;
             self.mark_dirty();
@@ -803,16 +803,36 @@ impl DiffReviewState {
     /// Before any frame has drawn there is no height to work from, so the
     /// request only carries over.
     pub(crate) fn request_follow(&mut self) {
-        self.follow_pending = true;
+        self.request_scroll(PendingScroll::Follow);
+    }
+
+    fn request_scroll(&mut self, scroll: PendingScroll) {
+        self.pending_scroll = Some(scroll);
         self.mark_dirty();
-        self.follow_selection();
+        self.apply_scroll(scroll);
     }
 
-    pub(crate) fn take_follow_request(&mut self) -> bool {
-        std::mem::take(&mut self.follow_pending)
+    pub(crate) fn apply_pending_scroll(&mut self) {
+        if let Some(scroll) = self.pending_scroll.take() {
+            self.apply_scroll(scroll);
+        }
     }
 
-    pub(crate) fn follow_selection(&mut self) {
+    fn apply_scroll(&mut self, scroll: PendingScroll) {
+        match scroll {
+            PendingScroll::Follow => self.follow_selection(),
+            PendingScroll::Jump(file) => {
+                if let Some(layout) = self.patch_visual_layout()
+                    && let Some(start) = self.presentation().file_range(file)
+                    && let Some(row) = layout.focused_visual_row(start.start, false)
+                {
+                    self.scroll = row.min(layout.len().saturating_sub(self.last_height.max(1)));
+                }
+            }
+        }
+    }
+
+    fn follow_selection(&mut self) {
         if self.last_height == 0 {
             return;
         }
@@ -827,8 +847,9 @@ impl DiffReviewState {
             return;
         };
         let height = self.last_height.max(1);
-        if target < self.scroll {
-            self.scroll = target;
+        let top = target.saturating_sub(usize::from(height > 1));
+        if top < self.scroll {
+            self.scroll = top;
         } else if target >= self.scroll.saturating_add(height) {
             self.scroll = target.saturating_sub(height.saturating_sub(1));
         }
@@ -836,8 +857,8 @@ impl DiffReviewState {
     }
 
     pub(crate) fn patch_visual_layout(&mut self) -> Option<Arc<PatchVisualLayout>> {
-        let range = self.session.selected_file_range()?;
-        let content_key = self.patch_content_key(&range);
+        self.session.selected_file()?;
+        let content_key = self.patch_content_key();
         if self
             .patch_content
             .as_ref()
@@ -847,7 +868,7 @@ impl DiffReviewState {
                 key: content_key,
                 layout: Arc::new(PatchContentLayout::new(
                     self.session.presentation(),
-                    range,
+                    self.session.visible_range(),
                     self.presentation_width,
                     self.options.tab_width,
                 )),
@@ -874,15 +895,14 @@ impl DiffReviewState {
             .map(|cached| cached.layout.clone())
     }
 
-    fn patch_content_key(&self, range: &std::ops::Range<usize>) -> u64 {
+    fn patch_content_key(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         (Arc::as_ptr(self.document()) as usize).hash(&mut hasher);
         self.presentation_width.hash(&mut hasher);
         self.layout().is_split().hash(&mut hasher);
         self.options.tab_width.hash(&mut hasher);
         self.session.projection_revision().hash(&mut hasher);
-        range.start.hash(&mut hasher);
-        range.end.hash(&mut hasher);
+        self.session.visible_range().hash(&mut hasher);
         hasher.finish()
     }
 
@@ -903,32 +923,35 @@ impl DiffReviewState {
         hasher.finish()
     }
 
-    pub(crate) fn select_clicked_row(&mut self, row: u16) -> bool {
+    pub(crate) fn select_clicked_row(&mut self, position: Position) -> bool {
         let clicked = self
             .visible_rows
             .iter()
-            .find(|(screen_row, _)| *screen_row == row)
+            .find(|(screen_row, _)| *screen_row == position.y)
             .map(|(_, index)| *index);
+        if let Some(row) = clicked
+            .and_then(|index| self.presentation().row(index))
+            .filter(|row| row.kind == RowKind::FileHeader)
+        {
+            let file = row.file_index;
+            return self.select_file(file);
+        }
         if let Some(index) = clicked
             && self.session.select_row(index)
         {
             if self.session.presentation().gap_info(index).is_some() {
-                self.reveal_selected_gap(RevealAmount::Step);
+                if position.x < self.hit_layout.patch.x.saturating_add(GAP_EXPAND_WIDTH) {
+                    self.reveal_selected_gap(RevealAmount::Step);
+                } else {
+                    self.mark_dirty();
+                }
             } else {
                 self.mark_dirty();
-                self.follow_pending = false;
+                self.pending_scroll = None;
                 return true;
             }
         }
         false
-    }
-}
-
-fn offset(current: usize, delta: isize, last: usize) -> usize {
-    if delta.is_negative() {
-        current.saturating_sub(delta.unsigned_abs())
-    } else {
-        current.saturating_add(delta.unsigned_abs()).min(last)
     }
 }
 
@@ -954,7 +977,7 @@ mod tests {
         state.last_height = 3;
         let anchor = state.session.selected_anchor().unwrap();
         state.session.review_mut().add_comment(anchor, "note");
-        state.session.move_row(2);
+        state.move_row(2);
         state.follow_selection();
         assert!(state.scroll > 0);
     }

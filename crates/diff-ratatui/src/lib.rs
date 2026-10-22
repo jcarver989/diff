@@ -11,7 +11,6 @@ mod crossterm_adapter;
 pub mod diff;
 mod diff_commands;
 mod diff_preview;
-mod drawer;
 mod input;
 mod interaction;
 mod keybindings;

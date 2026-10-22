@@ -79,7 +79,7 @@ fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box
         ] {
             let options = DiffPreviewOptions {
                 tab_width,
-                include_hunk_headers: false,
+                include_gaps: false,
                 ..Default::default()
             };
             let rows = state.render(width, &theme, &mut highlighter, options);
@@ -191,7 +191,7 @@ fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn 
             &mut SyntaxHighlighter::default(),
             DiffPreviewOptions {
                 view_mode: ViewMode::Auto,
-                include_hunk_headers: false,
+                include_gaps: false,
                 ..DiffPreviewOptions::default()
             },
         );
@@ -218,7 +218,7 @@ fn unified_previews_wrap_source_rows_and_preserve_gutters() -> Result<(), Box<dy
         &mut SyntaxHighlighter::default(),
         DiffPreviewOptions {
             view_mode: ViewMode::Unified,
-            include_hunk_headers: false,
+            include_gaps: false,
             ..Default::default()
         },
     );
@@ -276,7 +276,7 @@ fn split_previews_align_continuations_before_the_next_source_row() -> Result<(),
             &mut SyntaxHighlighter::default(),
             DiffPreviewOptions {
                 view_mode: ViewMode::Split,
-                include_hunk_headers: false,
+                include_gaps: false,
                 ..Default::default()
             },
         );
@@ -306,7 +306,7 @@ fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result
                     DiffPreviewOptions {
                         max_content_rows,
                         view_mode,
-                        include_hunk_headers: false,
+                        include_gaps: false,
                         overflow_summary,
                         ..Default::default()
                     },
@@ -346,7 +346,7 @@ fn exact_preview_budget_does_not_report_overflow() -> Result<(), Box<dyn Error>>
             DiffPreviewOptions {
                 max_content_rows: budget,
                 view_mode: ViewMode::Unified,
-                include_hunk_headers: false,
+                include_gaps: false,
                 ..Default::default()
             },
         );
@@ -363,7 +363,7 @@ fn wrapped_tabs_unicode_and_styles_match_expanded_source() -> Result<(), Box<dyn
     let theme = ReviewTheme::default();
     let options = DiffPreviewOptions {
         view_mode: ViewMode::Unified,
-        include_hunk_headers: false,
+        include_gaps: false,
         tab_width: 4,
         ..Default::default()
     };
@@ -435,7 +435,7 @@ fn assert_split_backgrounds(
     let mut highlighter = SyntaxHighlighter::default();
     let options = DiffPreviewOptions {
         view_mode: ViewMode::Split,
-        include_hunk_headers: false,
+        include_gaps: false,
         overflow_summary: false,
         ..Default::default()
     };

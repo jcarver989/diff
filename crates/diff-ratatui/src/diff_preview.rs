@@ -27,7 +27,7 @@ const SPLIT_BREAKPOINT: u16 = 96;
 pub struct DiffPreviewOptions {
     pub max_content_rows: usize,
     pub view_mode: ViewMode,
-    pub include_hunk_headers: bool,
+    pub include_gaps: bool,
     pub overflow_summary: bool,
     pub tab_width: u16,
 }
@@ -37,7 +37,7 @@ impl Default for DiffPreviewOptions {
         Self {
             max_content_rows: 20,
             view_mode: ViewMode::Auto,
-            include_hunk_headers: true,
+            include_gaps: true,
             overflow_summary: true,
             tab_width: 2,
         }
@@ -182,7 +182,7 @@ fn render_preview_rows(
     let eligible = presentation
         .rows(0..presentation.row_count())
         .iter()
-        .filter(|row| options.include_hunk_headers || row.kind != RowKind::HunkHeader)
+        .filter(|row| options.include_gaps || row.kind != RowKind::ExpandGap)
         .collect::<Vec<_>>();
     let mut renderer = PreviewRenderer {
         presentation,

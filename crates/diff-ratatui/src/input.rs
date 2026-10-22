@@ -189,7 +189,7 @@ impl DiffReviewState {
                     }
                 } else if self.hit_layout.patch.contains(position) {
                     self.focus = FocusPane::Diff;
-                    if self.select_clicked_row(mouse.row) {
+                    if self.select_clicked_row(position) {
                         return self.handle_command(ReviewCommand::BeginComment);
                     }
                 }
