@@ -1,4 +1,4 @@
-use crate::{DiffDocument, FileDiff, RepoPath, StageState};
+use crate::{DiffDocument, FileDiff, FileStatus, RepoPath, RepositoryAction, StageState};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,6 +173,34 @@ impl FileTree {
         files_under(document, path)
             .map(|file| file.path.clone())
             .collect()
+    }
+
+    #[must_use]
+    pub fn toggle_stage_action(document: &DiffDocument, path: &str) -> Option<RepositoryAction> {
+        let unstage = Self::stage_state_for(document, path) == StageState::Staged;
+        let mut paths = Vec::new();
+        let mut seen = HashSet::new();
+        for file in files_under(document, path) {
+            if !unstage && file.staged == StageState::Staged {
+                continue;
+            }
+            let old_path = file
+                .old_path
+                .as_ref()
+                .filter(|_| file.status == FileStatus::Renamed);
+            for path in std::iter::once(&file.path).chain(old_path) {
+                if seen.insert(path.clone()) {
+                    paths.push(path.clone());
+                }
+            }
+        }
+        if paths.is_empty() {
+            None
+        } else if unstage {
+            Some(RepositoryAction::UnstagePaths(paths))
+        } else {
+            Some(RepositoryAction::StagePaths(paths))
+        }
     }
 
     #[must_use]

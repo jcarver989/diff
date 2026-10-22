@@ -17,7 +17,7 @@ use crate::{
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, LineAnchor,
     PresentedCell, PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession,
-    StageState, ViewMode, ViewportAnchor,
+    ViewMode, ViewportAnchor,
 };
 use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
 use clankerdiff_syntax::{
@@ -743,15 +743,8 @@ impl DiffViewer {
         if self.repository_pending {
             return;
         }
-        let state = FileTree::stage_state_for(self.document(), path);
-        let paths = FileTree::paths_for(self.document(), path);
-        if paths.is_empty() {
+        let Some(action) = FileTree::toggle_stage_action(self.document(), path) else {
             return;
-        }
-        let action = if state == StageState::Staged {
-            RepositoryAction::UnstagePaths(paths)
-        } else {
-            RepositoryAction::StagePaths(paths)
         };
         self.handle_command(DiffReviewCommand::RepositoryAction(action), window, cx);
     }

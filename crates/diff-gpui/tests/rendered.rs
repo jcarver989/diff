@@ -660,6 +660,68 @@ fn staging_refresh_preserves_file_selection_and_checkbox_focus_by_path(cx: &mut 
     });
 }
 
+#[gpui::test]
+fn directory_staging_only_sends_unstaged_and_partial_changes(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder {
+        document: DocumentBuilder::new()
+            .changed_staged("src/deleted.rs", "old\n", "", StageState::Staged)
+            .changed_staged(
+                "src/partial.rs",
+                "old\n",
+                "new\n",
+                StageState::PartiallyStaged,
+            )
+            .changed("src/edit.rs", "old\n", "new\n")
+            .changed("other.rs", "old\n", "new\n")
+            .build(),
+        ..Default::default()
+    }
+    .run(cx, |harness, cx| {
+        harness.click(cx, "diff-directory-checkbox:src")?;
+        assert_eq!(
+            harness.events(cx),
+            vec![DiffReviewEvent::RepositoryAction(
+                RepositoryAction::StagePaths(vec![
+                    RepoPath::new("src/partial.rs")?,
+                    RepoPath::new("src/edit.rs")?
+                ])
+            )]
+        );
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn directory_unstaging_includes_a_renames_source_outside_the_directory(cx: &mut TestAppContext) {
+    let mut document = (*DocumentBuilder::new()
+        .renamed(
+            "old/source.rs",
+            "new/destination.rs",
+            "content\n",
+            "content\n",
+        )
+        .build())
+    .clone();
+    document.files[0].staged = StageState::Staged;
+    DiffViewerHarnessBuilder {
+        document: Arc::new(document),
+        ..Default::default()
+    }
+    .run(cx, |harness, cx| {
+        harness.click(cx, "diff-directory-checkbox:new")?;
+        assert_eq!(
+            harness.events(cx),
+            vec![DiffReviewEvent::RepositoryAction(
+                RepositoryAction::UnstagePaths(vec![
+                    RepoPath::new("new/destination.rs")?,
+                    RepoPath::new("old/source.rs")?
+                ])
+            )]
+        );
+        Ok(())
+    });
+}
+
 fn document_builder() -> DocumentBuilder {
     DocumentBuilder::new()
         .changed_with_hunk_window(

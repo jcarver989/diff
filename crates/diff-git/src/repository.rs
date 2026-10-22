@@ -8,6 +8,7 @@ use clankerdiff_core::{
 };
 use std::{
     collections::{HashMap, HashSet},
+    io::ErrorKind,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -510,7 +511,42 @@ impl GitRepository {
         if paths.is_empty() {
             return Ok(());
         }
-        self.run_paths("stage paths", &["add"], paths).await
+        let paths = self.mutation_paths(paths).await?;
+        let mut args = vec!["--literal-pathspecs", "ls-files", "--cached", "-z", "--"];
+        args.extend(paths.iter().map(RepoPath::as_str));
+        let output = command::run(&self.root, "resolve staged paths", args).await?;
+        let mut tracked = HashSet::new();
+        for entry in output
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|entry| !entry.is_empty())
+        {
+            tracked.insert(entry);
+            for (index, byte) in entry.iter().enumerate() {
+                if *byte == b'/' {
+                    tracked.insert(&entry[..index]);
+                }
+            }
+        }
+        let mut actionable = Vec::new();
+        for path in paths {
+            if tracked.contains(path.as_str().as_bytes()) {
+                actionable.push(path);
+                continue;
+            }
+            let joined = path::lexical_path(&self.root, &path)?;
+            match tokio::fs::symlink_metadata(&joined).await {
+                Ok(_) => actionable.push(path),
+                Err(error) if error.kind() == ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(GitError::Io {
+                        path: joined,
+                        source,
+                    });
+                }
+            }
+        }
+        self.run_paths("stage paths", &["add"], &actionable).await
     }
 
     /// Unstages selected paths while preserving their worktree contents.
@@ -523,14 +559,15 @@ impl GitRepository {
         if paths.is_empty() {
             return Ok(());
         }
+        let paths = self.mutation_paths(paths).await?;
         if self.has_head().await? {
-            self.run_paths("unstage paths", &["reset", "--quiet", "HEAD"], paths)
+            self.run_paths("unstage paths", &["reset", "--quiet", "HEAD"], &paths)
                 .await
         } else {
             self.run_paths(
                 "unstage paths",
                 &["rm", "--cached", "-f", "--quiet", "--ignore-unmatch"],
-                paths,
+                &paths,
             )
             .await
         }
@@ -726,13 +763,52 @@ impl GitRepository {
         args
     }
 
+    async fn mutation_paths(&self, paths: &[RepoPath]) -> Result<Vec<RepoPath>, GitError> {
+        for path in paths {
+            path::lexical_path(&self.root, path)?;
+        }
+        let args = STATUS_ARGS
+            .into_iter()
+            .chain(["--renames", "--untracked-files=no"]);
+        let output = command::run(&self.root, "resolve selected paths", args).await?;
+        let selected = paths.iter().collect::<HashSet<_>>();
+        let mut seen = HashSet::new();
+        let mut resolved = Vec::new();
+        for path in paths {
+            if seen.insert(path.clone()) {
+                resolved.push(path.clone());
+            }
+        }
+        for entry in parse_porcelain_v1_z(&output.stdout)? {
+            if entry.index != Some('R') && entry.worktree != Some('R') {
+                continue;
+            }
+            let Some(old_path) = entry.old_path else {
+                continue;
+            };
+            if !selected.contains(&entry.path) && !selected.contains(&old_path) {
+                continue;
+            }
+            for path in [entry.path, old_path] {
+                if seen.insert(path.clone()) {
+                    resolved.push(path);
+                }
+            }
+        }
+        Ok(resolved)
+    }
+
     async fn run_paths<'a>(
         &self,
         operation: &'static str,
         prefix: &[&'a str],
         paths: &'a [RepoPath],
     ) -> Result<(), GitError> {
-        let mut args = prefix.to_vec();
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let mut args = vec!["--literal-pathspecs"];
+        args.extend_from_slice(prefix);
         args.push("--");
         for path in paths {
             path::lexical_path(&self.root, path)?;

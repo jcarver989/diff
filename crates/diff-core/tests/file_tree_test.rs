@@ -1,9 +1,10 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffDocument, FileTree, RepoPath, StageState, testing::DocumentBuilder, tree_order,
+    DiffDocument, FileTree, RepoPath, RepositoryAction, StageState, testing::DocumentBuilder,
+    tree_order,
 };
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 
 #[test]
 fn builds_a_sorted_tree_while_preserving_document_indices() {
@@ -110,6 +111,84 @@ fn directories_aggregate_the_stage_state_of_their_files() {
             .collect::<Vec<_>>(),
         ["src/main.rs", "src/lib.rs"]
     );
+    assert_eq!(
+        FileTree::toggle_stage_action(&document, "src"),
+        Some(RepositoryAction::StagePaths(vec![
+            document.files[4].path.clone()
+        ]))
+    );
+}
+
+#[test]
+fn staging_a_directory_skips_staged_files_but_includes_partial_changes()
+-> Result<(), Box<dyn Error>> {
+    let document = DocumentBuilder::new()
+        .changed_staged("src/deleted.rs", "old\n", "", StageState::Staged)
+        .changed_staged(
+            "src/partial.rs",
+            "old\n",
+            "new\n",
+            StageState::PartiallyStaged,
+        )
+        .changed("src/edit.rs", "old\n", "new\n")
+        .changed("src-other/unrelated.rs", "old\n", "new\n")
+        .build();
+    assert_eq!(
+        FileTree::toggle_stage_action(&document, "src"),
+        Some(RepositoryAction::StagePaths(vec![
+            RepoPath::new("src/partial.rs")?,
+            RepoPath::new("src/edit.rs")?,
+        ]))
+    );
+    assert_eq!(FileTree::toggle_stage_action(&document, "missing"), None);
+    Ok(())
+}
+
+#[test]
+fn toggling_a_rename_includes_both_paths_outside_the_selected_directory()
+-> Result<(), Box<dyn Error>> {
+    let mut document = (*DocumentBuilder::new()
+        .renamed(
+            "old/source.rs",
+            "new/destination.rs",
+            "content\n",
+            "content\n",
+        )
+        .build())
+    .clone();
+    let paths = vec![
+        RepoPath::new("new/destination.rs")?,
+        RepoPath::new("old/source.rs")?,
+    ];
+    assert_eq!(
+        FileTree::toggle_stage_action(&document, "new"),
+        Some(RepositoryAction::StagePaths(paths.clone()))
+    );
+    document.files[0].staged = StageState::Staged;
+    assert_eq!(
+        FileTree::toggle_stage_action(&document, "new"),
+        Some(RepositoryAction::UnstagePaths(paths))
+    );
+    Ok(())
+}
+
+#[test]
+fn toggling_a_copy_does_not_include_its_source() -> Result<(), Box<dyn Error>> {
+    let mut document = (*DocumentBuilder::new()
+        .copied("old/source.rs", "new/copy.rs", "content\n", "content\n")
+        .build())
+    .clone();
+    let paths = vec![RepoPath::new("new/copy.rs")?];
+    assert_eq!(
+        FileTree::toggle_stage_action(&document, "new"),
+        Some(RepositoryAction::StagePaths(paths.clone()))
+    );
+    document.files[0].staged = StageState::Staged;
+    assert_eq!(
+        FileTree::toggle_stage_action(&document, "new"),
+        Some(RepositoryAction::UnstagePaths(paths))
+    );
+    Ok(())
 }
 
 fn nested_document() -> Arc<DiffDocument> {

@@ -571,6 +571,178 @@ async fn stage_unstage_commit_and_empty_message_contracts() {
 }
 
 #[tokio::test]
+async fn staging_selected_paths_tolerates_staged_deletions_and_stale_files()
+-> Result<(), Box<dyn Error>> {
+    let repo = RepoFixtureBuilder::new()
+        .file("src/deleted.rs", "deleted\n")
+        .file("src/edit.rs", "base\n")
+        .file("other.rs", "base\n")
+        .committed()
+        .build();
+    repo.git(&["rm", "--", "src/deleted.rs"]);
+    repo.write("src/edit.rs", "changed\n");
+    repo.write("other.rs", "unrelated\n");
+    let repository = repo.repository().await;
+    repository
+        .apply(RepositoryAction::StagePaths(vec![
+            RepoPath::new("src/deleted.rs")?,
+            RepoPath::new("src/edit.rs")?,
+            RepoPath::new("src/stale.rs")?,
+        ]))
+        .await?;
+    let staged = repository.snapshot(DiffScope::Staged).await?;
+    assert_eq!(paths(&staged), ["src/deleted.rs", "src/edit.rs"]);
+    assert_eq!(
+        paths(&repository.snapshot(DiffScope::Unstaged).await?),
+        ["other.rs"]
+    );
+    repository
+        .apply(RepositoryAction::StagePaths(vec![RepoPath::new(
+            "src/deleted.rs",
+        )?]))
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn staging_selected_paths_keeps_unstaged_deletions_and_recreated_files()
+-> Result<(), Box<dyn Error>> {
+    let repo = RepoFixtureBuilder::new()
+        .file("deleted.rs", "deleted\n")
+        .file("recreated.rs", "original\n")
+        .committed()
+        .build();
+    repo.remove("deleted.rs");
+    repo.git(&["rm", "--", "recreated.rs"]);
+    repo.write("recreated.rs", "replacement\n");
+    let repository = repo.repository().await;
+    repository
+        .apply(RepositoryAction::StagePaths(vec![
+            RepoPath::new("deleted.rs")?,
+            RepoPath::new("recreated.rs")?,
+        ]))
+        .await?;
+    let staged = repository.snapshot(DiffScope::Staged).await?;
+    assert_eq!(file(&staged, "deleted.rs").status, FileStatus::Deleted);
+    assert_eq!(file(&staged, "recreated.rs").status, FileStatus::Modified);
+    assert_eq!(repository.snapshot(DiffScope::Unstaged).await?.files, []);
+    Ok(())
+}
+
+#[tokio::test]
+async fn selected_renames_unstage_both_endpoints_and_can_be_restaged() -> Result<(), Box<dyn Error>>
+{
+    for (selected, renames) in [("old/source.rs", "false"), ("new/destination.rs", "true")] {
+        let repo = RepoFixtureBuilder::new()
+            .file("old/source.rs", "unique rename content\n")
+            .file("unrelated.rs", "base\n")
+            .committed()
+            .build();
+        repo.write("new/placeholder.rs", "untracked\n");
+        repo.git(&["config", "status.renames", renames]);
+        repo.git(&["mv", "old/source.rs", "new/destination.rs"]);
+        repo.write("unrelated.rs", "indexed\n");
+        repo.git(&["add", "--", "unrelated.rs"]);
+        repo.write("unrelated.rs", "worktree\n");
+        let repository = repo.repository().await;
+        repository
+            .apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(
+                selected,
+            )?]))
+            .await?;
+        assert_eq!(
+            paths(&repository.snapshot(DiffScope::Staged).await?),
+            ["unrelated.rs"]
+        );
+        assert!(!repo.root().join("old/source.rs").exists());
+        assert_eq!(
+            fs::read_to_string(repo.root().join("new/destination.rs"))?,
+            "unique rename content\n"
+        );
+        for _ in 0..2 {
+            repository
+                .apply(RepositoryAction::StagePaths(vec![
+                    RepoPath::new("old/source.rs")?,
+                    RepoPath::new("new/destination.rs")?,
+                ]))
+                .await?;
+            let staged = repository.snapshot(DiffScope::Staged).await?;
+            assert_eq!(
+                file(&staged, "new/destination.rs").status,
+                FileStatus::Renamed
+            );
+            repository
+                .apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(
+                    "new/destination.rs",
+                )?]))
+                .await?;
+            assert_eq!(
+                paths(&repository.snapshot(DiffScope::Staged).await?),
+                ["unrelated.rs"]
+            );
+        }
+        assert_eq!(
+            file(&repository.snapshot(DiffScope::Both).await?, "unrelated.rs").staged,
+            StageState::PartiallyStaged
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn selected_copies_do_not_unstage_their_source() -> Result<(), Box<dyn Error>> {
+    let original = "unchanged source line\n".repeat(20);
+    let updated = format!("{original}updated copy contents\n");
+    let repo = RepoFixtureBuilder::new()
+        .file("source.rs", original)
+        .committed()
+        .build();
+    repo.git(&["config", "status.renames", "copies"]);
+    repo.write("source.rs", &updated);
+    repo.write("copy.rs", &updated);
+    repo.git(&["add", "--", "source.rs", "copy.rs"]);
+    let repository = repo.repository().await;
+    let staged = repository.snapshot(DiffScope::Staged).await?;
+    assert_eq!(file(&staged, "copy.rs").status, FileStatus::Copied);
+    repository
+        .apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(
+            "copy.rs",
+        )?]))
+        .await?;
+    assert_eq!(
+        paths(&repository.snapshot(DiffScope::Staged).await?),
+        ["source.rs"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn selected_paths_are_literal_and_work_without_head() -> Result<(), Box<dyn Error>> {
+    let repo = RepoFixtureBuilder::new()
+        .file("file[1].rs", "literal\n")
+        .file("file1.rs", "unrelated\n")
+        .build();
+    let repository = repo.repository().await;
+    repository
+        .apply(RepositoryAction::StagePaths(vec![RepoPath::new(
+            "file[1].rs",
+        )?]))
+        .await?;
+    assert_eq!(
+        paths(&repository.snapshot(DiffScope::Staged).await?),
+        ["file[1].rs"]
+    );
+    repository
+        .apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(
+            "file[1].rs",
+        )?]))
+        .await?;
+    assert_eq!(repository.snapshot(DiffScope::Staged).await?.files, []);
+    assert!(repo.root().join("file[1].rs").exists());
+    Ok(())
+}
+
+#[tokio::test]
 async fn snapshots_cover_renames_copies_deletions_binary_and_mode_changes() {
     let repo = RepoFixture::init();
     repo.write("old.rs", "fn kept() {}\n");

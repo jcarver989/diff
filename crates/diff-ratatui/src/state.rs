@@ -8,8 +8,8 @@ use crate::{
 use clankerdiff_client::{ClientState, ConnectionState, DiffSnapshot};
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout,
-    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, RowKind, StageState,
-    ViewMode, ViewportAnchor,
+    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, RowKind, ViewMode,
+    ViewportAnchor,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -457,16 +457,7 @@ impl DiffReviewState {
 
     pub(crate) fn toggle_stage_action(&self) -> Option<RepositoryAction> {
         let path = &self.drawer.selected()?.path;
-        let state = FileTree::stage_state_for(self.document(), path);
-        let paths = FileTree::paths_for(self.document(), path);
-        if paths.is_empty() {
-            return None;
-        }
-        Some(if state == StageState::Staged {
-            RepositoryAction::UnstagePaths(paths)
-        } else {
-            RepositoryAction::StagePaths(paths)
-        })
+        FileTree::toggle_stage_action(self.document(), path)
     }
 
     pub(crate) fn begin_commit(&mut self) {
