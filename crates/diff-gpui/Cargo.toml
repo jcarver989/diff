@@ -36,6 +36,10 @@ required-features = ["test-support"]
 name = "comment_editor_test"
 required-features = ["test-support"]
 
+[[test]]
+name = "markdown_viewer_test"
+required-features = ["test-support"]
+
 [dev-dependencies]
 clankerdiff-core = { path = "../diff-core", features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }

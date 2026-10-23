@@ -30,13 +30,13 @@ pub struct ThemeChanged {
     pub id: String,
 }
 pub use markdown_viewer::{
-    MarkdownAddComment, MarkdownApprove, MarkdownCancel, MarkdownCancelComment,
-    MarkdownCommitTheme, MarkdownCopyReview, MarkdownDeleteComment, MarkdownEditComment,
-    MarkdownFirstTarget, MarkdownHideThemePicker, MarkdownLastTarget, MarkdownNextHeading,
-    MarkdownNextTarget, MarkdownNextTheme, MarkdownOpenSelected, MarkdownPageDown, MarkdownPageUp,
-    MarkdownPreviousHeading, MarkdownPreviousTarget, MarkdownPreviousTheme, MarkdownRequestChanges,
-    MarkdownReviewer, MarkdownReviewerOptions, MarkdownShowThemePicker, MarkdownSubmitComment,
-    MarkdownToggleFocus, MarkdownUndoComment,
+    MarkdownAddComment, MarkdownApprove, MarkdownCancel, MarkdownCommitTheme, MarkdownCopyReview,
+    MarkdownDeleteComment, MarkdownEditComment, MarkdownFirstTarget, MarkdownLastTarget,
+    MarkdownNextHeading, MarkdownNextTarget, MarkdownNextTheme, MarkdownOpenSelected,
+    MarkdownPageDown, MarkdownPageUp, MarkdownPreviousHeading, MarkdownPreviousTarget,
+    MarkdownPreviousTheme, MarkdownRequestChanges, MarkdownReviewer, MarkdownReviewerOptions,
+    MarkdownShowShortcuts, MarkdownShowThemePicker, MarkdownSubmitComment, MarkdownToggleFocus,
+    MarkdownToggleOutline, MarkdownUndoComment,
 };
 pub use viewer::{
     ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse,

@@ -2,7 +2,7 @@ use crate::{
     DiffViewer, ViewerPane,
     annotation::add_comment_button,
     comment_editor::CommentEditor,
-    comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
+    comments::{CommentCard, CommentComposer, CommentCount, CommentThread, comment_dismiss_button},
     style::{self, stat_badges},
     ui::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
@@ -81,9 +81,10 @@ impl DiffViewer {
             .debug_selector(|| "diff-pane".to_owned())
             .flex_1()
             .h_full()
-            .when(self.pane == ViewerPane::Diff && !self.sidebar_collapsed(), |pane| {
-                pane.border_l_1().border_color(style::color(palette.accent))
-            })
+            .when(
+                self.pane == ViewerPane::Diff && !self.sidebar_collapsed(),
+                |pane| pane.border_l_1().border_color(style::color(palette.accent)),
+            )
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -758,49 +759,38 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let palette = self.theme().diff.clone();
-        let last_comment = comments.len().saturating_sub(1);
+        let theme = self.ui_theme();
+        let cards = comments.into_iter().map(|comment| {
+            let side = if comment.anchor.side == DiffSide::Old {
+                "old"
+            } else {
+                "new"
+            };
+            let line = comment
+                .anchor
+                .line_number()
+                .map_or_else(|| "line".to_owned(), |line| format!("line {line}"));
+            CommentCard::new(
+                comment.id,
+                format!("Your comment on {side} {line}"),
+                comment.body,
+                &theme,
+            )
+            .header_actions(comment_dismiss_button(
+                comment.id,
+                &theme,
+                cx,
+                move |viewer, window, cx| {
+                    viewer.dismiss_comment(comment.id, window, cx);
+                },
+            ))
+        });
         div()
-            .id(("comment-thread", index))
             .w_full()
             .px_3()
             .pb_3()
             .bg(style::color(palette.background))
-            .child(
-                div()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(style::color(palette.border))
-                    .overflow_hidden()
-                    .children(comments.into_iter().enumerate().map(|(offset, comment)| {
-                        let side = if comment.anchor.side == DiffSide::Old {
-                            "old"
-                        } else {
-                            "new"
-                        };
-                        let line = comment
-                            .anchor
-                            .line_number()
-                            .map_or_else(|| "line".to_owned(), |line| format!("line {line}"));
-                        CommentCard::new(
-                            comment.id,
-                            format!("Your comment on {side} {line}"),
-                            comment.body,
-                            &self.ui_theme(),
-                            offset == last_comment,
-                        )
-                        .header_actions(comment_dismiss_button(
-                            comment.id,
-                            &self.ui_theme(),
-                            cx,
-                            move |viewer, window, cx| {
-                                viewer.dismiss_comment(comment.id, window, cx);
-                            },
-                        ))
-                    })),
-            )
+            .child(CommentThread::new(("comment-thread", index), &theme).cards(cards))
             .into_any_element()
     }
 
@@ -818,34 +808,25 @@ impl DiffViewer {
             .and_then(PresentedCell::line_number)
             .map_or_else(|| "line".to_owned(), |number| format!("line {number}"));
         let side_label = if side == DiffSide::Old { "old" } else { "new" };
-        let can_submit = !editor.read(cx).is_blank();
-        let theme = self.ui_theme();
-        let cancel_button = Button::new(("cancel-comment", index), "Cancel", theme)
-            .size(ControlSize::Small)
-            .on_click(cx.listener(|viewer, _, window, cx| {
-                viewer.handle_command(ReviewCommand::Cancel, window, cx);
-            }));
-        let submit_button = Button::new(("submit-comment", index), "Add comment", theme)
-            .variant(ButtonVariant::Primary)
-            .size(ControlSize::Small)
-            .disabled(!can_submit)
-            .on_click(cx.listener(|viewer, _, window, cx| {
-                viewer.handle_command(ReviewCommand::SubmitComment, window, cx);
-            }));
-
         div()
             .id(("comment-dialog", index))
             .w_full()
             .px_3()
             .pb_3()
             .bg(style::color(palette.background))
-            .child(CommentComposer::new(
-                editor,
-                format!("Add a comment on {side_label} {line}"),
-                &theme,
-                cancel_button,
-                submit_button,
-            ))
+            .child(
+                CommentComposer::new(
+                    editor,
+                    format!("Add a comment on {side_label} {line}"),
+                    &self.ui_theme(),
+                )
+                .on_cancel(cx.listener(|viewer, _, window, cx| {
+                    viewer.handle_command(ReviewCommand::Cancel, window, cx);
+                }))
+                .on_submit(cx.listener(|viewer, _, window, cx| {
+                    viewer.handle_command(ReviewCommand::SubmitComment, window, cx);
+                })),
+            )
             .into_any_element()
     }
 

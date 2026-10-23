@@ -2,12 +2,15 @@
 
 use crate::comment_editor::CommentEditor;
 use clankerdiff_gpui_ui::prelude::{
-    IconButton, IconName, Surface, Typography, TypographyExt, UiTheme,
+    Button, ButtonVariant, ControlSize, IconButton, IconName, Surface, Typography, TypographyExt,
+    UiTheme,
 };
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, MouseButton, RenderOnce, SharedString, Window,
-    div, prelude::*,
+    AnyElement, App, ClickEvent, Context, ElementId, Entity, IntoElement, MouseButton, RenderOnce,
+    SharedString, Window, div, prelude::*,
 };
+
+type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 /// Compact saved-comment count.
 #[derive(IntoElement)]
@@ -50,14 +53,13 @@ impl CommentCard {
         title: impl Into<SharedString>,
         body: impl Into<SharedString>,
         theme: &UiTheme,
-        last: bool,
     ) -> Self {
         Self {
             id,
             title: title.into(),
             body: body.into(),
             theme: *theme,
-            last,
+            last: false,
             header_actions: None,
         }
     }
@@ -103,6 +105,46 @@ impl RenderOnce for CommentCard {
                     .whitespace_normal()
                     .child(self.body),
             )
+    }
+}
+
+#[derive(IntoElement)]
+pub(crate) struct CommentThread {
+    id: ElementId,
+    theme: UiTheme,
+    cards: Vec<CommentCard>,
+}
+impl CommentThread {
+    pub(crate) fn new(id: impl Into<ElementId>, theme: &UiTheme) -> Self {
+        Self {
+            id: id.into(),
+            theme: *theme,
+            cards: Vec::new(),
+        }
+    }
+
+    pub(crate) fn cards(mut self, cards: impl IntoIterator<Item = CommentCard>) -> Self {
+        self.cards.extend(cards);
+        self
+    }
+}
+impl RenderOnce for CommentThread {
+    fn render(mut self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        if let Some(card) = self.cards.last_mut() {
+            card.last = true;
+        }
+        let selector = self.id.to_string();
+        div()
+            .id(self.id)
+            .debug_selector(move || selector)
+            .w_full()
+            .flex()
+            .flex_col()
+            .rounded_md()
+            .border_1()
+            .border_color(self.theme.colors.border)
+            .overflow_hidden()
+            .children(self.cards)
     }
 }
 
@@ -152,29 +194,52 @@ pub(crate) struct CommentComposer {
     editor: Entity<CommentEditor>,
     title: SharedString,
     theme: UiTheme,
-    cancel: AnyElement,
-    submit: AnyElement,
+    on_cancel: Option<ClickHandler>,
+    on_submit: Option<ClickHandler>,
 }
 impl CommentComposer {
     pub(crate) fn new(
         editor: Entity<CommentEditor>,
         title: impl Into<SharedString>,
         theme: &UiTheme,
-        cancel: impl IntoElement,
-        submit: impl IntoElement,
     ) -> Self {
         Self {
             editor,
             title: title.into(),
             theme: *theme,
-            cancel: cancel.into_any_element(),
-            submit: submit.into_any_element(),
+            on_cancel: None,
+            on_submit: None,
         }
+    }
+
+    pub(crate) fn on_cancel(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_cancel = Some(Box::new(handler));
+        self
+    }
+
+    pub(crate) fn on_submit(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_submit = Some(Box::new(handler));
+        self
     }
 }
 impl RenderOnce for CommentComposer {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let colors = self.theme.colors;
+        let can_submit = !self.editor.read(cx).is_blank();
+        let cancel = Button::new("cancel-comment", "Cancel", self.theme)
+            .size(ControlSize::Small)
+            .when_some(self.on_cancel, |button, handler| button.on_click(handler));
+        let submit = Button::new("submit-comment", "Comment", self.theme)
+            .variant(ButtonVariant::Primary)
+            .size(ControlSize::Small)
+            .disabled(!can_submit)
+            .when_some(self.on_submit, |button, handler| button.on_click(handler));
         Surface::new(self.theme).selected(true).child(
             div()
                 .flex()
@@ -194,8 +259,8 @@ impl RenderOnce for CommentComposer {
                         .justify_end()
                         .items_center()
                         .gap_2()
-                        .child(self.cancel)
-                        .child(self.submit),
+                        .child(cancel)
+                        .child(submit),
                 ),
         )
     }
