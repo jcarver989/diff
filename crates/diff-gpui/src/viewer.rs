@@ -1458,12 +1458,10 @@ impl DiffViewer {
     }
 
     fn select_theme(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let index = self.theme_selection.as_ref().and_then(|selection| {
-            selection
-                .themes()
-                .iter()
-                .position(|choice| choice.theme.id().to_string() == id)
-        });
+        let index = self
+            .theme_selection
+            .as_ref()
+            .and_then(|selection| selection.position(id));
         if let Some(index) = index {
             self.handle_command(ReviewCommand::SelectTheme(index), window, cx);
             self.handle_command(ReviewCommand::CommitTheme, window, cx);

@@ -18,3 +18,17 @@ fn preview_cancel_and_commit_use_the_same_selection_model() -> Result<(), Box<dy
     assert!(ThemeSelection::new(&original, Arc::from([])).is_none());
     Ok(())
 }
+
+#[test]
+fn position_finds_a_theme_by_id() -> Result<(), Box<dyn Error>> {
+    let choices = ThemeChoice::catalog();
+    let selection = ThemeSelection::new(&ReviewTheme::default(), Arc::clone(&choices))
+        .ok_or("empty catalog")?;
+    let last = choices.len() - 1;
+    assert_eq!(
+        selection.position(&choices[last].theme.id().to_string()),
+        Some(last)
+    );
+    assert_eq!(selection.position("missing"), None);
+    Ok(())
+}
