@@ -1,4 +1,6 @@
 use crate::{
+    components::IconButton,
+    icon::IconName,
     theme::UiTheme,
     tokens::{RESIZE_HANDLE_WIDTH, rem},
 };
@@ -14,6 +16,28 @@ type ResetHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 pub enum PanelSide {
     Left,
     Right,
+}
+
+impl PanelSide {
+    #[must_use]
+    pub fn toggle_button(
+        self,
+        id: impl Into<ElementId>,
+        open: bool,
+        name: &str,
+        theme: UiTheme,
+    ) -> IconButton {
+        let icon = match self {
+            Self::Left => IconName::PanelLeft,
+            Self::Right => IconName::PanelRight,
+        };
+        let label = if open {
+            format!("Hide {name}")
+        } else {
+            format!("Show {name}")
+        };
+        IconButton::new(id, icon, label, theme)
+    }
 }
 
 #[derive(Debug, Clone)]
