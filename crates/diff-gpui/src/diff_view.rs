@@ -7,8 +7,8 @@ use crate::{
     ui::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
         prelude::{
-            Button, ButtonVariant, ControlSize, IconButton, IconName, Typography, TypographyExt,
-            rem,
+            Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography,
+            TypographyExt, rem,
         },
         tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT},
     },
@@ -19,47 +19,20 @@ use clankerdiff_core::{
 };
 use clankerdiff_theme::DiffPalette;
 use gpui::{
-    Action, AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState,
-    MouseButton, MouseDownEvent, Pixels, SharedString, Stateful, StyledText, Window, div, list,
-    point, prelude::*, px,
+    Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString,
+    Stateful, StyledText, Window, div, list, prelude::*, px,
 };
-use std::cell::Cell;
 
 const CHANGE_INDICATOR_WIDTH: f32 = 4.0;
 const GUTTER_WIDTH: f32 = 52.0;
 const FILE_DIVIDER_HEIGHT: f32 = 40.0;
 const FILE_DIVIDER_INSET: f32 = 4.0;
-const SCROLLBAR_WIDTH: f32 = 12.0;
-const MIN_THUMB_HEIGHT: f32 = 32.0;
 const WHEEL_ROWS_PER_LINE: f32 = 2.0;
 
 #[derive(Clone, Copy)]
 enum FileDividerPlacement {
     Inline,
     Sticky,
-}
-
-struct DiffScrollbarDrag {
-    thumb_offset: Cell<Pixels>,
-    min_thumb_height: Pixels,
-    list_state: ListState,
-    started: Cell<bool>,
-}
-
-impl DiffScrollbarDrag {
-    fn start(&self, thumb_offset: Pixels) {
-        self.thumb_offset.set(thumb_offset);
-        self.list_state.scrollbar_drag_started();
-        self.started.set(true);
-    }
-}
-
-impl Drop for DiffScrollbarDrag {
-    fn drop(&mut self) {
-        if self.started.get() {
-            self.list_state.scrollbar_drag_ended();
-        }
-    }
 }
 
 impl DiffViewer {
@@ -85,7 +58,7 @@ impl DiffViewer {
                 viewer.update(cx, |_, cx| cx.notify()).ok();
             }
         });
-        let scrollbar = self.render_scrollbar(&list_state, window, cx);
+        let scrollbar = ListScrollbar::new("diff-scrollbar", list_state.clone(), self.ui_theme());
         let viewport = list_state.viewport_bounds();
         let divider_height = self.file_divider_height();
         let sticky_top = self
@@ -137,7 +110,7 @@ impl DiffViewer {
                                 ),
                             )),
                     )
-                    .children(scrollbar),
+                    .child(scrollbar),
             )
     }
 
@@ -305,96 +278,6 @@ impl DiffViewer {
                     window.dispatch_action(IncreaseInterfaceSize.boxed_clone(), cx);
                 }),
             )
-    }
-
-    fn render_scrollbar(
-        &self,
-        list_state: &ListState,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let max_offset = list_state.max_offset_for_scrollbar().y;
-        let viewport_height = list_state.viewport_bounds().size.height;
-        if viewport_height <= px(0.0) {
-            if list_state.item_count() != 0 {
-                cx.on_next_frame(window, |_, _, cx| cx.notify());
-            }
-            return None;
-        }
-        if max_offset <= px(0.0) {
-            return None;
-        }
-
-        let current_offset = -list_state.scroll_px_offset_for_scrollbar().y;
-        let min_thumb_height = rem(MIN_THUMB_HEIGHT).to_pixels(self.rem_size());
-        let thumb_height = scrollbar_thumb_height(viewport_height, min_thumb_height);
-        let track_space = viewport_height - thumb_height;
-        let scroll_fraction = (current_offset / max_offset).clamp(0.0, 1.0);
-        let thumb_top = track_space * scroll_fraction;
-        let palette = &self.theme().diff;
-        let drag = DiffScrollbarDrag {
-            thumb_offset: Cell::new(px(0.0)),
-            min_thumb_height,
-            list_state: list_state.clone(),
-            started: Cell::new(false),
-        };
-
-        let click_state = list_state.clone();
-        let drag_state = list_state.clone();
-        Some(
-            div()
-                .id("diff-scrollbar")
-                .debug_selector(|| "diff-scrollbar".to_owned())
-                .w(rem(SCROLLBAR_WIDTH))
-                .h_full()
-                .flex_shrink_0()
-                .relative()
-                .bg(style::color(palette.background))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |_, event: &MouseDownEvent, _, cx| {
-                        set_scrollbar_from_pointer(
-                            &click_state,
-                            event.position.y,
-                            thumb_height / 2.0,
-                            min_thumb_height,
-                        );
-                        cx.stop_propagation();
-                        cx.notify();
-                    }),
-                )
-                .on_drag_move(cx.listener(
-                    move |_, event: &DragMoveEvent<DiffScrollbarDrag>, _, cx| {
-                        let drag = event.drag(cx);
-                        set_scrollbar_from_pointer(
-                            &drag_state,
-                            event.event.position.y,
-                            drag.thumb_offset.get(),
-                            drag.min_thumb_height,
-                        );
-                        cx.notify();
-                    },
-                ))
-                .child(
-                    div()
-                        .id("diff-scrollbar-thumb")
-                        .debug_selector(|| "diff-scrollbar-thumb".to_owned())
-                        .absolute()
-                        .top(thumb_top)
-                        .w_full()
-                        .h(thumb_height)
-                        .rounded_full()
-                        .cursor_pointer()
-                        .bg(style::color(palette.muted))
-                        .hover(|thumb| thumb.bg(style::color(palette.accent)))
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_drag(drag, |drag, click_offset, _, cx| {
-                            drag.start(click_offset.y);
-                            cx.new(|_| Empty)
-                        }),
-                )
-                .into_any_element(),
-        )
     }
 
     fn render_visible_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -894,30 +777,6 @@ impl DiffViewer {
     }
 }
 
-fn scrollbar_thumb_height(viewport_height: Pixels, min_thumb_height: Pixels) -> Pixels {
-    // Variable-list content height is estimated until every row has been measured. A fixed thumb
-    // avoids visibly shrinking as wrapped rows are discovered while preserving useful drag space.
-    min_thumb_height.min(viewport_height / 2.0)
-}
-
-fn set_scrollbar_from_pointer(
-    list_state: &ListState,
-    pointer_y: Pixels,
-    thumb_offset: Pixels,
-    min_thumb_height: Pixels,
-) {
-    let viewport = list_state.viewport_bounds();
-    let max_offset = list_state.max_offset_for_scrollbar().y;
-    let thumb_height = scrollbar_thumb_height(viewport.size.height, min_thumb_height);
-    let track_space = viewport.size.height - thumb_height;
-    if max_offset <= px(0.0) || track_space <= px(0.0) {
-        return;
-    }
-
-    let thumb_top = (pointer_y - viewport.origin.y - thumb_offset).clamp(px(0.0), track_space);
-    list_state.set_offset_from_scrollbar(point(px(0.0), -max_offset * (thumb_top / track_space)));
-}
-
 fn stat_badges(palette: &DiffPalette, additions: usize, deletions: usize) -> [Div; 2] {
     [
         div()
@@ -937,34 +796,6 @@ fn stat_badges(palette: &DiffPalette, additions: usize, deletions: usize) -> [Di
 mod tests {
     use super::*;
     use clankerdiff_core::testing::DocumentBuilder;
-
-    #[test]
-    fn scrollbar_drag_releases_frozen_height_on_drop() {
-        let list_state = ListState::new(10, gpui::ListAlignment::Top, px(0.0));
-        let drag = DiffScrollbarDrag {
-            thumb_offset: Cell::new(px(0.0)),
-            min_thumb_height: px(30.0),
-            list_state: list_state.clone(),
-            started: Cell::new(false),
-        };
-
-        drag.start(px(4.0));
-        assert!(list_state.is_scrollbar_dragging());
-        assert_eq!(drag.thumb_offset.get(), px(4.0));
-
-        drop(drag);
-        assert!(!list_state.is_scrollbar_dragging());
-    }
-
-    #[test]
-    fn scrollbar_thumb_stays_stable_while_rows_are_measured() {
-        assert_eq!(scrollbar_thumb_height(px(100.0), px(30.0)), px(30.0));
-    }
-
-    #[test]
-    fn scrollbar_thumb_leaves_drag_space_in_a_short_viewport() {
-        assert_eq!(scrollbar_thumb_height(px(20.0), px(30.0)), px(10.0));
-    }
 
     #[test]
     fn submitted_comments_remain_attached_to_their_row() {

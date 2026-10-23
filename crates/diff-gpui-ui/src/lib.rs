@@ -5,6 +5,7 @@ pub mod interface_size;
 pub mod menu;
 pub mod patterns;
 pub mod resizable;
+pub mod scrollbar;
 #[cfg(feature = "test-support")]
 pub mod testing;
 pub mod theme;
@@ -26,6 +27,7 @@ pub mod prelude {
     pub use super::menu::{MenuItem, with_menu};
     pub use super::patterns::{ThemePicker, ThemePickerItem};
     pub use super::resizable::{PanelSide, ResizablePanel};
+    pub use super::scrollbar::ListScrollbar;
     pub use super::theme::{UiColors, UiStyle, UiTheme, color};
     pub use super::tokens::rem;
     pub use super::tree::TreeRow;

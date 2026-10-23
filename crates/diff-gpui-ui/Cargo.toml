@@ -28,6 +28,10 @@ name = "resizable_test"
 required-features = ["test-support"]
 
 [[test]]
+name = "scrollbar_test"
+required-features = ["test-support"]
+
+[[test]]
 name = "tree_test"
 required-features = ["test-support"]
 

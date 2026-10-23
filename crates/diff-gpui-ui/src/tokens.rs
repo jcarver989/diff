@@ -17,6 +17,8 @@ pub const ICON_SIZE_SMALL: f32 = 12.0;
 pub const CHECKBOX_SIZE: f32 = 12.0;
 pub const TREE_INDENT: f32 = 12.0;
 pub const RESIZE_HANDLE_WIDTH: f32 = 6.0;
+pub const SCROLLBAR_WIDTH: f32 = 12.0;
+pub const SCROLLBAR_MIN_THUMB_HEIGHT: f32 = 32.0;
 
 pub const RADIUS_CONTROL: f32 = 4.0;
 pub const RADIUS_CONTAINER: f32 = 8.0;
