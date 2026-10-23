@@ -70,6 +70,8 @@ actions!(
         ActivateGap,
         ExpandGapAll,
         ToggleFullFile,
+        ToggleFileCollapsed,
+        ToggleAllFilesCollapsed,
         ToggleSourceView,
         AddComment,
         EditComment,
@@ -298,6 +300,8 @@ impl DiffViewer {
             KeyBinding::new("o", ToggleSourceView, Some(BROWSE)),
             KeyBinding::new("shift-o", ExpandGapAll, Some(DIFF)),
             KeyBinding::new("f", ToggleFullFile, Some(DIFF)),
+            KeyBinding::new("z", ToggleFileCollapsed, Some(DIFF)),
+            KeyBinding::new("shift-z", ToggleAllFilesCollapsed, Some(BROWSE)),
             KeyBinding::new("enter", ExpandGap, Some(DIFF_ACTIVATION)),
             KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
             KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
@@ -966,6 +970,24 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::ToggleFullFile, window, cx);
     }
 
+    fn toggle_file_collapsed_action(
+        &mut self,
+        _: &ToggleFileCollapsed,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.handle_command(DiffReviewCommand::ToggleFileCollapsed(None), window, cx);
+    }
+
+    fn toggle_all_files_collapsed_action(
+        &mut self,
+        _: &ToggleAllFilesCollapsed,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.handle_command(DiffReviewCommand::ToggleAllFilesCollapsed, window, cx);
+    }
+
     pub(crate) fn highlight_cell(
         &mut self,
         row: &PresentedRow,
@@ -1601,6 +1623,8 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::activate_gap_action))
             .on_action(cx.listener(Self::expand_gap_all_action))
             .on_action(cx.listener(Self::toggle_full_file_action))
+            .on_action(cx.listener(Self::toggle_file_collapsed_action))
+            .on_action(cx.listener(Self::toggle_all_files_collapsed_action))
             .on_action(cx.listener(Self::toggle_source_view_action))
             .on_action(cx.listener(Self::toggle_stage))
             .on_action(cx.listener(Self::stage_all))

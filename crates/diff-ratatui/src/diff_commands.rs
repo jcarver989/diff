@@ -179,6 +179,21 @@ impl DiffReviewState {
                 self.toggle_full_file();
                 return InputOutcome::Consumed;
             }
+            C::ToggleFileCollapsed(index) => {
+                let Some(index) = index.or_else(|| self.session.selected_file()) else {
+                    return InputOutcome::Ignored;
+                };
+                if !self.toggle_file_collapsed(index) {
+                    return InputOutcome::Ignored;
+                }
+                return InputOutcome::Consumed;
+            }
+            C::ToggleAllFilesCollapsed => {
+                if !self.toggle_all_files_collapsed() {
+                    return InputOutcome::Ignored;
+                }
+                return InputOutcome::Consumed;
+            }
             C::SetViewMode(mode) => {
                 self.set_view_mode(mode);
                 return InputOutcome::Consumed;

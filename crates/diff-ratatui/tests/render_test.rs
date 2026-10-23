@@ -663,6 +663,32 @@ fn clicking_a_divider_selects_its_file() -> Result<(), Box<dyn Error>> {
 
 #[cfg(feature = "test-support")]
 #[test]
+fn clicking_a_divider_chevron_toggles_its_file() -> Result<(), Box<dyn Error>> {
+    let mut harness = continuous_harness(
+        DocumentBuilder::new()
+            .changed("src/a.rs", "old", "new")
+            .changed("src/b.rs", "before", "after"),
+    );
+    let divider = harness.row_containing("b.rs src/").ok_or("divider")?;
+    assert!(harness.row_text(divider).contains("▾"));
+    harness.input(mouse(MouseEventKind::Down(MouseButton::Left), 1, divider));
+    harness.draw();
+    assert!(harness.state().session().is_file_collapsed(1));
+    assert!(harness.row_text(divider).contains("▸"));
+    assert!(!harness.text().contains("after"));
+    assert_eq!(
+        harness.state().interaction_phase(),
+        InteractionPhase::Browse
+    );
+    harness.input(mouse(MouseEventKind::Down(MouseButton::Left), 1, divider));
+    harness.draw();
+    assert!(!harness.state().session().is_file_collapsed(1));
+    harness.assert_contains("after");
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
 #[allow(clippy::format_collect)]
 fn gaps_are_quiet_rules_that_expand_from_their_glyph() -> Result<(), Box<dyn Error>> {
     let old = (1..=60)

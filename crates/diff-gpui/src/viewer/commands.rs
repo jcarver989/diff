@@ -147,6 +147,19 @@ impl DiffViewer {
             C::ToggleFullFile => {
                 self.change_layout(ReviewSession::toggle_full_file);
             }
+            C::ToggleFileCollapsed(index) => {
+                let Some(index) = index.or_else(|| self.session.selected_file()) else {
+                    return false;
+                };
+                if !self.change_layout(|session| session.toggle_file_collapsed(index)) {
+                    return false;
+                }
+            }
+            C::ToggleAllFilesCollapsed => {
+                if !self.change_layout(ReviewSession::toggle_all_files_collapsed) {
+                    return false;
+                }
+            }
             C::SetViewMode(mode) => {
                 self.change_layout(|session| session.set_view_mode(mode));
             }

@@ -15,6 +15,7 @@ const NAVIGATION: &[(&str, &str)] = &[
     ("Enter", "expand context / open file"),
     ("O", "expand all context"),
     ("f", "toggle all diff context"),
+    ("z / Z", "collapse / expand file or all files"),
 ];
 const GIT: &[(&str, &str)] = &[
     ("Space", "stage / unstage file or directory"),

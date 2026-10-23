@@ -185,6 +185,7 @@ pub struct ContentProjection {
     source_view: Option<RepoPath>,
     pub(crate) expansions: HashMap<GapId, GapExpansion>,
     pub(crate) full_files: HashSet<RepoPath>,
+    pub(crate) collapsed_files: HashSet<RepoPath>,
 }
 
 impl ContentProjection {
@@ -221,6 +222,19 @@ impl ContentProjection {
     #[must_use]
     pub fn is_full_file(&self, path: &RepoPath) -> bool {
         self.full_files.contains(path)
+    }
+
+    pub fn set_collapsed(&mut self, path: RepoPath, collapsed: bool) {
+        if collapsed {
+            self.collapsed_files.insert(path);
+        } else {
+            self.collapsed_files.remove(&path);
+        }
+    }
+
+    #[must_use]
+    pub fn is_collapsed(&self, path: &RepoPath) -> bool {
+        self.collapsed_files.contains(path)
     }
 }
 
@@ -386,6 +400,7 @@ pub struct DiffPresentation {
     file_order: Vec<usize>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
+    collapsed: Vec<bool>,
     /// Lazily fingerprinted per hunk so presentations that never fall back to
     /// hunk-sequence highlighting skip hashing the document.
     sequence_ids: Vec<Vec<OnceLock<[SourceSequenceId; 2]>>>,
@@ -412,6 +427,7 @@ impl DiffPresentation {
         let file_order = tree_order(&document);
         let mut file_ranges = vec![0..0; document.files.len()];
         let mut hunk_ranges = vec![Vec::new(); document.files.len()];
+        let mut collapsed = vec![false; document.files.len()];
         for &file_index in &file_order {
             let file = &document.files[file_index];
             let file_start = rows.len();
@@ -420,6 +436,11 @@ impl DiffPresentation {
             }
             if projection.source_view() == Some(&file.path) {
                 append_source_rows(&mut rows, file_index, file);
+                file_ranges[file_index] = file_start..rows.len();
+                continue;
+            }
+            if options.include_file_headers && projection.is_collapsed(&file.path) {
+                collapsed[file_index] = true;
                 file_ranges[file_index] = file_start..rows.len();
                 continue;
             }
@@ -530,6 +551,7 @@ impl DiffPresentation {
             file_order,
             file_ranges,
             hunk_ranges,
+            collapsed,
             sequence_ids,
         }
     }
@@ -592,6 +614,11 @@ impl DiffPresentation {
     #[must_use]
     pub fn file_range(&self, file_index: usize) -> Option<Range<usize>> {
         self.file_ranges.get(file_index).cloned()
+    }
+
+    #[must_use]
+    pub fn is_collapsed(&self, file_index: usize) -> bool {
+        self.collapsed.get(file_index).copied().unwrap_or(false)
     }
 
     /// Returns the row range occupied by a hunk, including its header.
@@ -792,7 +819,10 @@ impl DiffPresentation {
 
     #[must_use]
     pub fn is_navigable(&self, index: usize) -> bool {
-        self.row(index).is_some_and(PresentedRow::is_navigable)
+        self.row(index).is_some_and(|row| {
+            row.is_navigable()
+                || (row.kind == RowKind::FileHeader && self.is_collapsed(row.file_index))
+        })
     }
 
     #[must_use]

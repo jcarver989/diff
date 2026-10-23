@@ -1,7 +1,7 @@
 use crate::{
     ContentProjection, DiffDocument, DiffPresentation, DiffSide, GapId, Layout, LineAnchor,
     PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, RowId,
-    SourceLocation, ViewMode, presentation::retained_expansions,
+    RowKind, SourceLocation, ViewMode, presentation::retained_expansions,
 };
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, sync::Arc};
@@ -331,6 +331,15 @@ impl ReviewSession {
     }
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
+        if let Some(file) = self
+            .selected_presented_row()
+            .filter(|row| {
+                row.kind == RowKind::FileHeader && self.presentation.is_collapsed(row.file_index)
+            })
+            .map(|row| row.file_index)
+        {
+            return self.toggle_file_collapsed(file);
+        }
         let id = self
             .presentation
             .gap_info(self.selected_row)
@@ -388,6 +397,66 @@ impl ReviewSession {
         true
     }
 
+    #[must_use]
+    pub fn is_file_collapsed(&self, index: usize) -> bool {
+        self.presentation.is_collapsed(index)
+    }
+
+    #[must_use]
+    pub fn all_files_collapsed(&self) -> bool {
+        !self.document.files.is_empty()
+            && (0..self.document.files.len()).all(|index| self.presentation.is_collapsed(index))
+    }
+
+    pub fn toggle_file_collapsed(&mut self, index: usize) -> bool {
+        let Some(file) = self.document.files.get(index) else {
+            return false;
+        };
+        if self.source_view().is_some() {
+            return false;
+        }
+        let collapse = !self.presentation.is_collapsed(index);
+        if collapse
+            && self
+                .draft
+                .as_ref()
+                .is_some_and(|draft| draft.anchor.path == file.path)
+        {
+            return false;
+        }
+        let header_selected = self.selected_on_header(index);
+        self.projection.set_collapsed(file.path.clone(), collapse);
+        self.rebuild();
+        if header_selected && !collapse {
+            self.select_first_row();
+        }
+        true
+    }
+
+    pub fn toggle_all_files_collapsed(&mut self) -> bool {
+        if self.document.files.is_empty() || self.source_view().is_some() {
+            return false;
+        }
+        let collapse = !self.all_files_collapsed();
+        if collapse && self.draft.is_some() {
+            return false;
+        }
+        let header_selected = self.selected_on_header(self.selected_file);
+        for file in &self.document.files {
+            self.projection.set_collapsed(file.path.clone(), collapse);
+        }
+        self.rebuild();
+        if header_selected && !collapse {
+            self.select_first_row();
+        }
+        true
+    }
+
+    fn selected_on_header(&self, index: usize) -> bool {
+        self.selected_presented_row()
+            .is_some_and(|row| row.kind == RowKind::FileHeader && row.file_index == index)
+    }
+
     /// Replaces the complete immutable document while preserving review and view
     /// state, including gap expansions for files whose content did not change.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
@@ -416,6 +485,9 @@ impl ReviewSession {
         self.projection.expansions = expansions;
         self.projection
             .full_files
+            .retain(|path| document.file_index(path).is_some());
+        self.projection
+            .collapsed_files
             .retain(|path| document.file_index(path).is_some());
         if self
             .pending_source_restore

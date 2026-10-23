@@ -27,6 +27,7 @@ use ratatui::{
 
 const DRAWER_BREAKPOINT: u16 = 72;
 pub(crate) const GAP_EXPAND_WIDTH: u16 = 3;
+pub(crate) const FILE_CHEVRON_WIDTH: u16 = 2;
 const DRAWER_MIN_WIDTH: u16 = 20;
 const DRAWER_MAX_WIDTH: u16 = 36;
 
@@ -384,6 +385,10 @@ fn render_patch(
             theme,
             &presentation.document().files[file],
             source_label,
+            FileDividerState {
+                collapsed: presentation.is_collapsed(file),
+                selected: selected_row == Some(header) && *focus == FocusPane::Diff,
+            },
         );
         visible_rows.retain(|(screen_y, _)| *screen_y != area.y);
         visible_rows.push((area.y, header));
@@ -435,16 +440,36 @@ fn render_gap_row(area: Rect, buffer: &mut Buffer, context: &CellContext<'_>, se
         .render(area, buffer);
 }
 
+#[derive(Clone, Copy)]
+struct FileDividerState {
+    collapsed: bool,
+    selected: bool,
+}
+
 fn render_file_divider(
     area: Rect,
     buffer: &mut Buffer,
     theme: &RatatuiTheme,
     file: &FileDiff,
     source_label: Option<&str>,
+    state: FileDividerState,
 ) {
     Clear.render(area, buffer);
-    buffer.set_style(area, Style::new().bg(theme.ui.surface));
+    buffer.set_style(
+        area,
+        Style::new().bg(if state.selected {
+            theme.ui.surface_selected
+        } else {
+            theme.ui.surface
+        }),
+    );
+    let chevron = match (source_label, state.collapsed) {
+        (Some(_), _) => "",
+        (None, true) => " ▸",
+        (None, false) => " ▾",
+    };
     let mut left = vec![
+        Span::styled(chevron, Style::new().fg(theme.ui.text_muted)),
         Span::styled(
             format!(" {} ", file.status.code()),
             Style::new().fg(file_status_color(file.status, theme)),
@@ -519,6 +544,10 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
             context.theme,
             &context.presentation.document().files[row.file_index],
             style.source_label,
+            FileDividerState {
+                collapsed: context.presentation.is_collapsed(row.file_index),
+                selected: style.selected,
+            },
         ),
         RowKind::Meta => {
             Paragraph::new(row.primary_cell().map_or("", |cell| cell.text.as_ref()))

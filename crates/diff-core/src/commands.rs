@@ -129,6 +129,8 @@ pub enum DiffReviewCommand {
     CollapseSelected,
     RevealGap(RevealAmount),
     ToggleFullFile,
+    ToggleFileCollapsed(Option<usize>),
+    ToggleAllFilesCollapsed,
     ToggleSourceView,
     SetViewMode(ViewMode),
     CycleViewMode,
@@ -159,6 +161,8 @@ impl DiffReviewCommand {
                 self,
                 Self::RevealGap(_)
                     | Self::ToggleFullFile
+                    | Self::ToggleFileCollapsed(_)
+                    | Self::ToggleAllFilesCollapsed
                     | Self::SetViewMode(_)
                     | Self::CycleViewMode
                     | Self::SelectSide(_)

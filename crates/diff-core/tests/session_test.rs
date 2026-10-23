@@ -392,10 +392,87 @@ fn rows_and_files_are_laid_out_and_navigated_in_tree_order() {
     assert_eq!(session.move_file(9), Some(0));
 }
 
+#[test]
+fn collapsing_a_file_parks_selection_on_its_header_until_expanded() -> Result<(), Box<dyn Error>> {
+    let mut session = two_file_session();
+    assert!(session.toggle_file_collapsed(0));
+    assert!(session.is_file_collapsed(0));
+    let header = session.presentation().file_range(0).ok_or("range")?.start;
+    assert_eq!(session.selected_row(), Some(header));
+    assert_eq!(
+        session.selected_presented_row().ok_or("row")?.kind,
+        RowKind::FileHeader
+    );
+    assert!(session.move_row(1));
+    assert_eq!(session.selected_file(), Some(1));
+    assert!(session.move_row(-1));
+    assert_eq!(session.selected_row(), Some(header));
+    assert!(session.reveal_selected_gap(RevealAmount::Step));
+    assert!(!session.is_file_collapsed(0));
+    assert_eq!(session.selected_file(), Some(0));
+    assert!(session.selected_anchor().is_some());
+    Ok(())
+}
+
+#[test]
+fn collapsing_is_refused_while_a_draft_is_open_in_the_file() -> Result<(), Box<dyn Error>> {
+    let mut session = two_file_session();
+    assert!(session.begin_draft(None));
+    session.draft_mut().ok_or("draft")?.set_body("keep me");
+    assert!(!session.toggle_file_collapsed(0));
+    assert!(!session.toggle_all_files_collapsed());
+    assert!(session.toggle_file_collapsed(1));
+    assert_eq!(session.draft().ok_or("draft")?.body(), "keep me");
+    Ok(())
+}
+
+#[test]
+fn collapse_all_toggles_every_file_and_survives_refresh() -> Result<(), Box<dyn Error>> {
+    let mut session = two_file_session();
+    assert!(session.toggle_file_collapsed(1));
+    assert!(!session.all_files_collapsed());
+    assert!(session.toggle_all_files_collapsed());
+    assert!(session.all_files_collapsed());
+    assert_eq!(session.presentation().row_count(), 2);
+    session.set_document(
+        DocumentBuilder::new()
+            .changed("a.rs", "old\n", "newer\n")
+            .changed("c.rs", "old\n", "new\n")
+            .build(),
+    );
+    assert!(session.is_file_collapsed(0));
+    assert!(!session.is_file_collapsed(1));
+    assert!(session.toggle_all_files_collapsed());
+    assert!(session.all_files_collapsed());
+    assert!(session.toggle_all_files_collapsed());
+    assert!(!session.is_file_collapsed(0));
+    assert!(!session.is_file_collapsed(1));
+    assert!(session.presentation().file_range(0).ok_or("range")?.len() > 1);
+    Ok(())
+}
+
+#[test]
+fn source_view_cannot_collapse_files() {
+    let mut session = two_file_session();
+    assert!(session.toggle_source_view());
+    assert!(!session.toggle_file_collapsed(0));
+    assert!(!session.toggle_all_files_collapsed());
+    assert!(!session.is_file_collapsed(0));
+}
+
 fn session() -> ReviewSession {
     ReviewSession::new(
         DocumentBuilder::new()
             .changed("a.rs", "old\n", "new\n")
+            .build(),
+    )
+}
+
+fn two_file_session() -> ReviewSession {
+    ReviewSession::new(
+        DocumentBuilder::new()
+            .changed("a.rs", "old\n", "new\n")
+            .changed("b.rs", "old\n", "new\n")
             .build(),
     )
 }

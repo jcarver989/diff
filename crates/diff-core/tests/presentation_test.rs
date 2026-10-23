@@ -305,3 +305,29 @@ fn viewport_anchors_fall_back_to_their_file_start() -> Result<(), Box<dyn Error>
     assert_eq!(anchor.resolve(&removed, 0..removed.row_count()), None);
     Ok(())
 }
+
+#[test]
+fn collapsed_files_project_only_a_navigable_header() -> Result<(), Box<dyn Error>> {
+    let document = DocumentBuilder::new()
+        .changed("a.rs", "old\n", "new\n")
+        .changed("b.rs", "old\n", "new\n")
+        .build();
+    let mut projection = ContentProjection::default();
+    projection.set_collapsed(document.files[0].path.clone(), true);
+    let presentation =
+        DiffPresentation::with_projection(document, PresentationOptions::default(), &projection);
+    let collapsed = presentation.file_range(0).ok_or("collapsed range")?;
+    assert_eq!(collapsed.len(), 1);
+    assert_eq!(
+        presentation.row(collapsed.start).ok_or("header")?.kind,
+        RowKind::FileHeader
+    );
+    assert!(presentation.is_collapsed(0));
+    assert!(presentation.is_navigable(collapsed.start));
+    assert_eq!(presentation.hunk_range(0, 0), None);
+    let expanded = presentation.file_range(1).ok_or("expanded range")?;
+    assert!(!presentation.is_collapsed(1));
+    assert!(!presentation.is_navigable(expanded.start));
+    assert!(expanded.len() > 1);
+    Ok(())
+}

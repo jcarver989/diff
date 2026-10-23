@@ -2,7 +2,7 @@ use crate::{
     DiffReviewCommand, InteractionPhase, KeyBinding, NavigationPane, ReviewOptions, ThemeChoice,
     default_diff_keybindings,
     patch_layout::{PatchContentLayout, PatchVisualLayout},
-    render::GAP_EXPAND_WIDTH,
+    render::{FILE_CHEVRON_WIDTH, GAP_EXPAND_WIDTH},
     theme_picker::ThemePicker,
 };
 use clankerdiff_client::{ClientState, ConnectionState, DiffSnapshot};
@@ -619,6 +619,14 @@ impl DiffReviewState {
         self.change_layout(|state| state.session.toggle_full_file())
     }
 
+    pub fn toggle_file_collapsed(&mut self, index: usize) -> bool {
+        self.change_layout(|state| state.session.toggle_file_collapsed(index))
+    }
+
+    pub fn toggle_all_files_collapsed(&mut self) -> bool {
+        self.change_layout(|state| state.session.toggle_all_files_collapsed())
+    }
+
     /// Selects automatic, unified, or split presentation.
     pub fn set_view_mode(&mut self, mode: ViewMode) {
         self.change_layout(|state| state.session.set_view_mode(mode));
@@ -925,6 +933,12 @@ impl DiffReviewState {
             .filter(|row| row.kind == RowKind::FileHeader)
         {
             let file = row.file_index;
+            if position.x < self.hit_layout.patch.x.saturating_add(FILE_CHEVRON_WIDTH)
+                && self.session.source_view().is_none()
+            {
+                self.toggle_file_collapsed(file);
+                return false;
+            }
             return self.select_file(file);
         }
         if let Some(index) = clicked

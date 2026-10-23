@@ -41,6 +41,7 @@ pub use viewer::{
     ExpandGapAll, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, HideThemePicker,
     LastItem, NextFile, NextHunk, NextItem, NextTheme, PageDown, PageUp, PreviousFile,
     PreviousHunk, PreviousItem, PreviousTheme, Refresh, SelectNewSide, SelectOldSide,
-    ShowShortcuts, ShowThemePicker, StageAll, SubmitComment, SubmitReview, ToggleFullFile,
-    TogglePane, ToggleSourceView, ToggleStage, UndoComment, UnstageAll, ViewerPane,
+    ShowShortcuts, ShowThemePicker, StageAll, SubmitComment, SubmitReview, ToggleAllFilesCollapsed,
+    ToggleFileCollapsed, ToggleFullFile, TogglePane, ToggleSourceView, ToggleStage, UndoComment,
+    UnstageAll, ViewerPane,
 };

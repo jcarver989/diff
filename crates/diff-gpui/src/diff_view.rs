@@ -148,7 +148,69 @@ impl DiffViewer {
                     .child(div().typography(Typography::BodyStrong).child(summary))
                     .children(stat_badges(palette, additions, deletions)),
             )
+            .children(self.render_collapse_all_button(cx))
             .child(self.render_interface_size_controls(window, cx))
+    }
+
+    fn render_collapse_all_button(&self, cx: &mut Context<Self>) -> Option<IconButton> {
+        if self.document().files.is_empty() || self.session().source_view().is_some() {
+            return None;
+        }
+        let (icon, label) = if self.session().all_files_collapsed() {
+            (IconName::ChevronsUpDown, "Expand all files")
+        } else {
+            (IconName::ChevronsDownUp, "Collapse all files")
+        };
+        Some(
+            IconButton::new("toggle-all-files-collapsed", icon, label, self.ui_theme()).on_click(
+                cx.listener(|viewer, _, window, cx| {
+                    viewer.handle_command(DiffReviewCommand::ToggleAllFilesCollapsed, window, cx);
+                }),
+            ),
+        )
+    }
+
+    fn render_file_chevron(&self, file_index: usize, cx: &mut Context<Self>) -> IconButton {
+        let (icon, label) = if self.session().is_file_collapsed(file_index) {
+            (IconName::ChevronRight, "Expand file")
+        } else {
+            (IconName::ChevronDown, "Collapse file")
+        };
+        IconButton::new(
+            format!("diff-file-collapse:{file_index}"),
+            icon,
+            label,
+            self.ui_theme(),
+        )
+        .on_click(cx.listener(move |viewer, _, window, cx| {
+            cx.stop_propagation();
+            viewer.handle_command(
+                DiffReviewCommand::ToggleFileCollapsed(Some(file_index)),
+                window,
+                cx,
+            );
+        }))
+    }
+
+    fn file_header_selected(&self, file_index: usize) -> bool {
+        self.pane == ViewerPane::Diff
+            && self.session().selected_row()
+                == self
+                    .presentation()
+                    .file_range(file_index)
+                    .map(|range| range.start)
+    }
+
+    fn collapsed_comment_count(&self, file_index: usize) -> usize {
+        if !self.session().is_file_collapsed(file_index) {
+            return 0;
+        }
+        let path = &self.document().files[file_index].path;
+        self.review()
+            .comments()
+            .iter()
+            .filter(|comment| &comment.anchor.path == path)
+            .count()
     }
 
     fn render_file_divider(
@@ -160,6 +222,8 @@ impl DiffViewer {
         let palette = &self.theme().diff;
         let surface = self.theme().ui.surface;
         let file = &self.document().files[file_index];
+        let selected = self.file_header_selected(file_index);
+        let comments = self.collapsed_comment_count(file_index);
         let directory = file
             .path
             .directory()
@@ -191,11 +255,18 @@ impl DiffViewer {
                     .px_3()
                     .rounded_md()
                     .border_1()
-                    .border_color(style::color(palette.border))
+                    .border_color(style::color(if selected {
+                        palette.accent
+                    } else {
+                        palette.border
+                    }))
                     .bg(style::color(surface))
                     .typography(Typography::Body)
                     .overflow_hidden()
                     .whitespace_nowrap()
+                    .when(source_label.is_none(), |bar| {
+                        bar.child(self.render_file_chevron(file_index, cx))
+                    })
                     .child(
                         div()
                             .flex_shrink_0()
@@ -233,6 +304,16 @@ impl DiffViewer {
                     }))
                     .when(source_label.is_none(), |bar| {
                         bar.children(stat_badges(palette, file.additions(), file.deletions()))
+                    })
+                    .when(comments != 0, |bar| {
+                        bar.child(
+                            div()
+                                .debug_selector(move || {
+                                    format!("diff-file-comment-count:{file_index}")
+                                })
+                                .flex_shrink_0()
+                                .child(CommentCount::new(comments, &self.ui_theme())),
+                        )
                     }),
             )
     }

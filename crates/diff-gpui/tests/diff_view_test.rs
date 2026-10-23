@@ -349,6 +349,86 @@ fn top_source(harness: &DiffViewerHarness, cx: &TestAppContext) -> Option<Source
     })
 }
 
+#[gpui::test]
+fn file_header_chevrons_collapse_and_expand_a_file(cx: &mut TestAppContext) {
+    multi_file_builder().run(cx, |harness, cx| {
+        let expanded = file_rows(harness, cx, 0);
+        assert!(harness.bounds(cx, "diff-file-header:1").is_none());
+        harness.click(cx, "diff-file-collapse:0")?;
+        assert!(harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
+        assert_eq!(file_rows(harness, cx, 0), 1);
+        assert!(harness.bounds(cx, "diff-file-header:1").is_some());
+        assert_eq!(
+            harness.read(cx, |viewer, _| viewer.selected_file()),
+            Some(0)
+        );
+        harness.click(cx, "diff-file-collapse:0")?;
+        assert!(!harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
+        assert_eq!(file_rows(harness, cx, 0), expanded);
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn selecting_a_collapsed_file_scrolls_to_its_header_without_expanding(cx: &mut TestAppContext) {
+    multi_file_builder().run(cx, |harness, cx| {
+        harness.click(cx, "diff-file-collapse:0")?;
+        harness.click(cx, "diff-file-collapse:1")?;
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::SelectFile(1))?);
+        assert!(harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(1)));
+        let header = harness.read(cx, |viewer, _| {
+            viewer.presentation().file_range(1).map(|range| range.start)
+        });
+        assert_eq!(harness.selected_row(cx), header);
+        assert!(harness.bounds(cx, "diff-file-header:1").is_some());
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn toolbar_icon_collapses_and_expands_every_file(cx: &mut TestAppContext) {
+    multi_file_builder().run(cx, |harness, cx| {
+        harness.click(cx, "toggle-all-files-collapsed")?;
+        assert!(harness.read(cx, |viewer, _| viewer.session().all_files_collapsed()));
+        assert!(harness.bounds(cx, "diff-file-header:1").is_some());
+        harness.click(cx, "toggle-all-files-collapsed")?;
+        assert!(harness.read(cx, |viewer, _| {
+            !viewer.session().is_file_collapsed(0) && !viewer.session().is_file_collapsed(1)
+        }));
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn keyboard_collapses_the_selected_file_and_all_files(cx: &mut TestAppContext) {
+    multi_file_builder().run(cx, |harness, cx| {
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::Focus(FocusPane::Diff))?);
+        harness.simulate_keystrokes(cx, "z");
+        assert!(harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
+        assert!(!harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(1)));
+        harness.simulate_keystrokes(cx, "enter");
+        assert!(!harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
+        harness.simulate_keystrokes(cx, "shift-z");
+        assert!(harness.read(cx, |viewer, _| viewer.session().all_files_collapsed()));
+        harness.simulate_keystrokes(cx, "shift-z");
+        assert!(!harness.read(cx, |viewer, _| viewer.session().all_files_collapsed()));
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn collapsed_headers_show_their_comment_count(cx: &mut TestAppContext) {
+    multi_file_builder().run(cx, |harness, cx| {
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::Focus(FocusPane::Diff))?);
+        harness.add_comment(cx, "remember this")?;
+        assert!(harness.bounds(cx, "diff-file-comment-count:0").is_none());
+        harness.click(cx, "diff-file-collapse:0")?;
+        assert!(harness.bounds(cx, "diff-file-comment-count:0").is_some());
+        assert!(harness.bounds(cx, "diff-file-comment-count:1").is_none());
+        Ok(())
+    });
+}
+
 fn multi_file_builder() -> DiffViewerHarnessBuilder {
     DiffViewerHarnessBuilder {
         document: DocumentBuilder::new()
@@ -359,4 +439,13 @@ fn multi_file_builder() -> DiffViewerHarnessBuilder {
     }
     .with_view_mode(ViewMode::Split)
     .with_window_size(1200.0, 600.0)
+}
+
+fn file_rows(harness: &DiffViewerHarness, cx: &TestAppContext, file: usize) -> usize {
+    harness.read(cx, |viewer, _| {
+        viewer
+            .presentation()
+            .file_range(file)
+            .map_or(0, |range| range.len())
+    })
 }
