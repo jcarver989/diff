@@ -748,3 +748,51 @@ fn viewer_builder() -> DiffViewerHarnessBuilder {
         ..DiffViewerHarnessBuilder::default()
     }
 }
+
+#[gpui::test]
+fn hiding_the_file_tree_gives_its_room_to_the_diff(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default()
+        .with_window_size(1_000.0, 700.0)
+        .run(cx, |harness, cx| {
+            let expanded = harness
+                .bounds(cx, "diff-sidebar-toggle")
+                .ok_or("missing toggle in the file tree")?;
+            harness.click(cx, "diff-sidebar-toggle")?;
+            assert!(harness.bounds(cx, "diff-sidebar").is_none());
+            assert!(harness.read(cx, |viewer, _| viewer.sidebar_collapsed()));
+            let pane = harness.bounds(cx, "diff-pane").ok_or("missing diff pane")?;
+            assert_eq!(pane.size.width, px(1_000.0));
+            let collapsed = harness
+                .bounds(cx, "diff-sidebar-toggle")
+                .ok_or("missing toggle in the diff toolbar")?;
+            assert_eq!(collapsed.origin.x, expanded.origin.x);
+            harness.click(cx, "diff-sidebar-toggle")?;
+            assert!(harness.bounds(cx, "diff-sidebar").is_some());
+            Ok(())
+        });
+}
+
+#[gpui::test]
+fn the_file_tree_shortcut_hides_it_and_focusing_files_shows_it_again(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default().run(cx, |harness, cx| {
+        harness.simulate_keystrokes(cx, "tab");
+        assert_eq!(
+            harness.read(cx, |viewer, _| viewer.pane()),
+            FocusPane::Files
+        );
+        harness.simulate_keystrokes(cx, "b");
+        assert!(harness.bounds(cx, "diff-sidebar").is_none());
+        assert_eq!(
+            harness.read(cx, |viewer, _| viewer.pane()),
+            FocusPane::Diff,
+            "a hidden file tree cannot keep focus"
+        );
+        harness.simulate_keystrokes(cx, "tab");
+        assert!(harness.bounds(cx, "diff-sidebar").is_some());
+        assert_eq!(
+            harness.read(cx, |viewer, _| viewer.pane()),
+            FocusPane::Files
+        );
+        Ok(())
+    });
+}

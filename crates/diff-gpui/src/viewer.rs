@@ -58,6 +58,7 @@ actions!(
         PageUp,
         PageDown,
         TogglePane,
+        ToggleSidebar,
         FocusFiles,
         FocusDiff,
         SelectOldSide,
@@ -135,6 +136,12 @@ enum RepositoryPrompt {
 
 pub use clankerdiff_core::FocusPane as ViewerPane;
 
+struct SidebarLayout {
+    width: Rems,
+    preferred_width: Option<Rems>,
+    collapsed: bool,
+}
+
 struct DiffViewportBookmark {
     offset: ListOffset,
     anchor: Option<ViewportAnchor>,
@@ -150,8 +157,7 @@ pub struct DiffViewer {
     theme: ReviewTheme,
     highlighter: SyntaxHighlighter,
     options: DiffViewerOptions,
-    sidebar_width: Rems,
-    preferred_sidebar_width: Option<Rems>,
+    sidebar: SidebarLayout,
     rem_size: Pixels,
     pub(crate) diff_list_state: ListState,
     diff_list_revision: Option<u64>,
@@ -211,8 +217,11 @@ impl DiffViewer {
             theme,
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
-            sidebar_width,
-            preferred_sidebar_width: options.sidebar_width,
+            sidebar: SidebarLayout {
+                width: sidebar_width,
+                preferred_width: options.sidebar_width,
+                collapsed: false,
+            },
             rem_size,
             diff_list_state: ListState::new(0, ListAlignment::Top, row_height * 8.0),
             diff_list_revision: None,
@@ -261,6 +270,7 @@ impl DiffViewer {
             KeyBinding::new("pageup", PageUp, Some(BROWSE)),
             KeyBinding::new("pagedown", PageDown, Some(BROWSE)),
             KeyBinding::new("tab", TogglePane, Some(BROWSE_ACTIVATION)),
+            KeyBinding::new("b", ToggleSidebar, Some(BROWSE)),
             KeyBinding::new("h", FocusFiles, Some(DIFF)),
             KeyBinding::new("left", SelectOldSide, Some(DIFF_SPLIT)),
             KeyBinding::new("left", FocusFiles, Some(DIFF_UNIFIED)),
@@ -430,7 +440,24 @@ impl DiffViewer {
     /// Returns the current changed-files sidebar width.
     #[must_use]
     pub const fn sidebar_width(&self) -> Rems {
-        self.sidebar_width
+        self.sidebar.width
+    }
+
+    #[must_use]
+    pub const fn sidebar_collapsed(&self) -> bool {
+        self.sidebar.collapsed
+    }
+
+    pub fn set_sidebar_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
+        if self.sidebar.collapsed == collapsed {
+            return;
+        }
+        self.sidebar.collapsed = collapsed;
+        if collapsed {
+            self.pane = ViewerPane::Diff;
+        }
+        self.diff_list_state.remeasure();
+        cx.notify();
     }
 
     /// Changes the changed-files sidebar width.
@@ -625,7 +652,7 @@ impl DiffViewer {
     }
 
     pub(crate) fn reset_sidebar_width(&mut self, cx: &mut Context<Self>) {
-        self.preferred_sidebar_width = self.options.sidebar_width;
+        self.sidebar.preferred_width = self.options.sidebar_width;
         cx.notify();
     }
 
@@ -635,11 +662,11 @@ impl DiffViewer {
     }
 
     fn update_sidebar_width(&mut self, width: Rems, cx: &mut Context<Self>) {
-        self.preferred_sidebar_width = Some(width);
-        if self.sidebar_width == width {
+        self.sidebar.preferred_width = Some(width);
+        if self.sidebar.width == width {
             return;
         }
-        self.sidebar_width = width;
+        self.sidebar.width = width;
         self.diff_list_state.remeasure();
         cx.notify();
     }
@@ -1156,6 +1183,10 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::ToggleFocus, window, cx);
     }
 
+    fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_sidebar_collapsed(!self.sidebar.collapsed, cx);
+    }
+
     fn focus_files(&mut self, _: &FocusFiles, window: &mut Window, cx: &mut Context<Self>) {
         self.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx);
     }
@@ -1530,15 +1561,19 @@ impl Render for DiffViewer {
             self.diff_list_state.remeasure();
         }
         let viewport_width = rems(window.viewport_size().width / rem_size);
-        let preferred_width = self.preferred_sidebar_width.unwrap_or_else(|| {
+        let preferred_width = self.sidebar.preferred_width.unwrap_or_else(|| {
             rems((viewport_width.0 * DEFAULT_SIDEBAR_FRACTION).max(DEFAULT_MIN_SIDEBAR_WIDTH.0))
         });
         let sidebar_width = clamp_sidebar_width(preferred_width, viewport_width);
-        if self.sidebar_width != sidebar_width {
-            self.sidebar_width = sidebar_width;
+        if self.sidebar.width != sidebar_width {
+            self.sidebar.width = sidebar_width;
             self.diff_list_state.remeasure();
         }
-        let diff_width = viewport_width - sidebar_width;
+        let diff_width = if self.sidebar.collapsed {
+            viewport_width
+        } else {
+            viewport_width - sidebar_width
+        };
         let split_when_auto = diff_width.0 >= self.options.auto_split_width.0;
         if self.session.split_when_auto() != split_when_auto {
             self.change_layout(|session| session.set_split_when_auto(split_when_auto));
@@ -1599,6 +1634,7 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::page_up))
             .on_action(cx.listener(Self::page_down))
             .on_action(cx.listener(Self::toggle_pane))
+            .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::focus_files))
             .on_action(cx.listener(Self::focus_diff))
             .on_action(cx.listener(Self::select_old_side))
@@ -1657,7 +1693,7 @@ impl Render for DiffViewer {
                     .flex_1()
                     .overflow_hidden()
                     .flex()
-                    .child(self.render_sidebar(cx))
+                    .children((!self.sidebar.collapsed).then(|| self.render_sidebar(cx)))
                     .child(self.render_diff(window, cx)),
             )
             .child(self.render_review_bar(cx))

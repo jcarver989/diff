@@ -3,7 +3,8 @@ use crate::{
     style::{color, file_status_color},
     ui::{
         prelude::{
-            CODE_FONT, IconName, PanelSide, ResizablePanel, TreeRow, Typography, TypographyExt, rem,
+            CODE_FONT, IconButton, IconName, PanelSide, ResizablePanel, TreeRow, Typography,
+            TypographyExt, rem,
         },
         tokens::{BAR_HEIGHT, CHECKBOX_SIZE},
     },
@@ -14,6 +15,26 @@ use gpui::{Context, PathBuilder, Role, canvas, div, point, prelude::*, px};
 use gpui_base::{Checkbox, CheckboxIndicator, CheckboxState};
 
 impl DiffViewer {
+    pub(crate) fn render_sidebar_toggle(&self, cx: &mut Context<Self>) -> IconButton {
+        let open = !self.sidebar_collapsed();
+        PanelSide::Left
+            .toggle_button(
+                "diff-sidebar-toggle",
+                open,
+                "changed files",
+                self.ui_theme(),
+            )
+            .on_click(cx.listener(move |viewer, _, _, cx| {
+                viewer.set_sidebar_collapsed(open, cx);
+            }))
+    }
+
+    pub(crate) fn reveal_focused_sidebar(&mut self, cx: &mut Context<Self>) {
+        if self.pane() == ViewerPane::Files {
+            self.set_sidebar_collapsed(false, cx);
+        }
+    }
+
     fn stage_checkbox(&self, entry: &FileTreeEntry, cx: &mut Context<Self>) -> Checkbox {
         let colors = self.ui_theme().colors;
         let checkbox_state = match FileTree::stage_state_for(self.document(), &entry.path) {
@@ -142,6 +163,7 @@ impl DiffViewer {
                     .px_3()
                     .border_b_1()
                     .border_color(colors.border)
+                    .child(self.render_sidebar_toggle(cx))
                     .child(
                         div()
                             .typography(Typography::Label)

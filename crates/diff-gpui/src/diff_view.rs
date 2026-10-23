@@ -81,7 +81,7 @@ impl DiffViewer {
             .debug_selector(|| "diff-pane".to_owned())
             .flex_1()
             .h_full()
-            .when(self.pane == ViewerPane::Diff, |pane| {
+            .when(self.pane == ViewerPane::Diff && !self.sidebar_collapsed(), |pane| {
                 pane.border_l_1().border_color(style::color(palette.accent))
             })
             .flex()
@@ -135,6 +135,9 @@ impl DiffViewer {
             .px_3()
             .border_b_1()
             .border_color(style::color(palette.border))
+            .when(self.sidebar_collapsed(), |toolbar| {
+                toolbar.child(self.render_sidebar_toggle(cx))
+            })
             .child(
                 div()
                     .debug_selector(|| "diff-summary".to_owned())

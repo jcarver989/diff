@@ -9,6 +9,7 @@ const NAVIGATION: &[(&str, &str)] = &[
     ("j / k, ↑ / ↓", "move selection"),
     ("h / l, ← / →", "change pane, fold, or select side"),
     ("Tab", "change pane"),
+    ("b", "hide / show changed files"),
     ("g / G, Home / End", "first / last item"),
     ("PgUp / PgDn", "move a page"),
     ("o", "toggle source / diff"),

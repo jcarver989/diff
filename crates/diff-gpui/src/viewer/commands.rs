@@ -71,12 +71,14 @@ impl DiffViewer {
                     return true;
                 }
                 self.pane = pane;
+                self.reveal_focused_sidebar(cx);
             }
             C::ToggleFocus => {
                 self.pane = match self.pane {
                     ViewerPane::Files => ViewerPane::Diff,
                     ViewerPane::Diff => ViewerPane::Files,
-                }
+                };
+                self.reveal_focused_sidebar(cx);
             }
             C::SelectFile(index) => {
                 if index >= self.document().files.len() {
