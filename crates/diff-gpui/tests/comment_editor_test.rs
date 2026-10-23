@@ -20,7 +20,7 @@ fn empty_caret_tracks_focus_and_remains_available_after_input(cx: &mut TestAppCo
         assert!(harness.comment_focused(cx)?);
         harness.with_comment_input(cx, |_, window, cx| window.blur(cx))?;
         assert!(!harness.comment_focused(cx)?);
-        click(&harness, cx, empty.origin, Modifiers::default())?;
+        click(&harness, cx, empty.origin, Modifiers::default());
         assert!(harness.comment_focused(cx)?);
         assert_eq!(selection(&harness, cx)?.range, 0..0);
         Ok(())
@@ -45,7 +45,7 @@ fn clicking_uses_text_geometry_in_both_diff_layouts(cx: &mut TestAppContext) {
                 })?
                 .ok_or("point has no character")?;
             assert_eq!(index, 2);
-            click(&harness, cx, position, Modifiers::default())?;
+            click(&harness, cx, position, Modifiers::default());
             assert_eq!(selection(&harness, cx)?.range, 2..2);
             harness.simulate_input(cx, "X");
             assert_eq!(body(&harness, cx)?, "abXcdef");
@@ -127,7 +127,7 @@ fn vertical_navigation_preserves_horizontal_position_across_short_lines(cx: &mut
         let last = caret(&harness, cx)?;
         assert!(last.origin.y > first.origin.y);
         assert_eq!(last.origin.x, range_bounds(&harness, cx, 0..0)?.origin.x);
-        click(&harness, cx, last.origin, Modifiers::default())?;
+        click(&harness, cx, last.origin, Modifiers::default());
         assert_eq!(selection(&harness, cx)?.range, 24..24);
         Ok(())
     })();
@@ -162,7 +162,7 @@ fn caret_and_selection_preserve_wrapping_and_vertical_navigation(cx: &mut TestAp
         harness.simulate_keystrokes(cx, KEYS.document_end);
         assert_eq!(caret(&harness, cx)?, end);
         assert_eq!(body(&harness, cx)?, text);
-        click(&harness, cx, row_start.origin, Modifiers::default())?;
+        click(&harness, cx, row_start.origin, Modifiers::default());
         assert_eq!(selection(&harness, cx)?.range, start..start);
         harness.simulate_input(cx, "X");
         assert_eq!(
@@ -191,7 +191,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 click_count: 1,
                 ..Default::default()
             },
-        )?;
+        );
         harness.simulate_event(
             cx,
             MouseMoveEvent {
@@ -199,7 +199,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 pressed_button: Some(MouseButton::Left),
                 ..Default::default()
             },
-        )?;
+        );
         harness.simulate_event(
             cx,
             MouseUpEvent {
@@ -207,7 +207,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 button: MouseButton::Left,
                 ..Default::default()
             },
-        )?;
+        );
         assert_eq!(selection(&harness, cx)?.range, 1..4);
         click(
             &harness,
@@ -217,7 +217,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 shift: true,
                 ..Default::default()
             },
-        )?;
+        );
         assert_eq!(selection(&harness, cx)?.range, 1..1);
         click(
             &harness,
@@ -227,7 +227,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 shift: true,
                 ..Default::default()
             },
-        )?;
+        );
         harness.simulate_input(cx, "X");
         assert_eq!(body(&harness, cx)?, "aXef");
         Ok(())
@@ -402,7 +402,7 @@ fn click(
     cx: &mut TestAppContext,
     position: Point<Pixels>,
     modifiers: Modifiers,
-) -> Result<(), Box<dyn Error>> {
+) {
     let position = point(position.x, position.y + px(1.0));
     harness.simulate_event(
         cx,
@@ -413,7 +413,7 @@ fn click(
             click_count: 1,
             ..Default::default()
         },
-    )?;
+    );
     harness.simulate_event(
         cx,
         MouseUpEvent {
@@ -422,7 +422,7 @@ fn click(
             button: MouseButton::Left,
             ..Default::default()
         },
-    )
+    );
 }
 
 struct PlatformKeys {

@@ -5,6 +5,7 @@ use clankerdiff_theme::{
     UiPalette,
 };
 use gpui::Hsla;
+use gpui_base::input::InputEditorStyle;
 
 /// Converts a renderer-neutral sRGB color to GPUI's HSLA color.
 #[must_use]
@@ -112,5 +113,21 @@ impl UiTheme {
     #[must_use]
     pub fn notice_style(self, tone: NoticeTone) -> UiStyle {
         self.palette.notice_style(tone).into()
+    }
+
+    #[must_use]
+    pub fn editor_style(self) -> InputEditorStyle {
+        let colors = self.colors;
+        let mut selection = colors.accent;
+        selection.a = 0.3;
+        InputEditorStyle {
+            foreground: colors.text,
+            muted_foreground: colors.text_muted,
+            background: colors.surface,
+            border: colors.border,
+            selection,
+            caret: colors.text,
+            ..InputEditorStyle::default()
+        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::{WINDOW_TITLE, preferences, run_loop};
+use crate::{WINDOW_TITLE, preferences};
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_gpui::{
     MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
@@ -8,6 +8,7 @@ use clankerdiff_gpui::{
         window_chrome,
     },
 };
+use clankerdiff_gpui_shell::run_loop;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
 use gpui::{AppContext, ClipboardItem, Context, Entity, Subscription, Window, div, prelude::*};
 use std::sync::{Arc, mpsc::Sender};

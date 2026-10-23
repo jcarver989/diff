@@ -8,8 +8,7 @@ use crate::{
     style::color,
     ui::{
         prelude::{
-            Modal, Notification, ThemePicker, ThemePickerItem, Typography, TypographyExt, UI_FONT,
-            UiTheme, rem,
+            Modal, Notification, ThemePicker, Typography, TypographyExt, UI_FONT, UiTheme, rem,
         },
         tokens::{BASE_SIZE, CODE_ROW_HEIGHT},
     },
@@ -27,8 +26,8 @@ use clankerdiff_theme::ReviewTheme;
 use clankerdiff_theme::ThemeSelection;
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext,
-    ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollHandle, Subscription, Window,
-    actions, div, prelude::*, px, rems,
+    ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollHandle, SharedString, Subscription,
+    Window, actions, div, prelude::*, px, rems,
 };
 use std::sync::Arc;
 
@@ -1441,18 +1440,11 @@ impl DiffViewer {
     }
 
     fn render_theme_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let current = self.theme.id().to_string();
-        let items = ReviewTheme::catalog().into_iter().map(|descriptor| {
-            let id = descriptor.id.clone();
-            ThemePickerItem::new(
-                descriptor.id.clone(),
-                descriptor.name,
-                descriptor.is_dark,
-                descriptor.id == current,
-                cx.listener(move |viewer, _, window, cx| viewer.select_theme(&id, window, cx)),
-            )
-        });
-        ThemePicker::new("theme-picker", self.ui_theme()).items(items)
+        ThemePicker::new("theme-picker", self.ui_theme(), self.theme.id().to_string()).on_choose(
+            cx.listener(|viewer, id: &SharedString, window, cx| {
+                viewer.select_theme(id, window, cx);
+            }),
+        )
     }
 
     pub(crate) fn submit_review(

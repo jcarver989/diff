@@ -6,7 +6,7 @@
 
 use crate::{
     DiffViewer, DiffViewerEvent, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions,
-    ui::{InterfaceSize, tokens::BASE_SIZE},
+    ui::{InterfaceSize, testing::WindowDriver, tokens::BASE_SIZE},
 };
 use clankerdiff_core::{
     DiffDocument, DiffReviewCommand, Review, ReviewCommand, ViewMode, testing::DocumentBuilder,
@@ -16,14 +16,12 @@ use clankerdiff_markdown::{
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    Action, AnyWindowHandle, App, Bounds, Context, ElementInputHandler, Entity, Focusable,
-    InputEvent, InputHandler, KeyDownEvent, KeyUpEvent, Keystroke, ListOffset, Modifiers,
-    MouseButton, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase,
-    VisualTestContext, Window, WindowBounds, WindowHandle, WindowOptions, div, point, prelude::*,
-    px, size,
+    App, Bounds, Context, ElementInputHandler, Entity, Focusable, InputHandler, ListOffset, Pixels,
+    Render, TestAppContext, Window, WindowBounds, WindowHandle, WindowOptions, div, point,
+    prelude::*, px, size,
 };
 use gpui_base::input::TextareaState;
-use std::{error::Error, sync::Arc};
+use std::{error::Error, ops::Deref, sync::Arc};
 
 struct HarnessRoot {
     viewer: Entity<DiffViewer>,
@@ -154,7 +152,11 @@ impl DiffViewerHarnessBuilder {
         let viewer = window
             .read_with(cx, |root, _| root.viewer.clone())
             .expect("read GPUI test root");
-        let harness = DiffViewerHarness { window, viewer };
+        let harness = DiffViewerHarness {
+            driver: WindowDriver::new(window),
+            window,
+            viewer,
+        };
         if let Some(mode) = view_mode {
             harness.update(cx, |viewer, cx| viewer.set_view_mode(mode, cx));
         }
@@ -168,30 +170,23 @@ impl DiffViewerHarnessBuilder {
 
 /// A high-level integration harness around a rendered GPUI diff viewer.
 pub struct DiffViewerHarness {
+    driver: WindowDriver,
     window: WindowHandle<HarnessRoot>,
     viewer: Entity<DiffViewer>,
+}
+
+impl Deref for DiffViewerHarness {
+    type Target = WindowDriver;
+
+    fn deref(&self) -> &WindowDriver {
+        &self.driver
+    }
 }
 
 impl DiffViewerHarness {
     #[must_use]
     pub fn viewer(&self) -> Entity<DiffViewer> {
         self.viewer.clone()
-    }
-
-    #[must_use]
-    pub fn window(&self) -> AnyWindowHandle {
-        *self.window
-    }
-
-    /// Draws and settles the GPUI test window.
-    ///
-    /// # Panics
-    ///
-    /// Panics if GPUI cannot update or draw the test window.
-    pub fn draw(&self, cx: &mut TestAppContext) {
-        cx.update_window(*self.window, |_, window, cx| window.draw(cx).clear(cx))
-            .expect("draw GPUI test window");
-        cx.run_until_parked();
     }
 
     pub fn add_comment(
@@ -247,47 +242,6 @@ impl DiffViewerHarness {
         })
     }
 
-    pub fn click(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Result<(), Box<dyn Error>> {
-        click_element(cx, self.window(), selector)
-    }
-
-    pub fn press_key(&self, cx: &mut TestAppContext, key: &str) -> Result<(), Box<dyn Error>> {
-        press_key(cx, self.window(), key)
-    }
-
-    pub fn drag(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-        to: Point<Pixels>,
-    ) -> Result<(), Box<dyn Error>> {
-        draw_window(cx, self.window())?;
-        let mut visual = VisualTestContext::from_window(self.window(), cx);
-        let from = visual
-            .debug_bounds(selector)
-            .ok_or_else(|| format!("missing {selector}"))?
-            .center();
-        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
-        visual.simulate_mouse_move(
-            from + point(px(4.0), px(0.0)),
-            MouseButton::Left,
-            Modifiers::default(),
-        );
-        visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
-        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
-        draw_window(cx, self.window())
-    }
-
-    pub fn focus_next(&self, cx: &mut TestAppContext) -> Result<(), Box<dyn Error>> {
-        cx.update_window(self.window(), |_, window, cx| window.focus_next(cx))?;
-        self.draw(cx);
-        Ok(())
-    }
-
     pub fn dispatch_command(
         &self,
         cx: &mut TestAppContext,
@@ -300,40 +254,6 @@ impl DiffViewerHarness {
         })?;
         self.draw(cx);
         Ok(handled)
-    }
-
-    pub fn dispatch_action(
-        &self,
-        cx: &mut TestAppContext,
-        action: &dyn Action,
-    ) -> Result<(), Box<dyn Error>> {
-        cx.update_window(*self.window, |_, window, cx| {
-            window.dispatch_action(action.boxed_clone(), cx);
-        })?;
-        self.draw(cx);
-        Ok(())
-    }
-
-    pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str) {
-        cx.simulate_keystrokes(*self.window, keystrokes);
-        self.draw(cx);
-    }
-
-    pub fn simulate_input(&self, cx: &mut TestAppContext, text: &str) {
-        cx.simulate_input(*self.window, text);
-        self.draw(cx);
-    }
-
-    pub fn simulate_event(
-        &self,
-        cx: &mut TestAppContext,
-        event: impl InputEvent,
-    ) -> Result<(), Box<dyn Error>> {
-        cx.update_window(*self.window, |_, window, cx| {
-            window.dispatch_event(event.to_platform_input(), cx);
-        })?;
-        self.draw(cx);
-        Ok(())
     }
 
     pub fn with_comment_input<T>(
@@ -393,65 +313,6 @@ impl DiffViewerHarness {
         })
     }
 
-    /// Dispatches a synthetic scroll-wheel event, then settles the frame.
-    ///
-    /// # Panics
-    ///
-    /// Panics if GPUI cannot update or draw the test window.
-    pub fn simulate_scroll(
-        &self,
-        cx: &mut TestAppContext,
-        position: Point<Pixels>,
-        delta: Point<Pixels>,
-    ) {
-        cx.update_window(*self.window, |_, window, cx| {
-            window.dispatch_event(
-                ScrollWheelEvent {
-                    position,
-                    delta: ScrollDelta::Pixels(delta),
-                    touch_phase: TouchPhase::Moved,
-                    ..Default::default()
-                }
-                .to_platform_input(),
-                cx,
-            );
-        })
-        .expect("dispatch test scroll wheel event");
-        self.draw(cx);
-    }
-
-    /// Returns the center of the element painted under a debug selector.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the selector was never painted.
-    pub fn simulate_wheel(&self, cx: &mut TestAppContext, position: Point<Pixels>, lines: f32) {
-        cx.update_window(*self.window, |_, window, cx| {
-            window.dispatch_event(
-                ScrollWheelEvent {
-                    position,
-                    delta: ScrollDelta::Lines(point(0.0, lines)),
-                    ..Default::default()
-                }
-                .to_platform_input(),
-                cx,
-            );
-        })
-        .expect("dispatch test scroll wheel event");
-        self.draw(cx);
-    }
-
-    #[must_use]
-    pub fn scroll_center(&self, cx: &mut TestAppContext, selector: &'static str) -> Point<Pixels> {
-        let bounds = self
-            .bounds(cx, selector)
-            .unwrap_or_else(|| panic!("missing painted bounds for {selector}"));
-        Point::new(
-            bounds.origin.x + bounds.size.width / 2.0,
-            bounds.origin.y + bounds.size.height / 2.0,
-        )
-    }
-
     #[must_use]
     pub fn diff_scroll_top(&self, cx: &TestAppContext) -> ListOffset {
         self.read(cx, |viewer, _| viewer.diff_scroll_top())
@@ -472,17 +333,6 @@ impl DiffViewerHarness {
         self.window
             .read_with(cx, |root, _| root.events.clone())
             .expect("read recorded GPUI events")
-    }
-
-    /// Returns the rendered bounds registered by a stable debug selector.
-    pub fn bounds(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Option<Bounds<gpui::Pixels>> {
-        self.draw(cx);
-        let mut visual = VisualTestContext::from_window(*self.window, cx);
-        visual.debug_bounds(selector)
     }
 
     /// Reads the viewer while keeping GPUI context plumbing inside the harness.
@@ -543,19 +393,31 @@ impl MarkdownReviewerHarnessBuilder {
             comments,
         } = self;
         let window = cx.add_window(|_, _| MarkdownReviewer::with_options(document, theme, options));
-        let harness = MarkdownReviewerHarness { window };
+        let harness = MarkdownReviewerHarness {
+            driver: WindowDriver::new(window),
+            window,
+        };
         for body in comments {
             harness
                 .add_comment(cx, body)
                 .expect("seed Markdown review comment");
         }
-        draw_window(cx, *window).expect("draw Markdown reviewer");
+        harness.draw(cx);
         harness
     }
 }
 
 pub struct MarkdownReviewerHarness {
+    driver: WindowDriver,
     window: WindowHandle<MarkdownReviewer>,
+}
+
+impl Deref for MarkdownReviewerHarness {
+    type Target = WindowDriver;
+
+    fn deref(&self) -> &WindowDriver {
+        &self.driver
+    }
 }
 
 impl MarkdownReviewerHarness {
@@ -568,7 +430,7 @@ impl MarkdownReviewerHarness {
         let handled = self.window.update(cx, |reviewer, window, cx| {
             reviewer.handle_command(command, window, cx)
         })??;
-        draw_window(cx, *self.window)?;
+        self.draw(cx);
         Ok(handled)
     }
 
@@ -629,14 +491,6 @@ impl MarkdownReviewerHarness {
     pub fn selected_target(&self, cx: &TestAppContext) -> Option<MarkdownTargetId> {
         self.read(cx, |reviewer, _| reviewer.session().selected_target())
     }
-
-    pub fn click(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Result<(), Box<dyn Error>> {
-        click_element(cx, *self.window, selector)
-    }
 }
 
 fn run_test(
@@ -646,46 +500,4 @@ fn run_test(
     if let Err(error) = test(cx) {
         panic!("{error}");
     }
-}
-
-fn draw_window(cx: &mut TestAppContext, window: AnyWindowHandle) -> Result<(), Box<dyn Error>> {
-    cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))?;
-    cx.run_until_parked();
-    Ok(())
-}
-
-fn click_element(
-    cx: &mut TestAppContext,
-    window: AnyWindowHandle,
-    selector: &'static str,
-) -> Result<(), Box<dyn Error>> {
-    draw_window(cx, window)?;
-    let mut visual = VisualTestContext::from_window(window, cx);
-    let bounds = visual
-        .debug_bounds(selector)
-        .ok_or_else(|| format!("missing {selector}"))?;
-    visual.simulate_click(bounds.center(), Modifiers::default());
-    draw_window(cx, window)
-}
-
-fn press_key(
-    cx: &mut TestAppContext,
-    window: AnyWindowHandle,
-    key: &str,
-) -> Result<(), Box<dyn Error>> {
-    draw_window(cx, window)?;
-    let keystroke = Keystroke::parse(key)?;
-    cx.update_window(window, |_, window, cx| {
-        window.dispatch_event(
-            KeyDownEvent {
-                keystroke: keystroke.clone(),
-                is_held: false,
-                prefer_character_input: false,
-            }
-            .to_platform_input(),
-            cx,
-        );
-        window.dispatch_event(KeyUpEvent { keystroke }.to_platform_input(), cx);
-    })?;
-    draw_window(cx, window)
 }

@@ -12,8 +12,9 @@ pub use clankerdiff_theme::{
     SelectionState,
 };
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Div, ElementId, IntoElement, ParentElement, Rems, Render,
-    RenderOnce, Role, SharedString, Stateful, Window, div, prelude::*,
+    AnyElement, AnyView, App, ClickEvent, Context, Div, ElementId, IntoElement, ParentElement,
+    Refineable, Rems, Render, RenderOnce, Role, SharedString, Stateful, StyleRefinement, Window,
+    div, prelude::*,
 };
 use gpui_base::Selectable;
 
@@ -223,13 +224,7 @@ impl RenderOnce for Button {
                         })
                 })
                 .when_some(self.tooltip, |element, label| {
-                    element.tooltip(move |_, cx| {
-                        cx.new(|_| Tooltip {
-                            label: label.clone(),
-                            theme,
-                        })
-                        .into()
-                    })
+                    element.tooltip(Tooltip::text(label, theme))
                 })
                 .when_some(
                     self.aria_label,
@@ -343,13 +338,7 @@ impl RenderOnce for IconButton {
                     .tab_stop(true)
                     .focus_visible(move |style| style.bg(colors.surface_selected))
             })
-            .tooltip(move |_, cx| {
-                cx.new(|_| Tooltip {
-                    label: label.clone(),
-                    theme,
-                })
-                .into()
-            })
+            .tooltip(Tooltip::text(label, theme))
             .when_some(self.on_click, |button, handler| {
                 button.on_click(move |event, window, cx| {
                     cx.stop_propagation();
@@ -360,9 +349,25 @@ impl RenderOnce for IconButton {
     }
 }
 
-struct Tooltip {
+pub struct Tooltip {
     label: SharedString,
     theme: UiTheme,
+}
+
+impl Tooltip {
+    pub fn text(
+        label: impl Into<SharedString>,
+        theme: UiTheme,
+    ) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+        let label = label.into();
+        move |_, cx| {
+            cx.new(|_| Tooltip {
+                label: label.clone(),
+                theme,
+            })
+            .into()
+        }
+    }
 }
 
 impl Render for Tooltip {
@@ -381,6 +386,98 @@ impl Render for Tooltip {
             .child(self.label.clone())
     }
 }
+
+#[derive(IntoElement)]
+pub struct Disclosure {
+    id: ElementId,
+    expanded: bool,
+    theme: UiTheme,
+    on_toggle: Option<ClickHandler>,
+    children: Vec<AnyElement>,
+    style: StyleRefinement,
+}
+
+impl Disclosure {
+    #[must_use]
+    pub fn new(id: impl Into<ElementId>, expanded: bool, theme: UiTheme) -> Self {
+        Self {
+            id: id.into(),
+            expanded,
+            theme,
+            on_toggle: None,
+            children: Vec::new(),
+            style: StyleRefinement::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn on_toggle(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_toggle = Some(Box::new(handler));
+        self
+    }
+}
+
+impl ParentElement for Disclosure {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.children.extend(elements);
+    }
+}
+
+impl Styled for Disclosure {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.style
+    }
+}
+
+impl RenderOnce for Disclosure {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let colors = self.theme.colors;
+        let selector = self.id.to_string();
+        let chevron = if self.expanded {
+            IconName::ChevronDown
+        } else {
+            IconName::ChevronRight
+        };
+        let mut row = div()
+            .id(self.id)
+            .group(ListRow::hover_group(&selector))
+            .debug_selector(move || selector)
+            .role(Role::Button)
+            .aria_expanded(self.expanded)
+            .focusable()
+            .tab_stop(true)
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_1()
+            .rounded(rem(tokens::RADIUS_CONTROL))
+            .cursor_pointer()
+            .hover(move |row| row.bg(colors.surface_hover))
+            .focus_visible(move |row| row.bg(colors.surface_hover))
+            .when_some(self.on_toggle, |row, handler| row.on_click(handler))
+            .child(Icon::new(chevron, colors.text_muted).size(tokens::ICON_SIZE_SMALL))
+            .children(self.children);
+        row.style().refine(&self.style);
+        row
+    }
+}
+
+/// Paints any element the way [`Surface`] paints itself, for panels that need their own layout.
+pub trait SurfaceExt: Styled + Sized {
+    #[must_use]
+    fn surface(self, theme: UiTheme) -> Self {
+        self.rounded(rem(tokens::RADIUS_CONTAINER))
+            .border_1()
+            .border_color(theme.colors.border)
+            .bg(theme.colors.surface)
+    }
+}
+
+impl<T: Styled> SurfaceExt for T {}
 
 /// A bordered or elevated content surface.
 #[derive(IntoElement)]
@@ -429,16 +526,11 @@ impl ParentElement for Surface {
 
 impl RenderOnce for Surface {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let colors = self.theme.colors;
         div()
             .w_full()
-            .rounded(rem(tokens::RADIUS_CONTAINER))
-            .border_1()
-            .border_color(colors.border)
-            .bg(if self.selected {
-                colors.surface_selected
-            } else {
-                colors.surface
+            .surface(self.theme)
+            .when(self.selected, |surface| {
+                surface.bg(self.theme.colors.surface_selected)
             })
             .when(self.padded, gpui::Styled::p_3)
             .when(self.raised, gpui::Styled::shadow_lg)

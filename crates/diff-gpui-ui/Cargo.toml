@@ -18,6 +18,8 @@ workspace = true
 clankerdiff-theme = { version = "0.3.3", path = "../diff-theme" }
 gpui.workspace = true
 gpui-base.workspace = true
+nucleo-matcher.workspace = true
+thiserror.workspace = true
 
 [[test]]
 name = "interface_size_test"
@@ -41,6 +43,10 @@ required-features = ["test-support"]
 
 [[test]]
 name = "menu_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "picker_test"
 required-features = ["test-support"]
 
 [dev-dependencies]

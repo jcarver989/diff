@@ -5,8 +5,6 @@ pub mod args;
 mod markdown_app;
 mod menus;
 mod preferences;
-mod run_loop;
-mod runtime;
 
 use app::DesktopApp;
 use args::CliArgs;
@@ -16,6 +14,7 @@ use clankerdiff_gpui::{
     DiffViewer, MarkdownReviewer,
     ui::{InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE},
 };
+use clankerdiff_gpui_shell::{run_loop, runtime};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use gpui::{
     App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
@@ -95,8 +94,10 @@ fn run_application(
     client: Option<DiffClient>,
     outcome_sender: Option<mpsc::Sender<Option<ReviewSubmission>>>,
 ) {
+    let runtime = runtime::build();
+    let handle = runtime.handle().clone();
     gpui_platform::application().run(move |cx: &mut App| {
-        runtime::init(cx);
+        runtime::install(cx, handle);
         load_fonts(cx).expect("failed to load the bundled fonts");
         InterfaceSize::init(DEFAULT_INTERFACE_SIZE, cx);
         DiffViewer::bind_keys(cx);
@@ -111,9 +112,11 @@ fn run_application(
         .expect("failed to open the diff review window");
         cx.activate(true);
     });
+    runtime.shutdown_background();
 }
 
-pub use menus::{About, Hide, HideOthers, Minimize, Quit, SetScope, ShowAll, Zoom};
+pub use clankerdiff_gpui_shell::menus::{About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom};
+pub use menus::SetScope;
 
 #[cfg(test)]
 mod tests {
@@ -133,16 +136,19 @@ mod tests {
     #[test]
     fn desktop_menus_expose_app_edit_and_window_menus() {
         let menus: Vec<gpui::OwnedMenu> =
-            menus::build().into_iter().map(gpui::Menu::owned).collect();
+            clankerdiff_gpui_shell::menus::build(menus::APP_NAME, menus::extra())
+                .into_iter()
+                .map(gpui::Menu::owned)
+                .collect();
         let names: Vec<&str> = menus.iter().map(|menu| menu.name.as_ref()).collect();
         assert_eq!(names, vec!["ClankerDiff", "Edit", "View", "Window"]);
 
         let app_actions = action_names(&menus[0]);
-        assert!(app_actions.contains(&"desktop_menu::About".to_owned()));
-        assert!(app_actions.contains(&"desktop_menu::Quit".to_owned()));
-        assert!(app_actions.contains(&"desktop_menu::Hide".to_owned()));
-        assert!(app_actions.contains(&"desktop_menu::HideOthers".to_owned()));
-        assert!(app_actions.contains(&"desktop_menu::ShowAll".to_owned()));
+        assert!(app_actions.contains(&"app_menu::About".to_owned()));
+        assert!(app_actions.contains(&"app_menu::Quit".to_owned()));
+        assert!(app_actions.contains(&"app_menu::Hide".to_owned()));
+        assert!(app_actions.contains(&"app_menu::HideOthers".to_owned()));
+        assert!(app_actions.contains(&"app_menu::ShowAll".to_owned()));
         assert!(
             menus[0]
                 .items
@@ -173,8 +179,8 @@ mod tests {
         assert!(view_actions.contains(&"desktop_menu::SetScope".to_owned()));
 
         let window_actions = action_names(&menus[3]);
-        assert!(window_actions.contains(&"desktop_menu::Minimize".to_owned()));
-        assert!(window_actions.contains(&"desktop_menu::Zoom".to_owned()));
+        assert!(window_actions.contains(&"app_menu::Minimize".to_owned()));
+        assert!(window_actions.contains(&"app_menu::Zoom".to_owned()));
     }
 
     #[test]

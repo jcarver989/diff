@@ -8,8 +8,8 @@ use crate::{
     comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
     style,
     ui::prelude::{
-        ActionBar, Button, ButtonVariant, ControlSize, ThemePicker, ThemePickerItem, Typography,
-        TypographyExt, UI_FONT, UiTheme, rem,
+        ActionBar, Button, ButtonVariant, ControlSize, ThemePicker, Typography, TypographyExt,
+        UI_FONT, UiTheme, rem,
     },
 };
 use clankerdiff_core::{ReviewCapabilities, ReviewCommand, SourceSequenceId, join_lines};
@@ -732,18 +732,14 @@ impl MarkdownReviewer {
     }
 
     fn render_theme_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let current = self.theme.id().to_string();
-        let items = ReviewTheme::catalog().into_iter().map(|descriptor| {
-            let id = descriptor.id.clone();
-            ThemePickerItem::new(
-                descriptor.id.clone(),
-                descriptor.name,
-                descriptor.is_dark,
-                descriptor.id == current,
-                cx.listener(move |reviewer, _, window, cx| reviewer.select_theme(&id, window, cx)),
-            )
-        });
-        ThemePicker::new("markdown-theme-picker", self.ui_theme()).items(items)
+        ThemePicker::new(
+            "markdown-theme-picker",
+            self.ui_theme(),
+            self.theme.id().to_string(),
+        )
+        .on_choose(cx.listener(|reviewer, id: &SharedString, window, cx| {
+            reviewer.select_theme(id, window, cx);
+        }))
     }
 
     fn next_theme(&mut self, _: &MarkdownNextTheme, window: &mut Window, cx: &mut Context<Self>) {

@@ -31,8 +31,8 @@ pub use models::{
     PatchLineKind, RepoPath, StageState,
 };
 pub use parser::{
-    GitStatusEntry, UntrackedFile, parse_git_diff, parse_git_diff_with_path_mapper,
-    parse_porcelain_v1_z,
+    GitStatusEntry, UntrackedFile, parse_detached_git_diff, parse_git_diff,
+    parse_git_diff_with_path_mapper, parse_porcelain_v1_z,
 };
 pub use patch::{PatchError, git_patch_from_texts};
 pub use presentation::{

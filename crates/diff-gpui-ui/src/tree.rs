@@ -1,4 +1,5 @@
 use crate::{
+    components::ListRow,
     icon::{Icon, IconName},
     theme::UiTheme,
     tokens::{self, rem},
@@ -18,6 +19,7 @@ pub struct TreeRow {
     depth: usize,
     expanded: Option<bool>,
     icon: Option<(IconName, Option<Hsla>)>,
+    leading: Option<AnyElement>,
     label_color: Option<Hsla>,
     aria_label: Option<SharedString>,
     selected: bool,
@@ -35,6 +37,7 @@ impl TreeRow {
             depth: 0,
             expanded: None,
             icon: None,
+            leading: None,
             label_color: None,
             aria_label: None,
             selected: false,
@@ -59,6 +62,12 @@ impl TreeRow {
     #[must_use]
     pub fn icon(mut self, icon: IconName, color: Option<Hsla>) -> Self {
         self.icon = Some((icon, color));
+        self
+    }
+
+    #[must_use]
+    pub fn leading(mut self, leading: impl IntoElement) -> Self {
+        self.leading = Some(leading.into_any_element());
         self
     }
 
@@ -100,6 +109,8 @@ impl RenderOnce for TreeRow {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let colors = self.theme.colors;
         let selector = self.id.to_string();
+        let group = ListRow::hover_group(&selector);
+        let label_selector = format!("{selector}-label");
         let chevron = self.expanded.map(|expanded| {
             if expanded {
                 IconName::ChevronDown
@@ -109,6 +120,7 @@ impl RenderOnce for TreeRow {
         });
         div()
             .id(self.id)
+            .group(group)
             .debug_selector(move || selector)
             .role(Role::TreeItem)
             .aria_label(self.aria_label.unwrap_or_else(|| self.label.clone()))
@@ -148,11 +160,20 @@ impl RenderOnce for TreeRow {
                         Icon::new(chevron, colors.text_muted).size(tokens::ICON_SIZE_SMALL)
                     })),
             )
+            .children(self.leading)
             .children(
                 self.icon
                     .map(|(icon, color)| Icon::new(icon, color.unwrap_or(colors.text_muted))),
             )
-            .child(div().flex_1().min_w_0().ml_1().truncate().child(self.label))
+            .child(
+                div()
+                    .debug_selector(move || label_selector)
+                    .flex_1()
+                    .min_w_0()
+                    .ml_1()
+                    .truncate()
+                    .child(self.label),
+            )
             .children(self.children)
     }
 }

@@ -30,6 +30,8 @@ pub enum IconName {
     FolderPlus,
     Info,
     LoaderCircle,
+    MessageCircle,
+    MessageSquareText,
     Minus,
     Pencil,
     Pin,
@@ -39,6 +41,7 @@ pub enum IconName {
     Search,
     Square,
     SquarePen,
+    TriangleAlert,
     X,
 }
 
@@ -67,6 +70,8 @@ impl IconName {
             Self::FolderPlus => include_bytes!("../assets/icons/folder-plus.svg"),
             Self::Info => include_bytes!("../assets/icons/info.svg"),
             Self::LoaderCircle => include_bytes!("../assets/icons/loader-circle.svg"),
+            Self::MessageCircle => include_bytes!("../assets/icons/message-circle.svg"),
+            Self::MessageSquareText => include_bytes!("../assets/icons/message-square-text.svg"),
             Self::Minus => include_bytes!("../assets/icons/minus.svg"),
             Self::Pencil => include_bytes!("../assets/icons/pencil.svg"),
             Self::Pin => include_bytes!("../assets/icons/pin.svg"),
@@ -76,6 +81,7 @@ impl IconName {
             Self::Search => include_bytes!("../assets/icons/search.svg"),
             Self::Square => include_bytes!("../assets/icons/square.svg"),
             Self::SquarePen => include_bytes!("../assets/icons/square-pen.svg"),
+            Self::TriangleAlert => include_bytes!("../assets/icons/triangle-alert.svg"),
             Self::X => include_bytes!("../assets/icons/x.svg"),
         }
     }

@@ -25,12 +25,12 @@ fn the_interface_size_is_the_window_rem_size(cx: &mut TestAppContext) {
 #[gpui::test]
 fn actions_grow_shrink_and_reset_the_interface(cx: &mut TestAppContext) {
     ComponentHarnessBuilder::default().run(cx, empty, |harness, cx| {
-        harness.dispatch_action(cx, &IncreaseInterfaceSize)?;
-        harness.dispatch_action(cx, &IncreaseInterfaceSize)?;
+        harness.dispatch_action(cx, &IncreaseInterfaceSize);
+        harness.dispatch_action(cx, &IncreaseInterfaceSize);
         assert_eq!(harness.rem_size(cx), px(18.0));
-        harness.dispatch_action(cx, &DecreaseInterfaceSize)?;
+        harness.dispatch_action(cx, &DecreaseInterfaceSize);
         assert_eq!(harness.rem_size(cx), px(17.0));
-        harness.dispatch_action(cx, &ResetInterfaceSize)?;
+        harness.dispatch_action(cx, &ResetInterfaceSize);
         assert_eq!(harness.rem_size(cx), px(16.0));
         Ok(())
     });

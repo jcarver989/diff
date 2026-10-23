@@ -5,7 +5,7 @@ use clankerdiff_core::{
     testing::DocumentBuilder,
 };
 use clankerdiff_gpui::testing::{DiffViewerHarness, DiffViewerHarnessBuilder};
-use gpui::{TestAppContext, point, px};
+use gpui::{ScrollDelta, TestAppContext, point, px};
 
 #[gpui::test]
 fn a_wheel_notch_scrolls_six_code_rows_at_any_interface_size(cx: &mut TestAppContext) {
@@ -15,9 +15,8 @@ fn a_wheel_notch_scrolls_six_code_rows_at_any_interface_size(cx: &mut TestAppCon
             ..multi_file_builder()
         }
         .run(cx, |harness, cx| {
-            let position = harness.scroll_center(cx, "diff-pane");
             let top = harness.diff_scroll_top(cx);
-            harness.simulate_wheel(cx, position, -3.0);
+            harness.scroll(cx, "diff-pane", ScrollDelta::Lines(point(0.0, -3.0)))?;
             let scrolled = harness.diff_scroll_top(cx);
             assert_eq!(scrolled.item_ix, top.item_ix + 1 + 4);
             assert_eq!(scrolled.offset_in_item, top.offset_in_item);
@@ -33,9 +32,12 @@ fn wheel_scrolling_crosses_files_without_changing_selection_or_draft(cx: &mut Te
         assert!(harness.dispatch_command(cx, ReviewCommand::BeginComment)?);
         harness.simulate_input(cx, "unfinished comment");
         let body = harness.draft_body(cx);
-        let position = harness.scroll_center(cx, "diff-pane");
         for _ in 0..5 {
-            harness.simulate_scroll(cx, position, point(px(0.0), px(-600.0)));
+            harness.scroll(
+                cx,
+                "diff-pane",
+                ScrollDelta::Pixels(point(px(0.0), px(-600.0))),
+            )?;
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         assert!(harness.bounds(cx, "diff-active-file:1").is_some());
@@ -54,7 +56,11 @@ fn wheel_scrolling_crosses_files_without_changing_selection_or_draft(cx: &mut Te
                 .contains("still editing")
         );
         for _ in 0..8 {
-            harness.simulate_scroll(cx, position, point(px(0.0), px(600.0)));
+            harness.scroll(
+                cx,
+                "diff-pane",
+                ScrollDelta::Pixels(point(px(0.0), px(600.0))),
+            )?;
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(0));
         assert_eq!(harness.selected_row(cx), selected);
@@ -119,9 +125,12 @@ fn refreshes_and_layout_changes_preserve_the_top_visible_source_line(cx: &mut Te
 #[gpui::test]
 fn source_round_trip_restores_the_independent_multi_file_viewport(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
-        let position = harness.scroll_center(cx, "diff-pane");
         for _ in 0..5 {
-            harness.simulate_scroll(cx, position, point(px(0.0), px(-600.0)));
+            harness.scroll(
+                cx,
+                "diff-pane",
+                ScrollDelta::Pixels(point(px(0.0), px(-600.0))),
+            )?;
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         let selected = harness.selected_row(cx);
@@ -206,9 +215,12 @@ fn the_sidebar_follows_the_top_file_without_expanding_collapsed_directories(
         assert!(harness.dispatch_command(cx, DiffReviewCommand::Focus(FocusPane::Files))?);
         assert!(harness.dispatch_command(cx, DiffReviewCommand::First)?);
         assert!(harness.dispatch_command(cx, DiffReviewCommand::CollapseSelected)?);
-        let position = harness.scroll_center(cx, "diff-pane");
         for _ in 0..4 {
-            harness.simulate_scroll(cx, position, point(px(0.0), px(-600.0)));
+            harness.scroll(
+                cx,
+                "diff-pane",
+                ScrollDelta::Pixels(point(px(0.0), px(-600.0))),
+            )?;
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         assert!(harness.dispatch_command(cx, DiffReviewCommand::MoveSelection(1))?);
@@ -229,8 +241,11 @@ fn the_next_file_divider_pushes_the_sticky_divider_out_of_view(cx: &mut TestAppC
             .ok_or("header")?
             .top();
         assert!(harness.bounds(cx, "diff-active-file:1").is_some());
-        let position = harness.scroll_center(cx, "diff-pane");
-        harness.simulate_scroll(cx, position, point(px(0.0), px(20.0)));
+        harness.scroll(
+            cx,
+            "diff-pane",
+            ScrollDelta::Pixels(point(px(0.0), px(20.0))),
+        )?;
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(0));
         let sticky = harness.bounds(cx, "diff-active-file:0").ok_or("sticky")?;
         let next = harness

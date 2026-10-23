@@ -3,7 +3,7 @@ use crate::{
     annotation::add_comment_button,
     comment_editor::CommentEditor,
     comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
-    style,
+    style::{self, stat_badges},
     ui::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
         prelude::{
@@ -17,7 +17,6 @@ use clankerdiff_core::{
     DiffReviewCommand, DiffSide, DiffTone, FileDiff, GapInfo, PresentedCell, PresentedRow,
     RevealAmount, ReviewCommand, ReviewComment, RowKind,
 };
-use clankerdiff_theme::DiffPalette;
 use gpui::{
     Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString,
     Stateful, StyledText, Window, div, list, prelude::*, px,
@@ -856,21 +855,6 @@ impl DiffViewer {
         };
         self.review().comments_for_anchor(&anchor).count()
     }
-}
-
-fn stat_badges(palette: &DiffPalette, additions: usize, deletions: usize) -> [Div; 2] {
-    [
-        div()
-            .flex_shrink_0()
-            .typography(Typography::Code)
-            .text_color(style::color(palette.addition))
-            .child(format!("+{additions}")),
-        div()
-            .flex_shrink_0()
-            .typography(Typography::Code)
-            .text_color(style::color(palette.deletion))
-            .child(format!("−{deletions}")),
-    ]
 }
 
 #[cfg(test)]

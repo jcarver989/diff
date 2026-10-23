@@ -220,8 +220,13 @@ fn scrolling_the_open_theme_picker_keeps_the_background_in_place(cx: &mut TestAp
         scrolled.item_ix > 0,
         "the diff list starts away from the top"
     );
-    let position = harness.scroll_center(cx, "theme-picker-backdrop");
-    harness.simulate_scroll(cx, position, gpui::point(gpui::px(0.0), gpui::px(240.0)));
+    harness
+        .scroll(
+            cx,
+            "theme-picker-backdrop",
+            gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(240.0))),
+        )
+        .expect("the theme picker backdrop is painted");
     assert!(
         harness.read(cx, |viewer, _| viewer.theme_picker_open()),
         "scrolling the picker keeps it open"
@@ -323,9 +328,9 @@ fn dismissal_controls_support_keyboard_activation_without_viewer_actions(cx: &mu
             .run(cx, |harness, cx| {
                 let selected = harness.selected_row(cx);
                 for _ in 0..3 {
-                    harness.focus_next(cx)?;
+                    harness.focus_next(cx);
                 }
-                harness.press_key(cx, key)?;
+                harness.press_key(cx, key);
                 assert!(harness.review(cx).is_empty());
                 assert_eq!(harness.selected_row(cx), selected);
                 assert!(harness.events(cx).is_empty());
@@ -563,8 +568,8 @@ fn staging_checkboxes_support_keyboard_activation_without_viewer_shortcuts(
         }
         .run(cx, |harness, cx| {
             harness.dispatch_command(cx, DiffReviewCommand::Focus(FocusPane::Files))?;
-            harness.focus_next(cx)?;
-            harness.press_key(cx, key)?;
+            harness.focus_next(cx);
+            harness.press_key(cx, key);
             assert_eq!(
                 harness.events(cx),
                 vec![DiffReviewEvent::RepositoryAction(
@@ -627,8 +632,8 @@ fn staging_refresh_preserves_file_selection_and_checkbox_focus_by_path(cx: &mut 
         ..Default::default()
     }
     .run(cx, |harness, cx| {
-        harness.focus_next(cx)?;
-        harness.press_key(cx, "space")?;
+        harness.focus_next(cx);
+        harness.press_key(cx, "space");
         harness.update(cx, |viewer, cx| {
             viewer.set_document(
                 DocumentBuilder::new()
@@ -644,7 +649,7 @@ fn staging_refresh_preserves_file_selection_and_checkbox_focus_by_path(cx: &mut 
             harness.read(cx, |viewer, _| viewer.selected_file()),
             Some(1)
         );
-        harness.press_key(cx, "space")?;
+        harness.press_key(cx, "space");
         assert_eq!(
             harness.events(cx),
             vec![

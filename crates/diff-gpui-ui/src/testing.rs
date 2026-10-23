@@ -1,12 +1,231 @@
 use crate::{InterfaceSize, tokens::BASE_SIZE};
 use gpui::{
-    Action, AnyElement, AnyWindowHandle, App, Bounds, Context, Modifiers, MouseButton, Pixels,
-    Point, Render, TestAppContext, VisualTestContext, Window, WindowBounds, WindowHandle,
-    WindowOptions, div, point, prelude::*, px, size,
+    Action, AnyElement, AnyWindowHandle, App, Bounds, Context, InputEvent, KeyDownEvent,
+    KeyUpEvent, Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Pixels, Point,
+    Render, ScrollDelta, ScrollWheelEvent, TestAppContext, VisualTestContext, Window, WindowBounds,
+    WindowHandle, WindowOptions, div, point, prelude::*, px, size,
 };
-use std::error::Error;
+use std::{error::Error, ops::Deref};
 
 type RenderFn = Box<dyn Fn(&mut Window, &mut App) -> AnyElement + 'static>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum HarnessError {
+    #[error("no painted element is tagged `{0}`")]
+    MissingElement(&'static str),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowDriver {
+    window: AnyWindowHandle,
+}
+
+impl WindowDriver {
+    #[must_use]
+    pub fn new(window: impl Into<AnyWindowHandle>) -> Self {
+        Self {
+            window: window.into(),
+        }
+    }
+
+    #[must_use]
+    pub const fn window(&self) -> AnyWindowHandle {
+        self.window
+    }
+
+    pub fn draw(&self, cx: &mut TestAppContext) {
+        cx.update_window(self.window, |_, window, cx| {
+            window.draw(cx).clear(cx);
+            if window.simulate_next_frame(cx) > 0 {
+                window.draw(cx).clear(cx);
+            }
+        })
+        .expect("draw the GPUI test window");
+        cx.run_until_parked();
+    }
+
+    pub fn bounds(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+    ) -> Option<Bounds<Pixels>> {
+        self.draw(cx);
+        VisualTestContext::from_window(self.window, cx).debug_bounds(selector)
+    }
+
+    pub fn center(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+    ) -> Result<Point<Pixels>, HarnessError> {
+        self.bounds(cx, selector)
+            .map(|bounds| bounds.center())
+            .ok_or(HarnessError::MissingElement(selector))
+    }
+
+    pub fn rem_size(&self, cx: &mut TestAppContext) -> Pixels {
+        self.draw(cx);
+        cx.update_window(self.window, |_, window, _| window.rem_size())
+            .expect("read the GPUI test window")
+    }
+
+    pub fn click(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+    ) -> Result<(), HarnessError> {
+        self.click_times(cx, selector, MouseButton::Left, 1)
+    }
+
+    pub fn double_click(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+    ) -> Result<(), HarnessError> {
+        self.click_times(cx, selector, MouseButton::Left, 2)
+    }
+
+    pub fn right_click(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+    ) -> Result<(), HarnessError> {
+        self.click_times(cx, selector, MouseButton::Right, 1)?;
+        self.draw(cx);
+        Ok(())
+    }
+
+    pub fn hover(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+    ) -> Result<(), HarnessError> {
+        let position = self.center(cx, selector)?;
+        VisualTestContext::from_window(self.window, cx).simulate_mouse_move(
+            position,
+            None,
+            Modifiers::default(),
+        );
+        self.draw(cx);
+        Ok(())
+    }
+
+    pub fn drag(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+        to: Point<Pixels>,
+    ) -> Result<(), HarnessError> {
+        let from = self.center(cx, selector)?;
+        let mut visual = VisualTestContext::from_window(self.window, cx);
+        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(
+            from + point(px(4.0), px(0.0)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+        self.draw(cx);
+        Ok(())
+    }
+
+    pub fn scroll(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+        delta: ScrollDelta,
+    ) -> Result<(), HarnessError> {
+        let position = self.center(cx, selector)?;
+        self.simulate_event(
+            cx,
+            ScrollWheelEvent {
+                position,
+                delta,
+                ..ScrollWheelEvent::default()
+            },
+        );
+        Ok(())
+    }
+
+    pub fn focus_next(&self, cx: &mut TestAppContext) {
+        cx.update_window(self.window, |_, window, cx| window.focus_next(cx))
+            .expect("focus in the GPUI test window");
+        self.draw(cx);
+    }
+
+    pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str) {
+        cx.simulate_keystrokes(self.window, keystrokes);
+        self.draw(cx);
+    }
+
+    pub fn press_key(&self, cx: &mut TestAppContext, key: &str) {
+        let keystroke = Keystroke::parse(key).expect("a valid test keystroke");
+        self.simulate_event(
+            cx,
+            KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            },
+        );
+        self.simulate_event(cx, KeyUpEvent { keystroke });
+    }
+
+    pub fn simulate_input(&self, cx: &mut TestAppContext, text: &str) {
+        cx.simulate_input(self.window, text);
+        self.draw(cx);
+    }
+
+    pub fn simulate_event(&self, cx: &mut TestAppContext, event: impl InputEvent) {
+        cx.update_window(self.window, |_, window, cx| {
+            window.dispatch_event(event.to_platform_input(), cx);
+        })
+        .expect("dispatch to the GPUI test window");
+        self.draw(cx);
+    }
+
+    pub fn dispatch_action(&self, cx: &mut TestAppContext, action: &dyn Action) {
+        cx.update_window(self.window, |_, window, cx| {
+            window.dispatch_action(action.boxed_clone(), cx);
+        })
+        .expect("dispatch to the GPUI test window");
+        self.draw(cx);
+    }
+
+    pub fn resize(&self, cx: &mut TestAppContext, width: f32, height: f32) {
+        cx.simulate_window_resize(self.window, size(px(width), px(height)));
+        self.draw(cx);
+    }
+
+    fn click_times(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+        button: MouseButton,
+        count: usize,
+    ) -> Result<(), HarnessError> {
+        let position = self.center(cx, selector)?;
+        let mut visual = VisualTestContext::from_window(self.window, cx);
+        for click_count in 1..=count {
+            visual.simulate_event(MouseDownEvent {
+                position,
+                modifiers: Modifiers::default(),
+                button,
+                click_count,
+                first_mouse: false,
+            });
+            visual.simulate_event(MouseUpEvent {
+                position,
+                modifiers: Modifiers::default(),
+                button,
+                click_count,
+            });
+        }
+        self.draw(cx);
+        Ok(())
+    }
+}
 
 struct HarnessRoot {
     render: RenderFn,
@@ -69,126 +288,18 @@ impl ComponentHarnessBuilder {
             })
             .expect("open GPUI test window")
         });
-        let harness = ComponentHarness { window: *window };
+        let harness = ComponentHarness(WindowDriver::new(window));
         harness.draw(cx);
         harness
     }
 }
 
-pub struct ComponentHarness {
-    window: AnyWindowHandle,
-}
+pub struct ComponentHarness(WindowDriver);
 
-impl ComponentHarness {
-    pub fn draw(&self, cx: &mut TestAppContext) {
-        cx.update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
-            .expect("draw GPUI test window");
-        cx.run_until_parked();
-    }
+impl Deref for ComponentHarness {
+    type Target = WindowDriver;
 
-    pub fn bounds(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Option<Bounds<Pixels>> {
-        self.draw(cx);
-        VisualTestContext::from_window(self.window, cx).debug_bounds(selector)
-    }
-
-    pub fn rem_size(&self, cx: &mut TestAppContext) -> Pixels {
-        self.draw(cx);
-        cx.update_window(self.window, |_, window, _| window.rem_size())
-            .expect("read the test window")
-    }
-
-    pub fn click(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Result<(), Box<dyn Error>> {
-        self.click_times(cx, selector, 1)
-    }
-
-    pub fn double_click(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Result<(), Box<dyn Error>> {
-        self.click_times(cx, selector, 2)
-    }
-
-    pub fn drag(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-        to: Point<Pixels>,
-    ) -> Result<(), Box<dyn Error>> {
-        let from = self.center(cx, selector)?;
-        let mut visual = VisualTestContext::from_window(self.window, cx);
-        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
-        visual.simulate_mouse_move(
-            from + point(px(4.0), px(0.0)),
-            MouseButton::Left,
-            Modifiers::default(),
-        );
-        visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
-        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
-        self.draw(cx);
-        Ok(())
-    }
-
-    pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str) {
-        cx.simulate_keystrokes(self.window, keystrokes);
-        self.draw(cx);
-    }
-
-    pub fn dispatch_action(
-        &self,
-        cx: &mut TestAppContext,
-        action: &dyn Action,
-    ) -> Result<(), Box<dyn Error>> {
-        cx.update_window(self.window, |_, window, cx| {
-            window.dispatch_action(action.boxed_clone(), cx);
-        })?;
-        self.draw(cx);
-        Ok(())
-    }
-
-    fn center(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Result<Point<Pixels>, Box<dyn Error>> {
-        Ok(self
-            .bounds(cx, selector)
-            .ok_or_else(|| format!("missing {selector}"))?
-            .center())
-    }
-
-    fn click_times(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-        count: usize,
-    ) -> Result<(), Box<dyn Error>> {
-        let position = self.center(cx, selector)?;
-        let mut visual = VisualTestContext::from_window(self.window, cx);
-        for click_count in 1..=count {
-            visual.simulate_event(gpui::MouseDownEvent {
-                position,
-                modifiers: Modifiers::default(),
-                button: MouseButton::Left,
-                click_count,
-                first_mouse: false,
-            });
-            visual.simulate_event(gpui::MouseUpEvent {
-                position,
-                modifiers: Modifiers::default(),
-                button: MouseButton::Left,
-                click_count,
-            });
-        }
-        self.draw(cx);
-        Ok(())
+    fn deref(&self) -> &WindowDriver {
+        &self.0
     }
 }

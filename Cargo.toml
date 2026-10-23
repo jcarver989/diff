@@ -11,6 +11,7 @@ members = [
     "crates/diff-gpui",
     "crates/diff-gpui-ui",
     "crates/diff-gpui-desktop",
+    "crates/diff-gpui-shell",
     "crates/diff-gpui-web",
     "crates/diff-ratatui",
     "crates/diff-watch",
@@ -48,6 +49,7 @@ ignore = "0.4.25"
 imbl = "7.0.1"
 lru = "0.18.3"
 notify = "8.2.0"
+nucleo-matcher = "0.3.1"
 open = "5.4.2"
 pulldown-cmark = "0.13.0"
 rand = "0.10.2"
