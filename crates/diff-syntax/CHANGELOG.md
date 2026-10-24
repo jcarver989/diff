@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/jcarver989/diff/compare/clankerdiff-syntax-v0.3.3...clankerdiff-syntax-v0.4.0) - 2026-10-24
+
+### Other
+
+- *(deps)* bump ast-grep-core from 0.50.0 to 0.51.0 ([#99](https://github.com/jcarver989/diff/pull/99))
+- *(deps)* bump rust-toolchain from 1.98.1 to 1.99.1 in the rust-toolchain-minor-patch group across 1 directory ([#87](https://github.com/jcarver989/diff/pull/87))
+- *(deps)* bump ast-grep-core from 0.45.3 to 0.50.0 ([#94](https://github.com/jcarver989/diff/pull/94))
+
 ## [0.1.3](https://github.com/jcarver989/diff/compare/clankerdiff-syntax-v0.1.2...clankerdiff-syntax-v0.1.3) - 2026-09-10
 
 ### Fixed

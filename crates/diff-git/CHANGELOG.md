@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/jcarver989/diff/compare/clankerdiff-git-v0.3.3...clankerdiff-git-v0.4.0) - 2026-10-24
+
+### Added
+
+- [**breaking**] Continuous diff view, nicer visuals and more ([#95](https://github.com/jcarver989/diff/pull/95))
+
+### Other
+
+- *(deps)* bump rust-toolchain from 1.98.1 to 1.99.1 in the rust-toolchain-minor-patch group across 1 directory ([#87](https://github.com/jcarver989/diff/pull/87))
+
 ## [0.3.0](https://github.com/jcarver989/diff/compare/clankerdiff-git-v0.2.1...clankerdiff-git-v0.3.0) - 2026-09-18
 
 ### Added
