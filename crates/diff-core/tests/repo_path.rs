@@ -10,3 +10,14 @@ fn validates_relative_utf8_paths() -> Result<(), RepoPathError> {
     assert_eq!(RepoPath::new("a\\\\b")?.as_str(), "a\\\\b");
     Ok(())
 }
+
+#[test]
+fn splits_file_names_from_their_directories() -> Result<(), RepoPathError> {
+    let nested = RepoPath::new("crates/desktop/src/code.rs")?;
+    assert_eq!(nested.file_name(), "code.rs");
+    assert_eq!(nested.directory(), Some("crates/desktop/src"));
+    let root = RepoPath::new("README.md")?;
+    assert_eq!(root.file_name(), "README.md");
+    assert_eq!(root.directory(), None);
+    Ok(())
+}

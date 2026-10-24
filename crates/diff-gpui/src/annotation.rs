@@ -1,6 +1,9 @@
-use crate::style;
+use crate::{
+    style,
+    ui::prelude::{Icon, IconName, rem},
+};
 use clankerdiff_theme::DiffPalette;
-use gpui::{Div, SharedString, div, prelude::*, px};
+use gpui::{Div, SharedString, div, prelude::*};
 
 /// Builds a hover-revealed add-comment affordance.
 ///
@@ -15,9 +18,9 @@ pub(crate) fn add_comment_button(
         .id(id.into())
         .aria_label("Add comment")
         .absolute()
-        .left(px(5.0))
-        .top(px(1.0))
-        .size(px(18.0))
+        .left(rem(4.0))
+        .top(rem(1.0))
+        .size(rem(18.0))
         .flex()
         .items_center()
         .justify_center()
@@ -26,8 +29,6 @@ pub(crate) fn add_comment_button(
         .group_hover(hover_group, gpui::Styled::visible)
         .cursor_pointer()
         .bg(style::color(palette.accent))
-        .text_color(style::color(palette.background))
-        .font_weight(gpui::FontWeight::BOLD)
         .hover(|button| button.opacity(0.85))
-        .child("+")
+        .child(Icon::new(IconName::Plus, style::color(palette.background)).size(12.0))
 }

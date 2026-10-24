@@ -58,6 +58,42 @@ fn source_toggle_targets_files_and_isolates_editors_and_overlays() -> Result<(),
 }
 
 #[test]
+fn collapse_keys_toggle_the_selected_file_and_every_file() {
+    let mut state = DiffReviewState::new(
+        DocumentBuilder::new()
+            .changed("src/a.rs", "old", "new")
+            .changed("src/b.rs", "old", "new")
+            .build(),
+    );
+    state.handle_command(DiffCommand::Focus(FocusPane::Diff));
+    let collapse = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
+    let collapse_all = KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::SHIFT);
+    assert_eq!(
+        state.command_for_key(collapse),
+        Some(DiffCommand::ToggleFileCollapsed(None))
+    );
+    assert_eq!(
+        state.command_for_key(collapse_all),
+        Some(DiffCommand::ToggleAllFilesCollapsed)
+    );
+    let _ = state.handle_input(ReviewInput::Key(collapse));
+    assert!(state.session().is_file_collapsed(0));
+    assert!(!state.session().is_file_collapsed(1));
+    let _ = state.handle_input(ReviewInput::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
+    assert!(!state.session().is_file_collapsed(0));
+    let _ = state.handle_input(ReviewInput::Key(collapse_all));
+    assert!(state.session().all_files_collapsed());
+    let _ = state.handle_input(ReviewInput::Key(collapse_all));
+    assert!(!state.session().all_files_collapsed());
+    state.handle_command(DiffCommand::ToggleSourceView);
+    assert!(!state.command_enabled(&DiffCommand::ToggleAllFilesCollapsed));
+    assert!(!state.command_enabled(&DiffCommand::ToggleFileCollapsed(Some(1))));
+}
+
+#[test]
 fn replacement_bindings_and_direct_commands_are_independent() {
     let mut state = diff();
     let shortcut = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);

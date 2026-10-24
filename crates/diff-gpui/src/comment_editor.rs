@@ -1,8 +1,11 @@
-use crate::style;
+use crate::{
+    style,
+    ui::prelude::{Typography, TypographyExt, rem},
+};
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
     App, Context, Entity, FocusHandle, Focusable, Global, MouseButton, SharedString, Subscription,
-    Window, div, prelude::*, px,
+    Window, div, prelude::*,
 };
 use gpui_base::input::{Escape, InputEditorStyle, InputEvent, Textarea, TextareaState};
 
@@ -132,8 +135,9 @@ impl Render for CommentEditor {
         div()
             .id("comment-input")
             .debug_selector(|| "comment-input".to_owned())
-            .min_h(px(96.0))
+            .min_h(rem(96.0))
             .w_full()
+            .typography(Typography::Body)
             .p_3()
             .rounded_md()
             .border_1()

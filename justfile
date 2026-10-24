@@ -66,7 +66,7 @@ lint:
     cargo clippy --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --all-targets --all-features -- -D warnings
 
 wasm-check:
-    cargo check -p clankerdiff-core -p clankerdiff-theme -p clankerdiff-syntax -p clankerdiff-markdown -p clankerdiff-gpui -p clankerdiff-gpui-web --target wasm32-unknown-unknown
+    cargo check -p clankerdiff-core -p clankerdiff-theme -p clankerdiff-syntax -p clankerdiff-markdown -p clankerdiff-gpui-ui -p clankerdiff-gpui -p clankerdiff-gpui-web --target wasm32-unknown-unknown
     cargo check -p clankerdiff-ratatui --no-default-features --target wasm32-unknown-unknown
 
 # Build the release WASM and execute its smoke test in Chromium.

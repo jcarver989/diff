@@ -1,7 +1,7 @@
 use crate::{
     ContentProjection, DiffDocument, DiffPresentation, DiffSide, GapId, Layout, LineAnchor,
     PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, RowId,
-    SourceLocation, ViewMode, presentation::retained_expansions,
+    RowKind, SourceLocation, ViewMode, presentation::retained_expansions,
 };
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, sync::Arc};
@@ -13,19 +13,6 @@ const EXPAND_STEP: usize = 20;
 pub enum RevealAmount {
     Step,
     All,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SessionOptions {
-    pub include_file_headers: bool,
-}
-
-impl Default for SessionOptions {
-    fn default() -> Self {
-        Self {
-            include_file_headers: true,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,7 +138,6 @@ pub struct ReviewSession {
     document: Arc<DiffDocument>,
     presentation: DiffPresentation,
     review: Review,
-    options: SessionOptions,
     view_mode: ViewMode,
     split_when_auto: bool,
     selected_file: usize,
@@ -167,23 +153,10 @@ pub struct ReviewSession {
 impl ReviewSession {
     #[must_use]
     pub fn new(document: Arc<DiffDocument>) -> Self {
-        Self::with_options(document, SessionOptions::default())
-    }
-
-    #[must_use]
-    pub fn with_options(document: Arc<DiffDocument>, options: SessionOptions) -> Self {
         let mut session = Self {
-            presentation: DiffPresentation::new(
-                document.clone(),
-                PresentationOptions {
-                    view_mode: ViewMode::Auto,
-                    split_when_auto: false,
-                    include_file_headers: options.include_file_headers,
-                },
-            ),
+            presentation: DiffPresentation::new(document.clone(), PresentationOptions::default()),
             document,
             review: Review::default(),
-            options,
             view_mode: ViewMode::Auto,
             split_when_auto: false,
             selected_file: 0,
@@ -195,6 +168,12 @@ impl ReviewSession {
             pending_source_restore: None,
             diff_return: None,
         };
+        session.selected_file = session
+            .presentation
+            .file_order()
+            .first()
+            .copied()
+            .unwrap_or(0);
         session.select_first_row();
         session
     }
@@ -232,7 +211,7 @@ impl ReviewSession {
         PresentationOptions {
             view_mode: self.view_mode,
             split_when_auto: self.split_when_auto,
-            include_file_headers: self.options.include_file_headers,
+            include_file_headers: true,
         }
     }
 
@@ -254,6 +233,14 @@ impl ReviewSession {
     #[must_use]
     pub fn selected_file_range(&self) -> Option<Range<usize>> {
         self.presentation.file_range(self.selected_file)
+    }
+
+    #[must_use]
+    pub fn visible_range(&self) -> Range<usize> {
+        match self.source_view() {
+            Some(_) => self.selected_file_range().unwrap_or(0..0),
+            None => 0..self.presentation.row_count(),
+        }
     }
 
     #[must_use]
@@ -344,6 +331,15 @@ impl ReviewSession {
     }
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
+        if let Some(file) = self
+            .selected_presented_row()
+            .filter(|row| {
+                row.kind == RowKind::FileHeader && self.presentation.is_collapsed(row.file_index)
+            })
+            .map(|row| row.file_index)
+        {
+            return self.toggle_file_collapsed(file);
+        }
         let id = self
             .presentation
             .gap_info(self.selected_row)
@@ -401,6 +397,66 @@ impl ReviewSession {
         true
     }
 
+    #[must_use]
+    pub fn is_file_collapsed(&self, index: usize) -> bool {
+        self.presentation.is_collapsed(index)
+    }
+
+    #[must_use]
+    pub fn all_files_collapsed(&self) -> bool {
+        !self.document.files.is_empty()
+            && (0..self.document.files.len()).all(|index| self.presentation.is_collapsed(index))
+    }
+
+    pub fn toggle_file_collapsed(&mut self, index: usize) -> bool {
+        let Some(file) = self.document.files.get(index) else {
+            return false;
+        };
+        if self.source_view().is_some() {
+            return false;
+        }
+        let collapse = !self.presentation.is_collapsed(index);
+        if collapse
+            && self
+                .draft
+                .as_ref()
+                .is_some_and(|draft| draft.anchor.path == file.path)
+        {
+            return false;
+        }
+        let header_selected = self.selected_on_header(index);
+        self.projection.set_collapsed(file.path.clone(), collapse);
+        self.rebuild();
+        if header_selected && !collapse {
+            self.select_first_row();
+        }
+        true
+    }
+
+    pub fn toggle_all_files_collapsed(&mut self) -> bool {
+        if self.document.files.is_empty() || self.source_view().is_some() {
+            return false;
+        }
+        let collapse = !self.all_files_collapsed();
+        if collapse && self.draft.is_some() {
+            return false;
+        }
+        let header_selected = self.selected_on_header(self.selected_file);
+        for file in &self.document.files {
+            self.projection.set_collapsed(file.path.clone(), collapse);
+        }
+        self.rebuild();
+        if header_selected && !collapse {
+            self.select_first_row();
+        }
+        true
+    }
+
+    fn selected_on_header(&self, index: usize) -> bool {
+        self.selected_presented_row()
+            .is_some_and(|row| row.kind == RowKind::FileHeader && row.file_index == index)
+    }
+
     /// Replaces the complete immutable document while preserving review and view
     /// state, including gap expansions for files whose content did not change.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
@@ -430,6 +486,9 @@ impl ReviewSession {
         self.projection
             .full_files
             .retain(|path| document.file_index(path).is_some());
+        self.projection
+            .collapsed_files
+            .retain(|path| document.file_index(path).is_some());
         if self
             .pending_source_restore
             .as_ref()
@@ -455,6 +514,11 @@ impl ReviewSession {
 
     pub fn cycle_view_mode(&mut self) -> bool {
         self.set_view_mode(self.view_mode.next())
+    }
+
+    #[must_use]
+    pub const fn split_when_auto(&self) -> bool {
+        self.split_when_auto
     }
 
     pub fn set_split_when_auto(&mut self, split: bool) -> bool {
@@ -493,71 +557,48 @@ impl ReviewSession {
     }
 
     pub fn move_file(&mut self, delta: isize) -> Option<usize> {
-        if self.document.files.is_empty() {
-            return None;
-        }
-        let index = offset(self.selected_file, delta, self.document.files.len() - 1);
+        let index = self.presentation.offset_file(self.selected_file, delta)?;
         self.select_file(index).then_some(index)
     }
 
-    pub fn move_row(&mut self, delta: isize) {
-        self.pending_source_restore = None;
-        let Some(range) = self.selected_file_range() else {
-            return;
+    pub fn move_row(&mut self, delta: isize) -> bool {
+        let range = self.visible_range();
+        let navigable = |row: &usize| self.presentation.is_navigable(*row);
+        let steps = delta.unsigned_abs();
+        let target = if delta.is_negative() {
+            (range.start..self.selected_row.min(range.end))
+                .rev()
+                .filter(navigable)
+                .take(steps)
+                .last()
+        } else {
+            (self.selected_row.saturating_add(1).max(range.start)..range.end)
+                .filter(navigable)
+                .take(steps)
+                .last()
         };
-        let mut current = self.selected_row;
-        if !self.presentation.is_navigable(current) {
-            let Some(first) = self.presentation.first_navigable(range.clone()) else {
-                return;
-            };
-            current = first;
-            if delta <= 0 {
-                self.selected_row = current;
-                return;
-            }
-        }
-        for _ in 0..delta.unsigned_abs() {
-            let Some(next) = self
-                .presentation
-                .step_navigable(current, delta.is_negative(), &range)
-            else {
-                break;
-            };
-            current = next;
-        }
-        self.selected_row = current;
-        self.normalize_selected_side();
+        target.is_some_and(|row| self.select_row(row))
     }
 
-    pub fn select_boundary(&mut self, end: bool) {
-        self.pending_source_restore = None;
-        let Some(range) = self.selected_file_range() else {
-            return;
-        };
-        let selected = if end {
+    pub fn select_boundary(&mut self, end: bool) -> bool {
+        let range = self.visible_range();
+        let target = if end {
             self.presentation.last_navigable(range)
         } else {
             self.presentation.first_navigable(range)
         };
-        if let Some(index) = selected {
-            self.selected_row = index;
-            self.normalize_selected_side();
-        }
+        target.is_some_and(|row| self.select_row(row))
     }
 
     pub fn select_row(&mut self, index: usize) -> bool {
-        if self.source_view().is_some()
-            && !self
-                .selected_file_range()
-                .is_some_and(|range| range.contains(&index))
-        {
-            return false;
-        }
-        if !self.presentation.is_navigable(index) {
+        if !self.visible_range().contains(&index) || !self.presentation.is_navigable(index) {
             return false;
         }
         self.pending_source_restore = None;
         self.selected_row = index;
+        if let Some(row) = self.presentation.row(index) {
+            self.selected_file = row.file_index;
+        }
         self.normalize_selected_side();
         true
     }
@@ -804,7 +845,8 @@ impl ReviewSession {
             Some(range) => {
                 self.selected_row = self
                     .presentation
-                    .first_navigable(range.clone())
+                    .first_source_row(range.clone())
+                    .or_else(|| self.presentation.first_navigable(range.clone()))
                     .unwrap_or(range.start);
             }
             None => self.selected_row = 0,
@@ -1058,7 +1100,10 @@ mod tests {
     }
 
     fn reveal_from_first_code_row(session: &mut ReviewSession) -> usize {
-        let code_row = (0..session.presentation().row_count())
+        let code_row = session
+            .presentation()
+            .file_range(0)
+            .expect("a first file")
             .find(|index| {
                 session
                     .presentation()

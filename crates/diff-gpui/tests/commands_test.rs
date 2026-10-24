@@ -273,7 +273,7 @@ fn refresh_shortcuts_obey_pending_and_modal_state(cx: &mut TestAppContext) {
         assert!(!harness.dispatch_command(cx, DiffReviewCommand::Refresh)?);
         harness.update(cx, |viewer, cx| viewer.set_repository_pending(false, cx));
         harness.dispatch_command(cx, ReviewCommand::BeginComment)?;
-        harness.dispatch_action(cx, &Refresh)?;
+        harness.dispatch_action(cx, &Refresh);
         assert_eq!(harness.events(cx), vec![DiffReviewEvent::Refresh]);
         harness.dispatch_command(cx, ReviewCommand::Cancel)?;
         harness.simulate_keystrokes(cx, "ctrl-r");
@@ -303,9 +303,9 @@ fn menu_navigation_actions_cannot_bypass_a_draft(cx: &mut TestAppContext) {
             (viewer.selected_file(), viewer.session().selected_row())
         });
         harness.dispatch_command(cx, ReviewCommand::BeginComment)?;
-        harness.dispatch_action(cx, &NextFile)?;
-        harness.dispatch_action(cx, &NextHunk)?;
-        harness.dispatch_action(cx, &StageAll)?;
+        harness.dispatch_action(cx, &NextFile);
+        harness.dispatch_action(cx, &NextHunk);
+        harness.dispatch_action(cx, &StageAll);
         assert_eq!(
             harness.read(cx, |viewer, _| (
                 viewer.selected_file(),
@@ -319,7 +319,7 @@ fn menu_navigation_actions_cannot_bypass_a_draft(cx: &mut TestAppContext) {
         );
         assert_eq!(harness.events(cx).len(), 0);
         harness.dispatch_command(cx, ReviewCommand::Cancel)?;
-        harness.dispatch_action(cx, &NextFile)?;
+        harness.dispatch_action(cx, &NextFile);
         assert_ne!(
             harness.read(cx, |viewer, _| viewer.selected_file()),
             selected.0

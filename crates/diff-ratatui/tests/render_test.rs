@@ -3,8 +3,9 @@ use clankerdiff_core::{DiffDocument, DiffSide, Layout, RowKind};
 use clankerdiff_core::{ViewMode, testing::DocumentBuilder};
 #[cfg(feature = "test-support")]
 use clankerdiff_ratatui::{
-    DiffReviewCommand, FocusPane, InteractionPhase, KeyCode, ReviewCommand, composite_color,
-    page_color, testing::ReviewHarnessBuilder,
+    DiffReviewCommand, FocusPane, InteractionPhase, KeyCode, MouseButton, MouseEventKind,
+    ReviewCommand, composite_color, page_color,
+    testing::{ReviewHarness, ReviewHarnessBuilder, mouse},
 };
 use clankerdiff_ratatui::{DiffReviewState, DiffReviewWidget, NavigationPane, ReviewOptions};
 #[cfg(feature = "test-support")]
@@ -541,6 +542,189 @@ fn changed_whitespace_lines_keep_the_change_indicator() {
     }
 }
 
+#[cfg(feature = "test-support")]
+#[test]
+fn the_drawer_selection_follows_the_file_scrolled_to_the_top() {
+    let mut harness = ReviewHarness::new(
+        DocumentBuilder::new()
+            .generated("a.rs", 40)
+            .generated("b.rs", 40)
+            .generated("c.rs", 40)
+            .build(),
+        100,
+        14,
+    );
+    harness.draw();
+    while harness.state_mut().active_file() == Some(0) {
+        harness
+            .state_mut()
+            .handle_command(DiffReviewCommand::Scroll {
+                pane: FocusPane::Diff,
+                lines: 2,
+            });
+        harness.draw();
+    }
+    assert_eq!(harness.state_mut().active_file(), Some(1));
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::MoveSelection(1));
+    assert_eq!(harness.state().selected_file(), Some(2));
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn files_scroll_continuously_under_a_sticky_divider_that_the_next_file_pushes_away()
+-> Result<(), Box<dyn Error>> {
+    let mut harness = continuous_harness(
+        DocumentBuilder::new()
+            .generated("src/a.rs", 40)
+            .generated("z.rs", 40),
+    );
+    let top = harness.row_containing("a.rs src/").ok_or("first divider")?;
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::Scroll {
+            pane: FocusPane::Diff,
+            lines: 5,
+        });
+    harness.draw();
+    assert_eq!(harness.row_containing("a.rs src/"), Some(top));
+    assert!(harness.row_text(top + 1).contains("a_rs_value_"));
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::SelectFile(1));
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::Scroll {
+            pane: FocusPane::Diff,
+            lines: -1,
+        });
+    harness.draw();
+    assert_eq!(harness.row_containing("a.rs src/"), Some(top));
+    assert_eq!(harness.row_containing(" z.rs "), Some(top + 1));
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::Scroll {
+            pane: FocusPane::Diff,
+            lines: 20,
+        });
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::MoveSelection(1));
+    harness.draw();
+    assert!(harness.row_text(top).contains(" z.rs "));
+    assert!(harness.row_text(top + 1).contains("z_rs_value_"));
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn layout_changes_keep_the_top_visible_row_of_a_later_file() -> Result<(), Box<dyn Error>> {
+    let mut harness = continuous_harness(
+        DocumentBuilder::new()
+            .changed("a.rs", &"old\n".repeat(60), &"new\n".repeat(60))
+            .changed("b.rs", &"before\n".repeat(60), &"after\n".repeat(60)),
+    );
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::SelectFile(1));
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::Scroll {
+            pane: FocusPane::Diff,
+            lines: 25,
+        });
+    harness.draw();
+    let top = harness.row_containing(" b.rs ").ok_or("sticky")?;
+    let visible = harness.row_text(top + 1);
+    harness.state_mut().set_view_mode(ViewMode::Unified);
+    harness.draw();
+    assert_eq!(harness.row_containing(" b.rs "), Some(top));
+    let line = visible.split_whitespace().next().ok_or("line number")?;
+    assert!(harness.row_text(top + 1).contains(line));
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn clicking_a_divider_selects_its_file() -> Result<(), Box<dyn Error>> {
+    let mut harness = continuous_harness(
+        DocumentBuilder::new()
+            .changed("src/a.rs", "old", "new")
+            .renamed("old/b.rs", "src/b.rs", "before", "after"),
+    );
+    let divider = harness
+        .row_containing("b.rs src/ ← old/b.rs")
+        .ok_or("divider")?;
+    harness.input(mouse(MouseEventKind::Down(MouseButton::Left), 4, divider));
+    assert_eq!(harness.state().selected_file(), Some(1));
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn clicking_a_divider_chevron_toggles_its_file() -> Result<(), Box<dyn Error>> {
+    let mut harness = continuous_harness(
+        DocumentBuilder::new()
+            .changed("src/a.rs", "old", "new")
+            .changed("src/b.rs", "before", "after"),
+    );
+    let divider = harness.row_containing("b.rs src/").ok_or("divider")?;
+    assert!(harness.row_text(divider).contains("▾"));
+    harness.input(mouse(MouseEventKind::Down(MouseButton::Left), 1, divider));
+    harness.draw();
+    assert!(harness.state().session().is_file_collapsed(1));
+    assert!(harness.row_text(divider).contains("▸"));
+    assert!(!harness.text().contains("after"));
+    assert_eq!(
+        harness.state().interaction_phase(),
+        InteractionPhase::Browse
+    );
+    harness.input(mouse(MouseEventKind::Down(MouseButton::Left), 1, divider));
+    harness.draw();
+    assert!(!harness.state().session().is_file_collapsed(1));
+    harness.assert_contains("after");
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+#[allow(clippy::format_collect)]
+fn gaps_are_quiet_rules_that_expand_from_their_glyph() -> Result<(), Box<dyn Error>> {
+    let old = (1..=60)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    let new = old
+        .replace("line 10\n", "changed 10\n")
+        .replace("line 50\n", "changed 50\n");
+    let mut harness =
+        continuous_harness(
+            DocumentBuilder::new().changed_with("a.rs", &old, &new, |mut file| {
+                file.hunks[1].function_context = Some("fn later()".to_owned());
+                file
+            }),
+        );
+    harness.state_mut().set_view_mode(ViewMode::Unified);
+    harness.draw();
+    let gap = (0..harness.buffer().area.height)
+        .filter(|&row| harness.row_text(row).contains(" ↕ ──"))
+        .nth(1)
+        .ok_or("gap between hunks")?;
+    assert!(!harness.text().contains("unchanged lines"));
+    harness.input(mouse(MouseEventKind::Down(MouseButton::Left), 30, gap));
+    harness.draw();
+    assert!(
+        harness
+            .row_text(gap)
+            .contains("⋯ 33 unchanged lines · fn later() — Enter expand")
+    );
+    assert!(harness.row_text(gap + 1).contains("47 line 47"));
+    harness.input(mouse(MouseEventKind::Down(MouseButton::Left), 2, gap));
+    harness.draw();
+    assert!(harness.row_text(gap).contains("14 line 14"));
+    Ok(())
+}
+
 fn source_rows(buffer: &Buffer) -> Vec<String> {
     (buffer.area.top()..buffer.area.bottom())
         .filter(|y| buffer.area.width > 0 && buffer[(buffer.area.x, *y)].symbol() == "▌")
@@ -572,4 +756,19 @@ fn render(old: &str, new: &str, tab_width: u16, width: u16) -> Buffer {
         .borders(false)
         .render(area, &mut buffer, &mut state);
     buffer
+}
+
+#[cfg(feature = "test-support")]
+fn continuous_harness(builder: DocumentBuilder) -> ReviewHarness {
+    let mut harness = ReviewHarness::new(builder.build(), 100, 14);
+    let state = harness.state_mut();
+    state.set_options(ReviewOptions {
+        navigation: NavigationPane::Hidden,
+        footer: false,
+        ..Default::default()
+    });
+    state.set_view_mode(ViewMode::Split);
+    state.handle_command(DiffReviewCommand::Focus(FocusPane::Diff));
+    harness.draw();
+    harness
 }

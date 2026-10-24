@@ -13,14 +13,14 @@ fn empty_caret_tracks_focus_and_remains_available_after_input(cx: &mut TestAppCo
         assert!(harness.comment_focused(cx)?);
         let empty = caret(&harness, cx)?;
         let input = harness.bounds(cx, "comment-input").ok_or("input missing")?;
-        assert_eq!(empty.size.width, px(2.0));
+        assert_eq!(empty.size.width, px(KEYS.caret_width));
         assert!(empty.size.height > px(0.0));
         assert!(empty.origin.x > input.origin.x);
         harness.simulate_input(cx, "a");
         assert!(harness.comment_focused(cx)?);
         harness.with_comment_input(cx, |_, window, cx| window.blur(cx))?;
         assert!(!harness.comment_focused(cx)?);
-        click(&harness, cx, empty.origin, Modifiers::default())?;
+        click(&harness, cx, empty.origin, Modifiers::default());
         assert!(harness.comment_focused(cx)?);
         assert_eq!(selection(&harness, cx)?.range, 0..0);
         Ok(())
@@ -45,7 +45,7 @@ fn clicking_uses_text_geometry_in_both_diff_layouts(cx: &mut TestAppContext) {
                 })?
                 .ok_or("point has no character")?;
             assert_eq!(index, 2);
-            click(&harness, cx, position, Modifiers::default())?;
+            click(&harness, cx, position, Modifiers::default());
             assert_eq!(selection(&harness, cx)?.range, 2..2);
             harness.simulate_input(cx, "X");
             assert_eq!(body(&harness, cx)?, "abXcdef");
@@ -70,7 +70,7 @@ fn horizontal_selection_replaces_and_deletes_the_selected_text(cx: &mut TestAppC
         assert_eq!(body(&harness, cx)?, "abcXf");
         harness.simulate_keystrokes(cx, "shift-left backspace");
         assert_eq!(body(&harness, cx)?, "abcf");
-        harness.simulate_keystrokes(cx, "ctrl-a delete");
+        harness.simulate_keystrokes(cx, &format!("{} delete", KEYS.select_all));
         assert_eq!(body(&harness, cx)?, "");
         assert!(harness.comment_focused(cx)?);
         Ok(())
@@ -86,13 +86,13 @@ fn grapheme_navigation_and_deletion_keep_combining_text_and_emoji_intact(cx: &mu
     let result = (|| -> Result<(), Box<dyn Error>> {
         let harness = open_editor(cx);
         harness.simulate_input(cx, "Ae\u{301}👩‍💻Z");
-        harness.simulate_keystrokes(cx, "ctrl-home right right");
+        harness.simulate_keystrokes(cx, &format!("{} right right", KEYS.document_start));
         assert_eq!(selection(&harness, cx)?.range, 3..3);
         harness.simulate_keystrokes(cx, "left delete");
         assert_eq!(body(&harness, cx)?, "A👩‍💻Z");
         harness.simulate_keystrokes(cx, "right backspace");
         assert_eq!(body(&harness, cx)?, "AZ");
-        harness.simulate_keystrokes(cx, "ctrl-end left delete");
+        harness.simulate_keystrokes(cx, &format!("{} left delete", KEYS.document_end));
         assert_eq!(body(&harness, cx)?, "A");
         Ok(())
     })();
@@ -108,7 +108,10 @@ fn vertical_navigation_preserves_horizontal_position_across_short_lines(cx: &mut
         set_body(&harness, cx, "abcdefghij\nx\nabcdefghij\n")?;
         harness.simulate_keystrokes(
             cx,
-            "ctrl-home right right right right right right right right",
+            &format!(
+                "{} right right right right right right right right",
+                KEYS.document_start
+            ),
         );
         let first = caret(&harness, cx)?;
         harness.simulate_keystrokes(cx, "down");
@@ -120,11 +123,11 @@ fn vertical_navigation_preserves_horizontal_position_across_short_lines(cx: &mut
         assert_eq!(selection(&harness, cx)?.range, 13..13);
         harness.simulate_keystrokes(cx, "end");
         assert_eq!(selection(&harness, cx)?.range, 23..23);
-        harness.simulate_keystrokes(cx, "ctrl-end");
+        harness.simulate_keystrokes(cx, KEYS.document_end);
         let last = caret(&harness, cx)?;
         assert!(last.origin.y > first.origin.y);
         assert_eq!(last.origin.x, range_bounds(&harness, cx, 0..0)?.origin.x);
-        click(&harness, cx, last.origin, Modifiers::default())?;
+        click(&harness, cx, last.origin, Modifiers::default());
         assert_eq!(selection(&harness, cx)?.range, 24..24);
         Ok(())
     })();
@@ -143,7 +146,7 @@ fn caret_and_selection_preserve_wrapping_and_vertical_navigation(cx: &mut TestAp
             .comment_text_bounds(cx)
             .ok_or("text layout missing")?;
         let end = caret(&harness, cx)?;
-        harness.simulate_keystrokes(cx, "ctrl-home");
+        harness.simulate_keystrokes(cx, KEYS.document_start);
         let first = caret(&harness, cx)?;
         harness.simulate_keystrokes(cx, "down");
         let start = selection(&harness, cx)?.range.start;
@@ -154,12 +157,12 @@ fn caret_and_selection_preserve_wrapping_and_vertical_navigation(cx: &mut TestAp
         assert_eq!(selection(&harness, cx)?.range, 0..0);
         harness.simulate_keystrokes(cx, "end");
         assert_eq!(selection(&harness, cx)?.range, text.len()..text.len());
-        harness.simulate_keystrokes(cx, "ctrl-a");
+        harness.simulate_keystrokes(cx, KEYS.select_all);
         assert_eq!(harness.comment_text_bounds(cx), Some(bounds));
-        harness.simulate_keystrokes(cx, "ctrl-end");
+        harness.simulate_keystrokes(cx, KEYS.document_end);
         assert_eq!(caret(&harness, cx)?, end);
         assert_eq!(body(&harness, cx)?, text);
-        click(&harness, cx, row_start.origin, Modifiers::default())?;
+        click(&harness, cx, row_start.origin, Modifiers::default());
         assert_eq!(selection(&harness, cx)?.range, start..start);
         harness.simulate_input(cx, "X");
         assert_eq!(
@@ -188,7 +191,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 click_count: 1,
                 ..Default::default()
             },
-        )?;
+        );
         harness.simulate_event(
             cx,
             MouseMoveEvent {
@@ -196,7 +199,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 pressed_button: Some(MouseButton::Left),
                 ..Default::default()
             },
-        )?;
+        );
         harness.simulate_event(
             cx,
             MouseUpEvent {
@@ -204,7 +207,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 button: MouseButton::Left,
                 ..Default::default()
             },
-        )?;
+        );
         assert_eq!(selection(&harness, cx)?.range, 1..4);
         click(
             &harness,
@@ -214,7 +217,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 shift: true,
                 ..Default::default()
             },
-        )?;
+        );
         assert_eq!(selection(&harness, cx)?.range, 1..1);
         click(
             &harness,
@@ -224,7 +227,7 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
                 shift: true,
                 ..Default::default()
             },
-        )?;
+        );
         harness.simulate_input(cx, "X");
         assert_eq!(body(&harness, cx)?, "aXef");
         Ok(())
@@ -239,7 +242,10 @@ fn clipboard_and_word_navigation_respect_selection(cx: &mut TestAppContext) {
     let result = (|| -> Result<(), Box<dyn Error>> {
         let harness = open_editor(cx);
         harness.simulate_input(cx, "one two three");
-        harness.simulate_keystrokes(cx, "ctrl-left ctrl-shift-left ctrl-c");
+        harness.simulate_keystrokes(
+            cx,
+            &format!("{} {} {}", KEYS.word_left, KEYS.select_word_left, KEYS.copy),
+        );
         assert_eq!(selection(&harness, cx)?.range, 4..8);
         assert_eq!(
             cx.read_from_clipboard()
@@ -247,12 +253,12 @@ fn clipboard_and_word_navigation_respect_selection(cx: &mut TestAppContext) {
                 .as_deref(),
             Some("two ")
         );
-        harness.simulate_keystrokes(cx, "ctrl-x");
+        harness.simulate_keystrokes(cx, KEYS.cut);
         assert_eq!(body(&harness, cx)?, "one three");
         cx.write_to_clipboard(ClipboardItem::new_string("TWO ".into()));
-        harness.simulate_keystrokes(cx, "ctrl-v");
+        harness.simulate_keystrokes(cx, KEYS.paste);
         assert_eq!(body(&harness, cx)?, "one TWO three");
-        harness.simulate_keystrokes(cx, "ctrl-a");
+        harness.simulate_keystrokes(cx, KEYS.select_all);
         harness.with_comment_input(cx, |input, window, cx| {
             input.paste(ClipboardItem::new_string("replacement".into()), window, cx);
         })?;
@@ -318,9 +324,9 @@ fn library_undo_and_redo_restore_the_draft(cx: &mut TestAppContext) {
         set_body(&harness, cx, "original")?;
         set_body(&harness, cx, "replacement")?;
         assert_eq!(body(&harness, cx)?, "replacement");
-        harness.simulate_keystrokes(cx, "ctrl-z");
+        harness.simulate_keystrokes(cx, KEYS.undo);
         assert_eq!(body(&harness, cx)?, "original");
-        harness.simulate_keystrokes(cx, "ctrl-y");
+        harness.simulate_keystrokes(cx, KEYS.redo);
         assert_eq!(body(&harness, cx)?, "replacement");
         Ok(())
     })();
@@ -396,7 +402,7 @@ fn click(
     cx: &mut TestAppContext,
     position: Point<Pixels>,
     modifiers: Modifiers,
-) -> Result<(), Box<dyn Error>> {
+) {
     let position = point(position.x, position.y + px(1.0));
     harness.simulate_event(
         cx,
@@ -407,7 +413,7 @@ fn click(
             click_count: 1,
             ..Default::default()
         },
-    )?;
+    );
     harness.simulate_event(
         cx,
         MouseUpEvent {
@@ -416,5 +422,49 @@ fn click(
             button: MouseButton::Left,
             ..Default::default()
         },
-    )
+    );
 }
+
+struct PlatformKeys {
+    caret_width: f32,
+    document_start: &'static str,
+    document_end: &'static str,
+    select_all: &'static str,
+    word_left: &'static str,
+    select_word_left: &'static str,
+    copy: &'static str,
+    cut: &'static str,
+    paste: &'static str,
+    undo: &'static str,
+    redo: &'static str,
+}
+
+#[cfg(target_os = "macos")]
+const KEYS: PlatformKeys = PlatformKeys {
+    caret_width: 1.5,
+    document_start: "cmd-up",
+    document_end: "cmd-down",
+    select_all: "cmd-a",
+    word_left: "alt-left",
+    select_word_left: "alt-shift-left",
+    copy: "cmd-c",
+    cut: "cmd-x",
+    paste: "cmd-v",
+    undo: "cmd-z",
+    redo: "cmd-shift-z",
+};
+
+#[cfg(not(target_os = "macos"))]
+const KEYS: PlatformKeys = PlatformKeys {
+    caret_width: 2.0,
+    document_start: "ctrl-home",
+    document_end: "ctrl-end",
+    select_all: "ctrl-a",
+    word_left: "ctrl-left",
+    select_word_left: "ctrl-shift-left",
+    copy: "ctrl-c",
+    cut: "ctrl-x",
+    paste: "ctrl-v",
+    undo: "ctrl-z",
+    redo: "ctrl-y",
+};

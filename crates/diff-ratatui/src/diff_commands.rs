@@ -1,7 +1,7 @@
 use crate::{
     DiffReviewCommand, DiffReviewEvent, DiffReviewState, DiffReviewStatus, FocusPane, InputOutcome,
-    InteractionPhase, KeyBinding, KeyEvent, NavigationPane, ReviewCommand, drawer::DrawerEntry,
-    keybindings, theme_picker::ThemePicker,
+    InteractionPhase, KeyBinding, KeyEvent, NavigationPane, ReviewCommand, keybindings,
+    theme_picker::ThemePicker,
 };
 use clankerdiff_core::{CommandContext, RepositoryAction, ReviewCapabilities};
 use std::sync::Arc;
@@ -140,12 +140,7 @@ impl DiffReviewState {
             C::BeginDiscard => self.begin_discard(),
             C::SelectRow(index) => {
                 let previous = (self.session.selected_row(), self.session.selected_side());
-                if !self
-                    .session
-                    .selected_file_range()
-                    .is_some_and(|range| range.contains(&index))
-                    || !self.session.select_row(index)
-                {
+                if !self.session.select_row(index) {
                     return InputOutcome::Ignored;
                 }
                 if previous == (self.session.selected_row(), self.session.selected_side()) {
@@ -167,12 +162,9 @@ impl DiffReviewState {
             }
             C::ToggleSourceView => {
                 if self.session.source_view().is_none() && self.focus == FocusPane::Files {
-                    let Some(DrawerEntry::File { index, .. }) =
-                        self.drawer.entry(self.drawer_selected)
-                    else {
+                    let Some(index) = self.drawer.selected().and_then(|entry| entry.file) else {
                         return InputOutcome::Ignored;
                     };
-                    let index = *index;
                     if self.session.selected_file() != Some(index) {
                         self.select_file(index);
                     }
@@ -187,14 +179,27 @@ impl DiffReviewState {
                 self.toggle_full_file();
                 return InputOutcome::Consumed;
             }
+            C::ToggleFileCollapsed(index) => {
+                let Some(index) = index.or_else(|| self.session.selected_file()) else {
+                    return InputOutcome::Ignored;
+                };
+                if !self.toggle_file_collapsed(index) {
+                    return InputOutcome::Ignored;
+                }
+                return InputOutcome::Consumed;
+            }
+            C::ToggleAllFilesCollapsed => {
+                if !self.toggle_all_files_collapsed() {
+                    return InputOutcome::Ignored;
+                }
+                return InputOutcome::Consumed;
+            }
             C::SetViewMode(mode) => {
                 self.set_view_mode(mode);
                 return InputOutcome::Consumed;
             }
             C::CycleViewMode => {
-                if self.session.cycle_view_mode() {
-                    self.scroll_to_selected_file();
-                }
+                self.change_layout(|state| state.session.cycle_view_mode());
                 return InputOutcome::Consumed;
             }
             C::SubmitReview => {

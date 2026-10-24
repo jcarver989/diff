@@ -1,4 +1,4 @@
-use super::MarkdownReviewer;
+use super::{MarkdownReviewer, Overlay};
 use crate::ThemeChanged;
 use clankerdiff_core::{CommandContext, InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
@@ -6,21 +6,21 @@ use clankerdiff_markdown::{
     MarkdownTargetId,
 };
 use clankerdiff_theme::{ThemeChoice, ThemeSelection};
-use gpui::{Context, Window};
+use gpui::{App, Context, ScrollHandle, Window};
+use std::mem;
 
 impl MarkdownReviewer {
     pub fn command_context(&self) -> CommandContext {
         CommandContext {
-            phase: if self.theme_selection.is_some() {
-                InteractionPhase::ThemePicker
-            } else if self.session.draft().is_some() {
-                InteractionPhase::Draft
-            } else {
-                InteractionPhase::Browse
+            phase: match self.overlay {
+                Overlay::Themes(_) => InteractionPhase::ThemePicker,
+                Overlay::Help => InteractionPhase::Help,
+                Overlay::None if self.session.draft().is_some() => InteractionPhase::Draft,
+                Overlay::None => InteractionPhase::Browse,
             },
             capabilities: self.capabilities,
-            navigation_available: self.options.show_outline,
-            themes_available: true,
+            navigation_available: self.outline_visible(),
+            themes_available: self.options.themes,
             ..CommandContext::default()
         }
     }
@@ -28,7 +28,7 @@ impl MarkdownReviewer {
     pub fn command_enabled(&self, command: &MarkdownReviewCommand) -> bool {
         !matches!(
             command,
-            MarkdownReviewCommand::Review(ReviewCommand::ShowHelp | ReviewCommand::ScrollHelp(_))
+            MarkdownReviewCommand::Review(ReviewCommand::ScrollHelp(_))
         ) && command.enabled(&self.command_context())
     }
 
@@ -84,10 +84,7 @@ impl MarkdownReviewer {
             C::First => self.move_selection(isize::MIN),
             C::Last => self.move_selection(isize::MAX),
             C::Page(delta) => {
-                let scroll = match self.pane {
-                    MarkdownFocusPane::Document => &self.document_scroll,
-                    MarkdownFocusPane::Outline => &self.outline_scroll,
-                };
+                let scroll = self.scroll_handle(self.pane);
                 let rows = scroll
                     .bottom_item()
                     .saturating_sub(scroll.top_item())
@@ -101,98 +98,84 @@ impl MarkdownReviewer {
                 self.reveal_selected_target();
             }
             C::Scroll { pane, lines } => {
-                let scroll = match pane {
-                    MarkdownFocusPane::Document => &self.document_scroll,
-                    MarkdownFocusPane::Outline => &self.outline_scroll,
-                };
+                let scroll = self.scroll_handle(pane);
                 scroll.scroll_to_item(scroll.top_item().saturating_add_signed(lines));
                 cx.notify();
-                return Ok(true);
             }
-            C::Approve => {
-                cx.emit(self.session.approve()?);
-                return Ok(true);
-            }
-            C::RequestChanges => {
-                cx.emit(self.session.request_changes()?);
-                return Ok(true);
-            }
-            C::CopyReview(decision) => {
-                cx.emit(self.session.copy_formatted(decision));
-                return Ok(true);
-            }
-            C::Review(R::BeginComment | R::EditComment) => {
-                let started = if command == C::Review(R::BeginComment) {
-                    self.session.begin_draft(None)
-                } else {
-                    self.session.edit_comment_at_selection()
-                };
-                if !started {
+            C::Approve => cx.emit(self.session.approve()?),
+            C::RequestChanges => cx.emit(self.session.request_changes()?),
+            C::CopyReview(decision) => cx.emit(self.session.copy_formatted(decision)),
+            C::Review(R::BeginComment) => {
+                if !self.session.begin_draft(None) {
                     return Ok(false);
                 }
                 self.mount_editor(window, cx);
-                self.reveal_selected_target();
-                return Ok(true);
             }
-            C::Review(R::DeleteComment | R::UndoComment) => {
-                let changed = if command == C::Review(R::DeleteComment) {
-                    self.session.delete_comment_at_selection()
-                } else {
-                    self.session.undo_last_comment()
-                };
-                if changed {
-                    cx.notify();
+            C::Review(R::EditComment) => {
+                if !self.session.edit_comment_at_selection() {
+                    return Ok(false);
                 }
-                return Ok(changed);
+                self.mount_editor(window, cx);
+            }
+            C::Review(R::DeleteComment) => {
+                if !self.session.delete_comment_at_selection() {
+                    return Ok(false);
+                }
+                cx.notify();
+            }
+            C::Review(R::UndoComment) => {
+                if !self.session.undo_last_comment() {
+                    return Ok(false);
+                }
+                cx.notify();
             }
             C::Review(R::SubmitComment) => {
-                self.finish_comment(cx);
-                return Ok(true);
-            }
-            C::Review(R::Cancel) => {
-                if let Some(selection) = self.theme_selection.take() {
-                    self.apply_theme(selection.cancel(), cx);
-                } else if self.session.draft().is_some() {
-                    self.discard_comment(cx);
-                } else {
-                    cx.emit(MarkdownReviewEvent::Cancel);
-                }
-                return Ok(true);
-            }
-            C::Review(R::ShowHelp | R::ScrollHelp(_)) => return Ok(false),
-            C::Review(R::OpenThemePicker) => {
-                self.theme_selection = ThemeSelection::new(&self.theme, ThemeChoice::catalog());
+                self.session.submit_draft();
+                self.close_editor();
+                self.reveal_selected_target();
                 cx.notify();
-                return Ok(true);
+            }
+            C::Review(R::Cancel) => match mem::take(&mut self.overlay) {
+                Overlay::Themes(selection) => self.apply_theme(selection.cancel(), cx),
+                Overlay::Help => cx.notify(),
+                Overlay::None if self.session.draft().is_some() => self.discard_comment(cx),
+                Overlay::None => cx.emit(MarkdownReviewEvent::Cancel),
+            },
+            C::Review(R::ShowHelp) => {
+                self.overlay = Overlay::Help;
+                cx.notify();
+            }
+            C::Review(R::ScrollHelp(_)) => return Ok(false),
+            C::Review(R::OpenThemePicker) => {
+                if let Some(selection) = ThemeSelection::new(&self.theme, ThemeChoice::catalog()) {
+                    self.overlay = Overlay::Themes(Box::new(selection));
+                }
+                cx.notify();
             }
             C::Review(R::SelectTheme(index)) => {
-                let Some(theme) = self
-                    .theme_selection
-                    .as_mut()
-                    .and_then(|selection| selection.select(index))
-                else {
+                let Overlay::Themes(selection) = &mut self.overlay else {
+                    return Ok(false);
+                };
+                let Some(theme) = selection.select(index) else {
                     return Ok(false);
                 };
                 self.apply_theme(theme, cx);
-                return Ok(true);
             }
             C::Review(R::MoveTheme(delta)) => {
-                let Some(selection) = self.theme_selection.as_mut() else {
+                let Overlay::Themes(selection) = &mut self.overlay else {
                     return Ok(false);
                 };
                 let theme = selection.select_relative(delta);
                 self.apply_theme(theme, cx);
-                return Ok(true);
             }
             C::Review(R::CommitTheme) => {
-                let Some(selection) = self.theme_selection.take() else {
+                let Overlay::Themes(selection) = mem::take(&mut self.overlay) else {
                     return Ok(false);
                 };
                 let theme = selection.commit();
                 let id = theme.id().to_string();
                 self.apply_theme(theme, cx);
                 cx.emit(ThemeChanged { id });
-                return Ok(true);
             }
         }
         if previous.1 != self.session.selected_target() {
@@ -205,9 +188,56 @@ impl MarkdownReviewer {
         Ok(true)
     }
 
+    pub(super) fn run(
+        &mut self,
+        command: impl Into<MarkdownReviewCommand>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.handle_command(command, window, cx);
+    }
+
+    pub(super) fn dispatch<E: 'static>(
+        command: impl Into<MarkdownReviewCommand>,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&E, &mut Window, &mut App) + 'static {
+        let command = command.into();
+        cx.listener(move |reviewer, _: &E, window, cx| reviewer.run(command, window, cx))
+    }
+
+    pub(super) fn select(
+        &mut self,
+        target: MarkdownTargetId,
+        pane: MarkdownFocusPane,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run(MarkdownReviewCommand::Focus(pane), window, cx);
+        self.run(MarkdownReviewCommand::SelectTarget(target), window, cx);
+    }
+
     pub(super) fn reveal_selected_target(&self) {
-        if let Some(target) = self.session.selected_target() {
-            self.document_scroll.scroll_to_item(target.index());
+        if let Some(row) = self
+            .session
+            .selected_target()
+            .and_then(|target| self.target_rows.get(&target))
+        {
+            self.document_scroll.scroll_to_item(*row);
+        }
+    }
+
+    pub(super) fn active_heading(&self) -> Option<usize> {
+        let selected = self.session.selected_target()?;
+        self.document()
+            .outline()
+            .partition_point(|heading| heading.target_id <= selected)
+            .checked_sub(1)
+    }
+
+    const fn scroll_handle(&self, pane: MarkdownFocusPane) -> &ScrollHandle {
+        match pane {
+            MarkdownFocusPane::Document => &self.document_scroll,
+            MarkdownFocusPane::Outline => &self.outline_scroll,
         }
     }
 
@@ -218,14 +248,9 @@ impl MarkdownReviewer {
             }
             MarkdownFocusPane::Outline => {
                 let outline = self.document().outline();
-                let selected = self
-                    .session
-                    .selected_target()
-                    .map_or(0, MarkdownTargetId::index);
-                let current = outline
-                    .partition_point(|heading| heading.target_id.index() <= selected)
-                    .saturating_sub(1);
-                let index = current
+                let index = self
+                    .active_heading()
+                    .unwrap_or(0)
                     .saturating_add_signed(delta)
                     .min(outline.len().saturating_sub(1));
                 if let Some(heading) = outline.get(index) {

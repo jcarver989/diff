@@ -245,6 +245,18 @@ pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
             "all diff context",
             Document,
         ),
+        (
+            K::Char('z'),
+            C::ToggleFileCollapsed(None),
+            "collapse file",
+            Document,
+        ),
+        (
+            K::Char('Z'),
+            C::ToggleAllFilesCollapsed,
+            "collapse all",
+            Any,
+        ),
         (K::Char('v'), C::CycleViewMode, "view", Any),
         (K::Char('S'), C::CycleScope, "scope", Any),
         (K::Char('r'), C::Refresh, "refresh", Any),

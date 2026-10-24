@@ -121,3 +121,14 @@ fn content_id_tracks_sides_and_only_hunks_when_a_side_is_unavailable() -> Result
     assert_ne!(patch_only.content_id(), file.content_id());
     Ok(())
 }
+
+#[test]
+fn renamed_from_ignores_an_unchanged_old_path() -> Result<(), Box<dyn Error>> {
+    let mut file = FileDiff::from_texts("new.rs", "a\n", "b\n")?;
+    assert_eq!(file.renamed_from(), None);
+    file.old_path = Some(RepoPath::new("new.rs")?);
+    assert_eq!(file.renamed_from(), None);
+    file.old_path = Some(RepoPath::new("old.rs")?);
+    assert_eq!(file.renamed_from().map(RepoPath::as_str), Some("old.rs"));
+    Ok(())
+}

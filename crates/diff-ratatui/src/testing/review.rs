@@ -162,6 +162,11 @@ impl ReviewHarness {
         buffer_row_text(self.buffer(), row)
     }
 
+    #[must_use]
+    pub fn row_containing(&self, text: &str) -> Option<u16> {
+        (0..self.buffer().area.height).find(|&row| self.row_text(row).contains(text))
+    }
+
     /// Asserts against rendered output and includes the complete buffer on failure.
     ///
     /// # Panics

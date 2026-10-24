@@ -2,54 +2,45 @@ use crate::{
     DiffViewer, ViewerPane,
     annotation::add_comment_button,
     comment_editor::CommentEditor,
-    style,
+    comments::{CommentCard, CommentComposer, CommentCount, CommentThread, comment_dismiss_button},
+    style::{self, stat_badges},
     ui::{
-        comments::{CommentCard, CommentComposer, CommentCount, comment_dismiss_button},
-        prelude::{Button, ButtonVariant, ControlSize, icon_button},
+        interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
+        prelude::{
+            Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography,
+            TypographyExt, rem,
+        },
+        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT},
     },
 };
 use clankerdiff_core::{
-    DiffReviewCommand, DiffSide, DiffTone, PresentedCell, PresentedRow, RevealAmount,
-    ReviewCommand, ReviewComment, RowKind,
+    DiffReviewCommand, DiffSide, DiffTone, FileDiff, GapInfo, PresentedCell, PresentedRow,
+    RevealAmount, ReviewCommand, ReviewComment, RowKind,
 };
 use gpui::{
-    AnyElement, Context, Div, DragMoveEvent, Empty, Entity, HighlightStyle, ListState, MouseButton,
-    MouseDownEvent, Pixels, SharedString, StyledText, Window, div, list, point, prelude::*, px,
+    Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString,
+    Stateful, StyledText, Window, div, list, prelude::*, px,
 };
-use std::cell::Cell;
 
-const CHANGE_INDICATOR_WIDTH: f32 = 5.0;
-const GUTTER_WIDTH: f32 = 54.0;
-const HEADER_HEIGHT: f32 = 52.0;
-const SCROLLBAR_WIDTH: f32 = 20.0;
-const MIN_THUMB_HEIGHT: f32 = 30.0;
+const CHANGE_INDICATOR_WIDTH: f32 = 4.0;
+const GUTTER_WIDTH: f32 = 52.0;
+const FILE_DIVIDER_HEIGHT: f32 = 40.0;
+const FILE_DIVIDER_INSET: f32 = 4.0;
+const WHEEL_ROWS_PER_LINE: f32 = 2.0;
 
-struct DiffScrollbarDrag {
-    thumb_offset: Cell<Pixels>,
-    list_state: ListState,
-    started: Cell<bool>,
-}
-
-impl DiffScrollbarDrag {
-    fn start(&self, thumb_offset: Pixels) {
-        self.thumb_offset.set(thumb_offset);
-        self.list_state.scrollbar_drag_started();
-        self.started.set(true);
-    }
-}
-
-impl Drop for DiffScrollbarDrag {
-    fn drop(&mut self) {
-        if self.started.get() {
-            self.list_state.scrollbar_drag_ended();
-        }
-    }
+#[derive(Clone, Copy)]
+enum FileDividerPlacement {
+    Inline,
+    Sticky,
 }
 
 impl DiffViewer {
     pub(crate) fn render_diff(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let palette = self.theme().diff.clone();
-        let Some(file_index) = self.selected_file() else {
+        self.sync_diff_list();
+        let list_state = self.diff_list_state.clone();
+        list_state.set_wheel_line_height(self.diff_row_height() * WHEEL_ROWS_PER_LINE);
+        let Some(file_index) = self.active_file() else {
             return div()
                 .debug_selector(|| "diff-pane".to_owned())
                 .flex_1()
@@ -60,203 +51,317 @@ impl DiffViewer {
                 .text_color(style::color(palette.muted))
                 .child("No changes to review");
         };
-        let file = &self.document().files[file_index];
-        let file_path = file.path.to_string();
-        let additions = file.additions();
-        let deletions = file.deletions();
-        let Some(file_range) = self.presentation().file_range(file_index) else {
-            return div().flex_1();
-        };
-        let start = file_range.start;
-        let row_count = file_range.len();
-        let split = self.layout().is_split();
-        let list_state = self.sync_diff_list(file_index, row_count, split);
         list_state.set_scroll_handler({
             let viewer = cx.entity().downgrade();
             move |_, _, cx| {
                 viewer.update(cx, |_, cx| cx.notify()).ok();
             }
         });
-        let scrollbar = self.render_scrollbar(&list_state, window, cx);
+        let scrollbar = ListScrollbar::new("diff-scrollbar", list_state.clone(), self.ui_theme());
+        let viewport = list_state.viewport_bounds();
+        let divider_height = self.file_divider_height();
+        let sticky_top = self
+            .presentation()
+            .file_range(file_index)
+            .and_then(|range| self.list_item(range.end))
+            .and_then(|next| list_state.bounds_for_item(next))
+            .map_or(px(0.0), |next| {
+                (next.top() - viewport.top() - divider_height).min(px(0.0))
+            });
+        let start = self.session().visible_range().start;
         let list = list(
             list_state,
             cx.processor(move |viewer, offset: usize, _window, cx| {
                 viewer.render_visible_row(start + offset, cx)
             }),
         )
-        .h_full()
-        .min_w_0()
-        .flex_1();
-
-        let source_label = self.session().source_view_label();
-        let header = div()
-            .h(px(HEADER_HEIGHT))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .px_4()
-            .border_b_1()
-            .border_color(style::color(palette.border))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .mr_2()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(file_path),
-            )
-            .child(self.render_font_controls(cx))
-            .children(source_label.map(|label| {
-                div()
-                    .debug_selector(|| "source-mode-header".to_owned())
-                    .text_color(style::color(palette.muted))
-                    .child(label)
-            }))
-            .when(source_label.is_none(), |header| {
-                header
-                    .child(
-                        div()
-                            .text_color(style::color(palette.addition))
-                            .child(format!("+{additions}")),
-                    )
-                    .child(
-                        div()
-                            .ml_2()
-                            .text_color(style::color(palette.deletion))
-                            .child(format!("−{deletions}")),
-                    )
-            });
+        .size_full();
 
         div()
             .debug_selector(|| "diff-pane".to_owned())
             .flex_1()
             .h_full()
-            .when(self.pane == ViewerPane::Diff, |pane| {
-                pane.border_l_1().border_color(style::color(palette.accent))
-            })
+            .when(
+                self.pane == ViewerPane::Diff && !self.sidebar_collapsed(),
+                |pane| pane.border_l_1().border_color(style::color(palette.accent)),
+            )
             .flex()
             .flex_col()
             .overflow_hidden()
-            .child(header)
+            .child(self.render_diff_toolbar(window, cx))
             .child(
                 div()
                     .flex_1()
                     .flex()
                     .overflow_hidden()
-                    .child(list)
-                    .children(scrollbar),
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(list)
+                            .child(div().absolute().top(sticky_top).left_0().right_0().child(
+                                self.render_file_divider(
+                                    file_index,
+                                    FileDividerPlacement::Sticky,
+                                    cx,
+                                ),
+                            )),
+                    )
+                    .child(scrollbar),
             )
     }
 
-    fn render_font_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn file_divider_height(&self) -> Pixels {
+        rem(FILE_DIVIDER_HEIGHT).to_pixels(self.rem_size())
+    }
+
+    fn render_diff_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> Div {
+        let palette = &self.theme().diff;
+        let files = &self.document().files;
+        let additions: usize = files.iter().map(FileDiff::additions).sum();
+        let deletions: usize = files.iter().map(FileDiff::deletions).sum();
+        let summary = match files.len() {
+            1 => "1 file changed".to_owned(),
+            count => format!("{count} files changed"),
+        };
+        div()
+            .h(rem(BAR_HEIGHT))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .border_b_1()
+            .border_color(style::color(palette.border))
+            .when(self.sidebar_collapsed(), |toolbar| {
+                toolbar.child(self.render_sidebar_toggle(cx))
+            })
+            .child(
+                div()
+                    .debug_selector(|| "diff-summary".to_owned())
+                    .min_w_0()
+                    .flex_1()
+                    .flex()
+                    .gap_2()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(div().typography(Typography::BodyStrong).child(summary))
+                    .children(stat_badges(palette, additions, deletions)),
+            )
+            .children(self.render_collapse_all_button(cx))
+            .child(self.render_interface_size_controls(window, cx))
+    }
+
+    fn render_collapse_all_button(&self, cx: &mut Context<Self>) -> Option<IconButton> {
+        if self.document().files.is_empty() || self.session().source_view().is_some() {
+            return None;
+        }
+        let (icon, label) = if self.session().all_files_collapsed() {
+            (IconName::ChevronsUpDown, "Expand all files")
+        } else {
+            (IconName::ChevronsDownUp, "Collapse all files")
+        };
+        Some(
+            IconButton::new("toggle-all-files-collapsed", icon, label, self.ui_theme()).on_click(
+                cx.listener(|viewer, _, window, cx| {
+                    viewer.handle_command(DiffReviewCommand::ToggleAllFilesCollapsed, window, cx);
+                }),
+            ),
+        )
+    }
+
+    fn render_file_chevron(&self, file_index: usize, cx: &mut Context<Self>) -> IconButton {
+        let (icon, label) = if self.session().is_file_collapsed(file_index) {
+            (IconName::ChevronRight, "Expand file")
+        } else {
+            (IconName::ChevronDown, "Collapse file")
+        };
+        IconButton::new(
+            format!("diff-file-collapse:{file_index}"),
+            icon,
+            label,
+            self.ui_theme(),
+        )
+        .on_click(cx.listener(move |viewer, _, window, cx| {
+            cx.stop_propagation();
+            viewer.handle_command(
+                DiffReviewCommand::ToggleFileCollapsed(Some(file_index)),
+                window,
+                cx,
+            );
+        }))
+    }
+
+    fn file_header_selected(&self, file_index: usize) -> bool {
+        self.pane == ViewerPane::Diff
+            && self.session().selected_row()
+                == self
+                    .presentation()
+                    .file_range(file_index)
+                    .map(|range| range.start)
+    }
+
+    fn collapsed_comment_count(&self, file_index: usize) -> usize {
+        if !self.session().is_file_collapsed(file_index) {
+            return 0;
+        }
+        let path = &self.document().files[file_index].path;
+        self.review()
+            .comments()
+            .iter()
+            .filter(|comment| &comment.anchor.path == path)
+            .count()
+    }
+
+    fn render_file_divider(
+        &self,
+        file_index: usize,
+        placement: FileDividerPlacement,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let palette = &self.theme().diff;
+        let surface = self.theme().ui.surface;
+        let file = &self.document().files[file_index];
+        let selected = self.file_header_selected(file_index);
+        let comments = self.collapsed_comment_count(file_index);
+        let directory = file
+            .path
+            .directory()
+            .map(|directory| format!("{directory}/"));
+        let renamed_from = file.renamed_from().map(|old| format!("← {old}"));
+        let source_label = self.session().source_view_label();
+        let (id, selector) = match placement {
+            FileDividerPlacement::Inline => ("diff-file-header", "diff-file-header"),
+            FileDividerPlacement::Sticky => ("diff-sticky-file-header", "diff-active-file"),
+        };
+        div()
+            .id((id, file_index))
+            .debug_selector(move || format!("{selector}:{file_index}"))
+            .h(rem(FILE_DIVIDER_HEIGHT))
+            .w_full()
+            .px_2()
+            .py(rem(FILE_DIVIDER_INSET))
+            .bg(style::color(palette.background))
+            .cursor_pointer()
+            .on_click(cx.listener(move |viewer, _, window, cx| {
+                viewer.handle_command(DiffReviewCommand::SelectFile(file_index), window, cx);
+            }))
+            .child(
+                div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(style::color(if selected {
+                        palette.accent
+                    } else {
+                        palette.border
+                    }))
+                    .bg(style::color(surface))
+                    .typography(Typography::Body)
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .when(source_label.is_none(), |bar| {
+                        bar.child(self.render_file_chevron(file_index, cx))
+                    })
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .typography(Typography::Code)
+                            .text_color(style::color(style::file_status_color(
+                                file.status,
+                                palette,
+                            )))
+                            .child(file.status.code().to_string()),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .typography(Typography::BodyStrong)
+                            .text_color(style::color(palette.foreground))
+                            .child(file.path.file_name().to_owned()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .flex()
+                            .gap_2()
+                            .overflow_hidden()
+                            .text_color(style::color(palette.muted))
+                            .children(directory)
+                            .children(renamed_from),
+                    )
+                    .children(source_label.map(|label| {
+                        div()
+                            .debug_selector(|| "source-mode-header".to_owned())
+                            .flex_shrink_0()
+                            .text_color(style::color(palette.muted))
+                            .child(label)
+                    }))
+                    .when(source_label.is_none(), |bar| {
+                        bar.children(stat_badges(palette, file.additions(), file.deletions()))
+                    })
+                    .when(comments != 0, |bar| {
+                        bar.child(
+                            div()
+                                .debug_selector(move || {
+                                    format!("diff-file-comment-count:{file_index}")
+                                })
+                                .flex_shrink_0()
+                                .child(CommentCount::new(comments, &self.ui_theme())),
+                        )
+                    }),
+            )
+    }
+
+    fn render_interface_size_controls(&self, window: &Window, _cx: &mut Context<Self>) -> Div {
         let theme = self.ui_theme();
         div()
-            .mr_4()
             .flex()
             .items_center()
             .gap_1()
-            .text_size(px(self.metadata_font_size()))
             .child(
-                icon_button("decrease-font-size", "A−", "Decrease font size", theme)
-                    .on_click(cx.listener(|viewer, _, _, cx| viewer.adjust_font_size(-1.0, cx))),
-            )
-            .child(
-                Button::new("reset-font-size", format!("{:.0}", self.font_size()), theme)
-                    .variant(ButtonVariant::Secondary)
-                    .size(ControlSize::Small)
-                    .aria_label("Reset font size")
-                    .on_click(cx.listener(|viewer, _, _, cx| viewer.reset_font_size(cx))),
-            )
-            .child(
-                icon_button("increase-font-size", "A+", "Increase font size", theme)
-                    .on_click(cx.listener(|viewer, _, _, cx| viewer.adjust_font_size(1.0, cx))),
-            )
-    }
-
-    fn render_scrollbar(
-        &self,
-        list_state: &ListState,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let max_offset = list_state.max_offset_for_scrollbar().y;
-        let viewport_height = list_state.viewport_bounds().size.height;
-        if viewport_height <= px(0.0) {
-            if list_state.item_count() != 0 {
-                cx.on_next_frame(window, |_, _, cx| cx.notify());
-            }
-            return None;
-        }
-        if max_offset <= px(0.0) {
-            return None;
-        }
-
-        let current_offset = -list_state.scroll_px_offset_for_scrollbar().y;
-        let thumb_height = scrollbar_thumb_height(viewport_height);
-        let track_space = viewport_height - thumb_height;
-        let scroll_fraction = (current_offset / max_offset).clamp(0.0, 1.0);
-        let thumb_top = track_space * scroll_fraction;
-        let palette = &self.theme().diff;
-        let drag = DiffScrollbarDrag {
-            thumb_offset: Cell::new(px(0.0)),
-            list_state: list_state.clone(),
-            started: Cell::new(false),
-        };
-
-        let click_state = list_state.clone();
-        let drag_state = list_state.clone();
-        Some(
-            div()
-                .id("diff-scrollbar")
-                .w(px(SCROLLBAR_WIDTH))
-                .h_full()
-                .flex_shrink_0()
-                .relative()
-                .bg(style::color(palette.background))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |_, event: &MouseDownEvent, _, cx| {
-                        set_scrollbar_from_pointer(
-                            &click_state,
-                            event.position.y,
-                            thumb_height / 2.0,
-                        );
-                        cx.stop_propagation();
-                        cx.notify();
-                    }),
+                IconButton::new(
+                    "decrease-interface-size",
+                    IconName::Minus,
+                    "Decrease interface size",
+                    theme,
                 )
-                .on_drag_move(cx.listener(
-                    move |_, event: &DragMoveEvent<DiffScrollbarDrag>, _, cx| {
-                        let thumb_offset = event.drag(cx).thumb_offset.get();
-                        set_scrollbar_from_pointer(
-                            &drag_state,
-                            event.event.position.y,
-                            thumb_offset,
-                        );
-                        cx.notify();
-                    },
-                ))
-                .child(
-                    div()
-                        .id("diff-scrollbar-thumb")
-                        .absolute()
-                        .top(thumb_top)
-                        .w_full()
-                        .h(thumb_height)
-                        .rounded_sm()
-                        .cursor_pointer()
-                        .bg(style::color(palette.muted))
-                        .hover(|thumb| thumb.bg(style::color(palette.accent)))
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_drag(drag, |drag, click_offset, _, cx| {
-                            drag.start(click_offset.y);
-                            cx.new(|_| Empty)
-                        }),
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(DecreaseInterfaceSize.boxed_clone(), cx);
+                }),
+            )
+            .child(
+                Button::new(
+                    "reset-interface-size",
+                    format!("{:.0}", f32::from(window.rem_size())),
+                    theme,
                 )
-                .into_any_element(),
-        )
+                .variant(ButtonVariant::Secondary)
+                .size(ControlSize::Small)
+                .aria_label("Reset interface size")
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(ResetInterfaceSize.boxed_clone(), cx);
+                }),
+            )
+            .child(
+                IconButton::new(
+                    "increase-interface-size",
+                    IconName::Plus,
+                    "Increase interface size",
+                    theme,
+                )
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(IncreaseInterfaceSize.boxed_clone(), cx);
+                }),
+            )
     }
 
     fn render_visible_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -266,6 +371,107 @@ impl DiffViewer {
         self.render_presented_row(index, &row, cx)
     }
 
+    fn render_gap_row(
+        &self,
+        index: usize,
+        row: &PresentedRow,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let palette = &self.theme().diff;
+        let info = self.presentation().gap_info(index);
+        let expandable = info.is_some_and(GapInfo::is_expandable);
+        let selected =
+            self.pane == ViewerPane::Diff && self.session().selected_row() == Some(index);
+        let line_color = style::color(if selected {
+            palette.accent
+        } else {
+            palette.border
+        });
+        let line = || div().h(px(1.0)).bg(line_color);
+        div()
+            .id(("diff-row", row.id.0))
+            .debug_selector(move || format!("diff-gap:{index}"))
+            .h(rem(CODE_ROW_HEIGHT))
+            .w_full()
+            .flex()
+            .items_center()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |viewer, _, window, cx| {
+                    viewer.handle_command(DiffReviewCommand::SelectRow(index), window, cx);
+                }),
+            )
+            .child(
+                div()
+                    .w(rem(CHANGE_INDICATOR_WIDTH + GUTTER_WIDTH))
+                    .flex_shrink_0()
+                    .flex()
+                    .justify_center()
+                    .when(expandable, |gutter| {
+                        gutter.child(
+                            IconButton::new(
+                                ("diff-gap-expand", index),
+                                IconName::ChevronsUpDown,
+                                info.map_or_else(
+                                    || "Expand unchanged lines".to_owned(),
+                                    GapInfo::message,
+                                ),
+                                self.ui_theme(),
+                            )
+                            .on_click(cx.listener(
+                                move |viewer, _, window, cx| {
+                                    if viewer.handle_command(
+                                        DiffReviewCommand::SelectRow(index),
+                                        window,
+                                        cx,
+                                    ) {
+                                        viewer.handle_command(
+                                            DiffReviewCommand::RevealGap(RevealAmount::Step),
+                                            window,
+                                            cx,
+                                        );
+                                    }
+                                },
+                            )),
+                        )
+                    }),
+            )
+            .when_some(info.filter(|_| selected), |gap, info| {
+                gap.child(line().w(rem(12.0)).flex_shrink_0()).child(
+                    div()
+                        .px_2()
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .typography(Typography::Caption)
+                        .text_color(style::color(palette.muted))
+                        .child(info.hint()),
+                )
+            })
+            .child(line().flex_1())
+            .into_any_element()
+    }
+
+    fn render_meta_row(&self, row: &PresentedRow) -> AnyElement {
+        let palette = &self.theme().diff;
+        let text: SharedString = row
+            .primary_cell()
+            .map_or_else(SharedString::default, |cell| cell.text.to_string().into());
+        div()
+            .id(("diff-row", row.id.0))
+            .h(rem(CODE_ROW_HEIGHT))
+            .w_full()
+            .flex()
+            .items_center()
+            .px_3()
+            .typography(Typography::Code)
+            .bg(style::color(palette.selection))
+            .border_b_1()
+            .border_color(style::color(palette.border))
+            .text_color(style::color(palette.accent))
+            .child(text)
+            .into_any_element()
+    }
+
     #[allow(clippy::too_many_lines)]
     fn render_presented_row(
         &mut self,
@@ -273,56 +479,16 @@ impl DiffViewer {
         row: &PresentedRow,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let palette = self.theme().diff.clone();
-        let row_height = px(self.diff_row_height());
-        if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
-            let text: SharedString = if row.kind == RowKind::ExpandGap {
-                self.presentation().gap_info(index).map_or_else(
-                    || "⋯ unchanged lines".into(),
-                    |info| {
-                        let message = if info.unavailable.is_none() {
-                            format!("{} — Enter expand · O expand all", info.message())
-                        } else {
-                            info.message()
-                        };
-                        message.into()
-                    },
-                )
-            } else {
-                row.primary_cell()
-                    .map_or_else(SharedString::default, |cell| cell.text.to_string().into())
-            };
-            return div()
-                .id(("diff-row", row.id.0))
-                .h(row_height)
-                .w_full()
-                .flex()
-                .items_center()
-                .px_3()
-                .bg(style::color(palette.selection))
-                .border_b_1()
-                .border_color(style::color(palette.border))
-                .text_color(style::color(palette.accent))
-                .when(row.kind == RowKind::ExpandGap, |element| {
-                    element.cursor_pointer().on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |viewer, _, window, cx| {
-                            if viewer.handle_command(
-                                DiffReviewCommand::SelectRow(index),
-                                window,
-                                cx,
-                            ) {
-                                viewer.handle_command(
-                                    DiffReviewCommand::RevealGap(RevealAmount::Step),
-                                    window,
-                                    cx,
-                                );
-                            }
-                        }),
-                    )
-                })
-                .child(text)
-                .into_any_element();
+        let row_height = rem(CODE_ROW_HEIGHT);
+        match row.kind {
+            RowKind::FileHeader => {
+                return self
+                    .render_file_divider(row.file_index, FileDividerPlacement::Inline, cx)
+                    .into_any_element();
+            }
+            RowKind::ExpandGap => return self.render_gap_row(index, row, cx),
+            RowKind::Meta => return self.render_meta_row(row),
+            RowKind::Code | RowKind::ExpandedContext => {}
         }
 
         let split = self.layout().is_split();
@@ -402,7 +568,7 @@ impl DiffViewer {
         let Some(cell) = cell else {
             return div()
                 .w_1_2()
-                .min_h(px(self.diff_row_height()))
+                .min_h(rem(CODE_ROW_HEIGHT))
                 .bg(style::color(palette.background))
                 .when(left, |value| value.border_r_1().border_color(border_color))
                 .into_any_element();
@@ -427,7 +593,8 @@ impl DiffViewer {
             .group(hover_group.clone())
             .when(split, gpui::Styled::w_1_2)
             .when(!split, gpui::Styled::w_full)
-            .min_h(px(self.diff_row_height()))
+            .min_h(rem(CODE_ROW_HEIGHT))
+            .typography(Typography::Code)
             .flex()
             .items_start()
             .overflow_hidden()
@@ -454,8 +621,8 @@ impl DiffViewer {
         element
             .child(
                 div()
-                    .w(px(CHANGE_INDICATOR_WIDTH))
-                    .min_h(px(self.diff_row_height()))
+                    .w(rem(CHANGE_INDICATOR_WIDTH))
+                    .min_h(rem(CODE_ROW_HEIGHT))
                     .self_stretch()
                     .flex_shrink_0()
                     .when_some(indicator_color, |indicator, color| {
@@ -472,11 +639,7 @@ impl DiffViewer {
                     .child(styled),
             )
             .when(comments != 0, |value| {
-                value.child(CommentCount::new(
-                    comments,
-                    self.metadata_font_size(),
-                    &self.ui_theme(),
-                ))
+                value.child(CommentCount::new(comments, &self.ui_theme()))
             })
             .into_any_element()
     }
@@ -497,8 +660,8 @@ impl DiffViewer {
             DiffTone::Context | DiffTone::Meta => palette.gutter,
         };
         div()
-            .w(px(GUTTER_WIDTH))
-            .min_h(px(20.0))
+            .w(rem(GUTTER_WIDTH))
+            .min_h(rem(CODE_ROW_HEIGHT))
             .flex_shrink_0()
             .relative()
             .text_color(style::color(foreground))
@@ -596,51 +759,38 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let palette = self.theme().diff.clone();
-        let last_comment = comments.len().saturating_sub(1);
+        let theme = self.ui_theme();
+        let cards = comments.into_iter().map(|comment| {
+            let side = if comment.anchor.side == DiffSide::Old {
+                "old"
+            } else {
+                "new"
+            };
+            let line = comment
+                .anchor
+                .line_number()
+                .map_or_else(|| "line".to_owned(), |line| format!("line {line}"));
+            CommentCard::new(
+                comment.id,
+                format!("Your comment on {side} {line}"),
+                comment.body,
+                &theme,
+            )
+            .header_actions(comment_dismiss_button(
+                comment.id,
+                &theme,
+                cx,
+                move |viewer, window, cx| {
+                    viewer.dismiss_comment(comment.id, window, cx);
+                },
+            ))
+        });
         div()
-            .id(("comment-thread", index))
             .w_full()
             .px_3()
             .pb_3()
             .bg(style::color(palette.background))
-            .child(
-                div()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(style::color(palette.border))
-                    .overflow_hidden()
-                    .children(comments.into_iter().enumerate().map(|(offset, comment)| {
-                        let side = if comment.anchor.side == DiffSide::Old {
-                            "old"
-                        } else {
-                            "new"
-                        };
-                        let line = comment
-                            .anchor
-                            .line_number()
-                            .map_or_else(|| "line".to_owned(), |line| format!("line {line}"));
-                        CommentCard::new(
-                            comment.id,
-                            format!("Your comment on {side} {line}"),
-                            comment.body,
-                            self.metadata_font_size(),
-                            &self.ui_theme(),
-                            offset == last_comment,
-                        )
-                        .header_actions(comment_dismiss_button(
-                            comment.id,
-                            self.font_size(),
-                            &self.ui_theme(),
-                            cx,
-                            move |viewer, window, cx| {
-                                viewer.dismiss_comment(comment.id, window, cx);
-                            },
-                        ))
-                    })),
-            )
+            .child(CommentThread::new(("comment-thread", index), &theme).cards(cards))
             .into_any_element()
     }
 
@@ -658,34 +808,25 @@ impl DiffViewer {
             .and_then(PresentedCell::line_number)
             .map_or_else(|| "line".to_owned(), |number| format!("line {number}"));
         let side_label = if side == DiffSide::Old { "old" } else { "new" };
-        let can_submit = !editor.read(cx).is_blank();
-        let theme = self.ui_theme();
-        let cancel_button = Button::new(("cancel-comment", index), "Cancel", theme)
-            .size(ControlSize::Small)
-            .on_click(cx.listener(|viewer, _, window, cx| {
-                viewer.handle_command(ReviewCommand::Cancel, window, cx);
-            }));
-        let submit_button = Button::new(("submit-comment", index), "Add comment", theme)
-            .variant(ButtonVariant::Primary)
-            .size(ControlSize::Small)
-            .disabled(!can_submit)
-            .on_click(cx.listener(|viewer, _, window, cx| {
-                viewer.handle_command(ReviewCommand::SubmitComment, window, cx);
-            }));
-
         div()
             .id(("comment-dialog", index))
             .w_full()
             .px_3()
             .pb_3()
             .bg(style::color(palette.background))
-            .child(CommentComposer::new(
-                editor,
-                format!("Add a comment on {side_label} {line}"),
-                &theme,
-                cancel_button,
-                submit_button,
-            ))
+            .child(
+                CommentComposer::new(
+                    editor,
+                    format!("Add a comment on {side_label} {line}"),
+                    &self.ui_theme(),
+                )
+                .on_cancel(cx.listener(|viewer, _, window, cx| {
+                    viewer.handle_command(ReviewCommand::Cancel, window, cx);
+                }))
+                .on_submit(cx.listener(|viewer, _, window, cx| {
+                    viewer.handle_command(ReviewCommand::SubmitComment, window, cx);
+                })),
+            )
             .into_any_element()
     }
 
@@ -700,56 +841,10 @@ impl DiffViewer {
     }
 }
 
-fn scrollbar_thumb_height(viewport_height: Pixels) -> Pixels {
-    // Variable-list content height is estimated until every row has been measured. A fixed thumb
-    // avoids visibly shrinking as wrapped rows are discovered while preserving useful drag space.
-    px(MIN_THUMB_HEIGHT).min(viewport_height / 2.0)
-}
-
-fn set_scrollbar_from_pointer(list_state: &ListState, pointer_y: Pixels, thumb_offset: Pixels) {
-    let viewport = list_state.viewport_bounds();
-    let max_offset = list_state.max_offset_for_scrollbar().y;
-    let thumb_height = scrollbar_thumb_height(viewport.size.height);
-    let track_space = viewport.size.height - thumb_height;
-    if max_offset <= px(0.0) || track_space <= px(0.0) {
-        return;
-    }
-
-    let thumb_top = (pointer_y - viewport.origin.y - thumb_offset).clamp(px(0.0), track_space);
-    list_state.set_offset_from_scrollbar(point(px(0.0), -max_offset * (thumb_top / track_space)));
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use clankerdiff_core::testing::DocumentBuilder;
-
-    #[test]
-    fn scrollbar_drag_releases_frozen_height_on_drop() {
-        let list_state = ListState::new(10, gpui::ListAlignment::Top, px(0.0));
-        let drag = DiffScrollbarDrag {
-            thumb_offset: Cell::new(px(0.0)),
-            list_state: list_state.clone(),
-            started: Cell::new(false),
-        };
-
-        drag.start(px(4.0));
-        assert!(list_state.is_scrollbar_dragging());
-        assert_eq!(drag.thumb_offset.get(), px(4.0));
-
-        drop(drag);
-        assert!(!list_state.is_scrollbar_dragging());
-    }
-
-    #[test]
-    fn scrollbar_thumb_stays_stable_while_rows_are_measured() {
-        assert_eq!(scrollbar_thumb_height(px(100.0)), px(30.0));
-    }
-
-    #[test]
-    fn scrollbar_thumb_leaves_drag_space_in_a_short_viewport() {
-        assert_eq!(scrollbar_thumb_height(px(20.0)), px(10.0));
-    }
 
     #[test]
     fn submitted_comments_remain_attached_to_their_row() {

@@ -1,19 +1,13 @@
 //! Conversion from renderer-neutral diff styles to GPUI styles.
 
-use clankerdiff_theme::{FontStyle, Rgba};
-use gpui::{FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, Hsla, UnderlineStyle, px};
-
-/// Converts a renderer-neutral sRGB color to GPUI's HSLA color.
-#[must_use]
-pub fn color(value: Rgba) -> Hsla {
-    gpui::rgba(
-        (u32::from(value.r) << 24)
-            | (u32::from(value.g) << 16)
-            | (u32::from(value.b) << 8)
-            | u32::from(value.a),
-    )
-    .into()
-}
+use crate::ui::typography::{Typography, TypographyExt};
+use clankerdiff_core::FileStatus;
+pub(crate) use clankerdiff_gpui_ui::theme::color;
+use clankerdiff_theme::{DiffPalette, FontStyle, Rgba};
+use gpui::{
+    Div, FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, ParentElement, Styled,
+    UnderlineStyle, div, px,
+};
 
 /// Converts a syntax-highlight modifier and color to a GPUI highlight style.
 #[must_use]
@@ -29,4 +23,28 @@ pub fn highlight_style(foreground: Rgba, style: FontStyle) -> HighlightStyle {
         }),
         ..Default::default()
     }
+}
+
+pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette) -> Rgba {
+    match status {
+        FileStatus::Added | FileStatus::Untracked => palette.addition,
+        FileStatus::Deleted => palette.deletion,
+        FileStatus::Modified | FileStatus::Renamed | FileStatus::Copied => palette.accent,
+    }
+}
+
+#[must_use]
+pub fn stat_badges(palette: &DiffPalette, additions: usize, deletions: usize) -> [Div; 2] {
+    [
+        div()
+            .flex_shrink_0()
+            .typography(Typography::Code)
+            .text_color(color(palette.addition))
+            .child(format!("+{additions}")),
+        div()
+            .flex_shrink_0()
+            .typography(Typography::Code)
+            .text_color(color(palette.deletion))
+            .child(format!("−{deletions}")),
+    ]
 }

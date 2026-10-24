@@ -59,6 +59,13 @@ impl ThemeSelection {
     }
 
     #[must_use]
+    pub fn position(&self, id: &str) -> Option<usize> {
+        self.themes
+            .iter()
+            .position(|choice| choice.theme.id().to_string() == id)
+    }
+
+    #[must_use]
     pub const fn selected(&self) -> usize {
         self.selected
     }

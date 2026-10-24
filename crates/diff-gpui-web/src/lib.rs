@@ -235,13 +235,16 @@ mod wasm {
     };
     use clankerdiff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
-        load_default_fonts,
+        ui::{
+            InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE,
+            prelude::UI_FONT,
+        },
     };
     use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
     use clankerdiff_theme::ReviewTheme;
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
-        Window, WindowBounds, WindowOptions, prelude::*, px, size,
+        Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
     };
     use std::{
         cell::{Cell, RefCell},
@@ -636,11 +639,15 @@ mod wasm {
     }
 
     impl Render for WebRoot {
-        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-            self.markdown.as_ref().map_or_else(
-                || self.viewer.clone().into_any_element(),
-                |reviewer| reviewer.clone().into_any_element(),
-            )
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            InterfaceSize::apply(window, cx);
+            div()
+                .size_full()
+                .font_family(UI_FONT)
+                .child(self.markdown.as_ref().map_or_else(
+                    || self.viewer.clone().into_any_element(),
+                    |reviewer| reviewer.clone().into_any_element(),
+                ))
         }
     }
 
@@ -852,7 +859,8 @@ mod wasm {
         install_host_event_listeners()?;
 
         let application = single_threaded_web().run_embedded(move |cx: &mut App| {
-            load_default_fonts(cx).expect("failed to load the bundled fonts");
+            load_fonts(cx).expect("failed to load the bundled fonts");
+            InterfaceSize::init(DEFAULT_INTERFACE_SIZE, cx);
             DiffViewer::bind_keys(cx);
             MarkdownReviewer::bind_keys(cx);
             let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);

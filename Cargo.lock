@@ -1929,7 +1929,9 @@ dependencies = [
 name = "clankerdiff-gpui"
 version = "0.3.3"
 dependencies = [
+ "clankerdiff-client",
  "clankerdiff-core",
+ "clankerdiff-gpui-ui",
  "clankerdiff-markdown",
  "clankerdiff-syntax",
  "clankerdiff-theme",
@@ -1945,20 +1947,41 @@ dependencies = [
  "clankerdiff-client",
  "clankerdiff-core",
  "clankerdiff-gpui",
+ "clankerdiff-gpui-shell",
  "clankerdiff-markdown",
  "clankerdiff-server",
  "clankerdiff-theme",
  "gpui-base",
  "gpui-pre",
  "gpui-pre-platform",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
  "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "clankerdiff-gpui-shell"
+version = "0.3.3"
+dependencies = [
+ "gpui-base",
+ "gpui-pre",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "tokio",
+]
+
+[[package]]
+name = "clankerdiff-gpui-ui"
+version = "0.3.3"
+dependencies = [
+ "clankerdiff-theme",
+ "gpui-base",
+ "gpui-pre",
+ "nucleo-matcher",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5400,6 +5423,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nucleo-matcher"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf33f538733d1a5a3494b836ba913207f14d9d4a1d3cd67030c5061bdd2cac85"
+dependencies = [
+ "memchr",
+ "unicode-segmentation",
 ]
 
 [[package]]

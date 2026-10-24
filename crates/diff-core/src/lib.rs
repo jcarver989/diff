@@ -2,6 +2,7 @@ pub mod anchor;
 pub mod commands;
 pub mod content;
 pub mod error;
+pub mod file_tree;
 pub mod models;
 pub mod parser;
 pub mod patch;
@@ -23,23 +24,24 @@ pub use content::{
     SourceResult, SourceUnavailable,
 };
 pub use error::{DiffError, ParseDiffScopeError, RepoPathError};
+pub use file_tree::{FileTree, FileTreeEntry, tree_order};
 pub use models as model;
 pub use models::{
     DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange, PatchLine,
     PatchLineKind, RepoPath, StageState,
 };
 pub use parser::{
-    GitStatusEntry, UntrackedFile, parse_git_diff, parse_git_diff_with_path_mapper,
-    parse_porcelain_v1_z,
+    GitStatusEntry, UntrackedFile, parse_detached_git_diff, parse_git_diff,
+    parse_git_diff_with_path_mapper, parse_porcelain_v1_z,
 };
 pub use patch::{PatchError, git_patch_from_texts};
 pub use presentation::{
     CellContext, ContentProjection, DiffPresentation, DiffTone, GapExpansion, GapId, GapInfo,
     GapInterval, HunkSequence, Layout, MAX_HUNK_SEQUENCE_LINES, PresentationOptions, PresentedCell,
-    PresentedRow, RowId, RowKind, ViewMode, gaps_for_file,
+    PresentedRow, RowId, RowKind, ViewMode, ViewportAnchor, gaps_for_file,
 };
 pub use review::{
     AgentFeedbackOptions, CommentContext, DiffReviewEvent, RepositoryAction, Review, ReviewComment,
     ReviewSubmission, format_review,
 };
-pub use session::{CommentDraft, RevealAmount, ReviewSession, SessionOptions};
+pub use session::{CommentDraft, RevealAmount, ReviewSession};

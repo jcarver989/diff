@@ -6,50 +6,112 @@
 
 use crate::{
     DiffViewer, DiffViewerEvent, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions,
+    ui::{InterfaceSize, testing::WindowDriver, tokens::BASE_SIZE},
 };
 use clankerdiff_core::{
     DiffDocument, DiffReviewCommand, Review, ReviewCommand, ViewMode, testing::DocumentBuilder,
 };
 use clankerdiff_markdown::{
-    MarkdownDocument, MarkdownReview, MarkdownReviewCommand, MarkdownTargetId,
+    MarkdownDocument, MarkdownReview, MarkdownReviewCommand, MarkdownReviewEvent, MarkdownTargetId,
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    Action, AnyWindowHandle, App, Bounds, Context, ElementInputHandler, Entity, Focusable,
-    InputEvent, InputHandler, KeyDownEvent, KeyUpEvent, Keystroke, ListOffset, Modifiers, Pixels,
-    Point, Render, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext,
-    Window, WindowBounds, WindowHandle, WindowOptions, div, point, prelude::*, px, size,
+    App, Bounds, Context, ElementInputHandler, Entity, EventEmitter, Focusable, InputHandler,
+    ListOffset, Pixels, Render, TestAppContext, Window, WindowBounds, WindowHandle, WindowOptions,
+    div, point, prelude::*, px, size,
 };
 use gpui_base::input::TextareaState;
-use std::{error::Error, sync::Arc};
+use std::{error::Error, ops::Deref, sync::Arc};
 
-struct HarnessRoot {
-    viewer: Entity<DiffViewer>,
-    events: Vec<DiffViewerEvent>,
+struct HarnessRoot<T: 'static, U: 'static> {
+    view: Entity<T>,
+    events: Vec<U>,
 }
 
-impl HarnessRoot {
-    fn new(
-        document: Arc<DiffDocument>,
-        theme: ReviewTheme,
-        options: DiffViewerOptions,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let viewer = cx.new(|_| DiffViewer::with_options(document, theme, options));
-        cx.subscribe(&viewer, |root, _, event: &DiffViewerEvent, _| {
-            root.events.push(event.clone());
-        })
-        .detach();
-        Self {
-            viewer,
-            events: Vec::new(),
+impl<T: Render + EventEmitter<U>, U: Clone + 'static> HarnessRoot<T, U> {
+    fn open(
+        cx: &mut TestAppContext,
+        window_options: WindowOptions,
+        view: impl FnOnce() -> T,
+    ) -> Harness<T, U> {
+        let window = cx.update(|cx| {
+            cx.open_window(window_options, |_, cx| {
+                cx.new(|cx| {
+                    let view = cx.new(|_| view());
+                    cx.subscribe(&view, |root: &mut Self, _, event: &U, _| {
+                        root.events.push(event.clone());
+                    })
+                    .detach();
+                    Self {
+                        view,
+                        events: Vec::new(),
+                    }
+                })
+            })
+            .expect("open GPUI test window")
+        });
+        cx.run_until_parked();
+        let view = window
+            .read_with(cx, |root, _| root.view.clone())
+            .expect("read GPUI test root");
+        Harness {
+            driver: WindowDriver::new(window),
+            window,
+            view,
         }
     }
 }
 
-impl Render for HarnessRoot {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().child(self.viewer.clone())
+impl<T: Render, U: 'static> Render for HarnessRoot<T, U> {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        InterfaceSize::apply(window, cx);
+        div().size_full().child(self.view.clone())
+    }
+}
+
+/// A high-level integration harness around a rendered GPUI view and the host events it emits.
+pub struct Harness<T: 'static, U: 'static> {
+    driver: WindowDriver,
+    window: WindowHandle<HarnessRoot<T, U>>,
+    view: Entity<T>,
+}
+
+pub type DiffViewerHarness = Harness<DiffViewer, DiffViewerEvent>;
+pub type MarkdownReviewerHarness = Harness<MarkdownReviewer, MarkdownReviewEvent>;
+
+impl<T, U> Deref for Harness<T, U> {
+    type Target = WindowDriver;
+
+    fn deref(&self) -> &WindowDriver {
+        &self.driver
+    }
+}
+
+impl<T: Render, U: Clone + 'static> Harness<T, U> {
+    /// Returns the host events recorded by the rendered view.
+    ///
+    /// # Panics
+    ///
+    /// Panics if GPUI cannot read the test window.
+    #[must_use]
+    pub fn events(&self, cx: &TestAppContext) -> Vec<U> {
+        self.window
+            .read_with(cx, |root, _| root.events.clone())
+            .expect("read recorded GPUI events")
+    }
+
+    /// Reads the view while keeping GPUI context plumbing inside the harness.
+    pub fn read<V>(&self, cx: &TestAppContext, read: impl FnOnce(&T, &App) -> V) -> V {
+        self.view.read_with(cx, read)
+    }
+
+    /// Updates the view while keeping GPUI context plumbing inside the harness.
+    pub fn update<V>(
+        &self,
+        cx: &mut TestAppContext,
+        update: impl FnOnce(&mut T, &mut Context<T>) -> V,
+    ) -> V {
+        self.view.update(cx, update)
     }
 }
 
@@ -74,6 +136,7 @@ pub struct DiffViewerHarnessBuilder {
     pub window_options: WindowOptions,
     pub comments: Vec<String>,
     pub view_mode: Option<ViewMode>,
+    pub interface_size: f32,
 }
 
 impl Default for DiffViewerHarnessBuilder {
@@ -87,6 +150,7 @@ impl Default for DiffViewerHarnessBuilder {
             window_options: WindowOptions::default(),
             comments: Vec::new(),
             view_mode: None,
+            interface_size: BASE_SIZE,
         }
     }
 }
@@ -106,10 +170,7 @@ impl DiffViewerHarnessBuilder {
 
     #[must_use]
     pub fn with_window_size(mut self, width: f32, height: f32) -> Self {
-        self.window_options.window_bounds = Some(WindowBounds::Windowed(Bounds::new(
-            point(px(0.0), px(0.0)),
-            size(px(width), px(height)),
-        )));
+        self.window_options.window_bounds = Some(window_bounds(width, height));
         self
     }
 
@@ -136,18 +197,12 @@ impl DiffViewerHarnessBuilder {
             window_options,
             comments,
             view_mode,
+            interface_size,
         } = self;
-        let window = cx.update(|cx| {
-            cx.open_window(window_options, |_, cx| {
-                cx.new(|cx| HarnessRoot::new(document, theme, options, cx))
-            })
-            .expect("open GPUI test window")
+        cx.update(|cx| InterfaceSize::init(interface_size, cx));
+        let harness = HarnessRoot::open(cx, window_options, move || {
+            DiffViewer::with_options(document, theme, options)
         });
-        cx.run_until_parked();
-        let viewer = window
-            .read_with(cx, |root, _| root.viewer.clone())
-            .expect("read GPUI test root");
-        let harness = DiffViewerHarness { window, viewer };
         if let Some(mode) = view_mode {
             harness.update(cx, |viewer, cx| viewer.set_view_mode(mode, cx));
         }
@@ -159,32 +214,10 @@ impl DiffViewerHarnessBuilder {
     }
 }
 
-/// A high-level integration harness around a rendered GPUI diff viewer.
-pub struct DiffViewerHarness {
-    window: WindowHandle<HarnessRoot>,
-    viewer: Entity<DiffViewer>,
-}
-
 impl DiffViewerHarness {
     #[must_use]
     pub fn viewer(&self) -> Entity<DiffViewer> {
-        self.viewer.clone()
-    }
-
-    #[must_use]
-    pub fn window(&self) -> AnyWindowHandle {
-        *self.window
-    }
-
-    /// Draws and settles the GPUI test window.
-    ///
-    /// # Panics
-    ///
-    /// Panics if GPUI cannot update or draw the test window.
-    pub fn draw(&self, cx: &mut TestAppContext) {
-        cx.update_window(*self.window, |_, window, cx| window.draw(cx).clear(cx))
-            .expect("draw GPUI test window");
-        cx.run_until_parked();
+        self.view.clone()
     }
 
     pub fn add_comment(
@@ -240,24 +273,6 @@ impl DiffViewerHarness {
         })
     }
 
-    pub fn click(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Result<(), Box<dyn Error>> {
-        click_element(cx, self.window(), selector)
-    }
-
-    pub fn press_key(&self, cx: &mut TestAppContext, key: &str) -> Result<(), Box<dyn Error>> {
-        press_key(cx, self.window(), key)
-    }
-
-    pub fn focus_next(&self, cx: &mut TestAppContext) -> Result<(), Box<dyn Error>> {
-        cx.update_window(self.window(), |_, window, cx| window.focus_next(cx))?;
-        self.draw(cx);
-        Ok(())
-    }
-
     pub fn dispatch_command(
         &self,
         cx: &mut TestAppContext,
@@ -265,45 +280,11 @@ impl DiffViewerHarness {
     ) -> Result<bool, Box<dyn Error>> {
         let command = command.into();
         let handled = cx.update_window(*self.window, |_, window, cx| {
-            self.viewer
+            self.view
                 .update(cx, |viewer, cx| viewer.handle_command(command, window, cx))
         })?;
         self.draw(cx);
         Ok(handled)
-    }
-
-    pub fn dispatch_action(
-        &self,
-        cx: &mut TestAppContext,
-        action: &dyn Action,
-    ) -> Result<(), Box<dyn Error>> {
-        cx.update_window(*self.window, |_, window, cx| {
-            window.dispatch_action(action.boxed_clone(), cx);
-        })?;
-        self.draw(cx);
-        Ok(())
-    }
-
-    pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str) {
-        cx.simulate_keystrokes(*self.window, keystrokes);
-        self.draw(cx);
-    }
-
-    pub fn simulate_input(&self, cx: &mut TestAppContext, text: &str) {
-        cx.simulate_input(*self.window, text);
-        self.draw(cx);
-    }
-
-    pub fn simulate_event(
-        &self,
-        cx: &mut TestAppContext,
-        event: impl InputEvent,
-    ) -> Result<(), Box<dyn Error>> {
-        cx.update_window(*self.window, |_, window, cx| {
-            window.dispatch_event(event.to_platform_input(), cx);
-        })?;
-        self.draw(cx);
-        Ok(())
     }
 
     pub fn with_comment_input<T>(
@@ -363,49 +344,6 @@ impl DiffViewerHarness {
         })
     }
 
-    /// Dispatches a synthetic scroll-wheel event, then settles the frame.
-    ///
-    /// # Panics
-    ///
-    /// Panics if GPUI cannot update or draw the test window.
-    pub fn simulate_scroll(
-        &self,
-        cx: &mut TestAppContext,
-        position: Point<Pixels>,
-        delta: Point<Pixels>,
-    ) {
-        cx.update_window(*self.window, |_, window, cx| {
-            window.dispatch_event(
-                ScrollWheelEvent {
-                    position,
-                    delta: ScrollDelta::Pixels(delta),
-                    touch_phase: TouchPhase::Moved,
-                    ..Default::default()
-                }
-                .to_platform_input(),
-                cx,
-            );
-        })
-        .expect("dispatch test scroll wheel event");
-        self.draw(cx);
-    }
-
-    /// Returns the center of the element painted under a debug selector.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the selector was never painted.
-    #[must_use]
-    pub fn scroll_center(&self, cx: &mut TestAppContext, selector: &'static str) -> Point<Pixels> {
-        let bounds = self
-            .bounds(cx, selector)
-            .unwrap_or_else(|| panic!("missing painted bounds for {selector}"));
-        Point::new(
-            bounds.origin.x + bounds.size.width / 2.0,
-            bounds.origin.y + bounds.size.height / 2.0,
-        )
-    }
-
     #[must_use]
     pub fn diff_scroll_top(&self, cx: &TestAppContext) -> ListOffset {
         self.read(cx, |viewer, _| viewer.diff_scroll_top())
@@ -415,64 +353,58 @@ impl DiffViewerHarness {
         self.update(cx, DiffViewer::scroll_diff_to_end);
         self.draw(cx);
     }
-
-    /// Returns the host events recorded by the rendered viewer.
-    ///
-    /// # Panics
-    ///
-    /// Panics if GPUI cannot read the test window.
-    #[must_use]
-    pub fn events(&self, cx: &TestAppContext) -> Vec<DiffViewerEvent> {
-        self.window
-            .read_with(cx, |root, _| root.events.clone())
-            .expect("read recorded GPUI events")
-    }
-
-    /// Returns the rendered bounds registered by a stable debug selector.
-    pub fn bounds(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Option<Bounds<gpui::Pixels>> {
-        self.draw(cx);
-        let mut visual = VisualTestContext::from_window(*self.window, cx);
-        visual.debug_bounds(selector)
-    }
-
-    /// Reads the viewer while keeping GPUI context plumbing inside the harness.
-    pub fn read<T>(&self, cx: &TestAppContext, read: impl FnOnce(&DiffViewer, &App) -> T) -> T {
-        self.viewer.read_with(cx, read)
-    }
-
-    /// Updates the viewer while keeping GPUI context plumbing inside the harness.
-    pub fn update<T>(
-        &self,
-        cx: &mut TestAppContext,
-        update: impl FnOnce(&mut DiffViewer, &mut Context<DiffViewer>) -> T,
-    ) -> T {
-        self.viewer.update(cx, update)
-    }
 }
 
 pub struct MarkdownReviewerHarnessBuilder {
-    pub document: Arc<MarkdownDocument>,
+    pub source: String,
+    pub path: Option<String>,
+    pub title: Option<String>,
     pub theme: ReviewTheme,
     pub options: MarkdownReviewerOptions,
+    pub window_options: WindowOptions,
     pub comments: Vec<String>,
 }
 
 impl Default for MarkdownReviewerHarnessBuilder {
     fn default() -> Self {
         Self {
-            document: Arc::new(MarkdownDocument::parse("# Heading\n\nText")),
+            source: "# Heading\n\nText".to_owned(),
+            path: None,
+            title: None,
             theme: ReviewTheme::default(),
             options: MarkdownReviewerOptions::default(),
+            window_options: WindowOptions::default(),
             comments: Vec::new(),
         }
     }
 }
 
 impl MarkdownReviewerHarnessBuilder {
+    #[must_use]
+    pub fn with_source(mut self, source: &str) -> Self {
+        source.clone_into(&mut self.source);
+        self
+    }
+
+    #[must_use]
+    pub fn with_metadata(mut self, path: Option<&str>, title: Option<&str>) -> Self {
+        self.path = path.map(str::to_owned);
+        self.title = title.map(str::to_owned);
+        self
+    }
+
+    #[must_use]
+    pub fn with_options(mut self, options: MarkdownReviewerOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    #[must_use]
+    pub fn with_window_size(mut self, width: f32, height: f32) -> Self {
+        self.window_options.window_bounds = Some(window_bounds(width, height));
+        self
+    }
+
     #[must_use]
     pub fn with_comments<T: Into<String>>(mut self, comments: impl IntoIterator<Item = T>) -> Self {
         self.comments = comments.into_iter().map(Into::into).collect();
@@ -488,28 +420,34 @@ impl MarkdownReviewerHarnessBuilder {
         run_test(cx, |cx| test(&harness, cx));
     }
 
+    /// Opens the configured reviewer, records its events, and settles the initial frame.
+    ///
+    /// # Panics
+    ///
+    /// Panics if GPUI cannot open, update, or draw the test window.
     pub fn build(self, cx: &mut TestAppContext) -> MarkdownReviewerHarness {
         cx.update(MarkdownReviewer::bind_keys);
         let Self {
-            document,
+            source,
+            path,
+            title,
             theme,
             options,
+            window_options,
             comments,
         } = self;
-        let window = cx.add_window(|_, _| MarkdownReviewer::with_options(document, theme, options));
-        let harness = MarkdownReviewerHarness { window };
+        let document = Arc::new(MarkdownDocument::parse_with_metadata(path, title, source));
+        let harness = HarnessRoot::open(cx, window_options, move || {
+            MarkdownReviewer::with_options(document, theme, options)
+        });
         for body in comments {
             harness
                 .add_comment(cx, body)
                 .expect("seed Markdown review comment");
         }
-        draw_window(cx, *window).expect("draw Markdown reviewer");
+        harness.draw(cx);
         harness
     }
-}
-
-pub struct MarkdownReviewerHarness {
-    window: WindowHandle<MarkdownReviewer>,
 }
 
 impl MarkdownReviewerHarness {
@@ -519,10 +457,12 @@ impl MarkdownReviewerHarness {
         command: impl Into<MarkdownReviewCommand>,
     ) -> Result<bool, Box<dyn Error>> {
         let command = command.into();
-        let handled = self.window.update(cx, |reviewer, window, cx| {
-            reviewer.handle_command(command, window, cx)
+        let handled = cx.update_window(*self.window, |_, window, cx| {
+            self.view.update(cx, |reviewer, cx| {
+                reviewer.handle_command(command, window, cx)
+            })
         })??;
-        draw_window(cx, *self.window)?;
+        self.draw(cx);
         Ok(handled)
     }
 
@@ -538,31 +478,19 @@ impl MarkdownReviewerHarness {
         if !self.dispatch_command(cx, ReviewCommand::BeginComment)? {
             return Err("cannot begin Markdown comment".into());
         }
-        self.window
-            .update(cx, |reviewer, _, _| -> Result<(), Box<dyn Error>> {
-                reviewer
-                    .session_mut()
-                    .draft_mut()
-                    .ok_or("missing draft")?
-                    .set_body(body);
-                Ok(())
-            })??;
+        self.update(cx, |reviewer, _| {
+            reviewer
+                .session_mut()
+                .draft_mut()
+                .map(|draft| draft.set_body(body))
+                .ok_or("missing draft")
+        })?;
         self.dispatch_command(cx, ReviewCommand::SubmitComment)?;
         self.review(cx)
             .comments()
             .last()
             .map(|comment| comment.id)
             .ok_or_else(|| "missing submitted comment".into())
-    }
-
-    pub fn read<T>(
-        &self,
-        cx: &TestAppContext,
-        read: impl FnOnce(&MarkdownReviewer, &App) -> T,
-    ) -> T {
-        self.window
-            .read_with(cx, read)
-            .expect("read Markdown reviewer")
     }
 
     #[must_use]
@@ -583,14 +511,6 @@ impl MarkdownReviewerHarness {
     pub fn selected_target(&self, cx: &TestAppContext) -> Option<MarkdownTargetId> {
         self.read(cx, |reviewer, _| reviewer.session().selected_target())
     }
-
-    pub fn click(
-        &self,
-        cx: &mut TestAppContext,
-        selector: &'static str,
-    ) -> Result<(), Box<dyn Error>> {
-        click_element(cx, *self.window, selector)
-    }
 }
 
 fn run_test(
@@ -602,44 +522,9 @@ fn run_test(
     }
 }
 
-fn draw_window(cx: &mut TestAppContext, window: AnyWindowHandle) -> Result<(), Box<dyn Error>> {
-    cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))?;
-    cx.run_until_parked();
-    Ok(())
-}
-
-fn click_element(
-    cx: &mut TestAppContext,
-    window: AnyWindowHandle,
-    selector: &'static str,
-) -> Result<(), Box<dyn Error>> {
-    draw_window(cx, window)?;
-    let mut visual = VisualTestContext::from_window(window, cx);
-    let bounds = visual
-        .debug_bounds(selector)
-        .ok_or_else(|| format!("missing {selector}"))?;
-    visual.simulate_click(bounds.center(), Modifiers::default());
-    draw_window(cx, window)
-}
-
-fn press_key(
-    cx: &mut TestAppContext,
-    window: AnyWindowHandle,
-    key: &str,
-) -> Result<(), Box<dyn Error>> {
-    draw_window(cx, window)?;
-    let keystroke = Keystroke::parse(key)?;
-    cx.update_window(window, |_, window, cx| {
-        window.dispatch_event(
-            KeyDownEvent {
-                keystroke: keystroke.clone(),
-                is_held: false,
-                prefer_character_input: false,
-            }
-            .to_platform_input(),
-            cx,
-        );
-        window.dispatch_event(KeyUpEvent { keystroke }.to_platform_input(), cx);
-    })?;
-    draw_window(cx, window)
+fn window_bounds(width: f32, height: f32) -> WindowBounds {
+    WindowBounds::Windowed(Bounds::new(
+        point(px(0.0), px(0.0)),
+        size(px(width), px(height)),
+    ))
 }

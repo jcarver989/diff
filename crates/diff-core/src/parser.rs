@@ -49,6 +49,12 @@ pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
     parse_git_diff_with_path_mapper(bytes, |path| RepoPath::new(path))
 }
 
+pub fn parse_detached_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
+    parse_git_diff_with_path_mapper(bytes, |path| {
+        RepoPath::new(path.strip_prefix('/').unwrap_or(path))
+    })
+}
+
 pub fn parse_git_diff_with_path_mapper<T>(
     bytes: &[u8],
     mut map_path: T,
