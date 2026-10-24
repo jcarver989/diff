@@ -8,8 +8,11 @@ mod rows;
 
 use crate::{
     ThemeChanged,
-    comment_editor::{CommentEditor, CommentEditorEvent},
-    ui::prelude::{Typography, TypographyExt, UI_FONT, UiTheme, rem},
+    comment_editor::{CommentEditor, CommentEditorEvent, init_input},
+    ui::prelude::{
+        SearchPicker, ThemePicker, ThemePickerEvent, Typography, TypographyExt, UI_FONT, UiTheme,
+        rem,
+    },
 };
 use clankerdiff_core::{InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
@@ -17,7 +20,7 @@ use clankerdiff_markdown::{
     MarkdownReviewDecision, MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
 };
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::{ReviewTheme, ThemeSelection};
+use clankerdiff_theme::{ReviewTheme, ThemeChoice};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, Rems,
     ScrollHandle, Subscription, Window, actions, div, prelude::*,
@@ -43,9 +46,6 @@ actions!(
         MarkdownApprove,
         MarkdownRequestChanges,
         MarkdownShowThemePicker,
-        MarkdownNextTheme,
-        MarkdownPreviousTheme,
-        MarkdownCommitTheme,
         MarkdownShowShortcuts,
         MarkdownToggleOutline,
         MarkdownPageUp,
@@ -75,12 +75,15 @@ impl Default for MarkdownReviewerOptions {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 enum Overlay {
     #[default]
     None,
     Help,
-    Themes(Box<ThemeSelection>),
+    Themes {
+        picker: Entity<ThemePicker>,
+        _subscription: Subscription,
+    },
 }
 
 /// Shared GPUI rendered-Markdown review entity used by desktop and web hosts.
@@ -150,7 +153,6 @@ impl MarkdownReviewer {
         const BROWSE: &str = "MarkdownReviewer && mode == browse";
         const DRAFT: &str = "MarkdownReviewer && mode == draft";
         const HELP: &str = "MarkdownReviewer && mode == help";
-        const THEMES: &str = "MarkdownReviewer && mode == themes";
         cx.bind_keys([
             KeyBinding::new("j", MarkdownNextTarget, Some(BROWSE)),
             KeyBinding::new("down", MarkdownNextTarget, Some(BROWSE)),
@@ -188,15 +190,11 @@ impl MarkdownReviewer {
             KeyBinding::new("t", MarkdownShowThemePicker, Some(BROWSE)),
             KeyBinding::new("cmd-shift-t", MarkdownShowThemePicker, Some(BROWSE)),
             KeyBinding::new("ctrl-shift-t", MarkdownShowThemePicker, Some(BROWSE)),
-            KeyBinding::new("down", MarkdownNextTheme, Some(THEMES)),
-            KeyBinding::new("j", MarkdownNextTheme, Some(THEMES)),
-            KeyBinding::new("up", MarkdownPreviousTheme, Some(THEMES)),
-            KeyBinding::new("k", MarkdownPreviousTheme, Some(THEMES)),
-            KeyBinding::new("enter", MarkdownCommitTheme, Some(THEMES)),
             KeyBinding::new("escape", MarkdownCancel, Some(ANY)),
             KeyBinding::new("cmd-enter", MarkdownSubmitComment, Some(DRAFT)),
             KeyBinding::new("ctrl-enter", MarkdownSubmitComment, Some(DRAFT)),
         ]);
+        SearchPicker::bind_keys(cx);
     }
 
     #[must_use]
@@ -232,10 +230,62 @@ impl MarkdownReviewer {
     }
 
     pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
-        if let Overlay::Themes(_) = self.overlay {
+        if let Overlay::Themes { .. } = self.overlay {
             self.overlay = Overlay::None;
         }
         self.apply_theme(theme, cx);
+    }
+
+    fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        init_input(cx);
+        let (theme, ui) = (self.theme.clone(), self.ui);
+        let picker = cx.new(|cx| {
+            ThemePicker::new(
+                "markdown-theme-picker",
+                &theme,
+                ThemeChoice::catalog(),
+                ui,
+                window,
+                cx,
+            )
+        });
+        let subscription = cx.subscribe(&picker, |reviewer, _, event: &ThemePickerEvent, cx| {
+            reviewer.on_theme_picker_event(event, cx);
+        });
+        self.overlay = Overlay::Themes {
+            picker,
+            _subscription: subscription,
+        };
+        cx.notify();
+    }
+
+    fn on_theme_picker_event(&mut self, event: &ThemePickerEvent, cx: &mut Context<Self>) {
+        match event {
+            ThemePickerEvent::Preview(theme) => self.apply_theme(theme.clone(), cx),
+            ThemePickerEvent::Commit(theme) => {
+                self.overlay = Overlay::None;
+                self.apply_theme(theme.clone(), cx);
+                cx.emit(ThemeChanged {
+                    id: theme.id().to_string(),
+                });
+            }
+            ThemePickerEvent::Cancel(theme) => {
+                self.overlay = Overlay::None;
+                self.apply_theme(theme.clone(), cx);
+            }
+        }
+    }
+
+    fn update_theme_picker(
+        &self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut ThemePicker, &mut Context<ThemePicker>),
+    ) -> bool {
+        let Overlay::Themes { picker, .. } = &self.overlay else {
+            return false;
+        };
+        picker.update(cx, update);
+        true
     }
 
     pub fn clear_review(&mut self, cx: &mut Context<Self>) {
@@ -327,15 +377,6 @@ impl MarkdownReviewer {
             focus.focus(window, cx);
         }
         cx.notify();
-    }
-
-    fn select_theme(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Overlay::Themes(selection) = &self.overlay
-            && let Some(index) = selection.position(id)
-        {
-            self.run(ReviewCommand::SelectTheme(index), window, cx);
-            self.run(ReviewCommand::CommitTheme, window, cx);
-        }
     }
 
     fn copy_review(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -430,12 +471,6 @@ impl Render for MarkdownReviewer {
                 R::OpenThemePicker,
                 cx,
             ))
-            .on_action(Self::dispatch::<MarkdownNextTheme>(R::MoveTheme(1), cx))
-            .on_action(Self::dispatch::<MarkdownPreviousTheme>(
-                R::MoveTheme(-1),
-                cx,
-            ))
-            .on_action(Self::dispatch::<MarkdownCommitTheme>(R::CommitTheme, cx))
             .on_action(Self::dispatch::<MarkdownCancel>(R::Cancel, cx))
             .on_action(cx.listener(|reviewer, _: &MarkdownCopyReview, window, cx| {
                 reviewer.copy_review(window, cx);
@@ -462,10 +497,10 @@ impl Render for MarkdownReviewer {
                     })
                     .child(self.render_document(cx)),
             )
-            .map(|reviewer| match self.overlay {
+            .map(|reviewer| match &self.overlay {
                 Overlay::None => reviewer,
                 Overlay::Help => reviewer.child(self.render_shortcuts()),
-                Overlay::Themes(_) => reviewer.child(self.render_theme_picker(cx)),
+                Overlay::Themes { picker, .. } => reviewer.child(self.render_theme_picker(picker)),
             })
     }
 }

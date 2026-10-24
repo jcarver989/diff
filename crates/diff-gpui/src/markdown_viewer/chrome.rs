@@ -2,13 +2,13 @@ use super::MarkdownReviewer;
 use crate::{
     shortcuts::{ShortcutHelp, Shortcuts},
     ui::prelude::{
-        Button, ButtonVariant, CODE_FONT, ControlSize, IconButton, IconName, PanelSide,
+        Backdrop, Button, ButtonVariant, CODE_FONT, ControlSize, IconButton, IconName, PanelSide,
         ResizablePanel, ThemePicker, TreeRow, Typography, TypographyExt, rem,
     },
 };
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewCommand};
-use gpui::{Context, Rems, SharedString, div, prelude::*};
+use gpui::{Context, Entity, Rems, div, prelude::*};
 use std::path::Path;
 
 const MIN_OUTLINE_WIDTH: f32 = 160.0;
@@ -256,15 +256,11 @@ impl MarkdownReviewer {
             .section("Comment editor", DRAFT)
     }
 
-    pub(super) fn render_theme_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        ThemePicker::new(
-            "markdown-theme-picker",
-            self.ui,
-            self.theme.id().to_string(),
-        )
-        .on_choose(cx.listener(|reviewer, id: &SharedString, window, cx| {
-            reviewer.select_theme(id, window, cx);
-        }))
+    pub(super) fn render_theme_picker(&self, picker: &Entity<ThemePicker>) -> impl IntoElement {
+        let dismissed = picker.clone();
+        Backdrop::new("markdown-theme-picker-backdrop", self.ui)
+            .on_dismiss(move |_, cx| dismissed.update(cx, ThemePicker::cancel))
+            .child(picker.clone())
     }
 
     fn set_outline_width(&mut self, width: Rems, cx: &mut Context<Self>) {

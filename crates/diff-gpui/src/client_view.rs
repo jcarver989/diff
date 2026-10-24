@@ -19,6 +19,7 @@ pub enum DiffClientEvent {
 
 pub struct DiffClientView {
     theme: ReviewTheme,
+    options: DiffViewerOptions,
     state: Option<ClientState>,
     installed: Option<Arc<DiffSnapshot>>,
     viewer: Option<Entity<DiffViewer>>,
@@ -28,9 +29,15 @@ pub struct DiffClientView {
 
 impl DiffClientView {
     #[must_use]
-    pub const fn new(theme: ReviewTheme) -> Self {
+    pub fn new(theme: ReviewTheme) -> Self {
+        Self::with_options(theme, DiffViewerOptions::default())
+    }
+
+    #[must_use]
+    pub const fn with_options(theme: ReviewTheme, options: DiffViewerOptions) -> Self {
         Self {
             theme,
+            options,
             state: None,
             installed: None,
             viewer: None,
@@ -104,10 +111,9 @@ impl DiffClientView {
             });
             return;
         }
-        let theme = self.theme.clone();
+        let (theme, options) = (self.theme.clone(), self.options);
         let viewer = cx.new(|cx| {
-            let mut viewer =
-                DiffViewer::with_options(document, theme, DiffViewerOptions::default());
+            let mut viewer = DiffViewer::with_options(document, theme, options);
             viewer.set_scope(scope, cx);
             viewer
         });

@@ -46,14 +46,16 @@ impl DiffViewer {
                     })),
             );
         }
-        bar.child(
-            Button::new("select-theme", "Theme", theme)
-                .disabled(!self.command_enabled(&ReviewCommand::OpenThemePicker.into()))
-                .size(ControlSize::Small)
-                .on_click(cx.listener(|viewer, _, window, cx| {
-                    viewer.handle_command(ReviewCommand::OpenThemePicker, window, cx);
-                })),
-        )
+        bar.when(self.options.themes, |bar| {
+            bar.child(
+                Button::new("select-theme", "Theme", theme)
+                    .disabled(!self.command_enabled(&ReviewCommand::OpenThemePicker.into()))
+                    .size(ControlSize::Small)
+                    .on_click(cx.listener(|viewer, _, window, cx| {
+                        viewer.handle_command(ReviewCommand::OpenThemePicker, window, cx);
+                    })),
+            )
+        })
         .when(!self.review().is_empty(), |bar| {
             bar.child(
                 Button::new("copy-review", "Copy", theme)
