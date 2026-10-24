@@ -1,6 +1,7 @@
-use clankerdiff_gpui_ui::theme::{UiTheme, color};
+use clankerdiff_gpui_ui::theme::{UiTheme, color, window_appearance};
 use clankerdiff_theme::{
-    ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, Rgba, SelectionState,
+    Appearance, ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, Rgba,
+    SelectionState,
 };
 use std::error::Error;
 
@@ -72,5 +73,14 @@ fn alpha_survives_ui_conversion_and_state_resolution() {
     assert_eq!(
         native.selection_style(SelectionState::Focused).foreground,
         color(theme.ui.accent_foreground)
+    );
+}
+
+#[gpui::test]
+fn a_light_window_reports_the_light_appearance(cx: &mut gpui::TestAppContext) {
+    let window = cx.add_empty_window();
+    assert_eq!(
+        window.update(|window, _| window_appearance(window)),
+        Appearance::Light
     );
 }

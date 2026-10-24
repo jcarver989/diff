@@ -1,5 +1,5 @@
 use clankerdiff_gpui_ui::{
-    prelude::{Button, ListRow, UiTheme},
+    prelude::{Button, ListRow, Modal, UiTheme},
     testing::ComponentHarnessBuilder,
     tokens::TREE_INDENT,
 };
@@ -78,6 +78,37 @@ fn a_nested_row_indents_its_content_but_keeps_its_full_width(cx: &mut TestAppCon
                 child_content.left() - parent_content.left(),
                 px(2.0 * TREE_INDENT)
             );
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn a_top_aligned_modal_is_dismissed_by_its_scrim_but_not_by_its_panel(cx: &mut TestAppContext) {
+    let dismissals = Rc::new(Cell::new(0));
+    let counted = dismissals.clone();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            let counted = counted.clone();
+            Modal::new("settings", "Settings", theme())
+                .align_top()
+                .on_dismiss(move |_, _| counted.set(counted.get() + 1))
+                .into_any_element()
+        },
+        |harness, cx| {
+            let panel = harness.bounds(cx, "settings").ok_or("missing panel")?;
+            let backdrop = harness
+                .bounds(cx, "settings-backdrop")
+                .ok_or("missing backdrop")?;
+            assert!(
+                panel.bottom() < backdrop.center().y,
+                "the panel sits near the top"
+            );
+            harness.click(cx, "settings")?;
+            assert_eq!(dismissals.get(), 0);
+            harness.click(cx, "settings-backdrop")?;
+            assert_eq!(dismissals.get(), 1);
             Ok(())
         },
     );
