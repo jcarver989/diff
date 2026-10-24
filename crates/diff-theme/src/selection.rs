@@ -1,4 +1,4 @@
-use crate::ReviewTheme;
+use crate::{Appearance, ReviewTheme};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -25,6 +25,15 @@ impl ThemeChoice {
                     .ok()
                     .map(|theme| Self::new(descriptor.name, theme))
             })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn catalog_for(appearance: Appearance) -> Arc<[Self]> {
+        Self::catalog()
+            .iter()
+            .filter(|choice| choice.theme.appearance() == appearance)
+            .cloned()
             .collect()
     }
 }

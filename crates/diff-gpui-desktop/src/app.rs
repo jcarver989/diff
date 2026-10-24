@@ -1,11 +1,11 @@
-use crate::{WINDOW_TITLE, args::CliArgs, menus::SetScope, preferences};
+use crate::{WINDOW_TITLE, args::CliArgs, menus::SetScope, preferences::ThemeStore};
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_gpui::{
     DiffClientEvent, DiffClientView, StageAll, ThemeChanged, UnstageAll,
     ui::{
         InterfaceSize,
-        prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme},
+        prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme, window_appearance},
         window_chrome,
     },
 };
@@ -28,7 +28,7 @@ pub(crate) struct DesktopApp {
     command_task: Option<Task<()>>,
     watch_task: Task<()>,
     outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
-    _subscriptions: [Subscription; 2],
+    _subscriptions: [Subscription; 3],
 }
 
 impl DesktopApp {
@@ -36,16 +36,21 @@ impl DesktopApp {
         args: CliArgs,
         client: Option<DiffClient>,
         outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let view = cx.new(|_| DiffClientView::new(preferences::load_theme()));
+        let theme = ThemeStore::user().theme(window_appearance(window));
+        let view = cx.new(|_| DiffClientView::new(theme));
         let subscriptions = [
             cx.subscribe(&view, |this, _, event: &DiffClientEvent, cx| {
                 this.on_client_event(event, cx);
             }),
-            cx.subscribe(&view, |_, _, event: &ThemeChanged, _| {
-                let _ = preferences::save_theme(&event.id);
+            cx.subscribe_in(&view, window, |_, _, event: &ThemeChanged, window, _| {
+                let _ = ThemeStore::user().remember(window_appearance(window), &event.id);
+            }),
+            cx.observe_window_appearance(window, |this, window, cx| {
+                let theme = ThemeStore::user().theme(window_appearance(window));
+                this.view.update(cx, |view, cx| view.set_theme(theme, cx));
             }),
         ];
         let mut app = Self {

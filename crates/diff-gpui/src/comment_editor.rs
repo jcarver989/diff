@@ -20,6 +20,13 @@ struct InputInitialized;
 
 impl Global for InputInitialized {}
 
+pub(crate) fn init_input(cx: &mut App) {
+    if !cx.has_global::<InputInitialized>() {
+        gpui_base::init(cx);
+        cx.set_global(InputInitialized);
+    }
+}
+
 pub(crate) struct CommentEditor {
     input: Entity<TextareaState>,
     body: SharedString,
@@ -44,10 +51,7 @@ impl CommentEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        if !cx.has_global::<InputInitialized>() {
-            gpui_base::init(cx);
-            cx.set_global(InputInitialized);
-        }
+        init_input(cx);
         let input = cx.new(|cx| {
             let mut input = TextareaState::new(window, cx)
                 .auto_grow(3, 12)

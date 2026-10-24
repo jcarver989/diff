@@ -19,6 +19,7 @@ use gpui::{
 use gpui_base::Selectable;
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type DismissHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 
 /// Applies a resolved semantic style and the shared hover and click
 /// affordances of interactive components.
@@ -700,6 +701,72 @@ impl RenderOnce for ActionBar {
     }
 }
 
+#[derive(IntoElement)]
+pub struct Backdrop {
+    id: SharedString,
+    theme: UiTheme,
+    align_top: bool,
+    on_dismiss: Option<DismissHandler>,
+    children: Vec<AnyElement>,
+}
+impl Backdrop {
+    #[must_use]
+    pub fn new(id: impl Into<SharedString>, theme: UiTheme) -> Self {
+        Self {
+            id: id.into(),
+            theme,
+            align_top: false,
+            on_dismiss: None,
+            children: Vec::new(),
+        }
+    }
+    #[must_use]
+    pub fn align_top(mut self) -> Self {
+        self.align_top = true;
+        self
+    }
+    #[must_use]
+    pub fn on_dismiss(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_dismiss = Some(Box::new(handler));
+        self
+    }
+}
+impl ParentElement for Backdrop {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.children.extend(elements);
+    }
+}
+impl RenderOnce for Backdrop {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let margin = rem(tokens::MODAL_VIEWPORT_MARGIN / 2.0);
+        let selector = self.id.to_string();
+        let on_dismiss = self.on_dismiss;
+        div()
+            .id(self.id)
+            .debug_selector(move || selector)
+            .absolute()
+            .inset_0()
+            .p(margin)
+            .when(self.align_top, |backdrop| {
+                backdrop.pt(rem(tokens::MODAL_TOP_OFFSET))
+            })
+            .flex()
+            .flex_col()
+            .items_center()
+            .when(!self.align_top, gpui::Styled::justify_center)
+            .bg(self.theme.colors.scrim)
+            .occlude()
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                cx.stop_propagation();
+                if let Some(dismiss) = &on_dismiss {
+                    dismiss(window, cx);
+                }
+            })
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .children(self.children)
+    }
+}
+
 /// Centered modal overlay and panel.
 #[derive(IntoElement)]
 pub struct Modal {
@@ -709,6 +776,8 @@ pub struct Modal {
     theme: UiTheme,
     width: Rems,
     height: Option<Rems>,
+    align_top: bool,
+    on_dismiss: Option<DismissHandler>,
     children: Vec<AnyElement>,
 }
 impl Modal {
@@ -725,6 +794,8 @@ impl Modal {
             theme,
             width: rem(tokens::MODAL_WIDTH),
             height: None,
+            align_top: false,
+            on_dismiss: None,
             children: Vec::new(),
         }
     }
@@ -752,6 +823,16 @@ impl Modal {
         });
         self
     }
+    #[must_use]
+    pub fn align_top(mut self) -> Self {
+        self.align_top = true;
+        self
+    }
+    #[must_use]
+    pub fn on_dismiss(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_dismiss = Some(Box::new(handler));
+        self
+    }
 }
 impl ParentElement for Modal {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
@@ -761,56 +842,46 @@ impl ParentElement for Modal {
 impl RenderOnce for Modal {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let colors = self.theme.colors;
-        div()
-            .id(format!("{}-backdrop", self.id))
-            .debug_selector({
-                let id = self.id.clone();
-                move || format!("{id}-backdrop")
-            })
-            .absolute()
-            .inset_0()
-            .p(rem(tokens::MODAL_VIEWPORT_MARGIN / 2.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(colors.scrim)
-            .occlude()
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .id(self.id.clone())
-                    .w(self.width)
-                    .max_w_full()
-                    .when_some(self.height, gpui::Styled::h)
-                    .max_h_full()
-                    .min_h_0()
-                    .p_4()
-                    .rounded(rem(tokens::RADIUS_CONTAINER))
-                    .flex()
-                    .flex_col()
-                    .border_1()
-                    .border_color(colors.border)
-                    .bg(colors.surface)
-                    .shadow_lg()
-                    .typography(Typography::Body)
-                    .child(
-                        div()
-                            .mb_3()
-                            .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(div().typography(Typography::Title).child(self.title))
-                            .children(self.hint.map(|hint| {
-                                div()
-                                    .typography(Typography::Small)
-                                    .text_color(colors.text_muted)
-                                    .child(hint)
-                            })),
-                    )
-                    .children(self.children),
-            )
+        let selector = self.id.to_string();
+        let mut backdrop = Backdrop::new(format!("{}-backdrop", self.id), self.theme);
+        backdrop.align_top = self.align_top;
+        backdrop.on_dismiss = self.on_dismiss;
+        backdrop.child(
+            div()
+                .id(self.id)
+                .debug_selector(move || selector)
+                .occlude()
+                .w(self.width)
+                .max_w_full()
+                .when_some(self.height, gpui::Styled::h)
+                .max_h_full()
+                .min_h_0()
+                .p_4()
+                .rounded(rem(tokens::RADIUS_CONTAINER))
+                .flex()
+                .flex_col()
+                .border_1()
+                .border_color(colors.border)
+                .bg(colors.surface)
+                .shadow_lg()
+                .typography(Typography::Body)
+                .child(
+                    div()
+                        .mb_3()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(div().typography(Typography::Title).child(self.title))
+                        .children(self.hint.map(|hint| {
+                            div()
+                                .typography(Typography::Small)
+                                .text_color(colors.text_muted)
+                                .child(hint)
+                        })),
+                )
+                .children(self.children),
+        )
     }
 }
 

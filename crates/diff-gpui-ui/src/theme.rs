@@ -1,10 +1,10 @@
 //! GPUI-facing semantic theme tokens.
 
 use clankerdiff_theme::{
-    ButtonVariant, ControlState, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle,
-    UiPalette,
+    Appearance, ButtonVariant, ControlState, NoticeTone, ReviewTheme, Rgba, SelectionState,
+    SemanticStyle, UiPalette,
 };
-use gpui::Hsla;
+use gpui::{Hsla, Window, WindowAppearance};
 use gpui_base::input::InputEditorStyle;
 
 /// Converts a renderer-neutral sRGB color to GPUI's HSLA color.
@@ -17,6 +17,14 @@ pub fn color(value: Rgba) -> Hsla {
             | u32::from(value.a),
     )
     .into()
+}
+
+#[must_use]
+pub fn window_appearance(window: &Window) -> Appearance {
+    match window.appearance() {
+        WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => Appearance::Dark,
+    }
 }
 
 /// Semantic colors consumed by reusable GPUI components.

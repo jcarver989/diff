@@ -1,10 +1,10 @@
-use crate::{WINDOW_TITLE, preferences};
+use crate::{WINDOW_TITLE, preferences::ThemeStore};
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_gpui::{
     MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
     ui::{
         InterfaceSize,
-        prelude::{UI_FONT, UiTheme},
+        prelude::{UI_FONT, UiTheme, window_appearance},
         window_chrome,
     },
 };
@@ -16,17 +16,17 @@ use std::sync::{Arc, mpsc::Sender};
 /// Desktop root dedicated to rendered Markdown review.
 pub(crate) struct MarkdownDesktopApp {
     reviewer: Entity<MarkdownReviewer>,
-    _subscription: Subscription,
-    _theme_subscription: Subscription,
+    _subscriptions: [Subscription; 3],
 }
 
 impl MarkdownDesktopApp {
     pub(crate) fn new(
         document: Arc<MarkdownDocument>,
         outcome: Sender<Option<MarkdownReviewSubmission>>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let theme = preferences::load_theme();
+        let theme = ThemeStore::user().theme(window_appearance(window));
         let reviewer = cx.new(|cx| {
             let mut reviewer =
                 MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default());
@@ -58,14 +58,21 @@ impl MarkdownDesktopApp {
                 }
             },
         );
-        let theme_subscription =
-            cx.subscribe(&reviewer, |_this, _reviewer, event: &ThemeChanged, _cx| {
-                let _ = preferences::save_theme(&event.id);
-            });
+        let theme_subscription = cx.subscribe_in(
+            &reviewer,
+            window,
+            |_, _, event: &ThemeChanged, window, _| {
+                let _ = ThemeStore::user().remember(window_appearance(window), &event.id);
+            },
+        );
+        let appearance_subscription = cx.observe_window_appearance(window, |this, window, cx| {
+            let theme = ThemeStore::user().theme(window_appearance(window));
+            this.reviewer
+                .update(cx, |reviewer, cx| reviewer.set_theme(theme, cx));
+        });
         Self {
             reviewer,
-            _subscription: subscription,
-            _theme_subscription: theme_subscription,
+            _subscriptions: [subscription, theme_subscription, appearance_subscription],
         }
     }
 }

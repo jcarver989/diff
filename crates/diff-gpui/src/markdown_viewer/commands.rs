@@ -1,19 +1,17 @@
 use super::{MarkdownReviewer, Overlay};
-use crate::ThemeChanged;
+use crate::ui::prelude::ThemePicker;
 use clankerdiff_core::{CommandContext, InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
     MarkdownFocusPane, MarkdownReviewCommand, MarkdownReviewError, MarkdownReviewEvent,
     MarkdownTargetId,
 };
-use clankerdiff_theme::{ThemeChoice, ThemeSelection};
 use gpui::{App, Context, ScrollHandle, Window};
-use std::mem;
 
 impl MarkdownReviewer {
     pub fn command_context(&self) -> CommandContext {
         CommandContext {
             phase: match self.overlay {
-                Overlay::Themes(_) => InteractionPhase::ThemePicker,
+                Overlay::Themes { .. } => InteractionPhase::ThemePicker,
                 Overlay::Help => InteractionPhase::Help,
                 Overlay::None if self.session.draft().is_some() => InteractionPhase::Draft,
                 Overlay::None => InteractionPhase::Browse,
@@ -135,9 +133,14 @@ impl MarkdownReviewer {
                 self.reveal_selected_target();
                 cx.notify();
             }
-            C::Review(R::Cancel) => match mem::take(&mut self.overlay) {
-                Overlay::Themes(selection) => self.apply_theme(selection.cancel(), cx),
-                Overlay::Help => cx.notify(),
+            C::Review(R::Cancel) => match self.overlay {
+                Overlay::Themes { .. } => {
+                    self.update_theme_picker(cx, ThemePicker::cancel);
+                }
+                Overlay::Help => {
+                    self.overlay = Overlay::None;
+                    cx.notify();
+                }
                 Overlay::None if self.session.draft().is_some() => self.discard_comment(cx),
                 Overlay::None => cx.emit(MarkdownReviewEvent::Cancel),
             },
@@ -146,36 +149,17 @@ impl MarkdownReviewer {
                 cx.notify();
             }
             C::Review(R::ScrollHelp(_)) => return Ok(false),
-            C::Review(R::OpenThemePicker) => {
-                if let Some(selection) = ThemeSelection::new(&self.theme, ThemeChoice::catalog()) {
-                    self.overlay = Overlay::Themes(Box::new(selection));
-                }
-                cx.notify();
-            }
+            C::Review(R::OpenThemePicker) => self.open_theme_picker(window, cx),
             C::Review(R::SelectTheme(index)) => {
-                let Overlay::Themes(selection) = &mut self.overlay else {
-                    return Ok(false);
-                };
-                let Some(theme) = selection.select(index) else {
-                    return Ok(false);
-                };
-                self.apply_theme(theme, cx);
+                return Ok(self.update_theme_picker(cx, |picker, cx| picker.highlight(index, cx)));
             }
             C::Review(R::MoveTheme(delta)) => {
-                let Overlay::Themes(selection) = &mut self.overlay else {
-                    return Ok(false);
-                };
-                let theme = selection.select_relative(delta);
-                self.apply_theme(theme, cx);
+                return Ok(
+                    self.update_theme_picker(cx, |picker, cx| picker.move_highlight(delta, cx))
+                );
             }
             C::Review(R::CommitTheme) => {
-                let Overlay::Themes(selection) = mem::take(&mut self.overlay) else {
-                    return Ok(false);
-                };
-                let theme = selection.commit();
-                let id = theme.id().to_string();
-                self.apply_theme(theme, cx);
-                cx.emit(ThemeChanged { id });
+                return Ok(self.update_theme_picker(cx, ThemePicker::commit));
             }
         }
         if previous.1 != self.session.selected_target() {

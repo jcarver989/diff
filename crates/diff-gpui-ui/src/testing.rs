@@ -198,6 +198,10 @@ impl WindowDriver {
         self.draw(cx);
     }
 
+    pub fn click_at(&self, cx: &mut TestAppContext, position: Point<Pixels>) {
+        self.click_position(cx, position, MouseButton::Left, 1);
+    }
+
     fn click_times(
         &self,
         cx: &mut TestAppContext,
@@ -206,6 +210,17 @@ impl WindowDriver {
         count: usize,
     ) -> Result<(), HarnessError> {
         let position = self.center(cx, selector)?;
+        self.click_position(cx, position, button, count);
+        Ok(())
+    }
+
+    fn click_position(
+        &self,
+        cx: &mut TestAppContext,
+        position: Point<Pixels>,
+        button: MouseButton,
+        count: usize,
+    ) {
         let mut visual = VisualTestContext::from_window(self.window, cx);
         for click_count in 1..=count {
             visual.simulate_event(MouseDownEvent {
@@ -223,7 +238,6 @@ impl WindowDriver {
             });
         }
         self.draw(cx);
-        Ok(())
     }
 }
 

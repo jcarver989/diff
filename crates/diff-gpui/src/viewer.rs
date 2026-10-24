@@ -4,11 +4,12 @@ mod commands;
 
 use crate::{
     DiffViewerEvent, ThemeChanged,
-    comment_editor::{CommentEditor, CommentEditorEvent},
+    comment_editor::{CommentEditor, CommentEditorEvent, init_input},
     style::color,
     ui::{
         prelude::{
-            Modal, Notification, ThemePicker, Typography, TypographyExt, UI_FONT, UiTheme, rem,
+            Backdrop, Modal, Notification, SearchPicker, ThemePicker, ThemePickerEvent, Typography,
+            TypographyExt, UI_FONT, UiTheme, rem,
         },
         tokens::{BASE_SIZE, CODE_ROW_HEIGHT},
     },
@@ -22,12 +23,11 @@ use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
 use clankerdiff_syntax::{
     HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter, empty_spans,
 };
-use clankerdiff_theme::ReviewTheme;
-use clankerdiff_theme::ThemeSelection;
+use clankerdiff_theme::{ReviewTheme, ThemeChoice};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext,
-    ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollHandle, SharedString, Subscription,
-    Window, actions, div, prelude::*, px, rems,
+    ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollHandle, Subscription, Window,
+    actions, div, prelude::*, px, rems,
 };
 use std::sync::Arc;
 
@@ -84,10 +84,6 @@ actions!(
         ShowShortcuts,
         HideShortcuts,
         ShowThemePicker,
-        HideThemePicker,
-        NextTheme,
-        PreviousTheme,
-        CommitTheme,
         Refresh,
         ToggleStage,
         StageAll,
@@ -110,6 +106,7 @@ pub struct DiffViewerOptions {
     pub auto_split_width: Rems,
     /// Maximum number of syntax-highlight cache entries.
     pub highlight_cache_capacity: usize,
+    pub themes: bool,
 }
 
 impl Default for DiffViewerOptions {
@@ -118,6 +115,7 @@ impl Default for DiffViewerOptions {
             sidebar_width: None,
             auto_split_width: rem(900.0),
             highlight_cache_capacity: 512,
+            themes: true,
         }
     }
 }
@@ -152,11 +150,11 @@ struct DiffViewportBookmark {
 pub struct DiffViewer {
     session: ReviewSession,
     capabilities: ReviewCapabilities,
-    theme_selection: Option<ThemeSelection>,
+    theme_picker: Option<(Entity<ThemePicker>, Subscription)>,
     scope: DiffScope,
     theme: ReviewTheme,
     highlighter: SyntaxHighlighter,
-    options: DiffViewerOptions,
+    pub(crate) options: DiffViewerOptions,
     sidebar: SidebarLayout,
     rem_size: Pixels,
     pub(crate) diff_list_state: ListState,
@@ -213,7 +211,7 @@ impl DiffViewer {
             session,
             scope: DiffScope::Both,
             capabilities: ReviewCapabilities::default(),
-            theme_selection: None,
+            theme_picker: None,
             theme,
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
@@ -320,16 +318,6 @@ impl DiffViewer {
             KeyBinding::new("t", ShowThemePicker, Some(BROWSE)),
             KeyBinding::new("cmd-shift-t", ShowThemePicker, Some(BROWSE)),
             KeyBinding::new("ctrl-shift-t", ShowThemePicker, Some(BROWSE)),
-            KeyBinding::new(
-                "escape",
-                HideThemePicker,
-                Some("DiffViewer && mode == themes"),
-            ),
-            KeyBinding::new("down", NextTheme, Some("DiffViewer && mode == themes")),
-            KeyBinding::new("j", NextTheme, Some("DiffViewer && mode == themes")),
-            KeyBinding::new("up", PreviousTheme, Some("DiffViewer && mode == themes")),
-            KeyBinding::new("k", PreviousTheme, Some("DiffViewer && mode == themes")),
-            KeyBinding::new("enter", CommitTheme, Some("DiffViewer && mode == themes")),
             KeyBinding::new("cmd-r", Refresh, Some(BROWSE)),
             KeyBinding::new("ctrl-r", Refresh, Some(BROWSE)),
             KeyBinding::new("escape", Cancel, Some(BROWSE)),
@@ -342,6 +330,7 @@ impl DiffViewer {
             KeyBinding::new("cmd-shift-c", CopyReview, Some(BROWSE)),
             KeyBinding::new("cmd-shift-enter", SubmitReview, Some(BROWSE)),
         ]);
+        SearchPicker::bind_keys(cx);
     }
 
     #[must_use]
@@ -423,7 +412,7 @@ impl DiffViewer {
     /// Returns whether the theme picker is open.
     #[must_use]
     pub const fn theme_picker_open(&self) -> bool {
-        self.theme_selection.is_some()
+        self.theme_picker.is_some()
     }
 
     /// Returns the current diff list scroll position.
@@ -556,8 +545,56 @@ impl DiffViewer {
     }
 
     pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
-        self.theme_selection = None;
+        self.theme_picker = None;
         self.apply_theme(theme, cx);
+    }
+
+    fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        init_input(cx);
+        let (theme, ui) = (self.theme.clone(), self.ui_theme());
+        let picker = cx.new(|cx| {
+            ThemePicker::new(
+                "theme-picker",
+                &theme,
+                ThemeChoice::catalog(),
+                ui,
+                window,
+                cx,
+            )
+        });
+        let subscription = cx.subscribe(&picker, |viewer, _, event: &ThemePickerEvent, cx| {
+            viewer.on_theme_picker_event(event, cx);
+        });
+        self.theme_picker = Some((picker, subscription));
+    }
+
+    fn on_theme_picker_event(&mut self, event: &ThemePickerEvent, cx: &mut Context<Self>) {
+        match event {
+            ThemePickerEvent::Preview(theme) => self.apply_theme(theme.clone(), cx),
+            ThemePickerEvent::Commit(theme) => {
+                self.theme_picker = None;
+                self.apply_theme(theme.clone(), cx);
+                cx.emit(ThemeChanged {
+                    id: theme.id().to_string(),
+                });
+            }
+            ThemePickerEvent::Cancel(theme) => {
+                self.theme_picker = None;
+                self.apply_theme(theme.clone(), cx);
+            }
+        }
+    }
+
+    fn update_theme_picker(
+        &self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut ThemePicker, &mut Context<ThemePicker>),
+    ) -> bool {
+        let Some((picker, _)) = &self.theme_picker else {
+            return false;
+        };
+        picker.update(cx, update);
+        true
     }
 
     fn apply_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
@@ -1432,48 +1469,15 @@ impl DiffViewer {
         self.handle_command(ReviewCommand::OpenThemePicker, window, cx);
     }
 
-    fn hide_theme_picker(
-        &mut self,
-        _: &HideThemePicker,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.handle_command(ReviewCommand::Cancel, window, cx);
-    }
-
-    fn next_theme(&mut self, _: &NextTheme, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::MoveTheme(1), window, cx);
-    }
-
-    fn previous_theme(&mut self, _: &PreviousTheme, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::MoveTheme(-1), window, cx);
-    }
-
-    fn commit_theme(&mut self, _: &CommitTheme, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::CommitTheme, window, cx);
-    }
-
     fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         self.handle_command(DiffReviewCommand::Refresh, window, cx);
     }
 
-    fn select_theme(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let index = self
-            .theme_selection
-            .as_ref()
-            .and_then(|selection| selection.position(id));
-        if let Some(index) = index {
-            self.handle_command(ReviewCommand::SelectTheme(index), window, cx);
-            self.handle_command(ReviewCommand::CommitTheme, window, cx);
-        }
-    }
-
-    fn render_theme_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        ThemePicker::new("theme-picker", self.ui_theme(), self.theme.id().to_string()).on_choose(
-            cx.listener(|viewer, id: &SharedString, window, cx| {
-                viewer.select_theme(id, window, cx);
-            }),
-        )
+    fn render_theme_picker(&self, picker: &Entity<ThemePicker>) -> impl IntoElement {
+        let dismissed = picker.clone();
+        Backdrop::new("theme-picker-backdrop", self.ui_theme())
+            .on_dismiss(move |_, cx| dismissed.update(cx, ThemePicker::cancel))
+            .child(picker.clone())
     }
 
     pub(crate) fn submit_review(
@@ -1588,7 +1592,7 @@ impl Render for DiffViewer {
         {
             focus_handle.focus(window, cx);
         }
-        let mode = if self.theme_selection.is_some() {
+        let mode = if self.theme_picker.is_some() {
             "themes"
         } else if self.shortcuts_open {
             "shortcuts"
@@ -1670,10 +1674,6 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::show_shortcuts))
             .on_action(cx.listener(Self::hide_shortcuts))
             .on_action(cx.listener(Self::show_theme_picker))
-            .on_action(cx.listener(Self::hide_theme_picker))
-            .on_action(cx.listener(Self::next_theme))
-            .on_action(cx.listener(Self::previous_theme))
-            .on_action(cx.listener(Self::commit_theme))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cancel))
             .size_full()
@@ -1698,8 +1698,8 @@ impl Render for DiffViewer {
             .when(self.shortcuts_open, |viewer| {
                 viewer.child(self.render_shortcuts())
             })
-            .when(self.theme_selection.is_some(), |viewer| {
-                viewer.child(self.render_theme_picker(cx))
+            .when_some(self.theme_picker.as_ref(), |viewer, (picker, _)| {
+                viewer.child(self.render_theme_picker(picker))
             })
             .when(self.repository_prompt.is_some(), |viewer| {
                 viewer.child(self.render_repository_prompt())

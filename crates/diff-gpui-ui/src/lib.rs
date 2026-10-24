@@ -18,17 +18,19 @@ pub use interface_size::InterfaceSize;
 
 pub mod prelude {
     pub use super::components::{
-        ActionBar, Button, ButtonVariant, ControlSize, ControlState, Disclosure, EmptyState,
-        IconButton, InteractionState, ListRow, Modal, ModalSize, MutedText, NoticeTone,
+        ActionBar, Backdrop, Button, ButtonVariant, ControlSize, ControlState, Disclosure,
+        EmptyState, IconButton, InteractionState, ListRow, Modal, ModalSize, MutedText, NoticeTone,
         Notification, SelectionState, Surface, SurfaceExt, Tooltip,
     };
     pub use super::fonts::{CODE_FONT, UI_FONT};
     pub use super::icon::{Icon, IconName};
     pub use super::menu::{MenuItem, with_menu};
-    pub use super::picker::{PickerItem, PickerList, SearchPicker, SearchPickerEvent, ThemePicker};
+    pub use super::picker::{
+        PickerItem, PickerList, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent,
+    };
     pub use super::resizable::{PanelSide, ResizablePanel};
     pub use super::scrollbar::ListScrollbar;
-    pub use super::theme::{UiColors, UiStyle, UiTheme, color};
+    pub use super::theme::{UiColors, UiStyle, UiTheme, color, window_appearance};
     pub use super::tokens::rem;
     pub use super::tree::TreeRow;
     pub use super::typography::{Typography, TypographyExt};

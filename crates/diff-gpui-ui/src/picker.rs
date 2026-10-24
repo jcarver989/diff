@@ -1,11 +1,11 @@
 use super::{
-    components::{ListRow, Modal, SelectionState, SurfaceExt},
+    components::{ListRow, SelectionState, SurfaceExt},
     icon::{Icon, IconName},
     theme::UiTheme,
     tokens::{self, rem},
     typography::{Typography, TypographyExt},
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeSelection};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, IntoElement, KeyBinding, NoAction,
     ParentElement, Rems, RenderOnce, ScrollHandle, SharedString, Subscription, Window, div,
@@ -16,10 +16,9 @@ use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
 };
-use std::{cmp::Reverse, rc::Rc};
+use std::{cmp::Reverse, rc::Rc, sync::Arc};
 
 type ChooseHandler = Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
-type ThemeHandler = Rc<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>;
 
 pub const CONTEXT: &str = "SearchPicker";
 
@@ -230,6 +229,7 @@ impl RenderOnce for PickerList {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchPickerEvent {
     Query(String),
+    Highlighted(usize),
     Chose(usize),
     Dismissed,
 }
@@ -318,11 +318,10 @@ impl SearchPicker {
         let subscription = cx.subscribe(&input, |this, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 let query = input.read(cx).value().to_string();
-                this.refilter(&query);
+                this.apply_query(&query, cx);
                 if !this.filtered {
                     cx.emit(SearchPickerEvent::Query(query));
                 }
-                cx.notify();
             }
         });
         self.search = Some((input, subscription));
@@ -383,8 +382,36 @@ impl SearchPicker {
     pub fn set_items(&mut self, items: Vec<PickerItem>, cx: &mut Context<Self>) {
         self.items = items;
         let query = self.query(cx);
-        self.refilter(&query);
-        cx.notify();
+        self.apply_query(&query, cx);
+    }
+
+    pub fn move_highlight(&mut self, by: isize, cx: &mut Context<Self>) {
+        if let Some(next) = self
+            .highlighted
+            .checked_add_signed(by)
+            .and_then(|start| self.next_enabled(start, by))
+        {
+            self.set_highlighted_position(next, cx);
+        }
+    }
+
+    pub fn highlight_item(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(position) = self
+            .matches
+            .iter()
+            .position(|&matched| matched == index)
+            .filter(|_| !self.items[index].disabled)
+        {
+            self.set_highlighted_position(position, cx);
+        }
+    }
+
+    pub fn choose_highlighted(&mut self, cx: &mut Context<Self>) {
+        self.choose(self.highlighted, cx);
+    }
+
+    pub fn dismiss(&mut self, cx: &mut Context<Self>) {
+        cx.emit(SearchPickerEvent::Dismissed);
     }
 
     pub fn set_status(&mut self, status: Option<SharedString>, cx: &mut Context<Self>) {
@@ -410,16 +437,36 @@ impl SearchPicker {
         self.scroll.scroll_to_item(self.highlighted);
     }
 
-    fn step(&mut self, by: isize, cx: &mut Context<Self>) {
-        if let Some(next) = self
-            .highlighted
-            .checked_add_signed(by)
-            .and_then(|start| self.next_enabled(start, by))
+    fn apply_query(&mut self, query: &str, cx: &mut Context<Self>) {
+        let before = self.highlighted_item();
+        self.refilter(query);
+        if let Some(index) = self
+            .highlighted_item()
+            .filter(|&index| Some(index) != before)
         {
-            self.highlighted = next;
-            self.scroll.scroll_to_item(next);
-            cx.notify();
+            cx.emit(SearchPickerEvent::Highlighted(index));
         }
+        cx.notify();
+    }
+
+    fn set_highlighted_position(&mut self, position: usize, cx: &mut Context<Self>) {
+        let before = self.highlighted_item();
+        self.highlighted = position;
+        self.scroll.scroll_to_item(position);
+        if let Some(index) = self
+            .highlighted_item()
+            .filter(|&index| Some(index) != before)
+        {
+            cx.emit(SearchPickerEvent::Highlighted(index));
+        }
+        cx.notify();
+    }
+
+    fn highlighted_item(&self) -> Option<usize> {
+        self.matches
+            .get(self.highlighted)
+            .copied()
+            .filter(|&index| !self.items[index].disabled)
     }
 
     fn next_enabled(&self, start: usize, by: isize) -> Option<usize> {
@@ -494,19 +541,20 @@ impl Render for SearchPicker {
             .flex()
             .flex_col()
             .overflow_hidden()
+            .occlude()
             .surface(self.theme)
             .shadow_lg()
             .typography(Typography::Body)
             .capture_action(cx.listener(|this, _: &MoveUp, _, cx| {
-                this.step(-1, cx);
+                this.move_highlight(-1, cx);
                 cx.stop_propagation();
             }))
             .capture_action(cx.listener(|this, _: &MoveDown, _, cx| {
-                this.step(1, cx);
+                this.move_highlight(1, cx);
                 cx.stop_propagation();
             }))
-            .on_action(cx.listener(|this, _: &Enter, _, cx| this.choose(this.highlighted, cx)))
-            .on_action(cx.listener(|_, _: &Escape, _, cx| cx.emit(SearchPickerEvent::Dismissed)))
+            .on_action(cx.listener(|this, _: &Enter, _, cx| this.choose_highlighted(cx)))
+            .on_action(cx.listener(|this, _: &Escape, _, cx| this.dismiss(cx)))
             .children(self.title.clone().map(|title| {
                 div()
                     .flex_none()
@@ -543,68 +591,113 @@ impl Render for SearchPicker {
     }
 }
 
-#[derive(IntoElement)]
+#[derive(Debug, Clone)]
+pub enum ThemePickerEvent {
+    Preview(ReviewTheme),
+    Commit(ReviewTheme),
+    Cancel(ReviewTheme),
+}
+
 pub struct ThemePicker {
-    id: SharedString,
-    theme: UiTheme,
-    current: SharedString,
-    on_choose: Option<ThemeHandler>,
+    picker: Entity<SearchPicker>,
+    selection: Option<ThemeSelection>,
+    _subscription: Subscription,
 }
 
 impl ThemePicker {
     #[must_use]
     pub fn new(
         id: impl Into<SharedString>,
+        current: &ReviewTheme,
+        themes: Arc<[ThemeChoice]>,
         theme: UiTheme,
-        current: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> Self {
+        let selection = ThemeSelection::new(current, themes);
+        let items = selection
+            .iter()
+            .flat_map(ThemeSelection::themes)
+            .map(|choice| {
+                let detail = match choice.theme.appearance() {
+                    Appearance::Light => "Light",
+                    Appearance::Dark => "Dark",
+                };
+                PickerItem::new(choice.theme.id().to_string(), choice.name.clone())
+                    .detail(detail)
+                    .checked(choice.theme.id() == current.id())
+            })
+            .collect();
+        let selected = selection.as_ref().map_or(0, ThemeSelection::selected);
+        let id = id.into();
+        let picker = cx.new(|cx| {
+            SearchPicker::new(id, items, theme, cx)
+                .searchable("Search themes…", window, cx)
+                .empty("No matching themes")
+                .footer("↑↓ Preview    ↵ Apply    Esc Cancel")
+                .width(rem(tokens::PICKER_WIDTH))
+                .max_list_height(rem(tokens::PICKER_LIST_HEIGHT))
+                .highlight(selected)
+        });
+        let subscription = cx.subscribe(&picker, |this, _, event: &SearchPickerEvent, cx| {
+            this.on_picker_event(event, cx);
+        });
         Self {
-            id: id.into(),
-            theme,
-            current: current.into(),
-            on_choose: None,
+            picker,
+            selection,
+            _subscription: subscription,
         }
     }
 
-    #[must_use]
-    pub fn on_choose(
-        mut self,
-        handler: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_choose = Some(Rc::new(handler));
-        self
+    pub fn move_highlight(&mut self, by: isize, cx: &mut Context<Self>) {
+        self.picker
+            .update(cx, |picker, cx| picker.move_highlight(by, cx));
+    }
+
+    pub fn highlight(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.picker
+            .update(cx, |picker, cx| picker.highlight_item(index, cx));
+    }
+
+    pub fn commit(&mut self, cx: &mut Context<Self>) {
+        self.picker.update(cx, SearchPicker::choose_highlighted);
+    }
+
+    pub fn cancel(&mut self, cx: &mut Context<Self>) {
+        self.picker.update(cx, SearchPicker::dismiss);
+    }
+
+    fn on_picker_event(&mut self, event: &SearchPickerEvent, cx: &mut Context<Self>) {
+        match event {
+            SearchPickerEvent::Highlighted(index) => {
+                if let Some(theme) = self
+                    .selection
+                    .as_mut()
+                    .and_then(|selection| selection.select(*index))
+                {
+                    cx.emit(ThemePickerEvent::Preview(theme));
+                }
+            }
+            SearchPickerEvent::Chose(index) => {
+                if let Some(mut selection) = self.selection.take() {
+                    selection.select(*index);
+                    cx.emit(ThemePickerEvent::Commit(selection.commit()));
+                }
+            }
+            SearchPickerEvent::Dismissed => {
+                if let Some(selection) = self.selection.take() {
+                    cx.emit(ThemePickerEvent::Cancel(selection.cancel()));
+                }
+            }
+            SearchPickerEvent::Query(_) => {}
+        }
     }
 }
 
-impl RenderOnce for ThemePicker {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let catalog = ReviewTheme::catalog();
-        let ids: Vec<SharedString> = catalog
-            .iter()
-            .map(|descriptor| descriptor.id.clone().into())
-            .collect();
-        let highlighted = ids.iter().position(|id| *id == self.current);
-        let items = catalog.into_iter().map(|descriptor| {
-            PickerItem::new(descriptor.id, descriptor.name).detail(if descriptor.is_dark {
-                "Dark"
-            } else {
-                "Light"
-            })
-        });
-        let on_choose = self.on_choose;
-        Modal::new(self.id.clone(), "Select theme", self.theme)
-            .hint("Esc to close")
-            .width(rem(tokens::PICKER_WIDTH))
-            .height(rem(tokens::PICKER_HEIGHT))
-            .child(
-                PickerList::new(self.id, self.theme)
-                    .items(items)
-                    .highlighted(highlighted)
-                    .when_some(on_choose, |list, choose| {
-                        list.on_choose(move |position, window, cx| {
-                            choose(&ids[*position], window, cx);
-                        })
-                    }),
-            )
+impl EventEmitter<ThemePickerEvent> for ThemePicker {}
+
+impl Render for ThemePicker {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        self.picker.clone()
     }
 }

@@ -1,7 +1,9 @@
 //! Renderer-neutral colors, semantic diff palettes, and syntax themes.
 
+mod appearance;
 mod selection;
 mod ui;
+pub use appearance::{Appearance, ThemePair};
 pub use selection::{ThemeChoice, ThemeSelection};
 
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
@@ -501,6 +503,19 @@ impl ReviewTheme {
     #[must_use]
     pub const fn id(&self) -> &ThemeId {
         &self.id
+    }
+
+    #[must_use]
+    pub fn appearance(&self) -> Appearance {
+        let canvas = self.ui.canvas;
+        let luminance = 0.2126 * f32::from(canvas.r)
+            + 0.7152 * f32::from(canvas.g)
+            + 0.0722 * f32::from(canvas.b);
+        if luminance < f32::from(u8::MAX) / 2.0 {
+            Appearance::Dark
+        } else {
+            Appearance::Light
+        }
     }
 
     #[must_use]

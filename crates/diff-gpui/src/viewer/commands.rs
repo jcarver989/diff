@@ -1,16 +1,15 @@
 use super::{DiffViewer, ViewerPane};
-use crate::{DiffViewerEvent, ThemeChanged};
+use crate::{DiffViewerEvent, ui::prelude::ThemePicker};
 use clankerdiff_core::{
     CommandContext, DiffReviewCommand, InteractionPhase, RepositoryAction, ReviewCapabilities,
     ReviewCommand, ReviewSession,
 };
-use clankerdiff_theme::{ThemeChoice, ThemeSelection};
 use gpui::{Context, ListOffset, Window, px};
 
 impl DiffViewer {
     #[must_use]
     pub fn command_context(&self) -> CommandContext {
-        let phase = if self.theme_selection.is_some() {
+        let phase = if self.theme_picker.is_some() {
             InteractionPhase::ThemePicker
         } else if self.repository_prompt.is_some() {
             InteractionPhase::RepositoryPrompt
@@ -25,7 +24,7 @@ impl DiffViewer {
             phase,
             capabilities: self.capabilities,
             repository_pending: self.repository_pending,
-            themes_available: true,
+            themes_available: self.options.themes,
             source_view: self.session.source_view().is_some(),
             ..CommandContext::default()
         }
@@ -276,47 +275,22 @@ impl DiffViewer {
                     return true;
                 }
                 InteractionPhase::ThemePicker => {
-                    if let Some(selection) = self.theme_selection.take() {
-                        self.apply_theme(selection.cancel(), cx);
-                    }
-                    return true;
+                    return self.update_theme_picker(cx, ThemePicker::cancel);
                 }
                 InteractionPhase::RepositoryPrompt => self.clear_repository_prompt(),
                 InteractionPhase::Help => self.shortcuts_open = false,
             },
             C::Review(R::ShowHelp) => self.shortcuts_open = true,
             C::Review(R::ScrollHelp(_)) => return false,
-            C::Review(R::OpenThemePicker) => {
-                self.theme_selection = ThemeSelection::new(&self.theme, ThemeChoice::catalog());
-            }
+            C::Review(R::OpenThemePicker) => self.open_theme_picker(window, cx),
             C::Review(R::SelectTheme(index)) => {
-                let Some(theme) = self
-                    .theme_selection
-                    .as_mut()
-                    .and_then(|selection| selection.select(index))
-                else {
-                    return false;
-                };
-                self.apply_theme(theme, cx);
-                return true;
+                return self.update_theme_picker(cx, |picker, cx| picker.highlight(index, cx));
             }
             C::Review(R::MoveTheme(delta)) => {
-                let Some(selection) = self.theme_selection.as_mut() else {
-                    return false;
-                };
-                let theme = selection.select_relative(delta);
-                self.apply_theme(theme, cx);
-                return true;
+                return self.update_theme_picker(cx, |picker, cx| picker.move_highlight(delta, cx));
             }
             C::Review(R::CommitTheme) => {
-                let Some(selection) = self.theme_selection.take() else {
-                    return false;
-                };
-                let theme = selection.commit();
-                let id = theme.id().to_string();
-                self.apply_theme(theme, cx);
-                cx.emit(ThemeChanged { id });
-                return true;
+                return self.update_theme_picker(cx, ThemePicker::commit);
             }
         }
         cx.notify();

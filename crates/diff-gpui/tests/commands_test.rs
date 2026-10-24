@@ -5,7 +5,9 @@ use clankerdiff_core::{
     DiffReviewCommand, DiffReviewEvent, InteractionPhase, ReviewCapabilities, ReviewCommand,
 };
 use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
-use clankerdiff_gpui::{MarkdownReviewer, NextFile, NextHunk, Refresh, StageAll};
+use clankerdiff_gpui::{
+    DiffViewerOptions, MarkdownReviewer, NextFile, NextHunk, Refresh, StageAll,
+};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewCommand, MarkdownReviewEvent};
 use clankerdiff_theme::ReviewTheme;
 use gpui::{AppContext, Focusable, TestAppContext};
@@ -340,7 +342,8 @@ fn theme_keyboard_preview_and_commit_match_shared_commands(cx: &mut TestAppConte
         let preview = direct.read(cx, |viewer, _| viewer.theme().id().clone());
         let keyboard = DiffViewerHarnessBuilder::default().build(cx);
         let original = keyboard.read(cx, |viewer, _| viewer.theme().id().clone());
-        keyboard.simulate_keystrokes(cx, "t down");
+        keyboard.simulate_keystrokes(cx, "t");
+        keyboard.simulate_keystrokes(cx, "down");
         assert_eq!(
             keyboard.read(cx, |viewer, _| viewer.theme().id().clone()),
             preview
@@ -350,7 +353,8 @@ fn theme_keyboard_preview_and_commit_match_shared_commands(cx: &mut TestAppConte
             keyboard.read(cx, |viewer, _| viewer.theme().id().clone()),
             original
         );
-        keyboard.simulate_keystrokes(cx, "t j enter");
+        keyboard.simulate_keystrokes(cx, "t");
+        keyboard.simulate_keystrokes(cx, "down enter");
         assert_eq!(
             keyboard.read(cx, |viewer, _| viewer.theme().id().clone()),
             preview
@@ -416,7 +420,9 @@ fn markdown_navigation_and_theme_shortcuts_use_shared_commands(cx: &mut TestAppC
             keyboard.read_with(cx, |viewer, _| viewer.session().selected_target())?,
             before
         );
-        cx.simulate_keystrokes(*keyboard, "t down enter");
+        cx.simulate_keystrokes(*keyboard, "t");
+        cx.update_window(*keyboard, |_, window, cx| window.draw(cx).clear(cx))?;
+        cx.simulate_keystrokes(*keyboard, "down enter");
         assert_eq!(
             keyboard.read_with(cx, |viewer, _| viewer.command_context().phase)?,
             InteractionPhase::Browse
@@ -464,4 +470,45 @@ fn theme_preview_cancellation_is_shared_and_does_not_cancel_the_review(cx: &mut 
     if let Err(error) = result {
         panic!("{error}");
     }
+}
+
+#[gpui::test]
+fn a_viewer_without_themes_offers_no_theme_picker(cx: &mut TestAppContext) {
+    let harness = DiffViewerHarnessBuilder {
+        options: DiffViewerOptions {
+            themes: false,
+            ..DiffViewerOptions::default()
+        },
+        ..DiffViewerHarnessBuilder::default()
+    }
+    .build(cx);
+    assert!(harness.bounds(cx, "select-theme").is_none());
+    harness.simulate_keystrokes(cx, "t");
+    assert!(!harness.read(cx, |viewer, _| viewer.theme_picker_open()));
+    assert!(!harness.read(cx, |viewer, _| {
+        viewer.command_enabled(&ReviewCommand::OpenThemePicker.into())
+    }));
+}
+
+#[gpui::test]
+fn clicking_outside_the_theme_picker_cancels_its_preview(cx: &mut TestAppContext) {
+    let harness = DiffViewerHarnessBuilder::default().build(cx);
+    let original = harness.read(cx, |viewer, _| viewer.theme().id().clone());
+    harness.simulate_keystrokes(cx, "t");
+    harness.simulate_keystrokes(cx, "down");
+    assert_ne!(
+        harness.read(cx, |viewer, _| viewer.theme().id().clone()),
+        original
+    );
+    let corner = harness
+        .bounds(cx, "theme-picker-backdrop")
+        .expect("the theme picker is open")
+        .origin
+        + gpui::point(gpui::px(4.0), gpui::px(4.0));
+    harness.click_at(cx, corner);
+    assert!(!harness.read(cx, |viewer, _| viewer.theme_picker_open()));
+    assert_eq!(
+        harness.read(cx, |viewer, _| viewer.theme().id().clone()),
+        original
+    );
 }
