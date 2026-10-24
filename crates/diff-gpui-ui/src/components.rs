@@ -192,6 +192,7 @@ impl RenderOnce for Button {
             ),
         };
         let selector = self.id.to_string();
+        let icon_selector = format!("{selector}-icon");
         let theme = self.theme;
         interactive(
             div()
@@ -235,10 +236,12 @@ impl RenderOnce for Button {
             disabled,
             self.on_click,
         )
-        .children(
-            self.icon
-                .map(|icon| Icon::new(icon, style.foreground).size(tokens::ICON_SIZE_SMALL)),
-        )
+        .children(self.icon.map(|icon| {
+            div()
+                .flex()
+                .debug_selector(move || icon_selector)
+                .child(Icon::new(icon, style.foreground).size(tokens::ICON_SIZE_SMALL))
+        }))
         .child(div().min_w_0().truncate().child(self.label))
     }
 }
