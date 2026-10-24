@@ -14,7 +14,13 @@ const QUIT_KEYSTROKE: &str = "cmd-q";
 #[cfg(not(target_os = "macos"))]
 const QUIT_KEYSTROKE: &str = "ctrl-q";
 
-pub fn install(cx: &mut App, name: &'static str, version: &'static str, menus: Vec<Menu>) {
+pub fn install(
+    cx: &mut App,
+    name: &'static str,
+    version: &'static str,
+    app_items: Vec<MenuItem>,
+    menus: Vec<Menu>,
+) {
     cx.on_action(move |_: &About, cx| {
         with_active_window(cx, |window, cx| {
             let version = format!("Version {version}");
@@ -28,26 +34,31 @@ pub fn install(cx: &mut App, name: &'static str, version: &'static str, menus: V
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.on_action(|_: &Zoom, cx| with_active_window(cx, |window, _| window.zoom_window()));
     cx.bind_keys([KeyBinding::new(QUIT_KEYSTROKE, Quit, None)]);
-    cx.set_menus(build(name, menus));
+    cx.set_menus(build(name, app_items, menus));
 }
 
 #[must_use]
-pub fn build(name: &str, menus: Vec<Menu>) -> Vec<Menu> {
+pub fn build(name: &str, app_items: Vec<MenuItem>, menus: Vec<Menu>) -> Vec<Menu> {
+    let mut app = vec![MenuItem::action(format!("About {name}"), About)];
+    if !app_items.is_empty() {
+        app.push(MenuItem::separator());
+        app.extend(app_items);
+    }
+    app.extend([
+        MenuItem::separator(),
+        MenuItem::os_submenu("Services", SystemMenuType::Services),
+        MenuItem::separator(),
+        MenuItem::action(format!("Hide {name}"), Hide),
+        MenuItem::action("Hide Others", HideOthers),
+        MenuItem::action("Show All", ShowAll),
+        MenuItem::separator(),
+        MenuItem::action(format!("Quit {name}"), Quit),
+    ]);
     let mut all = vec![
         Menu {
             name: name.to_owned().into(),
             disabled: false,
-            items: vec![
-                MenuItem::action(format!("About {name}"), About),
-                MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
-                MenuItem::separator(),
-                MenuItem::action(format!("Hide {name}"), Hide),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
-                MenuItem::separator(),
-                MenuItem::action(format!("Quit {name}"), Quit),
-            ],
+            items: app,
         },
         Menu {
             name: "Edit".into(),

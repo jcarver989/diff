@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn desktop_menus_expose_app_edit_and_window_menus() {
         let menus: Vec<gpui::OwnedMenu> =
-            clankerdiff_gpui_shell::menus::build(menus::APP_NAME, menus::extra())
+            clankerdiff_gpui_shell::menus::build(menus::APP_NAME, Vec::new(), menus::extra())
                 .into_iter()
                 .map(gpui::Menu::owned)
                 .collect();
