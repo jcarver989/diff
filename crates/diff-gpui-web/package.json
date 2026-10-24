@@ -4,8 +4,8 @@
     "test": "trunk build --release && vitest run --browser.enabled"
   },
   "devDependencies": {
-    "@vitest/browser-playwright": "^5.0.3",
-    "playwright": "^1.64.0",
+    "@vitest/browser-playwright": "^5.0.5",
+    "playwright": "^1.64.1",
     "vitest": "^5.0.1"
   }
 }
