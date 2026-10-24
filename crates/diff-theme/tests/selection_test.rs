@@ -1,4 +1,4 @@
-use clankerdiff_theme::{ReviewTheme, ThemeChoice, ThemeSelection};
+use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeSelection};
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -31,4 +31,22 @@ fn position_finds_a_theme_by_id() -> Result<(), Box<dyn Error>> {
     );
     assert_eq!(selection.position("missing"), None);
     Ok(())
+}
+
+#[test]
+fn catalog_for_offers_only_themes_with_that_appearance() {
+    for appearance in [Appearance::Light, Appearance::Dark] {
+        let choices = ThemeChoice::catalog_for(appearance);
+        assert!(!choices.is_empty());
+        assert!(
+            choices
+                .iter()
+                .all(|choice| choice.theme.appearance() == appearance)
+        );
+    }
+    assert_eq!(
+        ThemeChoice::catalog_for(Appearance::Light).len()
+            + ThemeChoice::catalog_for(Appearance::Dark).len(),
+        ThemeChoice::catalog().len()
+    );
 }
