@@ -4,7 +4,7 @@ mod app;
 pub mod args;
 mod markdown_app;
 mod menus;
-mod preferences;
+pub mod preferences;
 
 use app::DesktopApp;
 use args::CliArgs;
@@ -73,8 +73,8 @@ pub fn run_markdown_review(document: MarkdownDocument) -> Option<MarkdownReviewS
         menus::install(cx);
         run_loop::install(cx);
         let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
-        cx.open_window(window_options(bounds), |_window, cx| {
-            cx.new(|cx| MarkdownDesktopApp::new(std::sync::Arc::new(document), sender, cx))
+        cx.open_window(window_options(bounds), |window, cx| {
+            cx.new(|cx| MarkdownDesktopApp::new(std::sync::Arc::new(document), sender, window, cx))
         })
         .expect("failed to open the Markdown review window");
         cx.activate(true);
