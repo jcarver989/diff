@@ -40,7 +40,7 @@ serde_json.workspace = true
 shlex.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tokio.workspace = true
 
 [dev-dependencies]
 clankerdiff-git = { version = "0.3.3", path = "../diff-git", features = ["test-support"] }

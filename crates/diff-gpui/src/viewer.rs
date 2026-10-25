@@ -89,6 +89,8 @@ actions!(
         StageAll,
         UnstageAll,
         CycleScope,
+        NextCommit,
+        PreviousCommit,
         CommitChanges,
         DiscardChanges,
         ConfirmDiscard,
@@ -151,7 +153,6 @@ pub struct DiffViewer {
     session: ReviewSession,
     capabilities: ReviewCapabilities,
     theme_picker: Option<(Entity<ThemePicker>, Subscription)>,
-    scope: DiffScope,
     theme: ReviewTheme,
     highlighter: SyntaxHighlighter,
     pub(crate) options: DiffViewerOptions,
@@ -209,7 +210,6 @@ impl DiffViewer {
         sidebar_tree.reveal_file(session.selected_file().unwrap_or(0));
         let mut viewer = Self {
             session,
-            scope: DiffScope::Both,
             capabilities: ReviewCapabilities::default(),
             theme_picker: None,
             theme,
@@ -312,6 +312,8 @@ impl DiffViewer {
             KeyBinding::new("enter", ExpandGap, Some(DIFF_ACTIVATION)),
             KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
             KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
+            KeyBinding::new("]", NextCommit, Some(BROWSE)),
+            KeyBinding::new("[", PreviousCommit, Some(BROWSE)),
             KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
             KeyBinding::new("escape", HideShortcuts, Some(SHORTCUTS)),
             KeyBinding::new("shift-/", HideShortcuts, Some(SHORTCUTS)),
@@ -335,12 +337,7 @@ impl DiffViewer {
 
     #[must_use]
     pub const fn scope(&self) -> DiffScope {
-        self.scope
-    }
-
-    pub fn set_scope(&mut self, scope: DiffScope, cx: &mut Context<Self>) {
-        self.scope = scope;
-        cx.notify();
+        self.session.scope()
     }
 
     #[must_use]
@@ -1405,6 +1402,14 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::CycleScope, window, cx);
     }
 
+    fn next_commit(&mut self, _: &NextCommit, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::StepTarget(1), window, cx);
+    }
+
+    fn previous_commit(&mut self, _: &PreviousCommit, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::StepTarget(-1), window, cx);
+    }
+
     fn cycle_view_mode(&mut self, _: &CycleViewMode, window: &mut Window, cx: &mut Context<Self>) {
         self.handle_command(DiffReviewCommand::CycleViewMode, window, cx);
     }
@@ -1648,6 +1653,8 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::next_hunk))
             .on_action(cx.listener(Self::previous_hunk))
             .on_action(cx.listener(Self::cycle_scope))
+            .on_action(cx.listener(Self::next_commit))
+            .on_action(cx.listener(Self::previous_commit))
             .on_action(cx.listener(Self::cycle_view_mode))
             .on_action(cx.listener(Self::expand_gap_action))
             .on_action(cx.listener(Self::activate_gap_action))
@@ -1684,17 +1691,23 @@ impl Render for DiffViewer {
             .text_color(color(palette.foreground))
             .font_family(UI_FONT)
             .typography(Typography::Body)
-            .child(
-                div()
-                    .id("diff-viewer-content")
-                    .debug_selector(|| "diff-viewer-content".to_owned())
-                    .flex_1()
-                    .overflow_hidden()
-                    .flex()
-                    .children((!self.sidebar.collapsed).then(|| self.render_sidebar(cx)))
-                    .child(self.render_diff(window, cx)),
-            )
-            .child(self.render_review_bar(cx))
+            .map(|viewer| {
+                if self.document().files.is_empty() {
+                    return viewer.child(self.render_clean(cx));
+                }
+                viewer
+                    .child(
+                        div()
+                            .id("diff-viewer-content")
+                            .debug_selector(|| "diff-viewer-content".to_owned())
+                            .flex_1()
+                            .overflow_hidden()
+                            .flex()
+                            .children((!self.sidebar.collapsed).then(|| self.render_sidebar(cx)))
+                            .child(self.render_diff(window, cx)),
+                    )
+                    .child(self.render_review_bar(cx))
+            })
             .when(self.shortcuts_open, |viewer| {
                 viewer.child(self.render_shortcuts())
             })

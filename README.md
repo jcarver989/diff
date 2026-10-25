@@ -47,6 +47,14 @@ CLANKERDIFF_TUI_COMMAND='ghostty +new-window -e' clankerdiff review . --ui tui -
 
 Note: `CLANKERDIFF_TUI_COMMAND` changes based on your terminal of choice. In the example above, this command tells Ghostty to open clankerdiff in a new terminal window.
 
+**Commit by commit**
+
+On a branch, the review pages through each commit since it diverged from `origin/HEAD` (or `origin/main`, `origin/master`, `main`, `master`), followed by your uncommitted changes. Press `[` / `]` to move between pages; comments on commits are grouped by commit in the feedback. Add `--commits` to start on the oldest commit, like a pull request.
+
+```bash
+clankerdiff review . --ui desktop --scope both --format json --commits
+```
+
 ### Skill 
 
 If your harness supports bash interpolation within `SKILL.md` files, you can create a user invocable skill (e.g. `/diff`) that calls `clankerdiff` and sends feedback straight to your agent. For example:
@@ -87,6 +95,7 @@ comments and addresses them. Press `y` to copy the feedback instead.
 | --- | --- |
 | `↑` / `↓` or `j` / `k` | Navigate |
 | `Tab` | Switch between files and diff |
+| `]` / `[` | Next / previous commit |
 | `c` | Comment on the selected line |
 | `e` / `x` | Edit / delete a comment |
 | `s` / `y` | Submit / copy feedback (in the diff pane) |

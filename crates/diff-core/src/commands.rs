@@ -138,6 +138,7 @@ pub enum DiffReviewCommand {
     CopyReview,
     SetScope(DiffScope),
     CycleScope,
+    StepTarget(isize),
     Refresh,
     ToggleStage,
     StageAll,
@@ -183,7 +184,7 @@ impl DiffReviewCommand {
             return false;
         }
         let capability = match self {
-            Self::SetScope(_) | Self::CycleScope => {
+            Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) => {
                 context.capabilities.scope && !context.repository_pending
             }
             Self::Refresh => context.capabilities.refresh && !context.repository_pending,
@@ -202,6 +203,9 @@ impl DiffReviewCommand {
         };
         capability
             && (context.document_ready
-                || matches!(self, Self::SetScope(_) | Self::CycleScope | Self::Refresh))
+                || matches!(
+                    self,
+                    Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) | Self::Refresh
+                ))
     }
 }

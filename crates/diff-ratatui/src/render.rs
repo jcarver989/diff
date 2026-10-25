@@ -77,7 +77,11 @@ impl StatefulWidget for DiffReviewWidget {
         state.hit_layout = HitLayout::default();
         state.visible_rows.clear();
         let theme = RatatuiTheme::from(&state.theme);
-        let regions = AppFrame::new(&self.title, self.borders, &theme)
+        let title = match state.session().page_title() {
+            Some(page) => format!("{} · {page}", self.title),
+            None => self.title,
+        };
+        let regions = AppFrame::new(&title, self.borders, &theme)
             .footer(state.options.footer || state.repository_prompt.is_some())
             .render(area, buffer);
         let body = regions.body;
@@ -101,7 +105,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, the
             Some((format!("Diff unavailable: {message}"), NoticeTone::Error))
         }
         DiffReviewStatus::Ready if state.document().files.is_empty() => Some((
-            format!("No changes (scope: {})", state.scope()),
+            format!("No changes ({})", state.target()),
             NoticeTone::Neutral,
         )),
         DiffReviewStatus::Ready => None,

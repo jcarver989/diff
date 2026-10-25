@@ -1,9 +1,9 @@
 use clankerdiff_core::{DiffReviewEvent, DiffScope, ParseDiffScopeError};
 
 #[test]
-fn set_scope_events_round_trip() -> Result<(), serde_json::Error> {
+fn set_target_events_round_trip() -> Result<(), serde_json::Error> {
     for scope in [DiffScope::Unstaged, DiffScope::Staged, DiffScope::Both] {
-        let event = DiffReviewEvent::SetScope(scope);
+        let event = DiffReviewEvent::SetTarget(scope.into());
         let json = serde_json::to_string(&event)?;
         assert_eq!(serde_json::from_str::<DiffReviewEvent>(&json)?, event);
     }

@@ -3,7 +3,7 @@ use std::{ffi::OsString, path::PathBuf};
 use thiserror::Error;
 
 /// Desktop command-line usage text.
-pub const USAGE: &str = "Usage: clankerdiff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n      --connect <URL>  Connect to a remote WebSocket backend instead of a local repository\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n  -h, --help           Print help";
+pub const USAGE: &str = "Usage: clankerdiff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n      --connect <URL>  Connect to a remote WebSocket backend instead of a local repository\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n      --commits        Start on the branch's oldest commit\n  -h, --help           Print help";
 
 /// Arguments accepted by the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +12,7 @@ pub struct CliArgs {
     pub repository: PathBuf,
     /// Initial Git diff scope.
     pub scope: DiffScope,
+    pub commits: bool,
     pub connect: Option<String>,
 }
 
@@ -20,6 +21,7 @@ impl Default for CliArgs {
         Self {
             repository: PathBuf::from("."),
             scope: DiffScope::Both,
+            commits: false,
             connect: None,
         }
     }
@@ -44,6 +46,7 @@ impl CliArgs {
         let mut arguments = arguments.into_iter();
         let mut repository = None;
         let mut scope = DiffScope::Both;
+        let mut commits = false;
         let mut connect = None;
         while let Some(argument) = arguments.next() {
             let text = argument.to_string_lossy();
@@ -52,6 +55,7 @@ impl CliArgs {
                 "--unstaged" => scope = DiffScope::Unstaged,
                 "--staged" => scope = DiffScope::Staged,
                 "--both" => scope = DiffScope::Both,
+                "--commits" => commits = true,
                 "--connect" => {
                     let value = arguments.next().ok_or(ArgsError::MissingConnect)?;
                     connect = Some(value.into_string().map_err(|_| ArgsError::InvalidConnect)?);
@@ -90,6 +94,7 @@ impl CliArgs {
         Ok(Self {
             repository,
             scope,
+            commits,
             connect,
         })
     }

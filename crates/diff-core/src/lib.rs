@@ -23,12 +23,12 @@ pub use content::{
     MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceDocument, SourceLineRef, SourceLocation,
     SourceResult, SourceUnavailable,
 };
-pub use error::{DiffError, ParseDiffScopeError, RepoPathError};
+pub use error::{CommitIdError, DiffError, ParseDiffScopeError, RepoPathError};
 pub use file_tree::{FileTree, FileTreeEntry, tree_order};
 pub use models as model;
 pub use models::{
-    DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange, PatchLine,
-    PatchLineKind, RepoPath, StageState,
+    CommitId, CommitStack, CommitSummary, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus,
+    Hunk, ModeChange, PatchLine, PatchLineKind, RepoPath, ReviewTarget, StageState,
 };
 pub use parser::{
     GitStatusEntry, UntrackedFile, parse_detached_git_diff, parse_git_diff,

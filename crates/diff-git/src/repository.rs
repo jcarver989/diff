@@ -2,9 +2,9 @@
 
 use crate::{GitError, command, command::CatFileBatch, path};
 use clankerdiff_core::{
-    DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Fingerprint, RepoPath,
-    RepositoryAction, SourceDocument, SourceResult, SourceUnavailable, UntrackedFile,
-    parse_porcelain_v1_z,
+    CommitId, CommitStack, CommitSummary, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus,
+    Fingerprint, RepoPath, RepositoryAction, ReviewTarget, SourceDocument, SourceResult,
+    SourceUnavailable, UntrackedFile, parse_porcelain_v1_z,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -26,21 +26,20 @@ const STATUS_ARGS: [&str; 5] = [
 pub use clankerdiff_core::MAX_SOURCE_FILE_BYTES;
 pub const MAX_SOURCE_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_UNTRACKED_SNAPSHOT_BYTES: u64 = MAX_SOURCE_ARCHIVE_BYTES;
-
-/// A complete review document captured for one scope, with bounded immutable
-/// complete-file versions attached to every file.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RepositorySnapshot {
-    pub scope: DiffScope,
-    pub document: Arc<DiffDocument>,
-}
+const BASE_REFS: [&str; 5] = [
+    "refs/remotes/origin/HEAD",
+    "refs/remotes/origin/main",
+    "refs/remotes/origin/master",
+    "refs/heads/main",
+    "refs/heads/master",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ContentLocation {
-    Absent,
-    Head(RepoPath),
-    Index(RepoPath),
-    Worktree(RepoPath),
+enum Source {
+    Empty,
+    Revision(String),
+    Index,
+    Worktree,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +63,7 @@ enum BlobRecordKind {
 
 #[derive(Debug)]
 struct SnapshotInput {
-    has_head: bool,
+    sources: [Source; 2],
     diff: Vec<u8>,
     status: Vec<u8>,
     document: DiffDocument,
@@ -144,20 +143,23 @@ impl GitRepository {
         Ok(directories)
     }
 
-    pub async fn snapshot(&self, scope: DiffScope) -> Result<DiffDocument, GitError> {
-        self.load_snapshot_input(scope, scope == DiffScope::Both)
-            .await
-            .map(|input| input.document)
+    pub async fn snapshot(
+        &self,
+        target: impl Into<ReviewTarget>,
+    ) -> Result<DiffDocument, GitError> {
+        let document = self.load_snapshot_input(&target.into()).await?.document;
+        self.with_commits(document).await
     }
 
     pub async fn snapshot_with_sources(
         &self,
-        scope: DiffScope,
-    ) -> Result<RepositorySnapshot, GitError> {
+        target: impl Into<ReviewTarget>,
+    ) -> Result<DiffDocument, GitError> {
+        let target = target.into();
         let mut retries = 0;
         let mut delay = Duration::from_millis(250);
         loop {
-            match self.try_snapshot_with_sources(scope).await {
+            match self.try_snapshot_with_sources(target.clone()).await {
                 Err(GitError::UnstableSnapshot) if retries < 5 => {
                     retries += 1;
                     sleep(delay).await;
@@ -170,13 +172,12 @@ impl GitRepository {
 
     pub async fn try_snapshot_with_sources(
         &self,
-        scope: DiffScope,
-    ) -> Result<RepositorySnapshot, GitError> {
+        target: impl Into<ReviewTarget>,
+    ) -> Result<DiffDocument, GitError> {
+        let target = target.into();
         for _ in 0..2 {
-            let initial = self.load_snapshot_input(scope, true).await?;
-            let initial_locations = self
-                .resolve_content_locations(&initial.document, scope, initial.has_head)
-                .await;
+            let initial = self.load_snapshot_input(&target).await?;
+            let initial_locations = self.resolve_content_locations(&initial).await;
             let captured = match self
                 .capture_sources(&initial.document, &initial_locations)
                 .await
@@ -185,65 +186,144 @@ impl GitRepository {
                 Err(GitError::UnstableSnapshot) => continue,
                 Err(error) => return Err(error),
             };
-            let final_input = self.load_snapshot_input(scope, true).await?;
-            let final_locations = self
-                .resolve_content_locations(&final_input.document, scope, final_input.has_head)
-                .await;
-            let metadata_stable = initial.has_head == final_input.has_head
-                && initial.diff == final_input.diff
-                && initial.status == final_input.status
-                && initial.document == final_input.document
-                && initial_locations == final_locations;
-            if metadata_stable && self.worktrees_match(&captured.worktree_ids).await {
-                let files = initial
-                    .document
+            let stable = match target {
+                ReviewTarget::Commit(_) => true,
+                ReviewTarget::WorkingTree(_) => {
+                    let final_input = self.load_snapshot_input(&target).await?;
+                    let final_locations = self.resolve_content_locations(&final_input).await;
+                    let metadata_stable = initial.sources == final_input.sources
+                        && initial.diff == final_input.diff
+                        && initial.status == final_input.status
+                        && initial.document == final_input.document
+                        && initial_locations == final_locations;
+                    metadata_stable && self.worktrees_match(&captured.worktree_ids).await
+                }
+            };
+            if stable {
+                let mut document = initial.document;
+                document.files = document
                     .files
                     .into_iter()
                     .zip(captured.sides)
                     .map(|(file, [old, new])| file.with_sources(old, new))
                     .collect();
-                return Ok(RepositorySnapshot {
-                    scope,
-                    document: Arc::new(DiffDocument {
-                        repo_root: initial.document.repo_root,
-                        files,
-                    }),
-                });
+                return self.with_commits(document).await;
             }
         }
         Err(GitError::UnstableSnapshot)
     }
 
-    async fn load_snapshot_input(
-        &self,
-        scope: DiffScope,
-        resolve_head: bool,
-    ) -> Result<SnapshotInput, GitError> {
-        let has_head = if resolve_head {
-            self.has_head().await?
-        } else {
-            true
+    pub async fn commit_stack(&self) -> Result<Option<CommitStack>, GitError> {
+        let Some(base_ref) = self.base_ref().await? else {
+            return Ok(None);
         };
-        let diff = command::run(&self.root, "load diff", Self::diff_args(scope, has_head))
+        let range = format!("{base_ref}..HEAD");
+        let log = command::run(
+            &self.root,
+            "list branch commits",
+            [
+                "log",
+                "--reverse",
+                "--first-parent",
+                "-z",
+                "--format=%H%x1f%s",
+                "--max-count=200",
+                &range,
+                "--",
+            ],
+        )
+        .await;
+        match log {
+            Ok(log) => Ok(Some(CommitStack {
+                base_ref,
+                commits: parse_commit_log(&log.stdout)?,
+            })),
+            Err(GitError::CommandFailed { .. }) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn base_ref(&self) -> Result<Option<String>, GitError> {
+        let format = "--format=%(refname)%09%(if)%(symref)%(then)%(symref:short)%(else)%(refname:short)%(end)";
+        let output = command::run(
+            &self.root,
+            "resolve base branch",
+            ["for-each-ref", format].into_iter().chain(BASE_REFS),
+        )
+        .await?;
+        let output = String::from_utf8_lossy(&output.stdout);
+        let found = output
+            .lines()
+            .filter_map(|line| line.split_once('\t'))
+            .collect::<HashMap<_, _>>();
+        Ok(BASE_REFS
+            .iter()
+            .find_map(|candidate| found.get(candidate))
+            .map(|name| (*name).to_owned()))
+    }
+
+    async fn with_commits(&self, mut document: DiffDocument) -> Result<DiffDocument, GitError> {
+        document.commits = self.commit_stack().await?.map(Arc::new);
+        Ok(document)
+    }
+
+    async fn sources(&self, target: &ReviewTarget) -> Result<[Source; 2], GitError> {
+        Ok(match target {
+            ReviewTarget::WorkingTree(DiffScope::Unstaged) => [Source::Index, Source::Worktree],
+            ReviewTarget::WorkingTree(DiffScope::Staged) => [
+                self.revision_or_empty("HEAD".to_owned()).await?,
+                Source::Index,
+            ],
+            ReviewTarget::WorkingTree(DiffScope::Both) => [
+                self.revision_or_empty("HEAD".to_owned()).await?,
+                Source::Worktree,
+            ],
+            ReviewTarget::Commit(id) => [
+                self.revision_or_empty(format!("{id}^1")).await?,
+                Source::Revision(id.to_string()),
+            ],
+        })
+    }
+
+    async fn revision_or_empty(&self, revision: String) -> Result<Source, GitError> {
+        Ok(if self.resolves(&revision).await? {
+            Source::Revision(revision)
+        } else {
+            Source::Empty
+        })
+    }
+
+    async fn load_snapshot_input(&self, target: &ReviewTarget) -> Result<SnapshotInput, GitError> {
+        let sources = self.sources(target).await?;
+        let diff = command::run(&self.root, "load diff", Self::diff_args(&sources))
             .await?
             .stdout;
-        let status = command::run(&self.root, "load status", STATUS_ARGS)
-            .await?
-            .stdout;
-        let untracked = if scope == DiffScope::Staged {
-            Vec::new()
-        } else {
-            self.read_untracked().await?
-        };
         let repo_root = self
             .root
             .to_str()
             .ok_or(GitError::UnsupportedRepositoryPath)?;
-        let document = DiffDocument::from_git_outputs_with_untracked(
-            repo_root, &diff, &status, scope, &untracked,
-        )?;
+        let (status, document) = match target {
+            ReviewTarget::Commit(id) => (
+                Vec::new(),
+                DiffDocument::from_commit_diff(repo_root, id.clone(), &diff)?,
+            ),
+            ReviewTarget::WorkingTree(scope) => {
+                let status = command::run(&self.root, "load status", STATUS_ARGS)
+                    .await?
+                    .stdout;
+                let untracked = if *scope == DiffScope::Staged {
+                    Vec::new()
+                } else {
+                    self.read_untracked().await?
+                };
+                let document = DiffDocument::from_git_outputs_with_untracked(
+                    repo_root, &diff, &status, *scope, &untracked,
+                )?;
+                (status, document)
+            }
+        };
         Ok(SnapshotInput {
-            has_head,
+            sources,
             diff,
             status,
             document,
@@ -253,28 +333,36 @@ impl GitRepository {
     /// Resolves where each file's old and new versions live, in document order.
     async fn resolve_content_locations(
         &self,
-        document: &DiffDocument,
-        scope: DiffScope,
-        has_head: bool,
+        input: &SnapshotInput,
     ) -> Vec<[ResolvedContentLocation; 2]> {
-        let head = if has_head {
-            self.resolve_head_blobs(document)
-                .await
-                .map_err(source_error)
-        } else {
-            Ok(HashMap::new())
-        };
-        let index = self.resolve_index_blobs().await.map_err(source_error);
+        let document = &input.document;
+        if document.files.is_empty() {
+            return Vec::new();
+        }
+        let mut blobs = Vec::with_capacity(2);
+        for source in &input.sources {
+            let resolved = match source {
+                Source::Revision(revision) => self.resolve_tree_blobs(revision, document).await,
+                Source::Index => self.resolve_index_blobs().await,
+                Source::Empty | Source::Worktree => {
+                    blobs.push(None);
+                    continue;
+                }
+            };
+            blobs.push(Some(resolved.map_err(source_error)));
+        }
         document
             .files
             .iter()
             .map(|file| {
                 [DiffSide::Old, DiffSide::New].map(|side| {
-                    match content_location(scope, file, side, has_head) {
-                        ContentLocation::Absent => ResolvedContentLocation::Absent,
-                        ContentLocation::Worktree(path) => ResolvedContentLocation::Worktree(path),
-                        ContentLocation::Head(path) => resolve_blob(&head, &path),
-                        ContentLocation::Index(path) => resolve_blob(&index, &path),
+                    let index = usize::from(side == DiffSide::New);
+                    let path = file.path_for_side(side);
+                    match (&input.sources[index], &blobs[index]) {
+                        _ if !has_side(file, side) => ResolvedContentLocation::Absent,
+                        (Source::Worktree, _) => ResolvedContentLocation::Worktree(path.clone()),
+                        (_, Some(blobs)) => resolve_blob(blobs, path),
+                        (_, None) => ResolvedContentLocation::Absent,
                     }
                 })
             })
@@ -391,8 +479,9 @@ impl GitRepository {
         true
     }
 
-    async fn resolve_head_blobs(
+    async fn resolve_tree_blobs(
         &self,
+        revision: &str,
         document: &DiffDocument,
     ) -> Result<HashMap<RepoPath, String>, GitError> {
         let mut paths = document
@@ -412,11 +501,11 @@ impl GitRepository {
             "ls-tree".to_owned(),
             "-r".to_owned(),
             "-z".to_owned(),
-            "HEAD".to_owned(),
+            revision.to_owned(),
             "--".to_owned(),
         ];
         args.extend(paths);
-        let output = command::run(&self.root, "resolve HEAD sources", args).await?;
+        let output = command::run(&self.root, "resolve tree sources", args).await?;
         Ok(parse_blob_records(&output.stdout, BlobRecordKind::Tree))
     }
 
@@ -727,10 +816,14 @@ impl GitRepository {
     }
 
     async fn has_head(&self) -> Result<bool, GitError> {
+        self.resolves("HEAD").await
+    }
+
+    async fn resolves(&self, revision: &str) -> Result<bool, GitError> {
         match command::run(
             &self.root,
-            "resolve HEAD",
-            ["rev-parse", "--verify", "--quiet", "HEAD"],
+            "resolve revision",
+            ["rev-parse", "--verify", "--quiet", revision],
         )
         .await
         {
@@ -742,9 +835,9 @@ impl GitRepository {
         }
     }
 
-    fn diff_args(scope: DiffScope, has_head: bool) -> Vec<&'static str> {
+    fn diff_args(sources: &[Source; 2]) -> Vec<String> {
         // Diff has its own stat-cache refresh setting, independent of status.
-        let mut args = vec![
+        let mut args = [
             "-c",
             "diff.autoRefreshIndex=false",
             "diff",
@@ -753,13 +846,18 @@ impl GitRepository {
             "--find-renames",
             "--find-copies",
             "--find-copies-harder",
-        ];
-        match scope {
-            DiffScope::Unstaged => {}
-            DiffScope::Staged => args.push("--cached"),
-            DiffScope::Both => args.push(if has_head { "HEAD" } else { EMPTY_TREE }),
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        if sources[1] == Source::Index {
+            args.push("--cached".to_owned());
         }
-        args.push("--");
+        args.extend(sources.iter().filter_map(|source| match source {
+            Source::Empty => Some(EMPTY_TREE.to_owned()),
+            Source::Revision(revision) => Some(revision.clone()),
+            Source::Index | Source::Worktree => None,
+        }));
+        args.push("--".to_owned());
         args
     }
 
@@ -818,30 +916,27 @@ impl GitRepository {
     }
 }
 
-fn content_location(
-    scope: DiffScope,
-    file: &FileDiff,
-    side: DiffSide,
-    has_head: bool,
-) -> ContentLocation {
-    if side == DiffSide::Old && matches!(file.status, FileStatus::Added | FileStatus::Untracked) {
-        return ContentLocation::Absent;
+fn has_side(file: &FileDiff, side: DiffSide) -> bool {
+    match side {
+        DiffSide::Old => !matches!(file.status, FileStatus::Added | FileStatus::Untracked),
+        DiffSide::New => file.status != FileStatus::Deleted,
     }
-    if side == DiffSide::New && file.status == FileStatus::Deleted {
-        return ContentLocation::Absent;
-    }
-    let old_path = file.path_for_side(DiffSide::Old).clone();
-    match (scope, side) {
-        (DiffScope::Unstaged, DiffSide::Old) => ContentLocation::Index(old_path),
-        (DiffScope::Unstaged | DiffScope::Both, DiffSide::New) => {
-            ContentLocation::Worktree(file.path.clone())
-        }
-        (DiffScope::Staged | DiffScope::Both, DiffSide::Old) if has_head => {
-            ContentLocation::Head(old_path)
-        }
-        (DiffScope::Staged | DiffScope::Both, DiffSide::Old) => ContentLocation::Absent,
-        (DiffScope::Staged, DiffSide::New) => ContentLocation::Index(file.path.clone()),
-    }
+}
+
+fn parse_commit_log(output: &[u8]) -> Result<Vec<CommitSummary>, GitError> {
+    output
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty())
+        .map(|record| {
+            let record = String::from_utf8_lossy(record);
+            let record = record.trim_start_matches('\n');
+            let (id, subject) = record.split_once('\u{1f}').unwrap_or((record, ""));
+            Ok(CommitSummary {
+                id: CommitId::new(id)?,
+                subject: subject.to_owned(),
+            })
+        })
+        .collect()
 }
 
 fn resolve_blob(

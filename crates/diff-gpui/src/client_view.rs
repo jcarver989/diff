@@ -1,9 +1,9 @@
 use crate::{
     DiffViewer, DiffViewerOptions, ThemeChanged,
-    ui::prelude::{Button, ControlSize, EmptyState, NoticeTone, UiTheme},
+    ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
-use clankerdiff_client::{ClientState, ConnectionState, DiffSnapshot};
-use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, DiffScope, ReviewSubmission};
+use clankerdiff_client::{ClientState, ConnectionState};
+use clankerdiff_core::{DiffDocument, DiffReviewCommand, DiffReviewEvent, ReviewSubmission};
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
     AnyElement, ClipboardItem, Context, Entity, EventEmitter, Subscription, Window, div, prelude::*,
@@ -21,7 +21,7 @@ pub struct DiffClientView {
     theme: ReviewTheme,
     options: DiffViewerOptions,
     state: Option<ClientState>,
-    installed: Option<Arc<DiffSnapshot>>,
+    installed: Option<Arc<DiffDocument>>,
     viewer: Option<Entity<DiffViewer>>,
     pending: bool,
     subscriptions: Vec<Subscription>,
@@ -61,8 +61,8 @@ impl DiffClientView {
     }
 
     pub fn set_state(&mut self, state: &ClientState, cx: &mut Context<Self>) {
-        if let Some(snapshot) = state.snapshot_if_changed(&mut self.installed) {
-            self.install(snapshot, cx);
+        if let Some(document) = state.snapshot_if_changed(&mut self.installed) {
+            self.install(document.clone(), cx);
         }
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, |viewer, cx| {
@@ -101,22 +101,13 @@ impl DiffClientView {
         })
     }
 
-    fn install(&mut self, snapshot: &DiffSnapshot, cx: &mut Context<Self>) {
-        let document = snapshot.document.clone();
-        let scope = snapshot.scope;
+    fn install(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         if let Some(viewer) = &self.viewer {
-            viewer.update(cx, |viewer, cx| {
-                viewer.set_scope(scope, cx);
-                viewer.set_document(document, cx);
-            });
+            viewer.update(cx, |viewer, cx| viewer.set_document(document, cx));
             return;
         }
         let (theme, options) = (self.theme.clone(), self.options);
-        let viewer = cx.new(|cx| {
-            let mut viewer = DiffViewer::with_options(document, theme, options);
-            viewer.set_scope(scope, cx);
-            viewer
-        });
+        let viewer = cx.new(|_| DiffViewer::with_options(document, theme, options));
         self.subscriptions.extend([
             cx.subscribe(&viewer, |this, _, event: &DiffReviewEvent, cx| {
                 this.on_viewer_event(event.clone(), cx);
@@ -140,7 +131,7 @@ impl DiffClientView {
             }
             DiffReviewEvent::Cancel => cx.emit(DiffClientEvent::Cancel),
             event @ (DiffReviewEvent::RepositoryAction(_)
-            | DiffReviewEvent::SetScope(_)
+            | DiffReviewEvent::SetTarget(_)
             | DiffReviewEvent::Refresh) => self.send(event, cx),
         }
     }
@@ -153,46 +144,6 @@ impl DiffClientView {
             viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
         }
         cx.emit(DiffClientEvent::Command(event));
-    }
-
-    fn render_clean(&self, scope: DiffScope, cx: &mut Context<Self>) -> AnyElement {
-        let theme = UiTheme::new(&self.theme);
-        let segment = |id: &'static str, label: &'static str, value: DiffScope| {
-            let enabled = self.viewer.as_ref().is_some_and(|viewer| {
-                viewer
-                    .read(cx)
-                    .command_enabled(&DiffReviewCommand::SetScope(value))
-            });
-            Button::new(id, label, theme)
-                .size(ControlSize::Small)
-                .selected(scope == value)
-                .disabled(!enabled)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if scope != value {
-                        this.send(DiffReviewEvent::SetScope(value), cx);
-                    }
-                }))
-        };
-        div()
-            .debug_selector(|| "changes-clean".to_owned())
-            .size_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap_4()
-            .child(div().flex_none().child(EmptyState::new(
-                "No changes",
-                format!("Nothing to review in {scope}"),
-                NoticeTone::Neutral,
-                theme,
-            )))
-            .child(div().flex().gap_1().children([
-                segment("scope-unstaged", "Unstaged", DiffScope::Unstaged),
-                segment("scope-staged", "Staged", DiffScope::Staged),
-                segment("scope-both", "Both", DiffScope::Both),
-            ]))
-            .into_any_element()
     }
 
     fn render_status(&self, title: &'static str, detail: String, tone: NoticeTone) -> AnyElement {
@@ -214,27 +165,22 @@ impl EventEmitter<DiffClientEvent> for DiffClientView {}
 impl EventEmitter<ThemeChanged> for DiffClientView {}
 
 impl Render for DiffClientView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let Some(state) = &self.state else {
             return self.render_status("Loading changes…", String::new(), NoticeTone::Neutral);
         };
-        match (&state.snapshot, &self.viewer) {
-            (Some(snapshot), _) if snapshot.document.files.is_empty() => {
-                self.render_clean(snapshot.scope, cx)
-            }
-            (Some(_), Some(viewer)) => div()
+        if let (Some(_), Some(viewer)) = (&state.snapshot, &self.viewer) {
+            return div()
                 .debug_selector(|| "changes-viewer".to_owned())
                 .size_full()
                 .child(viewer.clone())
-                .into_any_element(),
-            _ => {
-                let detail = state.status().unwrap_or_default();
-                if matches!(state.connection, ConnectionState::Failed(_)) {
-                    self.render_status("Could not load changes", detail, NoticeTone::Error)
-                } else {
-                    self.render_status("Loading changes…", detail, NoticeTone::Neutral)
-                }
-            }
+                .into_any_element();
+        }
+        let detail = state.status().unwrap_or_default();
+        if matches!(state.connection, ConnectionState::Failed(_)) {
+            self.render_status("Could not load changes", detail, NoticeTone::Error)
+        } else {
+            self.render_status("Loading changes…", detail, NoticeTone::Neutral)
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
-    ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, DiffScope,
-    ReconnectPolicy, RemoteError, RepositoryAction, platform,
+    ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, ReconnectPolicy,
+    RemoteError, RepositoryAction, ReviewTarget, platform,
     protocol::{
         client::{ClientCommand, LocalClientTransport},
         server::ServerEvent,
@@ -145,8 +145,8 @@ impl DiffClient {
         }
     }
 
-    pub async fn set_scope(&self, scope: DiffScope) -> Result<(), ClientError> {
-        self.request(ClientCommand::SetScope(scope)).await
+    pub async fn set_target(&self, target: impl Into<ReviewTarget>) -> Result<(), ClientError> {
+        self.request(ClientCommand::SetTarget(target.into())).await
     }
 
     pub async fn apply(&self, action: RepositoryAction) -> Result<(), ClientError> {
@@ -170,7 +170,7 @@ impl DiffClient {
     ) -> Result<Option<oneshot::Receiver<Result<(), ClientError>>>, ClientError> {
         let request = match event {
             DiffReviewEvent::RepositoryAction(action) => ClientCommand::Apply(action),
-            DiffReviewEvent::SetScope(scope) => ClientCommand::SetScope(scope),
+            DiffReviewEvent::SetTarget(target) => ClientCommand::SetTarget(target),
             DiffReviewEvent::Refresh => ClientCommand::Refresh,
             DiffReviewEvent::SubmitReview(submission) => ClientCommand::Submit(submission),
             DiffReviewEvent::Cancel => ClientCommand::Cancel,
@@ -308,7 +308,7 @@ impl Worker {
         transport
             .send(ClientCommand::Initialize {
                 protocol_version: LIVE_PROTOCOL_VERSION,
-                scope: self.options.scope,
+                target: self.options.target.clone(),
             })
             .await
             .map_err(|_| ClientError::Disconnected)?;
@@ -368,6 +368,9 @@ impl Worker {
                     .send(result.clone().map_err(ClientError::Remote));
             }
             return Ok(());
+        }
+        if let Event::Document(snapshot) = event {
+            self.options.target.clone_from(&snapshot.target);
         }
         let next = self.client.clone().apply(event);
         if next != self.client {

@@ -23,7 +23,7 @@ pub mod prelude {
         Notification, SelectionState, Surface, SurfaceExt, Tooltip,
     };
     pub use super::fonts::{CODE_FONT, UI_FONT};
-    pub use super::icon::{Icon, IconName};
+    pub use super::icon::{Icon, IconName, spin_when_shown};
     pub use super::menu::{MenuItem, with_menu};
     pub use super::picker::{
         PickerItem, PickerList, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent,

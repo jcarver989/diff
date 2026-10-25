@@ -5,11 +5,11 @@ use crate::{
     render::{FILE_CHEVRON_WIDTH, GAP_EXPAND_WIDTH},
     theme_picker::ThemePicker,
 };
-use clankerdiff_client::{ClientState, ConnectionState, DiffSnapshot};
+use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout,
-    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, RowKind, ViewMode,
-    ViewportAnchor,
+    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget,
+    RowKind, ViewMode, ViewportAnchor,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -98,7 +98,6 @@ enum PendingScroll {
 #[derive(Debug)]
 pub struct DiffReviewState {
     pub(crate) session: ReviewSession,
-    pub(crate) scope: DiffScope,
     pub(crate) options: ReviewOptions,
     pub(crate) capabilities: ReviewCapabilities,
     pub(crate) keybindings: Vec<KeyBinding<DiffReviewCommand>>,
@@ -126,7 +125,6 @@ pub struct DiffReviewState {
     pub(crate) repository_status: RepositoryOperationStatus,
     pub(crate) background_error: Option<String>,
     deferred_document: Option<Arc<DiffDocument>>,
-    deferred_scope: Option<DiffScope>,
     pub(crate) hit_layout: HitLayout,
     pub(crate) visible_rows: Vec<(u16, usize)>,
     pub(crate) cursor_position: Option<Position>,
@@ -148,7 +146,6 @@ impl DiffReviewState {
         drawer.reveal_file(session.selected_file().unwrap_or(0));
         let mut state = Self {
             session,
-            scope: DiffScope::Both,
             options: ReviewOptions::default(),
             capabilities: ReviewCapabilities::default(),
             keybindings: default_diff_keybindings(),
@@ -176,7 +173,6 @@ impl DiffReviewState {
             repository_status: RepositoryOperationStatus::Idle,
             background_error: None,
             deferred_document: None,
-            deferred_scope: None,
             hit_layout: HitLayout::default(),
             visible_rows: Vec::new(),
             cursor_position: None,
@@ -205,16 +201,12 @@ impl DiffReviewState {
 
     #[must_use]
     pub const fn scope(&self) -> DiffScope {
-        self.scope
+        self.session.scope()
     }
 
-    pub fn set_scope(&mut self, scope: DiffScope) {
-        if self.interaction_phase() == InteractionPhase::Browse {
-            self.scope = scope;
-            self.mark_dirty();
-        } else {
-            self.deferred_scope = Some(scope);
-        }
+    #[must_use]
+    pub fn target(&self) -> &ReviewTarget {
+        self.session.target()
     }
 
     /// Returns the current immutable snapshot.
@@ -345,9 +337,6 @@ impl DiffReviewState {
         if let Some(document) = self.deferred_document.take() {
             self.install_document(document);
         }
-        if let Some(scope) = self.deferred_scope.take() {
-            self.set_scope(scope);
-        }
     }
 
     fn install_document(&mut self, document: Arc<DiffDocument>) {
@@ -375,7 +364,6 @@ impl DiffReviewState {
     pub fn set_loading(&mut self) {
         self.status = DiffReviewStatus::Loading;
         self.deferred_document = None;
-        self.deferred_scope = None;
         self.session.cancel_draft();
         self.cursor_position = None;
         self.mark_dirty();
@@ -385,7 +373,6 @@ impl DiffReviewState {
     pub fn set_error(&mut self, message: impl Into<String>) {
         self.status = DiffReviewStatus::Error(message.into());
         self.deferred_document = None;
-        self.deferred_scope = None;
         self.session.cancel_draft();
         self.cursor_position = None;
         self.mark_dirty();
@@ -422,11 +409,10 @@ impl DiffReviewState {
     pub fn apply_client_state(
         &mut self,
         client: &ClientState,
-        installed: &mut Option<Arc<DiffSnapshot>>,
+        installed: &mut Option<Arc<DiffDocument>>,
     ) {
         if let Some(snapshot) = client.snapshot_if_changed(installed) {
-            self.set_scope(snapshot.scope);
-            self.set_document(Arc::clone(&snapshot.document));
+            self.set_document(Arc::clone(snapshot));
         }
         match client.status() {
             Some(error)
@@ -977,6 +963,7 @@ mod tests {
         let document = Arc::new(DiffDocument {
             repo_root: "/repo".into(),
             files: vec![FileDiff::from_texts("a.rs", "a\nb\nc\n", "A\nB\nC\n").unwrap()],
+            ..DiffDocument::default()
         });
         let mut state = DiffReviewState::new(document);
         state.last_height = 3;

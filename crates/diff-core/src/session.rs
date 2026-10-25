@@ -1,7 +1,8 @@
 use crate::{
-    ContentProjection, DiffDocument, DiffPresentation, DiffSide, GapId, Layout, LineAnchor,
-    PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, RowId,
-    RowKind, SourceLocation, ViewMode, presentation::retained_expansions,
+    AgentFeedbackOptions, CommitStack, ContentProjection, DiffDocument, DiffPresentation,
+    DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, GapId, Layout, LineAnchor,
+    PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission,
+    ReviewTarget, RowId, RowKind, SourceLocation, ViewMode, presentation::retained_expansions,
 };
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, sync::Arc};
@@ -138,6 +139,7 @@ pub struct ReviewSession {
     document: Arc<DiffDocument>,
     presentation: DiffPresentation,
     review: Review,
+    scope: DiffScope,
     view_mode: ViewMode,
     split_when_auto: bool,
     selected_file: usize,
@@ -155,6 +157,7 @@ impl ReviewSession {
     pub fn new(document: Arc<DiffDocument>) -> Self {
         let mut session = Self {
             presentation: DiffPresentation::new(document.clone(), PresentationOptions::default()),
+            scope: document.target.scope().unwrap_or_default(),
             document,
             review: Review::default(),
             view_mode: ViewMode::Auto,
@@ -168,6 +171,7 @@ impl ReviewSession {
             pending_source_restore: None,
             diff_return: None,
         };
+        session.review.reconcile(&session.document);
         session.selected_file = session
             .presentation
             .file_order()
@@ -195,6 +199,48 @@ impl ReviewSession {
 
     pub const fn review_mut(&mut self) -> &mut Review {
         &mut self.review
+    }
+
+    #[must_use]
+    pub fn target(&self) -> &ReviewTarget {
+        &self.document.target
+    }
+
+    #[must_use]
+    pub const fn scope(&self) -> DiffScope {
+        self.scope
+    }
+
+    #[must_use]
+    pub fn commits(&self) -> Option<&Arc<CommitStack>> {
+        self.document.commits.as_ref()
+    }
+
+    #[must_use]
+    pub fn page_title(&self) -> Option<String> {
+        self.commits()
+            .map(|commits| self.target().title(Some(commits)))
+    }
+
+    #[must_use]
+    pub fn stepped_target(&self, delta: isize) -> Option<ReviewTarget> {
+        let commits = self.commits()?;
+        let current = commits.page_index(self.target())?;
+        let next = current.checked_add_signed(delta)?;
+        (next != current)
+            .then(|| commits.page(next, self.scope))
+            .flatten()
+    }
+
+    #[must_use]
+    pub fn target_event(&self, command: &DiffReviewCommand) -> Option<DiffReviewEvent> {
+        let target = match command {
+            DiffReviewCommand::SetScope(scope) => ReviewTarget::WorkingTree(*scope),
+            DiffReviewCommand::CycleScope => ReviewTarget::WorkingTree(self.scope.next()),
+            DiffReviewCommand::StepTarget(delta) => self.stepped_target(*delta)?,
+            _ => return None,
+        };
+        Some(DiffReviewEvent::SetTarget(target))
     }
 
     #[must_use]
@@ -460,6 +506,12 @@ impl ReviewSession {
     /// Replaces the complete immutable document while preserving review and view
     /// state, including gap expansions for files whose content did not change.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
+        if document.target != self.document.target {
+            self.draft = None;
+        }
+        if let Some(scope) = document.target.scope() {
+            self.scope = scope;
+        }
         self.review.reconcile(&document);
         if Arc::ptr_eq(&document, &self.document) || document == self.document {
             return;
@@ -674,7 +726,7 @@ impl ReviewSession {
 
     #[must_use]
     pub fn last_comment_id(&self) -> Option<u64> {
-        self.review.comments().last().map(|comment| comment.id)
+        self.review.comments().next_back().map(|comment| comment.id)
     }
 
     pub fn begin_draft(&mut self, editing: Option<u64>) -> bool {
@@ -735,7 +787,12 @@ impl ReviewSession {
 
     #[must_use]
     pub fn submission(&self) -> ReviewSubmission {
-        self.review.submission()
+        match self.commits() {
+            Some(commits) if self.review.targets_commits() => self
+                .review
+                .submission_with(&AgentFeedbackOptions::for_commits(Arc::clone(commits))),
+            _ => self.review.submission(),
+        }
     }
 
     fn rebuild(&mut self) {
@@ -886,6 +943,7 @@ mod tests {
                 FileDiff::from_texts("a.rs", "one\ntwo\n", "ONE\nTWO\n").unwrap(),
                 FileDiff::from_texts("b.rs", "keep\n", "kept\n").unwrap(),
             ],
+            ..DiffDocument::default()
         }))
     }
 
@@ -941,6 +999,7 @@ mod tests {
         let document = Arc::new(DiffDocument {
             repo_root: "/repo".into(),
             files: vec![FileDiff::from_texts("a.rs", "old\n", "new\nextra\n").unwrap()],
+            ..DiffDocument::default()
         });
         let mut session = ReviewSession::new(document);
         session.set_view_mode(ViewMode::Split);
@@ -1067,6 +1126,7 @@ mod tests {
             files: vec![
                 FileDiff::from_texts("a.rs", "different\ntwo\n", "CHANGED\nTWO\n").unwrap(),
             ],
+            ..DiffDocument::default()
         });
         session.set_document(replacement);
         assert!(session.draft().is_none());

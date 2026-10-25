@@ -1,4 +1,5 @@
 use clankerdiff_core::DiffScope;
+use clankerdiff_gpui::{NextCommit, PreviousCommit};
 use gpui::{Action, App, Menu, MenuItem};
 use serde::Deserialize;
 
@@ -6,6 +7,8 @@ pub(crate) const APP_NAME: &str = "ClankerDiff";
 
 pub(crate) fn install(cx: &mut App) {
     cx.on_action(|_: &SetScope, _: &mut App| {});
+    cx.on_action(|_: &NextCommit, _: &mut App| {});
+    cx.on_action(|_: &PreviousCommit, _: &mut App| {});
     clankerdiff_gpui_shell::menus::install(
         cx,
         APP_NAME,
@@ -23,6 +26,9 @@ pub(crate) fn extra() -> Vec<Menu> {
             MenuItem::action("Unstaged", SetScope::unstaged()),
             MenuItem::action("Staged", SetScope::staged()),
             MenuItem::action("Both", SetScope::both()),
+            MenuItem::separator(),
+            MenuItem::action("Previous Commit", PreviousCommit),
+            MenuItem::action("Next Commit", NextCommit),
         ],
     }]
 }

@@ -4,7 +4,7 @@ mod event;
 mod message;
 mod transport;
 
-pub use document::{DiffSnapshot, DocumentUpdate, FileEntry};
+pub use document::{DocumentUpdate, FileEntry};
 pub use error::{ProtocolError, RemoteError, RemoteErrorCode};
 pub use event::Event;
 pub use message::{LIVE_PROTOCOL_VERSION, MAX_MESSAGE_BYTES};

@@ -177,6 +177,8 @@ mod tests {
 
         let view_actions = action_names(&menus[2]);
         assert!(view_actions.contains(&"desktop_menu::SetScope".to_owned()));
+        assert!(view_actions.contains(&"diff_viewer::NextCommit".to_owned()));
+        assert!(view_actions.contains(&"diff_viewer::PreviousCommit".to_owned()));
 
         let window_actions = action_names(&menus[3]);
         assert!(window_actions.contains(&"app_menu::Minimize".to_owned()));

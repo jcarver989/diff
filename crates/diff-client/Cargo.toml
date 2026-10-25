@@ -25,7 +25,7 @@ thiserror.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rand = { workspace = true, optional = true }
-tokio = { version = "1.47.1", default-features = false, features = ["rt", "time", "macros", "net"] }
+tokio.workspace = true
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -39,5 +39,5 @@ name = "remote_review"
 required-features = ["websocket"]
 
 [dev-dependencies]
-tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "time"] }
+tokio.workspace = true
 clankerdiff-core = { version = "0.3.3", path = "../diff-core", features = ["test-support"] }

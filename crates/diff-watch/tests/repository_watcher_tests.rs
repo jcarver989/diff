@@ -5,11 +5,10 @@ mod test_result;
 #[path = "support/wait.rs"]
 mod wait;
 
-use clankerdiff_core::{DiffScope, RepoPath, RepositoryAction, StageState};
-use clankerdiff_git::{
-    RepositorySnapshot,
-    testing::{RepoFixture, RepoFixtureBuilder},
+use clankerdiff_core::{
+    DiffDocument, DiffScope, RepoPath, RepositoryAction, ReviewTarget, StageState,
 };
+use clankerdiff_git::testing::{RepoFixture, RepoFixtureBuilder};
 use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchOptions};
 use repository_watcher_assertions::{assert_snapshot_unchanged, healthy, wait_for_snapshot};
 use std::time::Duration;
@@ -105,7 +104,7 @@ async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
         .await?;
 
     let discarded = wait_for_snapshot(&mut snapshots).await?;
-    assert_eq!(discarded.document.files.len(), 0);
+    assert_eq!(discarded.files.len(), 0);
 
     repo.write("file.txt", "committed\n");
     wait_for_snapshot(&mut snapshots).await?;
@@ -120,7 +119,7 @@ async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
         })
         .await?;
     let committed = wait_for_snapshot(&mut snapshots).await?;
-    assert_eq!(committed.document.files.len(), 0);
+    assert_eq!(committed.files.len(), 0);
     Ok(())
 }
 
@@ -164,14 +163,14 @@ async fn changing_the_scope_republishes_for_the_new_scope() -> TestResult {
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx
-        .send(RepositoryRequest::SetScope {
-            scope: DiffScope::Staged,
+        .send(RepositoryRequest::SetTarget {
+            target: DiffScope::Staged.into(),
             result_tx,
         })
         .await?;
     wait_for("scope acknowledgement", completion).await??;
     let published = healthy(&watcher.state_rx.borrow())?;
-    assert_eq!(published.scope, DiffScope::Staged);
+    assert_eq!(published.target.scope(), Some(DiffScope::Staged));
     assert!(watcher.state_rx.has_changed()?);
     assert_eq!(
         added_lines(&published, "src/lib.rs"),
@@ -191,24 +190,24 @@ async fn a_scope_only_change_notifies_but_repeated_scope_does_not() -> TestResul
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx
-        .send(RepositoryRequest::SetScope {
-            scope: DiffScope::Staged,
+        .send(RepositoryRequest::SetTarget {
+            target: DiffScope::Staged.into(),
             result_tx,
         })
         .await?;
     wait_for("scope acknowledgement", completion).await??;
     let staged = healthy(&watcher.state_rx.borrow())?;
-    assert_eq!(original.scope, DiffScope::Both);
+    assert_eq!(original.target.scope(), Some(DiffScope::Both));
     let mut updates = watcher.state_rx.clone();
     assert!(updates.has_changed()?);
     updates.borrow_and_update();
-    assert_eq!(staged.scope, DiffScope::Staged);
-    assert_eq!(original.document, staged.document);
+    assert_eq!(staged.target.scope(), Some(DiffScope::Staged));
+    assert_eq!(original.files, staged.files);
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx
-        .send(RepositoryRequest::SetScope {
-            scope: DiffScope::Staged,
+        .send(RepositoryRequest::SetTarget {
+            target: DiffScope::Staged.into(),
             result_tx,
         })
         .await?;
@@ -253,14 +252,14 @@ async fn linked_worktree_index_head_and_shared_refs_are_watched() -> TestResult 
     assert_eq!(stage_state(&staged, "file.txt"), Some(StageState::Staged));
     repo.git(&["commit", "-m", "linked change"]);
     let committed = wait_for_snapshot(&mut state).await?;
-    assert_eq!(committed.document.files.len(), 0);
+    assert_eq!(committed.files.len(), 0);
     main.git(&["branch", "saved-review", "review"]);
     main.git(&["update-ref", "refs/heads/review", "main"]);
     let reset = wait_for_snapshot(&mut state).await?;
     assert_eq!(stage_state(&reset, "file.txt"), Some(StageState::Staged));
     repo.git(&["symbolic-ref", "HEAD", "refs/heads/saved-review"]);
     let switched = wait_for_snapshot(&mut state).await?;
-    assert_eq!(switched.document.files.len(), 0);
+    assert_eq!(switched.files.len(), 0);
     Ok(())
 }
 
@@ -292,8 +291,8 @@ async fn background_recovery_publishes_success_even_with_unchanged_content() -> 
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx
-        .send(RepositoryRequest::SetScope {
-            scope: DiffScope::Both,
+        .send(RepositoryRequest::SetTarget {
+            target: DiffScope::Both.into(),
             result_tx,
         })
         .await?;
@@ -414,21 +413,24 @@ async fn watched_snapshots_are_immutable_and_scope_requests_publish_before_ackno
             vec![contents.trim_end()]
         );
     }
-    assert_eq!(original.document.files.len(), 0);
+    assert_eq!(original.files.len(), 0);
     assert!(!snapshots.has_changed()?);
     let expected = repository.snapshot_with_sources(DiffScope::Both).await?;
     assert_eq!(*healthy(&snapshots.borrow())?, expected);
     let (result_tx, completion) = oneshot::channel();
     watcher
         .request_tx
-        .send(RepositoryRequest::SetScope {
-            scope: DiffScope::Staged,
+        .send(RepositoryRequest::SetTarget {
+            target: DiffScope::Staged.into(),
             result_tx,
         })
         .await?;
     wait_for("raw scope acknowledgement", completion).await??;
-    assert_eq!(healthy(&snapshots.borrow())?.scope, DiffScope::Staged);
-    assert_eq!(healthy(&snapshots.borrow())?.document.files.len(), 0);
+    assert_eq!(
+        healthy(&snapshots.borrow())?.target.scope(),
+        Some(DiffScope::Staged)
+    );
+    assert_eq!(healthy(&snapshots.borrow())?.files.len(), 0);
     Ok(())
 }
 
@@ -443,8 +445,8 @@ async fn dropping_the_watcher_closes_queued_replies_and_channels() -> TestResult
     let mut snapshots = watcher.state_rx.clone();
     let (result_tx, completion) = oneshot::channel();
     requests
-        .send(RepositoryRequest::SetScope {
-            scope: DiffScope::Staged,
+        .send(RepositoryRequest::SetTarget {
+            target: DiffScope::Staged.into(),
             result_tx,
         })
         .await?;
@@ -457,8 +459,8 @@ async fn dropping_the_watcher_closes_queued_replies_and_channels() -> TestResult
         .expect_err("the snapshot publisher must stop");
     let (result_tx, _completion) = oneshot::channel();
     requests
-        .send(RepositoryRequest::SetScope {
-            scope: DiffScope::Staged,
+        .send(RepositoryRequest::SetTarget {
+            target: DiffScope::Staged.into(),
             result_tx,
         })
         .await
@@ -510,6 +512,45 @@ async fn new_nested_directories_and_ignore_changes_are_observed() -> TestResult 
     Ok(())
 }
 
+#[tokio::test]
+async fn snapshots_carry_the_commit_stack_and_follow_new_commits() -> TestResult {
+    let repo = RepoFixtureBuilder::new()
+        .file("file.txt", "original\n")
+        .committed()
+        .build();
+    repo.git(&["checkout", "-b", "feature"]);
+    repo.write("file.txt", "first\n");
+    let first = repo.commit("First");
+    let watcher = watcher(&repo).await?;
+    let commit_ids = |document: &DiffDocument| {
+        document.commits.as_ref().map(|stack| {
+            stack
+                .commits
+                .iter()
+                .map(|commit| commit.id.clone())
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(
+        commit_ids(&watcher.state_rx.borrow().snapshot),
+        Some(vec![first.clone()])
+    );
+
+    let commit_state = watcher.handle().subscribe(first.clone()).await?;
+    let commit_snapshot = healthy(&commit_state.borrow())?;
+    assert_eq!(commit_snapshot.target, ReviewTarget::Commit(first.clone()));
+    assert_eq!(added_lines(&commit_snapshot, "file.txt"), vec!["first"]);
+
+    repo.write("file.txt", "second\n");
+    let second = repo.commit("Second");
+    let mut state = watcher.state_rx.clone();
+    wait_until("the working tree sees the new commit", || {
+        commit_ids(&state.borrow_and_update().snapshot) == Some(vec![first.clone(), second.clone()])
+    })
+    .await;
+    Ok(())
+}
+
 fn options() -> WatchOptions {
     WatchOptions {
         debounce: Duration::from_millis(50),
@@ -520,9 +561,8 @@ async fn watcher(repo: &RepoFixture) -> TestResult<RepositoryWatcher> {
     Ok(RepositoryWatcher::spawn(repo.repository().await, DiffScope::Both, options()).await?)
 }
 
-fn added_lines(published: &RepositorySnapshot, path: &str) -> Vec<String> {
+fn added_lines(published: &DiffDocument, path: &str) -> Vec<String> {
     published
-        .document
         .files
         .iter()
         .filter(|file| file.path.as_str() == path)
@@ -533,9 +573,8 @@ fn added_lines(published: &RepositorySnapshot, path: &str) -> Vec<String> {
         .collect()
 }
 
-fn stage_state(published: &RepositorySnapshot, path: &str) -> Option<StageState> {
+fn stage_state(published: &DiffDocument, path: &str) -> Option<StageState> {
     published
-        .document
         .files
         .iter()
         .find(|file| file.path.as_str() == path)

@@ -1,5 +1,5 @@
 #[cfg(feature = "test-support")]
-use clankerdiff_core::{DiffDocument, DiffSide, Layout, RowKind};
+use clankerdiff_core::{DiffDocument, DiffScope, DiffSide, Layout, RowKind, testing::commit_id};
 use clankerdiff_core::{ViewMode, testing::DocumentBuilder};
 #[cfg(feature = "test-support")]
 use clankerdiff_ratatui::{
@@ -734,6 +734,47 @@ fn source_rows(buffer: &Buffer) -> Vec<String> {
                 .collect()
         })
         .collect()
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn commit_pages_title_the_frame_and_show_only_their_comments() -> Result<(), Box<dyn Error>> {
+    let builder = DocumentBuilder::new()
+        .commit("Add parser")
+        .changed("a.rs", "old", "new");
+    let mut harness = ReviewHarness::new(builder.clone().target(commit_id(1)).build(), 100, 14);
+    harness
+        .state_mut()
+        .handle_command(DiffReviewCommand::Focus(FocusPane::Diff));
+    let anchor = harness
+        .state()
+        .session()
+        .selected_anchor()
+        .ok_or("missing anchor")?;
+    harness
+        .state_mut()
+        .review_mut()
+        .add_comment(anchor, "commit note");
+    harness.draw();
+    harness.assert_contains("Diff Review · 1/2 · Commit 0000001 · Add parser");
+    harness.assert_contains("commit note");
+
+    harness
+        .state_mut()
+        .set_document(builder.target(DiffScope::Both).build());
+    harness.draw();
+    harness.assert_contains("2/2 · Uncommitted changes (both)");
+    assert!(!harness.text().contains("commit note"));
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn an_empty_commit_names_the_commit() {
+    let mut harness =
+        ReviewHarness::new(DocumentBuilder::new().target(commit_id(1)).build(), 100, 14);
+    harness.draw();
+    harness.assert_contains("No changes (commit 0000001)");
 }
 
 fn buffer_row(buffer: &Buffer, row: u16) -> String {

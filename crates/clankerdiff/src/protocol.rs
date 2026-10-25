@@ -1,4 +1,4 @@
-use clankerdiff_core::{DiffScope, ReviewSubmission};
+use clankerdiff_core::{ReviewSubmission, ReviewTarget};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::{self, Read, Write};
 use thiserror::Error;
@@ -22,14 +22,17 @@ pub enum SessionRequestRef<'a> {
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub enum SessionResponse {
-    Bootstrap { url: String, scope: DiffScope },
+    Bootstrap { url: String, target: ReviewTarget },
     Accepted,
     ProtocolError(String),
 }
 
 #[derive(Serialize)]
 pub enum SessionResponseRef<'a> {
-    Bootstrap { url: &'a str, scope: DiffScope },
+    Bootstrap {
+        url: &'a str,
+        target: &'a ReviewTarget,
+    },
     Accepted,
     ProtocolError(&'a str),
 }

@@ -12,6 +12,4 @@ mod repository;
 pub mod testing;
 
 pub use error::GitError;
-pub use repository::{
-    GitRepository, MAX_SOURCE_ARCHIVE_BYTES, MAX_SOURCE_FILE_BYTES, RepositorySnapshot,
-};
+pub use repository::{GitRepository, MAX_SOURCE_ARCHIVE_BYTES, MAX_SOURCE_FILE_BYTES};

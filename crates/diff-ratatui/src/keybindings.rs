@@ -259,6 +259,8 @@ pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
         ),
         (K::Char('v'), C::CycleViewMode, "view", Any),
         (K::Char('S'), C::CycleScope, "scope", Any),
+        (K::Char(']'), C::StepTarget(1), "next commit", Any),
+        (K::Char('['), C::StepTarget(-1), "previous commit", Any),
         (K::Char('r'), C::Refresh, "refresh", Any),
         (K::Char('?'), ReviewCommand::ShowHelp.into(), "help", Any),
         (

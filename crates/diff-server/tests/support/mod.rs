@@ -28,6 +28,10 @@ impl TestServer {
             .file("a", "old\n")
             .committed()
             .build();
+        Self::open(repo).await
+    }
+
+    pub async fn open(repo: RepoFixture) -> Result<Self, Box<dyn Error>> {
         let server =
             DiffServer::open(repo.repository().await.root(), ServerOptions::default()).await?;
         Ok(Self { repo, server })
@@ -52,7 +56,7 @@ impl TestServer {
                 state
                     .snapshot
                     .as_ref()
-                    .is_some_and(|snapshot| snapshot.document.files.is_empty())
+                    .is_some_and(|snapshot| snapshot.files.is_empty())
             })
             .await?;
         Ok((listener, client, subscription))
@@ -66,7 +70,7 @@ pub async fn wait_for_text(
     subscription
         .wait_until(WAIT, |state| {
             state.snapshot.as_ref().is_some_and(|snapshot| {
-                snapshot.document.files.first().is_some_and(|file| {
+                snapshot.files.first().is_some_and(|file| {
                     file.new_source
                         .as_ref()
                         .is_ok_and(|source| source.text() == expected)

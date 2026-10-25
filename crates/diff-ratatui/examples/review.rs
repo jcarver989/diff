@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let repository = GitRepository::discover(&options.path).await?;
     let document = repository.snapshot(options.scope).await?;
-    let outcome = run_tui(options.scope, Arc::new(document))?;
+    let outcome = run_tui(Arc::new(document))?;
 
     match outcome {
         Outcome::Cancelled => {}
@@ -103,12 +103,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_tui(scope: DiffScope, document: Arc<DiffDocument>) -> io::Result<Outcome> {
+fn run_tui(document: Arc<DiffDocument>) -> io::Result<Outcome> {
     let _session = TerminalSession::enter()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
     let mut state = DiffReviewState::new(document);
-    state.set_scope(scope);
     state.set_theme_choices(ThemeChoice::catalog());
     state.set_capabilities(ReviewCapabilities {
         repository: false,
@@ -146,11 +145,12 @@ fn run_tui(scope: DiffScope, document: Arc<DiffDocument>) -> io::Result<Outcome>
 
 fn apply_event(state: &mut DiffReviewState, event: Event) -> Option<Outcome> {
     match handle_crossterm_event(state, event).into_event() {
-        Some(DiffReviewEvent::SetScope(scope)) => {
-            state.set_scope(scope);
-            None
-        }
-        Some(DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::Refresh) | None => None,
+        Some(
+            DiffReviewEvent::RepositoryAction(_)
+            | DiffReviewEvent::SetTarget(_)
+            | DiffReviewEvent::Refresh,
+        )
+        | None => None,
         Some(DiffReviewEvent::Cancel) => Some(Outcome::Cancelled),
         Some(DiffReviewEvent::SubmitReview(submission)) => Some(Outcome::Submitted(submission)),
         Some(DiffReviewEvent::CopyFormattedReview(formatted)) => {

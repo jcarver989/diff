@@ -2,12 +2,11 @@ use crate::{
     server::{Context, ReviewCompletion, protocol, stopped},
     transport::Transport,
 };
-use clankerdiff_core::DiffScope;
-use clankerdiff_git::RepositorySnapshot;
+use clankerdiff_core::{DiffDocument, ReviewTarget};
 use clankerdiff_protocol::{
     client::ClientCommand,
     server::ServerEvent,
-    shared::{DiffSnapshot, Event, LIVE_PROTOCOL_VERSION, RemoteError, RemoteErrorCode},
+    shared::{Event, LIVE_PROTOCOL_VERSION, RemoteError, RemoteErrorCode},
 };
 use clankerdiff_watch::RepositoryState;
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
@@ -45,25 +44,25 @@ pub(crate) async fn accept<T: Transport>(
 }
 
 async fn session<T: Transport>(context: &Context, transport: &mut T) -> Result<(), RemoteError> {
-    let scope = handshake(context, transport).await?;
+    let target = handshake(context, transport).await?;
     let state = context
         .watcher
-        .subscribe(scope)
+        .subscribe(target.clone())
         .await
         .map_err(watcher_error)?;
-    serve(context, transport, state, scope).await
+    serve(context, transport, state, target).await
 }
 
 async fn handshake<T: Transport>(
     context: &Context,
     transport: &mut T,
-) -> Result<DiffScope, RemoteError> {
+) -> Result<ReviewTarget, RemoteError> {
     let hello = timeout(HANDSHAKE_TIMEOUT, transport.recv())
         .await
         .map_err(|_| stopped())??;
     let ClientCommand::Initialize {
         protocol_version,
-        scope,
+        target,
     } = hello
     else {
         return Err(protocol("expected Hello"));
@@ -82,16 +81,16 @@ async fn handshake<T: Transport>(
         },
     )
     .await?;
-    Ok(scope)
+    Ok(target)
 }
 
 async fn serve<T: Transport>(
     context: &Context,
     transport: &mut T,
     mut state: watch::Receiver<RepositoryState>,
-    mut scope: DiffScope,
+    mut target: ReviewTarget,
 ) -> Result<(), RemoteError> {
-    let mut published: Option<Arc<RepositorySnapshot>> = None;
+    let mut published: Option<Arc<DiffDocument>> = None;
     let mut health: Option<RemoteError> = None;
     let mut running: Option<Command> = None;
     let mut finished: Option<CommandResult> = None;
@@ -105,14 +104,7 @@ async fn serve<T: Transport>(
             .as_ref()
             .is_none_or(|old| !Arc::ptr_eq(old, &current.snapshot))
         {
-            publish(
-                transport,
-                Event::Document(Arc::new(DiffSnapshot {
-                    scope: current.snapshot.scope,
-                    document: current.snapshot.document.clone(),
-                })),
-            )
-            .await?;
+            publish(transport, Event::Document(current.snapshot.clone())).await?;
             published = Some(current.snapshot.clone());
         }
         let latest = current.error.as_ref().map(watcher_error);
@@ -133,7 +125,7 @@ async fn serve<T: Transport>(
         tokio::select! {
             changed = state.changed() => if changed.is_err() { return Err(stopped()); },
             command = transport.recv(), if running.is_none() => {
-                running = Some(start(context, scope, command?)?);
+                running = Some(start(context, target.clone(), command?)?);
             }
             result = async {
                 match running.as_mut() {
@@ -147,7 +139,7 @@ async fn serve<T: Transport>(
                     completion,
                 } = result;
                 if let Some(next) = next {
-                    scope = next.borrow().snapshot.scope;
+                    target = next.borrow().snapshot.target.clone();
                     state = next;
                     published = None;
                     health = None;
@@ -168,15 +160,15 @@ async fn serve<T: Transport>(
 
 fn start(
     context: &Context,
-    current_scope: DiffScope,
+    current_target: ReviewTarget,
     command: ClientCommand,
 ) -> Result<Command, RemoteError> {
     match command {
         ClientCommand::Initialize { .. } => Err(protocol("repeated Hello")),
-        ClientCommand::SetScope(scope) => {
+        ClientCommand::SetTarget(target) => {
             let watcher = context.watcher.clone();
             Ok(Box::pin(async move {
-                match watcher.subscribe(scope).await {
+                match watcher.subscribe(target).await {
                     Ok(state) => CommandResult {
                         result: Ok(()),
                         state: Some(state),
@@ -194,7 +186,7 @@ fn start(
             let watcher = context.watcher.clone();
             Ok(Box::pin(async move {
                 CommandResult {
-                    result: watcher.refresh(current_scope).await.map_err(watcher_error),
+                    result: watcher.refresh(current_target).await.map_err(watcher_error),
                     state: None,
                     completion: None,
                 }
@@ -208,7 +200,7 @@ fn start(
                     repository.apply(action).await.map_err(|error| {
                         RemoteError::new(RemoteErrorCode::Git, error.to_string())
                     })?;
-                    let _ = watcher.refresh(current_scope).await;
+                    let _ = watcher.refresh(current_target).await;
                     Ok(())
                 }
                 .await;
@@ -222,14 +214,14 @@ fn start(
         ClientCommand::Submit(submission) => Ok(complete(
             context,
             ReviewCompletion::Submitted {
-                scope: current_scope,
+                target: current_target,
                 submission,
             },
         )),
         ClientCommand::Cancel => Ok(complete(
             context,
             ReviewCompletion::Cancelled {
-                scope: current_scope,
+                target: current_target,
             },
         )),
     }

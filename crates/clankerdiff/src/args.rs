@@ -120,6 +120,9 @@ pub struct ReviewArgs {
     #[arg(short, long, default_value = "both")]
     pub scope: DiffScope,
 
+    #[arg(long)]
+    pub commits: bool,
+
     /// User interface used for the review.
     ///
     /// TUI reviews require `CLANKERDIFF_TUI_COMMAND`. By default, Clankerdiff executes that command

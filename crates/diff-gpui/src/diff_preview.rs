@@ -73,6 +73,7 @@ fn parse_patch(patch: &str) -> Result<DiffPresentation, DiffError> {
         Arc::new(DiffDocument {
             repo_root: String::new(),
             files,
+            ..DiffDocument::default()
         }),
         PresentationOptions {
             view_mode: ViewMode::Unified,

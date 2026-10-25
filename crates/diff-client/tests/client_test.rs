@@ -1,14 +1,14 @@
 use async_channel::{Receiver, Sender, bounded};
 use clankerdiff_client::{
     ClientError, ClientMessageTransport, ClientOptions, ConnectionState, DiffClient,
-    DiffReviewEvent, DiffSnapshot, RepositoryAction,
+    DiffReviewEvent, RepositoryAction,
     protocol::{
         client::ClientCommand,
         server::{LocalServerTransport, ServerEvent, ServerMessage, local_transport_pair},
         shared::{DocumentUpdate, Event, FileEntry, LIVE_PROTOCOL_VERSION},
     },
 };
-use clankerdiff_core::{DiffScope, FileDiff, Review, testing::DocumentBuilder};
+use clankerdiff_core::{DiffScope, FileDiff, Review, ReviewTarget, testing::DocumentBuilder};
 use std::{error::Error, sync::Arc, time::Duration};
 use tokio::time::timeout;
 
@@ -94,12 +94,12 @@ async fn one_operation_runs_at_a_time_and_scope_settles_with_its_document()
     let switching = client.clone();
     let request = tokio::spawn(async move {
         switching
-            .handle(DiffReviewEvent::SetScope(DiffScope::Staged))
+            .handle(DiffReviewEvent::SetTarget(DiffScope::Staged.into()))
             .await
     });
     assert!(matches!(
         server.recv().await?,
-        ClientCommand::SetScope(DiffScope::Staged)
+        ClientCommand::SetTarget(ReviewTarget::WorkingTree(DiffScope::Staged))
     ));
     let refreshing = client.clone();
     let refresh = tokio::spawn(async move { refreshing.refresh().await });
@@ -113,8 +113,8 @@ async fn one_operation_runs_at_a_time_and_scope_settles_with_its_document()
     server.send(Event::RequestResult(Ok(()))).await?;
     timeout(WAIT, refresh).await???;
     assert_eq!(
-        client.state().snapshot.as_ref().ok_or("snapshot")?.scope,
-        DiffScope::Staged
+        client.state().snapshot.as_ref().ok_or("snapshot")?.target,
+        ReviewTarget::WorkingTree(DiffScope::Staged)
     );
     client.close().await?;
     Ok(())
@@ -158,7 +158,7 @@ async fn message_transports_rebuild_documents_and_fail_on_unknown_files()
         .wait_until(WAIT, |state| state.snapshot.is_some())
         .await?;
     let installed = first.snapshot.clone().ok_or("snapshot")?;
-    assert_eq!(installed.document.files[0].path.as_str(), "a");
+    assert_eq!(installed.files[0].path.as_str(), "a");
 
     messages
         .send(Event::Document(update(vec![FileEntry::Unchanged(
@@ -173,10 +173,7 @@ async fn message_transports_rebuild_documents_and_fail_on_unknown_files()
                 .is_some_and(|snapshot| !Arc::ptr_eq(snapshot, &installed))
         })
         .await?;
-    assert_eq!(
-        second.snapshot.as_ref().ok_or("snapshot")?.document,
-        installed.document
-    );
+    assert_eq!(second.snapshot.as_ref().ok_or("snapshot")?, &installed);
 
     messages
         .send(Event::Document(update(vec![FileEntry::Unchanged(
@@ -239,10 +236,12 @@ async fn an_unsupported_protocol_version_fails_the_connection() -> Result<(), Bo
 }
 
 fn document(scope: DiffScope) -> ServerEvent {
-    Event::Document(Arc::new(DiffSnapshot {
-        scope,
-        document: DocumentBuilder::new().changed("a", "old", "new").build(),
-    }))
+    Event::Document(
+        DocumentBuilder::new()
+            .target(scope)
+            .changed("a", "old", "new")
+            .build(),
+    )
 }
 
 async fn connected() -> Result<(DiffClient, LocalServerTransport), Box<dyn Error>> {
@@ -303,7 +302,8 @@ fn message_channel() -> (
 
 fn update(files: Vec<FileEntry>) -> DocumentUpdate {
     DocumentUpdate {
-        scope: DiffScope::Both,
+        target: ReviewTarget::default(),
+        commits: None,
         repo_root: "/remote".to_owned(),
         files,
     }

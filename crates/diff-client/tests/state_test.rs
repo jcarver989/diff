@@ -1,9 +1,11 @@
 use clankerdiff_client::{
-    ClientState, ConnectionState, DiffSnapshot, RemoteError, RemoteErrorCode,
+    ClientState, ConnectionState, RemoteError, RemoteErrorCode,
     protocol::{server::ServerEvent, shared::LIVE_PROTOCOL_VERSION},
 };
-use clankerdiff_core::{DiffScope, testing::DocumentBuilder};
-use std::sync::Arc;
+use clankerdiff_core::{
+    DiffScope, ReviewTarget,
+    testing::{DocumentBuilder, commit_id},
+};
 
 #[test]
 fn reduces_initialization_then_documents() {
@@ -12,8 +14,21 @@ fn reduces_initialization_then_documents() {
     assert!(matches!(state.connection, ConnectionState::Connected));
     assert!(state.capabilities.repository && state.capabilities.submit);
     assert_eq!(
-        state.snapshot.as_ref().expect("snapshot").scope,
-        DiffScope::Staged
+        state.snapshot.as_ref().expect("snapshot").target,
+        ReviewTarget::WorkingTree(DiffScope::Staged)
+    );
+}
+
+#[test]
+fn commit_pages_allow_navigation_and_submission_but_not_repository_actions() {
+    let on_commit = initialized().apply(&document(commit_id(1)));
+    assert!(on_commit.capabilities.scope && on_commit.capabilities.submit);
+    assert!(!on_commit.capabilities.repository);
+    assert!(
+        on_commit
+            .apply(&document(DiffScope::Both))
+            .capabilities
+            .repository
     );
 }
 
@@ -64,11 +79,13 @@ fn initialize() -> ServerEvent {
     }
 }
 
-fn document(scope: DiffScope) -> ServerEvent {
-    ServerEvent::Document(Arc::new(DiffSnapshot {
-        scope,
-        document: DocumentBuilder::new().changed("a", "old", "new").build(),
-    }))
+fn document(target: impl Into<ReviewTarget>) -> ServerEvent {
+    ServerEvent::Document(
+        DocumentBuilder::new()
+            .target(target)
+            .changed("a", "old", "new")
+            .build(),
+    )
 }
 
 fn initialized() -> ClientState {

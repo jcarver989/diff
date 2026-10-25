@@ -89,10 +89,10 @@ pub async fn attach(socket_path: PathBuf) -> Result<(), TuiError> {
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
     write_request(&mut stream, &SessionRequestRef::Bootstrap)?;
     let response = read_response(&mut stream)?;
-    let SessionResponse::Bootstrap { url, scope } = response else {
+    let SessionResponse::Bootstrap { url, target } = response else {
         return Err(TuiError::UnexpectedResponse(response));
     };
-    let client = DiffClient::connect(&url, scope.into()).await?;
+    let client = DiffClient::connect(&url, target.into()).await?;
     let outcome = run_client(&client);
     client.close().await?;
     let submission = outcome?;
@@ -132,8 +132,7 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
             .is_none_or(|old| !Arc::ptr_eq(old, &current))
         {
             if let Some(snapshot) = current.snapshot_if_changed(&mut installed) {
-                state.set_document(snapshot.document.clone());
-                state.set_scope(snapshot.scope);
+                state.set_document(snapshot.clone());
             }
             state.set_background_error(current.status());
             state.set_capabilities(current.capabilities);

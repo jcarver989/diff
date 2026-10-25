@@ -38,6 +38,12 @@ impl DiffViewer {
                 DiffReviewCommand::Review(ReviewCommand::ScrollHelp(_))
             )
             && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
+            && match command {
+                DiffReviewCommand::StepTarget(delta) => {
+                    self.session.stepped_target(*delta).is_some()
+                }
+                _ => true,
+            }
     }
 
     pub fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>) {
@@ -197,12 +203,11 @@ impl DiffViewer {
                 cx.emit(DiffViewerEvent::RepositoryAction(action));
                 return true;
             }
-            C::SetScope(scope) => {
-                cx.emit(DiffViewerEvent::SetScope(scope));
-                return true;
-            }
-            C::CycleScope => {
-                cx.emit(DiffViewerEvent::SetScope(self.scope.next()));
+            command @ (C::SetScope(_) | C::CycleScope | C::StepTarget(_)) => {
+                let Some(event) = self.session.target_event(&command) else {
+                    return false;
+                };
+                cx.emit(event);
                 return true;
             }
             C::Refresh => {

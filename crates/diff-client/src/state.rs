@@ -1,5 +1,5 @@
 use crate::{
-    ClientError, DiffScope, DiffSnapshot, RemoteError, ReviewCapabilities,
+    ClientError, DiffDocument, DiffScope, RemoteError, ReviewCapabilities, ReviewTarget,
     protocol::{client::capabilities, server::ServerEvent, shared::Event},
 };
 use std::sync::Arc;
@@ -13,16 +13,22 @@ pub enum ReconnectPolicy {
 
 #[derive(Debug, Clone, Default)]
 pub struct ClientOptions {
-    pub scope: DiffScope,
+    pub target: ReviewTarget,
     pub reconnect: ReconnectPolicy,
+}
+
+impl From<ReviewTarget> for ClientOptions {
+    fn from(target: ReviewTarget) -> Self {
+        Self {
+            target,
+            ..Self::default()
+        }
+    }
 }
 
 impl From<DiffScope> for ClientOptions {
     fn from(scope: DiffScope) -> Self {
-        Self {
-            scope,
-            ..Self::default()
-        }
+        ReviewTarget::from(scope).into()
     }
 }
 
@@ -35,7 +41,7 @@ pub enum ConnectionState {
 
 #[derive(Debug, Clone)]
 pub struct ClientState {
-    pub snapshot: Option<Arc<DiffSnapshot>>,
+    pub snapshot: Option<Arc<DiffDocument>>,
     pub connection: ConnectionState,
     pub capabilities: ReviewCapabilities,
     pub error: Option<RemoteError>,
@@ -81,14 +87,14 @@ impl ClientState {
 
     fn refresh_capabilities(&mut self) {
         let connected = matches!(self.connection, ConnectionState::Connected);
-        self.capabilities = capabilities(connected, self.snapshot.is_some());
+        self.capabilities = capabilities(connected, self.snapshot.as_deref());
     }
 
     #[must_use]
     pub fn snapshot_if_changed(
         &self,
-        installed: &mut Option<Arc<DiffSnapshot>>,
-    ) -> Option<&DiffSnapshot> {
+        installed: &mut Option<Arc<DiffDocument>>,
+    ) -> Option<&Arc<DiffDocument>> {
         let snapshot = self.snapshot.as_ref()?;
         if installed
             .as_ref()
@@ -128,7 +134,7 @@ impl Default for ClientState {
         Self {
             snapshot: None,
             connection: ConnectionState::Connecting,
-            capabilities: capabilities(false, false),
+            capabilities: capabilities(false, None),
             error: None,
         }
     }

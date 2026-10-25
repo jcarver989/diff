@@ -27,10 +27,10 @@ clankerdiff-core = { version = "0.3.3", path = "../diff-core" }
 clankerdiff-git = { version = "0.3.3", path = "../diff-git" }
 notify.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio.workspace = true
 
 [dev-dependencies]
 clankerdiff-watch = { path = ".", features = ["test-support"] }
 clankerdiff-git = { path = "../diff-git", features = ["test-support"] }
 tempfile.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio.workspace = true

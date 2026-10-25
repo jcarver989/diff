@@ -2,7 +2,8 @@ use crate::{WINDOW_TITLE, args::CliArgs, menus::SetScope, preferences::ThemeStor
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_gpui::{
-    DiffClientEvent, DiffClientView, StageAll, ThemeChanged, UnstageAll,
+    DiffClientEvent, DiffClientView, NextCommit, PreviousCommit, StageAll, ThemeChanged,
+    UnstageAll,
     ui::{
         InterfaceSize,
         prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme, window_appearance},
@@ -20,6 +21,7 @@ use std::{path::PathBuf, sync::mpsc::Sender};
 pub(crate) struct DesktopApp {
     repository_path: PathBuf,
     scope: DiffScope,
+    commits: bool,
     client: Option<DiffClient>,
     server: Option<DiffServer>,
     error: Option<String>,
@@ -56,6 +58,7 @@ impl DesktopApp {
         let mut app = Self {
             repository_path: args.repository,
             scope: args.scope,
+            commits: args.commits,
             client: None,
             server: None,
             error: None,
@@ -88,13 +91,14 @@ impl DesktopApp {
             return;
         }
         let path = self.repository_path.clone();
-        let scope = self.scope;
+        let (scope, commits) = (self.scope, self.commits);
         let operation = runtime::spawn(cx, async move {
             let server = DiffServer::open(path, ServerOptions::default())
                 .await
                 .map_err(|error| error.to_string())?;
             let transport = server.connect().map_err(|error| error.to_string())?;
-            let client = DiffClient::from_transport(transport, scope.into())
+            let target = server.initial_target(scope, commits);
+            let client = DiffClient::from_transport(transport, target.into())
                 .await
                 .map_err(|error| error.to_string())?;
             Ok::<_, String>((server, client))
@@ -200,6 +204,14 @@ impl DesktopApp {
         self.dispatch_command(DiffReviewCommand::SetScope(action.scope()), window, cx);
     }
 
+    fn next_commit(&mut self, _: &NextCommit, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch_command(DiffReviewCommand::StepTarget(1), window, cx);
+    }
+
+    fn previous_commit(&mut self, _: &PreviousCommit, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch_command(DiffReviewCommand::StepTarget(-1), window, cx);
+    }
+
     fn status_panel(&self, title: String, detail: &str, tone: NoticeTone, cx: &App) -> AnyElement {
         let theme = UiTheme::new(self.view.read(cx).theme());
         EmptyState::new(title, detail.to_owned(), tone, theme).into_any_element()
@@ -230,6 +242,8 @@ impl Render for DesktopApp {
         let content = div()
             .key_context("DesktopDiff")
             .on_action(cx.listener(Self::menu_set_scope))
+            .on_action(cx.listener(Self::next_commit))
+            .on_action(cx.listener(Self::previous_commit))
             .on_action(cx.listener(Self::stage_all))
             .on_action(cx.listener(Self::unstage_all))
             .size_full()

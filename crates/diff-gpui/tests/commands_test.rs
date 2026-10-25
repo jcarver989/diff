@@ -1,8 +1,9 @@
 #![cfg(feature = "test-support")]
 
-use clankerdiff_core::testing::DocumentBuilder;
+use clankerdiff_core::testing::{DocumentBuilder, commit_id};
 use clankerdiff_core::{
-    DiffReviewCommand, DiffReviewEvent, InteractionPhase, ReviewCapabilities, ReviewCommand,
+    DiffReviewCommand, DiffReviewEvent, DiffScope, InteractionPhase, ReviewCapabilities,
+    ReviewCommand,
 };
 use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
 use clankerdiff_gpui::{
@@ -511,4 +512,33 @@ fn clicking_outside_the_theme_picker_cancels_its_preview(cx: &mut TestAppContext
         harness.read(cx, |viewer, _| viewer.theme().id().clone()),
         original
     );
+}
+
+#[gpui::test]
+fn brackets_step_between_commit_pages_and_stop_at_the_ends(cx: &mut TestAppContext) {
+    let result = (|| -> Result<(), Box<dyn Error>> {
+        let harness = DiffViewerHarnessBuilder {
+            document: DocumentBuilder::new()
+                .commit("Add parser")
+                .target(commit_id(1))
+                .changed("src/lib.rs", "old\n", "new\n")
+                .build(),
+            ..DiffViewerHarnessBuilder::default()
+        }
+        .build(cx);
+        assert!(!harness.dispatch_command(cx, DiffReviewCommand::StepTarget(-1))?);
+        harness.simulate_keystrokes(cx, "[ ]");
+        assert_eq!(
+            harness.events(cx),
+            vec![DiffReviewEvent::SetTarget(DiffScope::Both.into())]
+        );
+
+        let unpaged = DiffViewerHarnessBuilder::default().build(cx);
+        unpaged.simulate_keystrokes(cx, "] [");
+        assert_eq!(unpaged.events(cx), Vec::new());
+        Ok(())
+    })();
+    if let Err(error) = result {
+        panic!("{error}");
+    }
 }

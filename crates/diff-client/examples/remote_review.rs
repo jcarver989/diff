@@ -14,8 +14,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let snapshot = state.snapshot.as_ref().ok_or("snapshot")?;
     println!(
         "{}: {} changed files",
-        snapshot.document.repo_root,
-        snapshot.document.files.len()
+        snapshot.repo_root,
+        snapshot.files.len()
     );
     client.close().await?;
     Ok(())

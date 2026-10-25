@@ -211,7 +211,6 @@ impl DiffViewer {
         let path = &self.document().files[file_index].path;
         self.review()
             .comments()
-            .iter()
             .filter(|comment| &comment.anchor.path == path)
             .count()
     }

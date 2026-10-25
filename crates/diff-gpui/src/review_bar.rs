@@ -1,9 +1,14 @@
 use crate::{
     DiffViewer, ViewerPane,
-    ui::prelude::{ActionBar, Button, ButtonVariant, ControlSize, MutedText},
+    ui::prelude::{
+        ActionBar, Button, ButtonVariant, ControlSize, EmptyState, MutedText, NoticeTone,
+        Typography, TypographyExt, rem,
+    },
 };
 use clankerdiff_core::{DiffReviewCommand, DiffScope, ReviewCommand};
 use gpui::{Context, div, prelude::*};
+
+const MAX_COMMIT_TITLE_WIDTH: f32 = 480.0;
 
 impl DiffViewer {
     pub(crate) fn render_review_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -19,7 +24,6 @@ impl DiffViewer {
         } else {
             "j/k line · c comment · e/x edit/delete · s submit · y copy · ? help"
         };
-        let scope = self.scope();
         let mut bar = ActionBar::new(theme).child(
             div()
                 .min_w_0()
@@ -31,21 +35,7 @@ impl DiffViewer {
                     theme,
                 )),
         );
-        for (id, label, value) in [
-            ("scope-unstaged", "Unstaged", DiffScope::Unstaged),
-            ("scope-staged", "Staged", DiffScope::Staged),
-            ("scope-both", "Both", DiffScope::Both),
-        ] {
-            bar = bar.child(
-                Button::new(id, label, theme)
-                    .size(ControlSize::Small)
-                    .selected(scope == value)
-                    .disabled(!self.command_enabled(&DiffReviewCommand::SetScope(value)))
-                    .on_click(cx.listener(move |viewer, _, window, cx| {
-                        viewer.handle_command(DiffReviewCommand::SetScope(value), window, cx);
-                    })),
-            );
-        }
+        bar = bar.child(self.render_navigation(cx));
         bar.when(self.options.themes, |bar| {
             bar.child(
                 Button::new("select-theme", "Theme", theme)
@@ -83,5 +73,80 @@ impl DiffViewer {
                     viewer.handle_command(ReviewCommand::Cancel, window, cx);
                 })),
         )
+    }
+
+    pub(crate) fn render_clean(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .debug_selector(|| "changes-clean".to_owned())
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_4()
+            .child(div().flex_none().child(EmptyState::new(
+                "No changes",
+                format!("Nothing to review in {}", self.session().target()),
+                NoticeTone::Neutral,
+                self.ui_theme(),
+            )))
+            .child(self.render_navigation(cx))
+    }
+
+    fn render_navigation(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.ui_theme();
+        let button = |id: &'static str, label: &'static str, command: DiffReviewCommand| {
+            Button::new(id, label, theme)
+                .size(ControlSize::Small)
+                .disabled(!self.command_enabled(&command))
+                .on_click(cx.listener(move |viewer, _, window, cx| {
+                    viewer.handle_command(command.clone(), window, cx);
+                }))
+        };
+        let stepper = self.session().page_title().map(|title| {
+            div()
+                .debug_selector(|| "commit-stepper".to_owned())
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    button("commit-previous", "‹", DiffReviewCommand::StepTarget(-1))
+                        .aria_label("Previous commit ([)")
+                        .tooltip("Previous commit ([)"),
+                )
+                .child(
+                    div()
+                        .debug_selector(|| "commit-page".to_owned())
+                        .min_w_0()
+                        .max_w(rem(MAX_COMMIT_TITLE_WIDTH))
+                        .truncate()
+                        .typography(Typography::Small)
+                        .text_color(theme.colors.text)
+                        .child(title),
+                )
+                .child(
+                    button("commit-next", "›", DiffReviewCommand::StepTarget(1))
+                        .aria_label("Next commit (])")
+                        .tooltip("Next commit (])"),
+                )
+        });
+        let selected = self.session().target().scope();
+        div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .children(stepper)
+            .children(
+                [
+                    ("scope-unstaged", "Unstaged", DiffScope::Unstaged),
+                    ("scope-staged", "Staged", DiffScope::Staged),
+                    ("scope-both", "Both", DiffScope::Both),
+                ]
+                .map(|(id, label, scope)| {
+                    button(id, label, DiffReviewCommand::SetScope(scope))
+                        .selected(selected == Some(scope))
+                }),
+            )
     }
 }
