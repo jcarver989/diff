@@ -40,13 +40,16 @@ impl MenuItem {
 }
 
 /// Wraps `trigger`, tagged `selector`, so that clicking it with `button` opens
-/// `items` in a menu below it, tagged `<selector>-menu`. Choosing an entry
-/// closes the menu, then runs the entry's action.
+/// the entries `items` builds in a menu below it, tagged `<selector>-menu`.
+/// Choosing an entry closes the menu, then runs the entry's action.
+///
+/// `items` runs only when the menu opens, so that a view rendering many
+/// closed menus builds none of their entries.
 pub fn with_menu<T: Selectable + IntoElement + 'static>(
     selector: &str,
     trigger: T,
     button: MouseButton,
-    items: Vec<MenuItem>,
+    items: impl FnOnce(&mut Window, &mut App) -> Vec<MenuItem> + 'static,
     theme: &UiTheme,
 ) -> Popover {
     let theme = *theme;
@@ -55,10 +58,10 @@ pub fn with_menu<T: Selectable + IntoElement + 'static>(
         .mouse_button(button)
         .anchor(Anchor::TopLeft)
         .trigger(trigger)
-        .content(move |_, _, cx| {
+        .content(move |_, window, cx| {
             let popover = cx.entity();
             let colors = theme.colors;
-            let entries = items.into_iter().map(
+            let entries = items(window, cx).into_iter().map(
                 move |MenuItem {
                           selector,
                           label,

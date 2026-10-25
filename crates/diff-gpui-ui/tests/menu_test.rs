@@ -39,16 +39,44 @@ fn choosing_an_entry_closes_the_menu_and_runs_its_action(cx: &mut TestAppContext
     );
 }
 
+#[gpui::test]
+fn a_closed_menu_builds_no_entries(cx: &mut TestAppContext) {
+    cx.update(gpui_base::init);
+    let builds = Rc::new(Cell::new(0));
+    let counted = builds.clone();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            let counted = counted.clone();
+            menu_with(move || {
+                counted.set(counted.get() + 1);
+                Vec::new()
+            })
+        },
+        |harness, cx| {
+            assert_eq!(builds.get(), 0, "a closed menu builds no entries");
+            harness.click(cx, "actions")?;
+            assert!(builds.get() > 0, "an open menu builds its entries");
+            Ok(())
+        },
+    );
+}
+
 fn menu(chosen: Rc<Cell<usize>>) -> gpui::AnyElement {
+    menu_with(move || {
+        vec![MenuItem::new("rename", "Rename", move |_, _| {
+            chosen.set(chosen.get() + 1);
+        })]
+    })
+}
+
+fn menu_with(items: impl FnOnce() -> Vec<MenuItem> + 'static) -> gpui::AnyElement {
     let theme = UiTheme::new(&ReviewTheme::default());
-    let items = vec![MenuItem::new("rename", "Rename", move |_, _| {
-        chosen.set(chosen.get() + 1);
-    })];
     with_menu(
         "actions",
         Button::new("actions", "Actions", theme),
         MouseButton::Left,
-        items,
+        move |_, _| items(),
         &theme,
     )
     .into_any_element()
