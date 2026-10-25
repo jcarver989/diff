@@ -1953,7 +1953,6 @@ dependencies = [
  "clankerdiff-theme",
  "gpui-base",
  "gpui-pre",
- "gpui-pre-platform",
  "schemars",
  "serde",
  "serde_json",
@@ -1966,11 +1965,17 @@ dependencies = [
 name = "clankerdiff-gpui-shell"
 version = "0.3.3"
 dependencies = [
+ "clankerdiff-gpui-ui",
  "gpui-base",
  "gpui-pre",
+ "gpui-pre-platform",
+ "image",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tokio",
 ]
 
@@ -3968,6 +3973,7 @@ dependencies = [
  "gpui-pre-linux",
  "gpui-pre-macos",
  "gpui-pre-web",
+ "gpui-pre-wgpu",
  "gpui-pre-windows",
 ]
 
@@ -4085,6 +4091,7 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-collections",
  "gpui-pre-util",
+ "image",
  "itertools 0.14.0",
  "log",
  "parking_lot",

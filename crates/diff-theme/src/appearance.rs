@@ -1,3 +1,4 @@
+use crate::ReviewTheme;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -38,5 +39,44 @@ impl Default for ThemePair {
             light: "github-light".to_owned(),
             dark: "github-dark".to_owned(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppearanceMode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl AppearanceMode {
+    #[must_use]
+    pub const fn resolve(self, system: Appearance) -> Appearance {
+        match self {
+            Self::System => system,
+            Self::Light => Appearance::Light,
+            Self::Dark => Appearance::Dark,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThemePreference {
+    pub mode: AppearanceMode,
+    pub pair: ThemePair,
+}
+
+impl ThemePreference {
+    #[must_use]
+    pub const fn appearance(&self, system: Appearance) -> Appearance {
+        self.mode.resolve(system)
+    }
+
+    #[must_use]
+    pub fn theme(&self, system: Appearance) -> ReviewTheme {
+        ReviewTheme::builtin(self.pair.id(self.appearance(system))).unwrap_or_default()
     }
 }

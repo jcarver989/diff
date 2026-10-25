@@ -24,7 +24,6 @@ clankerdiff-gpui = { path = "../diff-gpui" }
 clankerdiff-gpui-shell = { path = "../diff-gpui-shell" }
 gpui.workspace = true
 gpui-base.workspace = true
-gpui_platform.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

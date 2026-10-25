@@ -8,8 +8,8 @@ use crate::{
     style::color,
     ui::{
         prelude::{
-            Backdrop, Modal, Notification, SearchPicker, ThemePicker, ThemePickerEvent, Typography,
-            TypographyExt, UI_FONT, UiTheme, rem,
+            Modal, Notification, SearchPicker, ThemePicker, ThemePickerEvent, ThemePickerOverlay,
+            Typography, TypographyExt, UI_FONT, UiTheme, rem,
         },
         tokens::{BASE_SIZE, CODE_ROW_HEIGHT},
     },
@@ -152,7 +152,7 @@ struct DiffViewportBookmark {
 pub struct DiffViewer {
     session: ReviewSession,
     capabilities: ReviewCapabilities,
-    theme_picker: Option<(Entity<ThemePicker>, Subscription)>,
+    theme_picker: Option<ThemePickerOverlay>,
     theme: ReviewTheme,
     highlighter: SyntaxHighlighter,
     pub(crate) options: DiffViewerOptions,
@@ -549,20 +549,14 @@ impl DiffViewer {
     fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         init_input(cx);
         let (theme, ui) = (self.theme.clone(), self.ui_theme());
-        let picker = cx.new(|cx| {
-            ThemePicker::new(
-                "theme-picker",
-                &theme,
-                ThemeChoice::catalog(),
-                ui,
-                window,
-                cx,
-            )
-        });
-        let subscription = cx.subscribe(&picker, |viewer, _, event: &ThemePickerEvent, cx| {
-            viewer.on_theme_picker_event(event, cx);
-        });
-        self.theme_picker = Some((picker, subscription));
+        self.theme_picker = Some(ThemePickerOverlay::open(
+            &theme,
+            ThemeChoice::catalog(),
+            ui,
+            window,
+            cx,
+            |viewer, event, _, cx| viewer.on_theme_picker_event(event, cx),
+        ));
     }
 
     fn on_theme_picker_event(&mut self, event: &ThemePickerEvent, cx: &mut Context<Self>) {
@@ -587,7 +581,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
         update: impl FnOnce(&mut ThemePicker, &mut Context<ThemePicker>),
     ) -> bool {
-        let Some((picker, _)) = &self.theme_picker else {
+        let Some(picker) = self.theme_picker.as_ref().map(ThemePickerOverlay::picker) else {
             return false;
         };
         picker.update(cx, update);
@@ -1478,13 +1472,6 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::Refresh, window, cx);
     }
 
-    fn render_theme_picker(&self, picker: &Entity<ThemePicker>) -> impl IntoElement {
-        let dismissed = picker.clone();
-        Backdrop::new("theme-picker-backdrop", self.ui_theme())
-            .on_dismiss(move |_, cx| dismissed.update(cx, ThemePicker::cancel))
-            .child(picker.clone())
-    }
-
     pub(crate) fn submit_review(
         &mut self,
         _: &SubmitReview,
@@ -1711,8 +1698,8 @@ impl Render for DiffViewer {
             .when(self.shortcuts_open, |viewer| {
                 viewer.child(self.render_shortcuts())
             })
-            .when_some(self.theme_picker.as_ref(), |viewer, (picker, _)| {
-                viewer.child(self.render_theme_picker(picker))
+            .when_some(self.theme_picker.as_ref(), |viewer, picker| {
+                viewer.child(picker.render(self.ui_theme()))
             })
             .when(self.repository_prompt.is_some(), |viewer| {
                 viewer.child(self.render_repository_prompt())

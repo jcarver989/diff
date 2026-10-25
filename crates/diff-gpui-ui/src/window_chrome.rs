@@ -18,6 +18,29 @@ const BORDER_SIZE: Pixels = px(1.0);
 const TITLE_BAR_HEIGHT: Rems = rem(BAR_HEIGHT);
 const BUTTON_WIDTH: Rems = rem(BAR_HEIGHT);
 
+pub trait WindowDragExt: InteractiveElement {
+    #[must_use]
+    fn window_drag_area(self) -> Self {
+        self.window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(MouseButton::Left, |event, window, _| {
+                match event.click_count {
+                    2 if cfg!(target_os = "macos") => window.titlebar_double_click(),
+                    2 if window.window_controls().maximize && window.is_resizable() => {
+                        window.zoom_window();
+                    }
+                    _ => window.start_window_move(),
+                }
+            })
+    }
+
+    #[must_use]
+    fn no_window_drag(self) -> Self {
+        self.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+    }
+}
+
+impl<T: InteractiveElement> WindowDragExt for T {}
+
 /// Wraps `content` in a title bar showing `title`, a frame and resize zones
 /// when the platform asks the app to draw its own decorations, and returns it
 /// unchanged otherwise.
@@ -75,7 +98,6 @@ pub fn decorate(
             theme,
             left_controls,
             right_controls,
-            controls.maximize && is_resizable,
             window.is_maximized(),
         ))
         .child(div().flex_1().min_h_0().min_w_0().child(content));
@@ -113,25 +135,17 @@ fn title_bar(
     theme: &UiTheme,
     left_controls: Vec<WindowButton>,
     right_controls: Vec<WindowButton>,
-    can_maximize: bool,
     is_maximized: bool,
 ) -> impl IntoElement {
     div()
         .id("title-bar")
-        .window_control_area(WindowControlArea::Drag)
+        .window_drag_area()
         .h(TITLE_BAR_HEIGHT)
         .w_full()
         .flex()
         .items_center()
         .bg(theme.colors.surface)
         .text_color(theme.colors.text)
-        .on_mouse_down(MouseButton::Left, move |event, window, _| {
-            if can_maximize && event.click_count == 2 {
-                window.zoom_window();
-            } else {
-                window.start_window_move();
-            }
-        })
         .child(window_button_group(theme, left_controls, is_maximized))
         .child(
             div()
@@ -175,8 +189,7 @@ fn window_button_group(
                 .justify_center()
                 .cursor(CursorStyle::PointingHand)
                 .hover(move |element| element.bg(hover))
-                // Keeps the title bar's mouse-down handler from starting a window move.
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .no_window_drag()
                 .on_click(move |_, window, cx| {
                     cx.stop_propagation();
                     match button {

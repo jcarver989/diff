@@ -12,9 +12,9 @@ use clankerdiff_client::DiffClient;
 use clankerdiff_core::ReviewSubmission;
 use clankerdiff_gpui::{
     DiffViewer, MarkdownReviewer,
-    ui::{InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE},
+    ui::{InterfaceSize, interface_size::DEFAULT_INTERFACE_SIZE},
 };
-use clankerdiff_gpui_shell::{run_loop, runtime};
+use clankerdiff_gpui_shell::{launch, runtime};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use gpui::{
     App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
@@ -66,18 +66,15 @@ pub fn run_review(args: CliArgs) -> Option<ReviewSubmission> {
 #[must_use]
 pub fn run_markdown_review(document: MarkdownDocument) -> Option<MarkdownReviewSubmission> {
     let (sender, receiver) = mpsc::channel();
-    gpui_platform::application().run(move |cx: &mut App| {
-        load_fonts(cx).expect("failed to load the bundled fonts");
+    launch(move |cx: &mut App| {
         InterfaceSize::init(DEFAULT_INTERFACE_SIZE, cx);
         MarkdownReviewer::bind_keys(cx);
         menus::install(cx);
-        run_loop::install(cx);
         let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
         cx.open_window(window_options(bounds), |window, cx| {
             cx.new(|cx| MarkdownDesktopApp::new(std::sync::Arc::new(document), sender, window, cx))
         })
         .expect("failed to open the Markdown review window");
-        cx.activate(true);
     });
     receiver.try_recv().ok().flatten()
 }
@@ -96,21 +93,17 @@ fn run_application(
 ) {
     let runtime = runtime::build();
     let handle = runtime.handle().clone();
-    gpui_platform::application().run(move |cx: &mut App| {
+    launch(move |cx: &mut App| {
         runtime::install(cx, handle);
-        load_fonts(cx).expect("failed to load the bundled fonts");
         InterfaceSize::init(DEFAULT_INTERFACE_SIZE, cx);
         DiffViewer::bind_keys(cx);
         DesktopApp::bind_keys(cx);
         menus::install(cx);
-        run_loop::install(cx);
-
         let bounds = Bounds::centered(None, size(px(1280.0), px(840.0)), cx);
         cx.open_window(window_options(bounds), |window, cx| {
             cx.new(|cx| DesktopApp::new(args, client, outcome_sender, window, cx))
         })
         .expect("failed to open the diff review window");
-        cx.activate(true);
     });
     runtime.shutdown_background();
 }

@@ -6,7 +6,7 @@
 
 use crate::{
     DiffViewer, DiffViewerEvent, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions,
-    ui::{InterfaceSize, testing::WindowDriver, tokens::BASE_SIZE},
+    ui::{InterfaceSize, testing::ViewHarness, tokens::BASE_SIZE},
 };
 use clankerdiff_core::{
     DiffDocument, DiffReviewCommand, Review, ReviewCommand, ViewMode, testing::DocumentBuilder,
@@ -17,101 +17,35 @@ use clankerdiff_markdown::{
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
     App, Bounds, Context, ElementInputHandler, Entity, EventEmitter, Focusable, InputHandler,
-    ListOffset, Pixels, Render, TestAppContext, Window, WindowBounds, WindowHandle, WindowOptions,
-    div, point, prelude::*, px, size,
+    ListOffset, Pixels, Render, TestAppContext, Window, WindowBounds, WindowOptions, point,
+    prelude::*, px, size,
 };
 use gpui_base::input::TextareaState;
 use std::{error::Error, ops::Deref, sync::Arc};
 
-struct HarnessRoot<T: 'static, U: 'static> {
-    view: Entity<T>,
-    events: Vec<U>,
-}
-
-impl<T: Render + EventEmitter<U>, U: Clone + 'static> HarnessRoot<T, U> {
-    fn open(
-        cx: &mut TestAppContext,
-        window_options: WindowOptions,
-        view: impl FnOnce() -> T,
-    ) -> Harness<T, U> {
-        let window = cx.update(|cx| {
-            cx.open_window(window_options, |_, cx| {
-                cx.new(|cx| {
-                    let view = cx.new(|_| view());
-                    cx.subscribe(&view, |root: &mut Self, _, event: &U, _| {
-                        root.events.push(event.clone());
-                    })
-                    .detach();
-                    Self {
-                        view,
-                        events: Vec::new(),
-                    }
-                })
-            })
-            .expect("open GPUI test window")
-        });
-        cx.run_until_parked();
-        let view = window
-            .read_with(cx, |root, _| root.view.clone())
-            .expect("read GPUI test root");
-        Harness {
-            driver: WindowDriver::new(window),
-            window,
-            view,
-        }
-    }
-}
-
-impl<T: Render, U: 'static> Render for HarnessRoot<T, U> {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        InterfaceSize::apply(window, cx);
-        div().size_full().child(self.view.clone())
-    }
-}
-
 /// A high-level integration harness around a rendered GPUI view and the host events it emits.
-pub struct Harness<T: 'static, U: 'static> {
-    driver: WindowDriver,
-    window: WindowHandle<HarnessRoot<T, U>>,
-    view: Entity<T>,
-}
+pub struct Harness<T: 'static, U: 'static>(ViewHarness<T, U>);
 
 pub type DiffViewerHarness = Harness<DiffViewer, DiffViewerEvent>;
 pub type MarkdownReviewerHarness = Harness<MarkdownReviewer, MarkdownReviewEvent>;
 
 impl<T, U> Deref for Harness<T, U> {
-    type Target = WindowDriver;
+    type Target = ViewHarness<T, U>;
 
-    fn deref(&self) -> &WindowDriver {
-        &self.driver
+    fn deref(&self) -> &ViewHarness<T, U> {
+        &self.0
     }
 }
 
-impl<T: Render, U: Clone + 'static> Harness<T, U> {
-    /// Returns the host events recorded by the rendered view.
-    ///
-    /// # Panics
-    ///
-    /// Panics if GPUI cannot read the test window.
-    #[must_use]
-    pub fn events(&self, cx: &TestAppContext) -> Vec<U> {
-        self.window
-            .read_with(cx, |root, _| root.events.clone())
-            .expect("read recorded GPUI events")
-    }
-
-    /// Reads the view while keeping GPUI context plumbing inside the harness.
-    pub fn read<V>(&self, cx: &TestAppContext, read: impl FnOnce(&T, &App) -> V) -> V {
-        self.view.read_with(cx, read)
-    }
-
-    /// Updates the view while keeping GPUI context plumbing inside the harness.
-    pub fn update<V>(
-        &self,
+impl<T: Render + EventEmitter<U>, U: Clone + 'static> Harness<T, U> {
+    fn open(
         cx: &mut TestAppContext,
-        update: impl FnOnce(&mut T, &mut Context<T>) -> V,
-    ) -> V {
-        self.view.update(cx, update)
+        window_options: WindowOptions,
+        view: impl FnOnce() -> T,
+    ) -> Self {
+        Self(ViewHarness::open(cx, window_options, |_, cx| {
+            cx.new(|_| view())
+        }))
     }
 }
 
@@ -200,7 +134,7 @@ impl DiffViewerHarnessBuilder {
             interface_size,
         } = self;
         cx.update(|cx| InterfaceSize::init(interface_size, cx));
-        let harness = HarnessRoot::open(cx, window_options, move || {
+        let harness = Harness::open(cx, window_options, move || {
             DiffViewer::with_options(document, theme, options)
         });
         if let Some(mode) = view_mode {
@@ -217,7 +151,7 @@ impl DiffViewerHarnessBuilder {
 impl DiffViewerHarness {
     #[must_use]
     pub fn viewer(&self) -> Entity<DiffViewer> {
-        self.view.clone()
+        self.view().clone()
     }
 
     pub fn show(&self, cx: &mut TestAppContext, document: Arc<DiffDocument>) {
@@ -283,8 +217,8 @@ impl DiffViewerHarness {
         command: impl Into<DiffReviewCommand>,
     ) -> Result<bool, Box<dyn Error>> {
         let command = command.into();
-        let handled = cx.update_window(*self.window, |_, window, cx| {
-            self.view
+        let handled = cx.update_window(self.window(), |_, window, cx| {
+            self.view()
                 .update(cx, |viewer, cx| viewer.handle_command(command, window, cx))
         })?;
         self.draw(cx);
@@ -305,7 +239,7 @@ impl DiffViewerHarness {
         let bounds = input
             .read_with(cx, |input, _| input.text_bounds())
             .ok_or("comment text not painted")?;
-        let result = cx.update_window(*self.window, |_, window, cx| {
+        let result = cx.update_window(self.window(), |_, window, cx| {
             update(&mut ElementInputHandler::new(bounds, input), window, cx)
         })?;
         self.draw(cx);
@@ -325,7 +259,7 @@ impl DiffViewerHarness {
                     .map(|editor| editor.read(cx).input())
             })
             .ok_or("no comment editor")?;
-        let result = cx.update_window(*self.window, |_, window, cx| {
+        let result = cx.update_window(self.window(), |_, window, cx| {
             input.update(cx, |input, cx| update(input, window, cx))
         })?;
         self.draw(cx);
@@ -441,7 +375,7 @@ impl MarkdownReviewerHarnessBuilder {
             comments,
         } = self;
         let document = Arc::new(MarkdownDocument::parse_with_metadata(path, title, source));
-        let harness = HarnessRoot::open(cx, window_options, move || {
+        let harness = Harness::open(cx, window_options, move || {
             MarkdownReviewer::with_options(document, theme, options)
         });
         for body in comments {
@@ -461,8 +395,8 @@ impl MarkdownReviewerHarness {
         command: impl Into<MarkdownReviewCommand>,
     ) -> Result<bool, Box<dyn Error>> {
         let command = command.into();
-        let handled = cx.update_window(*self.window, |_, window, cx| {
-            self.view.update(cx, |reviewer, cx| {
+        let handled = cx.update_window(self.window(), |_, window, cx| {
+            self.view().update(cx, |reviewer, cx| {
                 reviewer.handle_command(command, window, cx)
             })
         })??;

@@ -2,9 +2,9 @@
 
 use clankerdiff_theme::{
     Appearance, ButtonVariant, ControlState, NoticeTone, ReviewTheme, Rgba, SelectionState,
-    SemanticStyle, UiPalette,
+    SemanticStyle, TerminalPalette, ThemePreference, UiPalette,
 };
-use gpui::{Hsla, Window, WindowAppearance};
+use gpui::{App, Global, Hsla, Window, WindowAppearance};
 use gpui_base::input::InputEditorStyle;
 
 /// Converts a renderer-neutral sRGB color to GPUI's HSLA color.
@@ -24,6 +24,50 @@ pub fn window_appearance(window: &Window) -> Appearance {
     match window.appearance() {
         WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
         WindowAppearance::Dark | WindowAppearance::VibrantDark => Appearance::Dark,
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ActiveTheme {
+    review: ReviewTheme,
+    ui: UiTheme,
+    terminal: TerminalPalette,
+}
+
+impl Global for ActiveTheme {}
+
+impl ActiveTheme {
+    pub fn install(review: ReviewTheme, window: &mut Window, cx: &mut App) {
+        cx.set_global(Self {
+            ui: UiTheme::new(&review),
+            terminal: review.terminal_palette(),
+            review,
+        });
+        window.refresh();
+    }
+
+    pub fn apply(preference: &ThemePreference, window: &mut Window, cx: &mut App) {
+        Self::install(preference.theme(window_appearance(window)), window, cx);
+    }
+
+    #[must_use]
+    pub fn global(cx: &App) -> &Self {
+        cx.global::<Self>()
+    }
+
+    #[must_use]
+    pub const fn review(&self) -> &ReviewTheme {
+        &self.review
+    }
+
+    #[must_use]
+    pub const fn ui(&self) -> UiTheme {
+        self.ui
+    }
+
+    #[must_use]
+    pub const fn terminal(&self) -> &TerminalPalette {
+        &self.terminal
     }
 }
 

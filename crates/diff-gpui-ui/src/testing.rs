@@ -1,9 +1,9 @@
 use crate::{InterfaceSize, tokens::BASE_SIZE};
 use gpui::{
-    Action, AnyElement, AnyWindowHandle, App, Bounds, Context, InputEvent, KeyDownEvent,
-    KeyUpEvent, Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Pixels, Point,
-    Render, ScrollDelta, ScrollWheelEvent, TestAppContext, VisualTestContext, Window, WindowBounds,
-    WindowHandle, WindowOptions, div, point, prelude::*, px, size,
+    Action, AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, EventEmitter, InputEvent,
+    KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent,
+    Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, TestAppContext, VisualTestContext,
+    Window, WindowBounds, WindowHandle, WindowOptions, div, point, prelude::*, px, size,
 };
 use std::{error::Error, ops::Deref};
 
@@ -315,5 +315,99 @@ impl Deref for ComponentHarness {
 
     fn deref(&self) -> &WindowDriver {
         &self.0
+    }
+}
+
+pub struct ViewHarness<T: 'static, U: 'static> {
+    driver: WindowDriver,
+    window: WindowHandle<ViewRoot<T, U>>,
+    view: Entity<T>,
+}
+
+impl<T: Render + EventEmitter<U>, U: Clone + 'static> ViewHarness<T, U> {
+    pub fn open(
+        cx: &mut TestAppContext,
+        window_options: WindowOptions,
+        view: impl FnOnce(&mut Window, &mut App) -> Entity<T>,
+    ) -> Self {
+        let window = cx.update(|cx| {
+            cx.open_window(window_options, |window, cx| {
+                let view = view(window, cx);
+                cx.new(|cx| {
+                    cx.subscribe(&view, |root: &mut ViewRoot<T, U>, _, event: &U, _| {
+                        root.events.push(event.clone());
+                    })
+                    .detach();
+                    ViewRoot {
+                        view,
+                        events: Vec::new(),
+                    }
+                })
+            })
+            .expect("open GPUI test window")
+        });
+        cx.run_until_parked();
+        let view = window
+            .read_with(cx, |root, _| root.view.clone())
+            .expect("read GPUI test root");
+        Self {
+            driver: WindowDriver::new(window),
+            window,
+            view,
+        }
+    }
+
+    #[must_use]
+    pub fn events(&self, cx: &TestAppContext) -> Vec<U> {
+        self.window
+            .read_with(cx, |root, _| root.events.clone())
+            .expect("read recorded GPUI events")
+    }
+
+    #[must_use]
+    pub const fn view(&self) -> &Entity<T> {
+        &self.view
+    }
+
+    pub fn read<V>(&self, cx: &TestAppContext, read: impl FnOnce(&T, &App) -> V) -> V {
+        self.view.read_with(cx, read)
+    }
+
+    pub fn update<V>(
+        &self,
+        cx: &mut TestAppContext,
+        update: impl FnOnce(&mut T, &mut Context<T>) -> V,
+    ) -> V {
+        self.view.update(cx, update)
+    }
+
+    pub fn run_until(&self, cx: &mut TestAppContext, condition: impl Fn(&T, &App) -> bool) {
+        loop {
+            cx.run_until_parked();
+            if self.read(cx, &condition) {
+                return;
+            }
+            std::thread::yield_now();
+        }
+    }
+}
+
+impl<T, U> Deref for ViewHarness<T, U> {
+    type Target = WindowDriver;
+
+    fn deref(&self) -> &WindowDriver {
+        &self.driver
+    }
+}
+
+struct ViewRoot<T: 'static, U: 'static> {
+    view: Entity<T>,
+    events: Vec<U>,
+}
+
+impl<T: Render, U: 'static> Render for ViewRoot<T, U> {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        InterfaceSize::apply(window, cx);
+        div().size_full().child(self.view.clone())
     }
 }

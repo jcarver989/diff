@@ -8,15 +8,26 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+script = ["gpui/test-support", "gpui_platform/test-support", "dep:image"]
+
 [lints]
 workspace = true
 
 [dependencies]
+clankerdiff-gpui-ui = { path = "../diff-gpui-ui" }
 gpui.workspace = true
 gpui-base.workspace = true
+gpui_platform.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSGraphicsContext", "NSResponder", "objc2-core-foundation"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
+
+[dev-dependencies]
+tempfile.workspace = true
