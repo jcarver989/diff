@@ -1569,6 +1569,7 @@ mod tests {
                 )
                 .unwrap(),
             ],
+            ..DiffDocument::default()
         })
     }
 
@@ -1711,6 +1712,7 @@ mod tests {
                 FileDiff::from_texts("a.rs", "old\n", "new\n").unwrap(),
                 FileDiff::from_texts("b.rs", "old\n", "new\n").unwrap(),
             ],
+            ..DiffDocument::default()
         });
         let presentation = DiffPresentation::new(document, PresentationOptions::default());
         let first = presentation
@@ -1933,6 +1935,7 @@ mod tests {
             Arc::new(DiffDocument {
                 repo_root: "/repo".into(),
                 files: vec![file],
+                ..DiffDocument::default()
             })
         };
         let mut projection = ContentProjection::default();

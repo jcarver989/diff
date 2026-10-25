@@ -58,10 +58,11 @@ async fn dispatch(command: Command) -> Result<ExitCode, AppError> {
             let Some(completion) = completion else {
                 return Ok(ExitCode::SUCCESS);
             };
-            let (scope, submission) = match completion {
-                ReviewCompletion::Submitted { scope, submission } => (scope, Some(submission)),
-                ReviewCompletion::Cancelled { scope } => (scope, None),
+            let (target, submission) = match completion {
+                ReviewCompletion::Submitted { target, submission } => (target, Some(submission)),
+                ReviewCompletion::Cancelled { target } => (target, None),
             };
+            let scope = target.scope().unwrap_or_default();
             let response = diff_response(repository_root, scope, submission);
             write_review_response(&response, format)?;
             Ok(exit_code(response.outcome()))
@@ -123,6 +124,7 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
             clankerdiff_gpui_desktop::run_review(clankerdiff_gpui_desktop::args::CliArgs {
                 repository: root.clone(),
                 scope: args.scope,
+                commits: args.commits,
                 connect: None,
             })
         }
@@ -130,14 +132,15 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
             TuiPlacement::Current => {
                 let server = DiffServer::open(&root, ServerOptions::default()).await?;
                 let transport = server.connect()?;
-                let client = DiffClient::from_transport(transport, args.scope.into()).await?;
+                let target = server.initial_target(args.scope, args.commits);
+                let client = DiffClient::from_transport(transport, target.into()).await?;
                 let outcome = tui::run_client(&client);
                 client.close().await?;
                 server.shutdown().await?;
                 outcome?
             }
             TuiPlacement::External => {
-                session::run(&root, args.scope, |socket_path| {
+                session::run(&root, args.scope, args.commits, |socket_path| {
                     tui::launch(socket_path).map_err(|error| error.to_string())
                 })
                 .await?

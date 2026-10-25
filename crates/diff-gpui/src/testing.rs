@@ -220,6 +220,11 @@ impl DiffViewerHarness {
         self.view.clone()
     }
 
+    pub fn show(&self, cx: &mut TestAppContext, document: Arc<DiffDocument>) {
+        self.update(cx, |viewer, cx| viewer.set_document(document, cx));
+        self.draw(cx);
+    }
+
     pub fn add_comment(
         &self,
         cx: &mut TestAppContext,
@@ -253,7 +258,6 @@ impl DiffViewerHarness {
     pub fn comment_bodies(&self, cx: &TestAppContext) -> Vec<String> {
         self.review(cx)
             .comments()
-            .iter()
             .map(|comment| comment.body.clone())
             .collect()
     }

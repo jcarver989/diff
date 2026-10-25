@@ -119,6 +119,7 @@ fn preview_document(file: FileDiff) -> Arc<DiffDocument> {
     Arc::new(DiffDocument {
         repo_root: String::new(),
         files: vec![file],
+        ..DiffDocument::default()
     })
 }
 

@@ -1,13 +1,13 @@
 use clankerdiff_core::{
-    DiffDocument, DiffScope, RepositoryAction, Review, SourceUnavailable, StageState,
-    testing::DocumentBuilder,
+    DiffDocument, DiffScope, RepositoryAction, Review, ReviewTarget, SourceUnavailable, StageState,
+    testing::{DocumentBuilder, commit_id},
 };
 use clankerdiff_protocol::{
     client::{ClientCommand, DocumentCache},
     server::{SentDocument, ServerMessage},
     shared::{
-        DiffSnapshot, DocumentUpdate, Event, FileEntry, LIVE_PROTOCOL_VERSION, ProtocolError,
-        RemoteError, RemoteErrorCode,
+        DocumentUpdate, Event, FileEntry, LIVE_PROTOCOL_VERSION, ProtocolError, RemoteError,
+        RemoteErrorCode,
     },
 };
 use std::{error::Error, sync::Arc};
@@ -17,9 +17,10 @@ fn commands_and_events_round_trip() -> Result<(), Box<dyn Error>> {
     for message in [
         ClientCommand::Initialize {
             protocol_version: LIVE_PROTOCOL_VERSION,
-            scope: DiffScope::Staged,
+            target: DiffScope::Staged.into(),
         },
-        ClientCommand::SetScope(DiffScope::Unstaged),
+        ClientCommand::SetTarget(DiffScope::Unstaged.into()),
+        ClientCommand::SetTarget(commit_id(1).into()),
         ClientCommand::Apply(RepositoryAction::Commit {
             message: "🦀\n".to_owned(),
         }),
@@ -31,12 +32,13 @@ fn commands_and_events_round_trip() -> Result<(), Box<dyn Error>> {
         assert_eq!(format!("{decoded:?}"), format!("{message:?}"));
     }
 
-    let update = SentDocument::default().encode(&DiffSnapshot {
-        scope: DiffScope::Both,
-        document: DocumentBuilder::new()
+    let update = SentDocument::default().encode(
+        &DocumentBuilder::new()
+            .commit("First")
+            .target(commit_id(1))
             .changed("a", "old\r\n", "new🦀")
             .build(),
-    });
+    );
     for message in [
         Event::Initialize {
             protocol_version: LIVE_PROTOCOL_VERSION,
@@ -61,7 +63,7 @@ fn round_trip_preserves_metadata_custom_patches_and_order() -> Result<(), Box<dy
         .changed("a", "old\r\n", "new🦀\n")
         .untracked("b", "added\n")
         .build();
-    assert_eq!(pair.publish(first.clone())?.received.document, first);
+    assert_eq!(pair.publish(&first)?.received, first);
 
     let mut second = DocumentBuilder::new()
         .deleted("c", "gone")
@@ -74,7 +76,7 @@ fn round_trip_preserves_metadata_custom_patches_and_order() -> Result<(), Box<dy
     files[1].staged = StageState::PartiallyStaged;
     files[1].omitted_bytes = Some(32);
     files[2].old_source = Err(SourceUnavailable::TooLarge { bytes: 900_000_000 });
-    assert_eq!(pair.publish(second.clone())?.received.document, second);
+    assert_eq!(pair.publish(&second)?.received, second);
     Ok(())
 }
 
@@ -85,17 +87,17 @@ fn unchanged_files_are_not_resent() -> Result<(), Box<dyn Error>> {
         .changed("a", "old", "new")
         .changed("b", "old", "new")
         .build();
-    pair.publish(document.clone())?;
+    pair.publish(&document)?;
 
     let mut edited = document.clone();
     Arc::make_mut(&mut edited).files[0] = clankerdiff_core::FileDiff::from_texts("a", "old", "y")?;
-    let published = pair.publish(edited)?;
+    let published = pair.publish(&edited)?;
     assert!(matches!(
         published.update.files.as_slice(),
         [FileEntry::Changed(_), FileEntry::Unchanged(_)]
     ));
 
-    let published = pair.publish(document)?;
+    let published = pair.publish(&document)?;
     assert!(matches!(
         published.update.files.as_slice(),
         [FileEntry::Changed(_), FileEntry::Unchanged(_)]
@@ -104,16 +106,36 @@ fn unchanged_files_are_not_resent() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn a_scope_change_alone_reuses_every_file() -> Result<(), Box<dyn Error>> {
+fn a_target_change_alone_reuses_every_file() -> Result<(), Box<dyn Error>> {
     let mut pair = SyncPair::default();
-    let document = DocumentBuilder::new().changed("a", "old", "new").build();
-    pair.publish(document.clone())?;
-    let published = pair.publish_scope(DiffScope::Staged, document)?;
-    assert_eq!(published.received.scope, DiffScope::Staged);
+    let builder = DocumentBuilder::new().changed("a", "old", "new");
+    pair.publish(&builder.clone().build())?;
+    let published = pair.publish(&builder.target(DiffScope::Staged).build())?;
+    assert_eq!(
+        published.received.target,
+        ReviewTarget::WorkingTree(DiffScope::Staged)
+    );
     assert!(matches!(
         published.update.files.as_slice(),
         [FileEntry::Unchanged(_)]
     ));
+    Ok(())
+}
+
+#[test]
+fn commit_stacks_travel_with_documents() -> Result<(), Box<dyn Error>> {
+    let mut sent = SentDocument::default();
+    let mut cache = DocumentCache::default();
+    let document = DocumentBuilder::new()
+        .commit("First")
+        .target(commit_id(1))
+        .changed("a", "old", "new")
+        .build();
+    let message = ServerMessage::Document(sent.encode(&document)).encode()?;
+    let Event::Document(received) = cache.decode_event(&message)? else {
+        return Err("expected document event".into());
+    };
+    assert_eq!(received, document);
     Ok(())
 }
 
@@ -161,16 +183,8 @@ struct SyncPair {
 }
 
 impl SyncPair {
-    fn publish(&mut self, document: Arc<DiffDocument>) -> Result<Publication, ProtocolError> {
-        self.publish_scope(DiffScope::Both, document)
-    }
-
-    fn publish_scope(
-        &mut self,
-        scope: DiffScope,
-        document: Arc<DiffDocument>,
-    ) -> Result<Publication, ProtocolError> {
-        let update = self.sent.encode(&DiffSnapshot { scope, document });
+    fn publish(&mut self, document: &DiffDocument) -> Result<Publication, ProtocolError> {
+        let update = self.sent.encode(document);
         let message = ServerMessage::Document(update.clone()).encode()?;
         let Event::Document(received) = self.cache.decode_event(&message)? else {
             unreachable!()
@@ -181,12 +195,13 @@ impl SyncPair {
 
 struct Publication {
     update: DocumentUpdate,
-    received: Arc<DiffSnapshot>,
+    received: Arc<DiffDocument>,
 }
 
 fn update(files: Vec<FileEntry>) -> DocumentUpdate {
     DocumentUpdate {
-        scope: DiffScope::Both,
+        target: ReviewTarget::default(),
+        commits: None,
         repo_root: "/repo".to_owned(),
         files,
     }
@@ -210,20 +225,18 @@ fn document_updates_reuse_unchanged_files() -> Result<(), Box<dyn Error>> {
         .build();
     let mut sent = SentDocument::default();
     let mut cache = DocumentCache::default();
-    let first = sent.encode(&DiffSnapshot {
-        scope: DiffScope::Both,
-        document: document.clone(),
-    });
+    let first = sent.encode(&document);
     let message: ServerMessage = Event::Document(first);
     let Event::Document(received) = cache.decode_event(&message.encode()?)? else {
         return Err("expected document event".into());
     };
-    assert_eq!(received.document, document);
+    assert_eq!(received, document);
 
-    let second = sent.encode(&DiffSnapshot {
-        scope: DiffScope::Staged,
-        document,
+    let staged = Arc::new(DiffDocument {
+        target: DiffScope::Staged.into(),
+        ..(*document).clone()
     });
+    let second = sent.encode(&staged);
     assert!(
         second
             .files
@@ -231,9 +244,12 @@ fn document_updates_reuse_unchanged_files() -> Result<(), Box<dyn Error>> {
             .all(|entry| matches!(entry, FileEntry::Unchanged(_)))
     );
     let received = cache.apply(&second)?;
-    assert_eq!(received.scope, DiffScope::Staged);
-    assert_eq!(received.document.files.len(), 2);
-    assert_eq!(LIVE_PROTOCOL_VERSION, 2);
+    assert_eq!(
+        received.target,
+        ReviewTarget::WorkingTree(DiffScope::Staged)
+    );
+    assert_eq!(received.files.len(), 2);
+    assert_eq!(LIVE_PROTOCOL_VERSION, 3);
     Ok(())
 }
 
@@ -245,10 +261,10 @@ fn encoded_events_rebuild_through_the_cache() -> Result<(), Box<dyn Error>> {
         .changed("a", "old", "new")
         .changed("b", "old", "new")
         .build();
-    let snapshot = |scope| {
-        Event::Document(Arc::new(DiffSnapshot {
-            scope,
-            document: document.clone(),
+    let snapshot = |scope: DiffScope| {
+        Event::Document(Arc::new(DiffDocument {
+            target: scope.into(),
+            ..(*document).clone()
         }))
     };
 
@@ -256,7 +272,7 @@ fn encoded_events_rebuild_through_the_cache() -> Result<(), Box<dyn Error>> {
     else {
         return Err("expected document event".into());
     };
-    assert_eq!(first.document, document);
+    assert_eq!(first.files, document.files);
 
     let second = sent.encode_event(snapshot(DiffScope::Staged));
     let Event::Document(update) = &second else {
@@ -271,8 +287,8 @@ fn encoded_events_rebuild_through_the_cache() -> Result<(), Box<dyn Error>> {
     let Event::Document(second) = cache.apply_event(second)? else {
         return Err("expected document event".into());
     };
-    assert_eq!(second.scope, DiffScope::Staged);
-    assert_eq!(second.document, document);
+    assert_eq!(second.target, ReviewTarget::WorkingTree(DiffScope::Staged));
+    assert_eq!(second.files, document.files);
 
     assert!(matches!(
         cache.apply_event(sent.encode_event(Event::RequestResult(Ok(()))))?,

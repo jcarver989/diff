@@ -41,7 +41,7 @@ async fn a_slow_consumer_converges_without_blocking_another_client() -> Result<(
         while latest != "latest edit\n" {
             if let Event::Document(update) = receive(&mut paused).await? {
                 let snapshot = cache.apply(&update)?;
-                if let Some(file) = snapshot.document.files.first() {
+                if let Some(file) = snapshot.files.first() {
                     latest = file
                         .new_source
                         .as_ref()
@@ -72,7 +72,7 @@ async fn unsupported_versions_and_malformed_frames_are_rejected() -> Result<(), 
         &mut socket,
         &ClientCommand::Initialize {
             protocol_version: LIVE_PROTOCOL_VERSION + 1,
-            scope: DiffScope::Both,
+            target: DiffScope::Both.into(),
         },
     )
     .await?;
@@ -101,7 +101,7 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 fn hello() -> ClientCommand {
     ClientCommand::Initialize {
         protocol_version: LIVE_PROTOCOL_VERSION,
-        scope: DiffScope::Both,
+        target: DiffScope::Both.into(),
     }
 }
 

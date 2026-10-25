@@ -1,14 +1,14 @@
 use crate::shared::{ProtocolError, decode_json, encode_json};
-use clankerdiff_core::{DiffScope, RepositoryAction, ReviewSubmission};
+use clankerdiff_core::{RepositoryAction, ReviewSubmission, ReviewTarget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientCommand {
     Initialize {
         protocol_version: u32,
-        scope: DiffScope,
+        target: ReviewTarget,
     },
-    SetScope(DiffScope),
+    SetTarget(ReviewTarget),
     Apply(RepositoryAction),
     Refresh,
     Submit(ReviewSubmission),

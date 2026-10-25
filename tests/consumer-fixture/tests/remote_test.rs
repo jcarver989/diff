@@ -23,24 +23,14 @@ async fn renderer_independent_remote_api() -> Result<(), Box<dyn Error>> {
         .subscribe()
         .wait_until(Duration::from_secs(10), |state| state.snapshot.is_some())
         .await?;
-    assert_eq!(
-        state
-            .snapshot
-            .as_ref()
-            .ok_or("snapshot")?
-            .document
-            .files
-            .len(),
-        1
-    );
-    client.set_scope(DiffScope::Staged).await?;
+    assert_eq!(state.snapshot.as_ref().ok_or("snapshot")?.files.len(), 1);
+    client.set_target(DiffScope::Staged).await?;
     assert!(
         client
             .state()
             .snapshot
             .as_ref()
             .ok_or("snapshot")?
-            .document
             .files
             .is_empty()
     );

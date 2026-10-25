@@ -1,11 +1,11 @@
 //! Contracts between `clankerdiff-git`, the real Git executable, and `clankerdiff-core`.
 
 use clankerdiff_core::{
-    DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath,
-    RepositoryAction, SourceResult, SourceUnavailable, StageState,
+    CommitStack, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath,
+    RepositoryAction, ReviewTarget, SourceResult, SourceUnavailable, StageState,
 };
 use clankerdiff_git::{
-    GitError, GitRepository, MAX_SOURCE_FILE_BYTES, RepositorySnapshot,
+    GitError, GitRepository, MAX_SOURCE_FILE_BYTES,
     testing::{RepoFixture, RepoFixtureBuilder},
 };
 use std::{error::Error, fs};
@@ -19,8 +19,8 @@ fn file<'a>(document: &'a DiffDocument, path: &str) -> &'a FileDiff {
         .unwrap_or_else(|| panic!("{path} missing from {:?}", paths(document)))
 }
 
-fn source_of<'a>(snapshot: &'a RepositorySnapshot, name: &str, side: DiffSide) -> &'a SourceResult {
-    file(&snapshot.document, name).source(side)
+fn source_of<'a>(snapshot: &'a DiffDocument, name: &str, side: DiffSide) -> &'a SourceResult {
+    file(snapshot, name).source(side)
 }
 
 fn paths(document: &DiffDocument) -> Vec<&str> {
@@ -66,11 +66,14 @@ async fn snapshot_scope_is_captured_and_part_of_equality() -> Result<(), GitErro
         .snapshot_with_sources(DiffScope::Unstaged)
         .await?;
 
-    assert_eq!(both.scope, DiffScope::Both);
-    assert_eq!(staged.scope, DiffScope::Staged);
-    assert_eq!(unstaged.scope, DiffScope::Unstaged);
-    assert_eq!(both.document, staged.document);
-    assert_eq!(both.document, unstaged.document);
+    assert_eq!(both.target, ReviewTarget::WorkingTree(DiffScope::Both));
+    assert_eq!(staged.target, ReviewTarget::WorkingTree(DiffScope::Staged));
+    assert_eq!(
+        unstaged.target,
+        ReviewTarget::WorkingTree(DiffScope::Unstaged)
+    );
+    assert_eq!(both.files, staged.files);
+    assert_eq!(both.files, unstaged.files);
     assert_ne!(both, staged);
     assert_ne!(both, unstaged);
     assert_ne!(staged, unstaged);
@@ -97,7 +100,7 @@ async fn snapshot_reads_do_not_refresh_the_index_stat_cache() {
         .snapshot_with_sources(DiffScope::Both)
         .await
         .expect("load snapshot");
-    assert_eq!(snapshot.document.files.len(), 0);
+    assert_eq!(snapshot.files.len(), 0);
     assert_eq!(fs::read(index).expect("read index after load"), before);
 }
 
@@ -232,7 +235,7 @@ async fn richer_snapshots_capture_exact_head_index_and_worktree_versions() {
     repo.git(&["add", "three.txt"]);
     repo.write("three.txt", "worktree\n");
     let repository = repo.repository().await;
-    let text = |snapshot: &RepositorySnapshot, side| {
+    let text = |snapshot: &DiffDocument, side| {
         source_of(snapshot, "three.txt", side)
             .as_ref()
             .unwrap()
@@ -864,10 +867,7 @@ async fn untracked_symlinks_use_the_link_target_for_patch_and_source() {
         .snapshot_with_sources(DiffScope::Both)
         .await
         .expect("capture symlink");
-    assert_eq!(
-        file(&snapshot.document, "link.txt").status,
-        FileStatus::Untracked
-    );
+    assert_eq!(file(&snapshot, "link.txt").status, FileStatus::Untracked);
     assert_eq!(
         source_of(&snapshot, "link.txt", DiffSide::New)
             .as_ref()
@@ -899,6 +899,110 @@ async fn snapshots_capture_external_symlink_targets_without_reading_them()
             .as_ref()
             .map(|source| source.text()),
         Ok(target.to_str().ok_or("non-UTF-8 fixture path")?)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn commit_stacks_list_branch_commits_since_the_default_branch() -> Result<(), GitError> {
+    assert_eq!(
+        RepoFixture::init()
+            .repository()
+            .await
+            .commit_stack()
+            .await?,
+        None
+    );
+    let repo = RepoFixtureBuilder::new()
+        .file("a.txt", "one\n")
+        .committed()
+        .build();
+    repo.git(&["checkout", "-b", "feature"]);
+    repo.write("a.txt", "two\n");
+    let first = repo.commit("First change");
+    repo.write("a.txt", "three\n");
+    let second = repo.commit("Second change");
+    let stack = || async { repo.repository().await.commit_stack().await };
+    let ids = |stack: &CommitStack| -> Vec<_> {
+        stack
+            .commits
+            .iter()
+            .map(|commit| commit.id.clone())
+            .collect()
+    };
+
+    let local = stack().await?.expect("a stack on top of main");
+    assert_eq!(local.base_ref, "main");
+    assert_eq!(ids(&local), [first.clone(), second.clone()]);
+    assert_eq!(local.commits[0].subject, "First change");
+
+    repo.git(&[
+        "update-ref",
+        "refs/remotes/origin/trunk",
+        &first.to_string(),
+    ]);
+    repo.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/trunk",
+    ]);
+    let remote = stack().await?.expect("a stack on top of origin/trunk");
+    assert_eq!(remote.base_ref, "origin/trunk");
+    assert_eq!(ids(&remote), [second]);
+
+    repo.git(&["update-ref", "-d", "refs/remotes/origin/HEAD"]);
+    repo.git(&["branch", "-m", "main", "trunk"]);
+    assert_eq!(stack().await?, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn commit_snapshots_capture_the_commit_and_ignore_the_working_tree() -> Result<(), GitError> {
+    let repo = RepoFixtureBuilder::new()
+        .file("a.txt", "one\nshared\n")
+        .file("gone.txt", "bye\n")
+        .committed()
+        .build();
+    let root = repo.head();
+    repo.write("a.txt", "two\nshared\n");
+    repo.write("added.txt", "hello\n");
+    repo.remove("gone.txt");
+    let commit = repo.commit("Change things");
+    repo.write("a.txt", "uncommitted\n");
+    repo.write("untracked.txt", "nope\n");
+    let repository = repo.repository().await;
+
+    let snapshot = repository.snapshot_with_sources(commit.clone()).await?;
+    assert_eq!(snapshot.target, ReviewTarget::Commit(commit));
+    assert_eq!(paths(&snapshot), ["a.txt", "added.txt", "gone.txt"]);
+    let text = |document: &DiffDocument, name, side| {
+        source_of(document, name, side)
+            .as_ref()
+            .map(|source| source.text().to_owned())
+            .map_err(Clone::clone)
+    };
+    assert_eq!(
+        text(&snapshot, "a.txt", DiffSide::Old),
+        Ok("one\nshared\n".to_owned())
+    );
+    assert_eq!(
+        text(&snapshot, "a.txt", DiffSide::New),
+        Ok("two\nshared\n".to_owned())
+    );
+    assert_eq!(
+        text(&snapshot, "added.txt", DiffSide::Old),
+        Err(SourceUnavailable::Absent)
+    );
+    assert_eq!(
+        text(&snapshot, "gone.txt", DiffSide::New),
+        Err(SourceUnavailable::Absent)
+    );
+
+    let root = repository.snapshot_with_sources(root).await?;
+    assert_eq!(file(&root, "a.txt").status, FileStatus::Added);
+    assert_eq!(
+        text(&root, "a.txt", DiffSide::Old),
+        Err(SourceUnavailable::Absent)
     );
     Ok(())
 }

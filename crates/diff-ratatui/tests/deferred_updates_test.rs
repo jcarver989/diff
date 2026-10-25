@@ -18,16 +18,19 @@ fn closing_a_draft_installs_only_the_newest_document() {
         harness.type_text("review note");
         assert_eq!(harness.state().interaction_phase(), InteractionPhase::Draft);
         let installed = harness.state().document().clone();
+        let newest = Arc::new(DiffDocument {
+            target: DiffScope::Staged.into(),
+            ..(*document(3)).clone()
+        });
         harness.state_mut().set_document(document(2));
-        harness.state_mut().set_document(document(3));
-        harness.state_mut().set_scope(DiffScope::Staged);
+        harness.state_mut().set_document(Arc::clone(&newest));
         assert!(Arc::ptr_eq(harness.state().document(), &installed));
         assert_eq!(harness.state().scope(), DiffScope::Both);
         harness.state_mut().handle_command(close);
-        assert_eq!(harness.state().document(), &document(3));
+        assert_eq!(harness.state().document(), &newest);
         assert_eq!(harness.state().scope(), DiffScope::Staged);
         if close == ReviewCommand::SubmitComment {
-            assert_eq!(harness.state().review().comments().len(), 1);
+            assert_eq!(harness.state().review().comments().count(), 1);
         }
     }
 }
@@ -110,7 +113,12 @@ fn replacement_reconciles_comments_and_selection_without_changing_theme() {
     harness
         .state_mut()
         .handle_command(ReviewCommand::SubmitComment);
-    let comments = harness.state().review().comments().to_vec();
+    let comments = harness
+        .state()
+        .review()
+        .comments()
+        .cloned()
+        .collect::<Vec<_>>();
     let theme = harness.state().theme().clone();
     harness.state_mut().set_document(
         DocumentBuilder::new()
@@ -123,7 +131,7 @@ fn replacement_reconciles_comments_and_selection_without_changing_theme() {
         harness.state().document().files[selected].path.as_str(),
         "file.rs"
     );
-    assert_eq!(harness.state().review().comments(), comments);
+    assert!(harness.state().review().comments().eq(&comments));
     assert_eq!(harness.state().theme().id(), theme.id());
 }
 

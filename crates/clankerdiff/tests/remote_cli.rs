@@ -47,7 +47,7 @@ async fn server_stdout_receives_remote_submission() -> Result<(), Box<dyn Error>
         .subscribe()
         .wait_until(Duration::from_secs(10), |state| state.snapshot.is_some())
         .await?;
-    let file = &state.snapshot.as_ref().ok_or("snapshot")?.document.files[0];
+    let file = &state.snapshot.as_ref().ok_or("snapshot")?.files[0];
     let anchor = (0..file.hunks[0].lines.len())
         .find_map(|line| LineAnchor::for_line(file, DiffSide::New, 0, line))
         .ok_or("new line")?;

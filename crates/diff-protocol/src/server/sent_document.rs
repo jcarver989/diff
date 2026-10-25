@@ -1,8 +1,8 @@
 use crate::{
     server::{ServerEvent, ServerMessage},
-    shared::{DiffSnapshot, DocumentUpdate, FileEntry},
+    shared::{DocumentUpdate, FileEntry},
 };
-use clankerdiff_core::{FileDiff, RepoPath};
+use clankerdiff_core::{DiffDocument, FileDiff, RepoPath};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Default)]
@@ -12,13 +12,13 @@ pub struct SentDocument {
 
 impl SentDocument {
     pub fn encode_event(&mut self, event: ServerEvent) -> ServerMessage {
-        event.map(|snapshot| self.encode(&snapshot))
+        event.map(|document| self.encode(&document))
     }
 
-    pub fn encode(&mut self, snapshot: &DiffSnapshot) -> DocumentUpdate {
-        let mut files = Vec::with_capacity(snapshot.document.files.len());
+    pub fn encode(&mut self, document: &DiffDocument) -> DocumentUpdate {
+        let mut files = Vec::with_capacity(document.files.len());
         let mut sent = BTreeMap::new();
-        for file in &snapshot.document.files {
+        for file in &document.files {
             let entry = match self.files.get(&file.path) {
                 Some(held) if held.as_ref() == file => {
                     sent.insert(file.path.clone(), Arc::clone(held));
@@ -34,8 +34,9 @@ impl SentDocument {
         }
         self.files = sent;
         DocumentUpdate {
-            scope: snapshot.scope,
-            repo_root: snapshot.document.repo_root.clone(),
+            target: document.target.clone(),
+            commits: document.commits.clone(),
+            repo_root: document.repo_root.clone(),
             files,
         }
     }

@@ -89,8 +89,7 @@ pub fn decode_document_command(json: &str) -> Result<DocumentCommand, WebError> 
     }
 }
 
-/// Outbound event dispatched when the viewer requests a scope change.
-pub const SCOPE_REQUEST_EVENT: &str = "diff-review-set-scope";
+pub const TARGET_REQUEST_EVENT: &str = "diff-review-set-target";
 
 /// Decodes a serialized diff document command.
 ///
@@ -229,9 +228,9 @@ mod wasm {
         demo_document, document_update_decision,
     };
     use async_channel::{Receiver, Sender};
-    use clankerdiff_client::{ClientOptions, ClientState, DiffClient, DiffSnapshot};
+    use clankerdiff_client::{ClientOptions, ClientState, DiffClient};
     use clankerdiff_core::{
-        DiffDocument, DiffReviewEvent, DiffScope, ReviewCapabilities, ReviewSubmission,
+        DiffDocument, DiffReviewEvent, ReviewCapabilities, ReviewSubmission, ReviewTarget,
     };
     use clankerdiff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
@@ -271,7 +270,6 @@ mod wasm {
             document: Arc<DiffDocument>,
             revision: Option<u64>,
             request_id: Option<u64>,
-            scope: Option<DiffScope>,
         },
         SetTheme(ReviewTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
@@ -285,9 +283,8 @@ mod wasm {
         remote: Option<DiffClient>,
         remote_task: Option<Task<()>>,
         capabilities: ReviewCapabilities,
-        installed_snapshot: Option<Arc<DiffSnapshot>>,
+        installed_snapshot: Option<Arc<DiffDocument>>,
         applied_revision: Option<u64>,
-        current_scope: Option<DiffScope>,
         requests: RepositoryRequests,
         viewer: Entity<DiffViewer>,
         _viewer_subscription: Subscription,
@@ -327,8 +324,8 @@ mod wasm {
                             .request_repository(cx, |request_id| {
                                 dispatch_repository_action(request_id, action)
                             }),
-                        DiffReviewEvent::SetScope(scope) => {
-                            this.request_repository(cx, |_| dispatch_scope_request(*scope));
+                        DiffReviewEvent::SetTarget(target) => {
+                            this.request_repository(cx, |_| dispatch_target_request(target));
                         }
                         DiffReviewEvent::Refresh => this.request_repository(cx, |request_id| {
                             let detail =
@@ -362,7 +359,6 @@ mod wasm {
                 capabilities,
                 installed_snapshot: None,
                 applied_revision: None,
-                current_scope: None,
                 requests: RepositoryRequests::default(),
                 viewer,
                 _viewer_subscription: viewer_subscription,
@@ -411,10 +407,8 @@ mod wasm {
         fn apply_remote_state(&mut self, state: &ClientState, cx: &mut Context<Self>) {
             if let Some(snapshot) = state.snapshot_if_changed(&mut self.installed_snapshot) {
                 self.viewer.update(cx, |viewer, cx| {
-                    viewer.set_scope(snapshot.scope, cx);
-                    viewer.set_document(snapshot.document.clone(), cx);
+                    viewer.set_document(snapshot.clone(), cx);
                 });
-                self.current_scope = Some(snapshot.scope);
             }
             let error = state.status();
             self.viewer.update(cx, |viewer, cx| {
@@ -545,24 +539,14 @@ mod wasm {
                     document,
                     revision,
                     request_id,
-                    scope,
                 } => {
                     let decision =
                         document_update_decision(self.applied_revision, revision, || {
                             self.viewer.read(cx).document().as_ref() == document.as_ref()
                         });
                     if decision == UpdateDecision::Apply {
-                        self.viewer.update(cx, |viewer, cx| {
-                            if let Some(scope) = scope {
-                                viewer.set_scope(scope, cx);
-                            }
-                            viewer.set_document(document, cx);
-                        });
-                    }
-                    if decision != UpdateDecision::SkipStale
-                        && let Some(scope) = scope
-                    {
-                        self.current_scope = Some(scope);
+                        self.viewer
+                            .update(cx, |viewer, cx| viewer.set_document(document, cx));
                     }
                     if decision != UpdateDecision::SkipStale {
                         self.markdown = None;
@@ -654,7 +638,7 @@ mod wasm {
     fn dispatch_viewer_event(event: &DiffReviewEvent) {
         let result = match event {
             DiffReviewEvent::RepositoryAction(_)
-            | DiffReviewEvent::SetScope(_)
+            | DiffReviewEvent::SetTarget(_)
             | DiffReviewEvent::Refresh => return,
             DiffReviewEvent::SubmitReview(submission) => dispatch_submission(submission),
             DiffReviewEvent::CopyFormattedReview(text) => {
@@ -695,9 +679,9 @@ mod wasm {
         dispatch_custom_event(DOCUMENT_APPLIED_EVENT, Some(&detail))
     }
 
-    fn dispatch_scope_request(scope: DiffScope) -> Result<(), JsValue> {
-        let detail = serde_json::json!({ "scope": scope.as_str() }).to_string();
-        dispatch_custom_event(super::SCOPE_REQUEST_EVENT, Some(&detail))
+    fn dispatch_target_request(target: &ReviewTarget) -> Result<(), JsValue> {
+        let detail = serde_json::json!({ "target": target }).to_string();
+        dispatch_custom_event(super::TARGET_REQUEST_EVENT, Some(&detail))
     }
 
     fn dispatch_repository_action(
@@ -900,12 +884,14 @@ mod wasm {
     #[wasm_bindgen]
     pub fn set_document_json(json: &str) -> Result<(), JsValue> {
         ensure_host_mode()?;
-        let command = decode_document_command(json).map_err(js_error)?;
+        let mut command = decode_document_command(json).map_err(js_error)?;
+        if let Some(scope) = command.scope {
+            command.document.target = scope.into();
+        }
         send(WebCommand::SetDocument {
             document: Arc::new(command.document),
             revision: command.revision,
             request_id: command.request_id,
-            scope: command.scope,
         })
         .map_err(js_error)
     }
@@ -1083,7 +1069,7 @@ mod tests {
             ),
             Err(WebError::InvalidScope(_))
         ));
-        assert_eq!(SCOPE_REQUEST_EVENT, "diff-review-set-scope");
+        assert_eq!(TARGET_REQUEST_EVENT, "diff-review-set-target");
         Ok(())
     }
 

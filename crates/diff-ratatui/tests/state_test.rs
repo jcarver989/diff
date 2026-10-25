@@ -1,17 +1,20 @@
 use clankerdiff_client::protocol::client::capabilities;
-use clankerdiff_client::{ClientError, ClientState, ConnectionState, DiffSnapshot};
-use clankerdiff_core::{DiffScope, testing::DocumentBuilder};
-use clankerdiff_ratatui::{DiffReviewState, DiffReviewStatus, ReviewCapabilities};
+use clankerdiff_client::{ClientError, ClientState, ConnectionState};
+use clankerdiff_core::{
+    DiffDocument, DiffReviewEvent, DiffScope, ReviewTarget,
+    testing::{DocumentBuilder, commit_id},
+};
+use clankerdiff_ratatui::{
+    DiffReviewState, DiffReviewStatus, InputOutcome, KeyCode, KeyEvent, KeyModifiers,
+    ReviewCapabilities, ReviewInput,
+};
 use std::sync::Arc;
 
 #[test]
 fn installs_a_changed_snapshot_and_skips_unchanged_pointers() {
     let mut state = DiffReviewState::loading();
     let mut installed = None;
-    let snapshot = Arc::new(DiffSnapshot {
-        scope: DiffScope::Staged,
-        document: document("first"),
-    });
+    let snapshot = document(DiffScope::Staged, "first");
 
     state.apply_client_state(&connected(Arc::clone(&snapshot)), &mut installed);
     assert_eq!(state.scope(), DiffScope::Staged);
@@ -42,10 +45,7 @@ fn a_failure_without_a_document_is_fatal() {
 fn a_failure_after_a_document_is_a_background_error() {
     let mut state = DiffReviewState::loading();
     let mut installed = None;
-    let snapshot = Arc::new(DiffSnapshot {
-        scope: DiffScope::Both,
-        document: document("first"),
-    });
+    let snapshot = document(DiffScope::Both, "first");
 
     state.apply_client_state(&connected(Arc::clone(&snapshot)), &mut installed);
     state.apply_client_state(&failed(Some(snapshot)), &mut installed);
@@ -62,21 +62,39 @@ fn a_failure_after_a_document_is_a_background_error() {
 fn capabilities_track_the_client_state() {
     let mut state = DiffReviewState::loading();
     let mut installed = None;
-    let snapshot = Arc::new(DiffSnapshot {
-        scope: DiffScope::Both,
-        document: document("first"),
-    });
-    let mut client = connected(snapshot);
-    client.capabilities = capabilities(true, true);
+    let snapshot = document(DiffScope::Both, "first");
+    let mut client = connected(Arc::clone(&snapshot));
+    client.capabilities = capabilities(true, Some(&snapshot));
     state.apply_client_state(&client, &mut installed);
     assert!(state.command_context().capabilities.repository);
 
-    client.capabilities = capabilities(false, false);
+    client.capabilities = capabilities(false, None);
     state.apply_client_state(&client, &mut installed);
     assert!(!state.command_context().capabilities.repository);
 }
 
-fn connected(snapshot: Arc<DiffSnapshot>) -> ClientState {
+#[test]
+fn brackets_step_through_commits_and_back_to_the_working_tree() {
+    let mut state = DiffReviewState::loading();
+    let mut installed = None;
+    let mut install = |state: &mut DiffReviewState, target: ReviewTarget| {
+        state.apply_client_state(&connected(document(target, "content")), &mut installed);
+    };
+    install(&mut state, DiffScope::Staged.into());
+    install(&mut state, commit_id(1).into());
+    assert_eq!(emitted_target(&mut state, '['), None);
+    assert_eq!(
+        emitted_target(&mut state, ']'),
+        Some(ReviewTarget::Commit(commit_id(2)))
+    );
+    install(&mut state, commit_id(2).into());
+    assert_eq!(
+        emitted_target(&mut state, ']'),
+        Some(ReviewTarget::WorkingTree(DiffScope::Staged))
+    );
+}
+
+fn connected(snapshot: Arc<DiffDocument>) -> ClientState {
     ClientState {
         snapshot: Some(snapshot),
         connection: ConnectionState::Connected,
@@ -85,7 +103,7 @@ fn connected(snapshot: Arc<DiffSnapshot>) -> ClientState {
     }
 }
 
-fn failed(snapshot: Option<Arc<DiffSnapshot>>) -> ClientState {
+fn failed(snapshot: Option<Arc<DiffDocument>>) -> ClientState {
     ClientState {
         snapshot,
         connection: ConnectionState::Failed(ClientError::Disconnected),
@@ -94,8 +112,21 @@ fn failed(snapshot: Option<Arc<DiffSnapshot>>) -> ClientState {
     }
 }
 
-fn document(version: &str) -> Arc<clankerdiff_core::DiffDocument> {
+fn document(target: impl Into<ReviewTarget>, version: &str) -> Arc<DiffDocument> {
     DocumentBuilder::new()
+        .commit("First")
+        .commit("Second")
+        .target(target)
         .changed("file.rs", "old\n", &format!("{version}\n"))
         .build()
+}
+
+fn emitted_target(state: &mut DiffReviewState, key: char) -> Option<ReviewTarget> {
+    match state.handle_input(ReviewInput::Key(KeyEvent::new(
+        KeyCode::Char(key),
+        KeyModifiers::NONE,
+    ))) {
+        InputOutcome::Emitted(DiffReviewEvent::SetTarget(target)) => Some(target),
+        _ => None,
+    }
 }

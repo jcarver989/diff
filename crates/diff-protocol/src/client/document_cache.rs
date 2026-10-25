@@ -1,6 +1,6 @@
 use crate::{
     server::{ServerEvent, ServerMessage},
-    shared::{DiffSnapshot, DocumentUpdate, FileEntry, ProtocolError},
+    shared::{DocumentUpdate, FileEntry, ProtocolError},
 };
 use clankerdiff_core::{DiffDocument, RepoPath};
 use std::{collections::BTreeMap, sync::Arc};
@@ -17,10 +17,10 @@ impl DocumentCache {
     }
 
     pub fn apply_event(&mut self, message: ServerMessage) -> Result<ServerEvent, ProtocolError> {
-        message.try_map(|update| Ok(Arc::new(self.apply(&update)?)))
+        message.try_map(|update| self.apply(&update))
     }
 
-    pub fn apply(&mut self, update: &DocumentUpdate) -> Result<DiffSnapshot, ProtocolError> {
+    pub fn apply(&mut self, update: &DocumentUpdate) -> Result<Arc<DiffDocument>, ProtocolError> {
         let mut files = Vec::with_capacity(update.files.len());
         let mut index = BTreeMap::new();
         for entry in &update.files {
@@ -40,12 +40,11 @@ impl DocumentCache {
         }
         self.document = Arc::new(DiffDocument {
             repo_root: update.repo_root.clone(),
+            target: update.target.clone(),
+            commits: update.commits.clone(),
             files,
         });
         self.index = index;
-        Ok(DiffSnapshot {
-            scope: update.scope,
-            document: Arc::clone(&self.document),
-        })
+        Ok(Arc::clone(&self.document))
     }
 }

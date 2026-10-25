@@ -1,4 +1,5 @@
 use crate::GitRepository;
+use clankerdiff_core::CommitId;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -129,6 +130,10 @@ impl RepoFixture {
 
     /// Runs `git` in the worktree.
     pub fn git(&self, args: &[&str]) {
+        self.run_git(args);
+    }
+
+    fn run_git(&self, args: &[&str]) -> String {
         let output = Command::new("git")
             .current_dir(&self.root)
             .args(args)
@@ -139,6 +144,14 @@ impl RepoFixture {
             "git {args:?} failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+        String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .to_owned()
+    }
+
+    #[must_use]
+    pub fn head(&self) -> CommitId {
+        CommitId::new(self.run_git(&["rev-parse", "HEAD"])).expect("fixture HEAD is a commit")
     }
 
     /// Writes a repository-relative file, creating parent directories.
@@ -155,8 +168,14 @@ impl RepoFixture {
 
     /// Stages and commits every change in the worktree.
     pub fn commit_all(&self) {
+        let _ = self.commit("fixture");
+    }
+
+    #[must_use]
+    pub fn commit(&self, message: &str) -> CommitId {
         self.git(&["add", "-A"]);
-        self.git(&["commit", "-m", "fixture"]);
+        self.git(&["commit", "-m", message]);
+        self.head()
     }
 
     /// Discovers the fixture as a [`GitRepository`].

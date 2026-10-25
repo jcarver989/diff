@@ -57,6 +57,7 @@ fn loading_blocks_review_mutations_but_allows_refresh_and_scope_changes() {
         DiffReviewCommand::Refresh,
         DiffReviewCommand::CycleScope,
         DiffReviewCommand::SetScope(DiffScope::Staged),
+        DiffReviewCommand::StepTarget(1),
     ] {
         assert!(command.enabled(&context));
     }
@@ -78,6 +79,7 @@ fn host_capabilities_gate_each_host_intent() {
         DiffReviewCommand::StageAll,
         DiffReviewCommand::Refresh,
         DiffReviewCommand::CycleScope,
+        DiffReviewCommand::StepTarget(-1),
         DiffReviewCommand::SubmitReview,
         DiffReviewCommand::CopyReview,
     ] {

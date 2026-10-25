@@ -1,6 +1,6 @@
 //! Errors produced by native Git and filesystem operations.
 
-use clankerdiff_core::{DiffError, RepoPathError};
+use clankerdiff_core::{CommitIdError, DiffError, RepoPathError};
 use std::{io, path::PathBuf};
 
 /// An error from repository discovery, Git execution, or worktree access.
@@ -67,6 +67,8 @@ pub enum GitError {
     /// Repository metadata or worktree content changed during capture.
     #[error("repository changed while capturing the snapshot")]
     UnstableSnapshot,
+    #[error(transparent)]
+    InvalidCommitId(#[from] CommitIdError),
     /// Core diff normalization failed.
     #[error("could not normalize Git snapshot: {0}")]
     Diff(#[from] DiffError),

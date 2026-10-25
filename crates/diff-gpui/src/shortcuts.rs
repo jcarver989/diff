@@ -11,6 +11,7 @@ const NAVIGATION: Shortcuts = &[
     ("b", "hide / show changed files"),
     ("g / G, Home / End", "first / last item"),
     ("PgUp / PgDn", "move a page"),
+    ("[ / ]", "previous / next commit"),
     ("o", "toggle source / diff"),
     ("Enter", "expand context / open file"),
     ("O", "expand all context"),

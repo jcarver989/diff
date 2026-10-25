@@ -1,6 +1,6 @@
 use crate::{
-    DiffDocument, DiffSide, FileDiff, FileStatus, Hunk, PatchLine, RepoPath, SourceDocument,
-    SourceResult, SourceUnavailable, StageState,
+    CommitId, CommitStack, CommitSummary, DiffDocument, DiffSide, FileDiff, FileStatus, Hunk,
+    PatchLine, RepoPath, ReviewTarget, SourceDocument, SourceResult, SourceUnavailable, StageState,
 };
 use std::sync::Arc;
 
@@ -9,6 +9,8 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct DocumentBuilder {
     repo_root: String,
+    target: ReviewTarget,
+    commits: Option<CommitStack>,
     files: Vec<FileDiff>,
     overrides: Vec<(RepoPath, DiffSide, SourceResult)>,
 }
@@ -24,6 +26,8 @@ impl DocumentBuilder {
     pub fn new() -> Self {
         Self {
             repo_root: "/repo".to_owned(),
+            target: ReviewTarget::default(),
+            commits: None,
             files: Vec::new(),
             overrides: Vec::new(),
         }
@@ -32,6 +36,25 @@ impl DocumentBuilder {
     #[must_use]
     pub fn repo_root(mut self, repo_root: impl Into<String>) -> Self {
         self.repo_root = repo_root.into();
+        self
+    }
+
+    #[must_use]
+    pub fn target(mut self, target: impl Into<ReviewTarget>) -> Self {
+        self.target = target.into();
+        self
+    }
+
+    #[must_use]
+    pub fn commit(mut self, subject: &str) -> Self {
+        let stack = self.commits.get_or_insert_with(|| CommitStack {
+            base_ref: "origin/main".to_owned(),
+            commits: Vec::new(),
+        });
+        stack.commits.push(CommitSummary {
+            id: commit_id(stack.commits.len() + 1),
+            subject: subject.to_owned(),
+        });
         self
     }
 
@@ -255,9 +278,16 @@ impl DocumentBuilder {
         }
         Arc::new(DiffDocument {
             repo_root: self.repo_root,
+            target: self.target,
+            commits: self.commits.map(Arc::new),
             files,
         })
     }
+}
+
+#[must_use]
+pub fn commit_id(seed: usize) -> CommitId {
+    CommitId::new(format!("{seed:07x}{}", "0".repeat(33))).expect("valid fixture commit id")
 }
 
 /// Returns a valid one-file diff with useful defaults for struct update syntax.
@@ -300,6 +330,7 @@ pub fn diff_document() -> DiffDocument {
     DiffDocument {
         repo_root: "/repo".to_owned(),
         files: vec![file_diff()],
+        ..DiffDocument::default()
     }
 }
 

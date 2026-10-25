@@ -4,7 +4,7 @@ use crate::{
     connection,
     transport::{Encoded, ServerMessageTransport, Transport},
 };
-use clankerdiff_core::{DiffScope, ReviewSubmission};
+use clankerdiff_core::{DiffScope, ReviewSubmission, ReviewTarget};
 use clankerdiff_git::{GitError, GitRepository};
 use clankerdiff_protocol::{
     client::{LocalClientMessageTransport, LocalClientTransport},
@@ -33,11 +33,11 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReviewCompletion {
     Submitted {
-        scope: DiffScope,
+        target: ReviewTarget,
         submission: ReviewSubmission,
     },
     Cancelled {
-        scope: DiffScope,
+        target: ReviewTarget,
     },
 }
 
@@ -161,6 +161,18 @@ impl DiffServer {
     #[must_use]
     pub fn repository_root(&self) -> &str {
         &self.handle.context.root
+    }
+
+    #[must_use]
+    pub fn initial_target(&self, scope: DiffScope, commits: bool) -> ReviewTarget {
+        let first_commit = || {
+            let state = self.watcher.as_ref()?.state_rx.borrow();
+            state.snapshot.commits.as_ref()?.page(0, scope)
+        };
+        commits
+            .then(first_commit)
+            .flatten()
+            .unwrap_or(ReviewTarget::WorkingTree(scope))
     }
 
     pub async fn next_review(&mut self) -> Result<ReviewCompletion, ServerError> {

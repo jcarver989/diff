@@ -86,7 +86,7 @@ fn selecting_and_commenting_on_another_visible_file_uses_its_anchor(cx: &mut Tes
             viewer
                 .review()
                 .comments()
-                .first()
+                .next()
                 .map(|comment| comment.anchor.path.to_string())
         });
         assert_eq!(path.as_deref(), Some("b.rs"));

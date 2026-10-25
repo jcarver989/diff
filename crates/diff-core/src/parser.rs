@@ -1,8 +1,8 @@
 //! Normalization adapters for Git patches and porcelain status output.
 
 use crate::{
-    DiffDocument, DiffError, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange,
-    PatchLine, PatchLineKind, RepoPath, RepoPathError, StageState,
+    CommitId, DiffDocument, DiffError, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange,
+    PatchLine, PatchLineKind, RepoPath, RepoPathError, ReviewTarget, StageState,
 };
 use diffy::{
     Line, Patch,
@@ -399,7 +399,26 @@ impl DiffDocument {
 
         Ok(Self {
             repo_root: repo_root.into(),
+            target: ReviewTarget::WorkingTree(scope),
             files,
+            ..Self::default()
+        })
+    }
+
+    pub fn from_commit_diff(
+        repo_root: impl Into<String>,
+        commit: CommitId,
+        diff: &[u8],
+    ) -> Result<Self, DiffError> {
+        let mut files = parse_git_diff(diff)?;
+        for file in &mut files {
+            file.staged = StageState::Staged;
+        }
+        Ok(Self {
+            repo_root: repo_root.into(),
+            target: ReviewTarget::Commit(commit),
+            files,
+            ..Self::default()
         })
     }
 }

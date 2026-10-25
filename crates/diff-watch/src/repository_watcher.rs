@@ -3,10 +3,10 @@ use crate::{
     file_watcher::{FileWatcher, NotifyFileWatcher, worktree_walk},
     filter::should_refresh,
 };
-use clankerdiff_core::DiffScope;
-use clankerdiff_git::{GitError, GitRepository, RepositorySnapshot};
+use clankerdiff_core::{DiffDocument, ReviewTarget};
+use clankerdiff_git::{GitError, GitRepository};
 use ignore::WalkBuilder;
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::{JoinHandle, spawn_blocking},
@@ -30,17 +30,17 @@ pub enum RepositoryRequest {
     Refresh {
         result_tx: oneshot::Sender<Result<(), Arc<GitError>>>,
     },
-    RefreshScope {
-        scope: DiffScope,
+    RefreshTarget {
+        target: ReviewTarget,
         result_tx: oneshot::Sender<Result<(), Arc<GitError>>>,
     },
     Shutdown,
     Subscribe {
-        scope: DiffScope,
+        target: ReviewTarget,
         result_tx: oneshot::Sender<Result<watch::Receiver<RepositoryState>, Arc<GitError>>>,
     },
-    SetScope {
-        scope: DiffScope,
+    SetTarget {
+        target: ReviewTarget,
         result_tx: oneshot::Sender<Result<(), Arc<GitError>>>,
     },
 }
@@ -49,7 +49,7 @@ pub enum RepositoryRequest {
 /// the most recent load. A failed load keeps the previous snapshot in place.
 #[derive(Debug, Clone)]
 pub struct RepositoryState {
-    pub snapshot: Arc<RepositorySnapshot>,
+    pub snapshot: Arc<DiffDocument>,
     pub error: Option<Arc<GitError>>,
 }
 
@@ -61,7 +61,7 @@ impl RepositoryState {
     }
 
     /// Folds one load result in; returns whether anything observable changed.
-    fn apply(&mut self, result: Result<RepositorySnapshot, Arc<GitError>>) -> bool {
+    fn apply(&mut self, result: Result<DiffDocument, Arc<GitError>>) -> bool {
         match result {
             Ok(snapshot) => {
                 let recovered = self.error.take().is_some();
@@ -98,11 +98,14 @@ pub struct RepositoryHandle {
 impl RepositoryHandle {
     pub async fn subscribe(
         &self,
-        scope: DiffScope,
+        target: impl Into<ReviewTarget>,
     ) -> Result<watch::Receiver<RepositoryState>, RepositoryHandleError> {
         let (result_tx, result_rx) = oneshot::channel();
         self.request_tx
-            .send(RepositoryRequest::Subscribe { scope, result_tx })
+            .send(RepositoryRequest::Subscribe {
+                target: target.into(),
+                result_tx,
+            })
             .await
             .map_err(|_| RepositoryHandleError::Stopped)?;
         result_rx
@@ -111,10 +114,16 @@ impl RepositoryHandle {
             .map_err(RepositoryHandleError::Git)
     }
 
-    pub async fn refresh(&self, scope: DiffScope) -> Result<(), RepositoryHandleError> {
+    pub async fn refresh(
+        &self,
+        target: impl Into<ReviewTarget>,
+    ) -> Result<(), RepositoryHandleError> {
         let (result_tx, result_rx) = oneshot::channel();
         self.request_tx
-            .send(RepositoryRequest::RefreshScope { scope, result_tx })
+            .send(RepositoryRequest::RefreshTarget {
+                target: target.into(),
+                result_tx,
+            })
             .await
             .map_err(|_| RepositoryHandleError::Stopped)?;
         result_rx
@@ -134,11 +143,12 @@ pub struct RepositoryWatcher {
 impl RepositoryWatcher {
     pub async fn spawn(
         repository: GitRepository,
-        scope: DiffScope,
+        target: impl Into<ReviewTarget>,
         options: WatchOptions,
     ) -> Result<Self, WatchError> {
+        let target = target.into();
         let watcher = Self::create_file_watcher(&repository, options.debounce).await?;
-        let snapshot = repository.snapshot_with_sources(scope).await?;
+        let snapshot = repository.snapshot_with_sources(target.clone()).await?;
         let (request_tx, request_rx) = mpsc::channel(64);
         let (state_tx, state_rx) = watch::channel(RepositoryState {
             snapshot: Arc::new(snapshot),
@@ -147,10 +157,10 @@ impl RepositoryWatcher {
         let actor = RepositoryActor {
             repository,
             watcher,
-            scope,
+            target,
             request_rx,
             state_tx,
-            subscriptions: [None, None, None],
+            subscriptions: HashMap::new(),
         };
         Ok(Self {
             request_tx,
@@ -215,10 +225,10 @@ impl Drop for RepositoryWatcher {
 struct RepositoryActor {
     repository: GitRepository,
     watcher: NotifyFileWatcher,
-    scope: DiffScope,
+    target: ReviewTarget,
     request_rx: mpsc::Receiver<RepositoryRequest>,
     state_tx: watch::Sender<RepositoryState>,
-    subscriptions: [Option<watch::Sender<RepositoryState>>; 3],
+    subscriptions: HashMap<ReviewTarget, watch::Sender<RepositoryState>>,
 }
 
 impl RepositoryActor {
@@ -227,18 +237,19 @@ impl RepositoryActor {
             tokio::select! {
                 biased;
                 request = self.request_rx.recv() => match request {
-                    Some(RepositoryRequest::SetScope { scope, result_tx }) => {
-                        self.scope = scope;
-                        let _ = result_tx.send(self.refresh_scope(scope, true).await);
+                    Some(RepositoryRequest::SetTarget { target, result_tx }) => {
+                        self.target = target.clone();
+                        let _ = result_tx.send(self.refresh_target(&target, true).await);
                     }
                     Some(RepositoryRequest::Refresh { result_tx }) => {
-                        let _ = result_tx.send(self.refresh_scope(self.scope, true).await);
+                        let target = self.target.clone();
+                        let _ = result_tx.send(self.refresh_target(&target, true).await);
                     }
-                    Some(RepositoryRequest::RefreshScope { scope, result_tx }) => {
-                        let _ = result_tx.send(self.refresh_scope(scope, true).await);
+                    Some(RepositoryRequest::RefreshTarget { target, result_tx }) => {
+                        let _ = result_tx.send(self.refresh_target(&target, true).await);
                     }
-                    Some(RepositoryRequest::Subscribe { scope, result_tx }) => {
-                        let _ = result_tx.send(self.subscribe(scope).await);
+                    Some(RepositoryRequest::Subscribe { target, result_tx }) => {
+                        let _ = result_tx.send(self.subscribe(target).await);
                     }
                     Some(RepositoryRequest::Shutdown) | None => return,
                 },
@@ -252,66 +263,67 @@ impl RepositoryActor {
 
     async fn subscribe(
         &mut self,
-        scope: DiffScope,
+        target: ReviewTarget,
     ) -> Result<watch::Receiver<RepositoryState>, Arc<GitError>> {
-        if scope == self.scope {
+        if target == self.target {
             return Ok(self.state_tx.subscribe());
         }
-        let index = scope_index(scope);
-        if let Some(state) = &self.subscriptions[index] {
+        if let Some(state) = self.subscriptions.get(&target) {
             return Ok(state.subscribe());
         }
         let snapshot = self
             .repository
-            .snapshot_with_sources(scope)
+            .snapshot_with_sources(target.clone())
             .await
             .map_err(Arc::new)?;
         let (state, receiver) = watch::channel(RepositoryState {
             snapshot: Arc::new(snapshot),
             error: None,
         });
-        self.subscriptions[index] = Some(state);
+        self.subscriptions.insert(target, state);
         Ok(receiver)
     }
 
     async fn refresh_active(&mut self) {
-        let scopes = [DiffScope::Unstaged, DiffScope::Staged, DiffScope::Both];
-        for scope in scopes {
-            let subscribed = self.subscriptions[scope_index(scope)]
-                .as_ref()
-                .is_some_and(|state| state.receiver_count() > 0);
-            if scope == self.scope || subscribed {
-                let _ = self.refresh_scope(scope, false).await;
-            } else {
-                self.subscriptions[scope_index(scope)] = None;
-            }
+        self.subscriptions
+            .retain(|_, state| state.receiver_count() > 0);
+        let targets = self
+            .subscriptions
+            .keys()
+            .filter(|target| **target != self.target)
+            .chain([&self.target])
+            .filter(|target| target.scope().is_some())
+            .cloned()
+            .collect::<Vec<_>>();
+        for target in targets {
+            let _ = self.refresh_target(&target, false).await;
         }
     }
 
-    async fn refresh_scope(&mut self, scope: DiffScope, retry: bool) -> Result<(), Arc<GitError>> {
+    async fn refresh_target(
+        &mut self,
+        target: &ReviewTarget,
+        retry: bool,
+    ) -> Result<(), Arc<GitError>> {
         let result = if retry {
-            self.repository.snapshot_with_sources(scope).await
+            self.repository.snapshot_with_sources(target.clone()).await
         } else {
-            match self.repository.try_snapshot_with_sources(scope).await {
-                Err(GitError::UnstableSnapshot) => {
-                    self.repository
-                        .snapshot(scope)
-                        .await
-                        .map(|document| RepositorySnapshot {
-                            scope,
-                            document: Arc::new(document),
-                        })
-                }
+            match self
+                .repository
+                .try_snapshot_with_sources(target.clone())
+                .await
+            {
+                Err(GitError::UnstableSnapshot) => self.repository.snapshot(target.clone()).await,
                 result => result,
             }
         }
         .map_err(Arc::new);
         let outcome = result.as_ref().map(|_| ()).map_err(Arc::clone);
-        if scope == self.scope {
+        if *target == self.target {
             self.state_tx
                 .send_if_modified(|state| state.apply(clone_result(&result)));
         }
-        if let Some(state) = &self.subscriptions[scope_index(scope)] {
+        if let Some(state) = self.subscriptions.get(target) {
             state.send_if_modified(|current| current.apply(clone_result(&result)));
         }
         outcome
@@ -319,15 +331,7 @@ impl RepositoryActor {
 }
 
 fn clone_result(
-    result: &Result<RepositorySnapshot, Arc<GitError>>,
-) -> Result<RepositorySnapshot, Arc<GitError>> {
+    result: &Result<DiffDocument, Arc<GitError>>,
+) -> Result<DiffDocument, Arc<GitError>> {
     result.clone()
-}
-
-const fn scope_index(scope: DiffScope) -> usize {
-    match scope {
-        DiffScope::Unstaged => 0,
-        DiffScope::Staged => 1,
-        DiffScope::Both => 2,
-    }
 }

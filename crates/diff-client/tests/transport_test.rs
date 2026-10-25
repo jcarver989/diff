@@ -7,7 +7,7 @@ use clankerdiff_client::{
         shared::{DocumentUpdate, FileEntry, LIVE_PROTOCOL_VERSION},
     },
 };
-use clankerdiff_core::DiffScope;
+use clankerdiff_core::ReviewTarget;
 use futures_util::{SinkExt, StreamExt};
 use std::{error::Error, time::Duration};
 use tokio::{net::TcpListener, time::timeout};
@@ -29,7 +29,8 @@ async fn a_malformed_frame_is_terminal_not_a_reconnect_loop()
 async fn an_unmaterializable_update_is_terminal_not_a_reconnect_loop()
 -> Result<(), Box<dyn Error + Send + Sync>> {
     let update = DocumentUpdate {
-        scope: DiffScope::Both,
+        target: ReviewTarget::default(),
+        commits: None,
         repo_root: "/remote".to_owned(),
         files: vec![FileEntry::Unchanged("never-sent".try_into()?)],
     };
@@ -53,7 +54,8 @@ async fn socket_eof_reconnects_and_installs_the_next_document()
         socket
             .send(Message::text(
                 ServerMessage::Document(DocumentUpdate {
-                    scope: DiffScope::Both,
+                    target: ReviewTarget::default(),
+                    commits: None,
                     repo_root: "/remote".to_owned(),
                     files: Vec::new(),
                 })

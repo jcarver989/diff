@@ -26,6 +26,10 @@ impl From<std::convert::Infallible> for RepoPathError {
 #[error("unknown diff scope `{0}`; expected unstaged, staged, or both")]
 pub struct ParseDiffScopeError(pub String);
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid commit id `{0}`; expected a full hexadecimal object name")]
+pub struct CommitIdError(pub String);
+
 /// Errors shared by model and parser adapters.
 #[derive(Debug, thiserror::Error)]
 pub enum DiffError {

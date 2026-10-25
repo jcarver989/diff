@@ -212,9 +212,11 @@ impl DiffReviewState {
                     self.session.submission().formatted,
                 ));
             }
-            C::SetScope(scope) => return InputOutcome::Emitted(DiffReviewEvent::SetScope(scope)),
-            C::CycleScope => {
-                return InputOutcome::Emitted(DiffReviewEvent::SetScope(self.scope.next()));
+            C::SetScope(_) | C::CycleScope | C::StepTarget(_) => {
+                return self
+                    .session
+                    .target_event(&command)
+                    .map_or(InputOutcome::Ignored, InputOutcome::Emitted);
             }
             C::Refresh => return InputOutcome::Emitted(DiffReviewEvent::Refresh),
             C::StageAll => {

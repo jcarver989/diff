@@ -29,7 +29,7 @@ async fn explicit_refresh_and_joined_shutdown() -> Result<(), Box<dyn Error>> {
         .await?;
 
     result_rx.await??;
-    assert_eq!(state.borrow_and_update().snapshot.document.files.len(), 1);
+    assert_eq!(state.borrow_and_update().snapshot.files.len(), 1);
 
     let commands = watcher.request_tx.clone();
     timeout(Duration::from_secs(5), watcher.shutdown()).await??;

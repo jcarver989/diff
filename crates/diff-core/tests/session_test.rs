@@ -1,7 +1,9 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffSide, Layout, RevealAmount, ReviewSession, RowKind, ViewMode, testing::DocumentBuilder,
+    DiffDocument, DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, Layout, LineAnchor,
+    RevealAmount, ReviewSession, ReviewTarget, RowKind, ViewMode,
+    testing::{DocumentBuilder, commit_id},
 };
 use std::{error::Error, sync::Arc};
 
@@ -475,4 +477,128 @@ fn two_file_session() -> ReviewSession {
             .changed("b.rs", "old\n", "new\n")
             .build(),
     )
+}
+
+#[test]
+fn comments_belong_to_the_commit_they_were_made_on() -> Result<(), Box<dyn Error>> {
+    let commit = page(commit_id(1), "a.rs", "new");
+    let mut session = ReviewSession::new(commit.clone());
+    let anchor = LineAnchor::for_line(&commit.files[0], DiffSide::New, 0, 1).ok_or("anchor")?;
+    session
+        .review_mut()
+        .add_comment_with_context(anchor.clone(), "new", "on the commit");
+
+    session.set_document(page(DiffScope::Both, "a.rs", "new"));
+    assert_eq!(session.review().len(), 1);
+    assert_eq!(session.review().comments().count(), 0);
+    assert!(!session.undo_last_comment());
+
+    session.set_document(commit);
+    let comment = session
+        .review()
+        .comments_for_anchor(&anchor)
+        .next()
+        .ok_or("comment back on its commit")?;
+    assert_eq!(comment.target, ReviewTarget::Commit(commit_id(1)));
+    assert!(!comment.outdated);
+    Ok(())
+}
+
+#[test]
+fn working_tree_comments_survive_scope_changes() -> Result<(), Box<dyn Error>> {
+    let both = page(DiffScope::Both, "a.rs", "new");
+    let mut session = ReviewSession::new(both.clone());
+    let anchor = LineAnchor::for_line(&both.files[0], DiffSide::New, 0, 1).ok_or("anchor")?;
+    session.review_mut().add_comment(anchor, "keep");
+    session.set_document(page(DiffScope::Staged, "a.rs", "new"));
+    assert_eq!(session.review().comments().count(), 1);
+    Ok(())
+}
+
+#[test]
+fn navigation_steps_through_commits_and_remembers_the_scope() {
+    let mut session = ReviewSession::new(page(DiffScope::Staged, "a.rs", "new"));
+    assert_eq!(
+        session.page_title().as_deref(),
+        Some("3/3 · Uncommitted changes (staged)")
+    );
+    assert_eq!(session.stepped_target(1), None);
+    assert_eq!(
+        session.stepped_target(-1),
+        Some(ReviewTarget::Commit(commit_id(2)))
+    );
+
+    session.set_document(page(commit_id(1), "a.rs", "new"));
+    assert_eq!(session.stepped_target(-1), None);
+    assert_eq!(
+        session.target_event(&DiffReviewCommand::StepTarget(1)),
+        Some(DiffReviewEvent::SetTarget(commit_id(2).into()))
+    );
+    assert_eq!(
+        session.target_event(&DiffReviewCommand::CycleScope),
+        Some(DiffReviewEvent::SetTarget(DiffScope::Both.into()))
+    );
+    assert_eq!(
+        session.target_event(&DiffReviewCommand::SetScope(DiffScope::Unstaged)),
+        Some(DiffReviewEvent::SetTarget(DiffScope::Unstaged.into()))
+    );
+    assert_eq!(session.target_event(&DiffReviewCommand::Refresh), None);
+
+    session.set_document(page(commit_id(2), "a.rs", "new"));
+    assert_eq!(
+        session.stepped_target(1),
+        Some(ReviewTarget::WorkingTree(DiffScope::Staged))
+    );
+}
+
+#[test]
+fn commit_submissions_group_comments_by_page() -> Result<(), Box<dyn Error>> {
+    let mut session = ReviewSession::new(page(DiffScope::Both, "z.rs", "wt"));
+    for (target, path, body) in [
+        (DiffScope::Both.into(), "z.rs", "wt"),
+        (commit_id(2).into(), "b.rs", "second"),
+        (commit_id(1).into(), "a.rs", "first"),
+    ] {
+        let document = page::<ReviewTarget>(target, path, body);
+        session.set_document(document.clone());
+        let anchor =
+            LineAnchor::for_line(&document.files[0], DiffSide::New, 0, 1).ok_or("anchor")?;
+        session
+            .review_mut()
+            .add_comment_with_context(anchor, body, body);
+    }
+
+    let formatted = session.submission().formatted;
+    assert!(formatted.starts_with("I'm reviewing the commits since `origin/main` one at a time"));
+    let first = formatted
+        .find("## 1/3 · Commit 0000001 · First\n\n### `a.rs`")
+        .ok_or("first commit section")?;
+    let second = formatted
+        .find("## 2/3 · Commit 0000002 · Second\n\n### `b.rs`")
+        .ok_or("second commit section")?;
+    let working_tree = formatted
+        .find("## 3/3 · Uncommitted changes (both)\n\n### `z.rs`")
+        .ok_or("working tree section")?;
+    assert!(first < second && second < working_tree);
+    Ok(())
+}
+
+#[test]
+fn working_tree_only_submissions_keep_the_plain_format() {
+    let session = ReviewSession::new(page(DiffScope::Both, "a.rs", "new"));
+    assert!(
+        session
+            .submission()
+            .formatted
+            .starts_with("I'm reviewing the working tree diff")
+    );
+}
+
+fn page<T: Into<ReviewTarget>>(target: T, path: &str, new: &str) -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .commit("First")
+        .commit("Second")
+        .target(target)
+        .changed(path, "old", new)
+        .build()
 }

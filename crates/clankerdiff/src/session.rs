@@ -1,5 +1,5 @@
 use crate::protocol::{SessionRequest, SessionResponseRef, read_request, write_response};
-use clankerdiff_core::{DiffScope, ReviewSubmission};
+use clankerdiff_core::{DiffScope, ReviewSubmission, ReviewTarget};
 use clankerdiff_server::{DiffServer, ServerOptions};
 use std::{io, path::Path, time::Duration};
 use thiserror::Error;
@@ -8,19 +8,20 @@ use tokio::{net::UnixListener, time::timeout};
 pub async fn run(
     path: &Path,
     scope: DiffScope,
+    commits: bool,
     launch: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<Option<ReviewSubmission>, SessionError> {
     let server = DiffServer::open(path, ServerOptions::default()).await?;
     let listener = server.listen(([127, 0, 0, 1], 0).into()).await?;
     let url = format!("ws://{}/ws", listener.local_addr());
-    let result = run_session(&url, scope, launch).await;
+    let result = run_session(&url, &server.initial_target(scope, commits), launch).await;
     server.shutdown().await?;
     result
 }
 
 async fn run_session(
     url: &str,
-    scope: DiffScope,
+    target: &ReviewTarget,
     launch: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<Option<ReviewSubmission>, SessionError> {
     let directory = tempfile::Builder::new().prefix("clankerdiff-").tempdir()?;
@@ -41,7 +42,7 @@ async fn run_session(
         )?;
         return Err(SessionError::ServerStopped);
     }
-    write_response(&mut stream, &SessionResponseRef::Bootstrap { url, scope })?;
+    write_response(&mut stream, &SessionResponseRef::Bootstrap { url, target })?;
     stream.set_read_timeout(None)?;
     let submission = match read_request(&mut stream)? {
         SessionRequest::Submit(submission) => Some(submission),

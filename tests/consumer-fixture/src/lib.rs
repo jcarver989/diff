@@ -37,6 +37,7 @@ mod tests {
         let mut diff = DiffReviewState::new(Arc::new(DiffDocument {
             repo_root: String::new(),
             files: vec![file],
+            ..DiffDocument::default()
         }));
         diff.set_theme(restored.clone());
         let mut markdown = MarkdownReviewState::new(Arc::new(MarkdownDocument::parse(
@@ -194,8 +195,8 @@ mod tests {
         let directory = RepositoryBuilder.build()?;
         let repository = GitRepository::discover(directory.path()).await?;
         let snapshot = repository.snapshot_with_sources(DiffScope::Both).await?;
-        assert!(!snapshot.document.files.is_empty());
-        let mut state = DiffReviewState::new(snapshot.document);
+        assert!(!snapshot.files.is_empty());
+        let mut state = DiffReviewState::new(Arc::new(snapshot));
         let area = Rect::new(0, 0, 80, 24);
         DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut state);
         Ok(())
@@ -213,7 +214,7 @@ mod tests {
         let mut watcher =
             RepositoryWatcher::spawn(repository, DiffScope::Both, WatchOptions::default()).await?;
         let initial = watcher.state_rx.borrow_and_update().snapshot.clone();
-        let mut state = DiffReviewState::new(Arc::clone(&initial.document));
+        let mut state = DiffReviewState::new(Arc::clone(&initial));
         let area = Rect::new(0, 0, 80, 24);
         DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut state);
 
@@ -225,7 +226,7 @@ mod tests {
                 if let Some(error) = retained.error_message() {
                     break Err(error.into());
                 }
-                if retained.snapshot.document != initial.document {
+                if retained.snapshot != initial {
                     break Ok::<(), Box<dyn Error>>(());
                 }
             }
@@ -235,8 +236,8 @@ mod tests {
         let (result_tx, result_rx) = oneshot::channel();
         watcher
             .request_tx
-            .send(RepositoryRequest::SetScope {
-                scope: DiffScope::Staged,
+            .send(RepositoryRequest::SetTarget {
+                target: DiffScope::Staged.into(),
                 result_tx,
             })
             .await?;
@@ -244,8 +245,8 @@ mod tests {
             .await??
             .map_err(|error| error.to_string())?;
         let staged = watcher.state_rx.borrow().snapshot.clone();
-        assert_eq!(staged.scope, DiffScope::Staged);
-        assert!(staged.document.files.is_empty());
+        assert_eq!(staged.target.scope(), Some(DiffScope::Staged));
+        assert!(staged.files.is_empty());
         Ok(())
     }
 
