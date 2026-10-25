@@ -1,7 +1,7 @@
 use crate::tokens::{ICON_SIZE, rem};
 use gpui::{
     Animation, AnimationExt, App, Hsla, IntoElement, RenderOnce, SharedString, Styled,
-    Transformation, Window, prelude::*, radians, svg,
+    Subscription, Transformation, Window, prelude::*, radians, svg,
 };
 use std::f32::consts::TAU;
 use std::time::Duration;
@@ -109,6 +109,16 @@ impl IconName {
     }
 }
 
+/// Redraws `window` whenever it is shown again, which restarts the spinning icons it drew still
+/// while it was hidden. A window with spinning icons keeps it for as long as it is open.
+pub fn spin_when_shown(window: &Window) -> Subscription {
+    window.observe_window_visibility(|visibility, window, _| {
+        if visibility.is_visible() {
+            window.refresh();
+        }
+    })
+}
+
 #[derive(IntoElement)]
 pub struct Icon {
     name: IconName,
@@ -142,6 +152,8 @@ impl Icon {
         self
     }
 
+    /// Spins the icon while its window is visible. A hidden window draws it still, so that it
+    /// schedules no redraws, until [`spin_when_shown`] redraws the window.
     #[must_use]
     pub fn spin(mut self, id: impl Into<SharedString>) -> Self {
         self.spin = Some(id.into());
@@ -165,7 +177,7 @@ impl RenderOnce for Icon {
             .when_some(self.hover, |icon, (group, color)| {
                 icon.group_hover(group, move |icon| icon.text_color(color))
             });
-        if let Some(id) = self.spin {
+        if let Some(id) = self.spin.filter(|_| window.is_visible()) {
             let spin = Animation::new(SPIN_PERIOD)
                 .repeat_synced()
                 .with_max_fps(SPIN_MAX_FPS);
@@ -180,4 +192,5 @@ impl RenderOnce for Icon {
 }
 
 const SPIN_PERIOD: Duration = Duration::from_millis(1200);
-const SPIN_MAX_FPS: f32 = 24.0;
+/// Twelve steps per turn, which look smooth at icon sizes.
+const SPIN_MAX_FPS: f32 = 10.0;
