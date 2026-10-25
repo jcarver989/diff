@@ -53,6 +53,14 @@ required-features = ["test-support"]
 name = "icon_test"
 required-features = ["test-support"]
 
+[[test]]
+name = "dialog_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "inline_edit_test"
+required-features = ["test-support"]
+
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 gpui-base = { workspace = true, features = ["test-support"] }

@@ -1,5 +1,5 @@
 use super::{
-    components::{ListRow, SelectionState, SurfaceExt},
+    components::{Backdrop, ListRow, SelectionState, SurfaceExt},
     icon::{Icon, IconName},
     theme::UiTheme,
     tokens::{self, rem},
@@ -695,6 +695,45 @@ impl ThemePicker {
 }
 
 impl EventEmitter<ThemePickerEvent> for ThemePicker {}
+
+pub struct ThemePickerOverlay {
+    picker: Entity<ThemePicker>,
+    _subscription: Subscription,
+}
+
+impl ThemePickerOverlay {
+    pub fn open<T: 'static>(
+        current: &ReviewTheme,
+        themes: Arc<[ThemeChoice]>,
+        theme: UiTheme,
+        window: &mut Window,
+        cx: &mut Context<T>,
+        on_event: impl Fn(&mut T, &ThemePickerEvent, &mut Window, &mut Context<T>) + 'static,
+    ) -> Self {
+        let picker =
+            cx.new(|cx| ThemePicker::new("theme-picker", current, themes, theme, window, cx));
+        let subscription = cx.subscribe_in(&picker, window, move |this, _, event, window, cx| {
+            on_event(this, event, window, cx);
+        });
+        Self {
+            picker,
+            _subscription: subscription,
+        }
+    }
+
+    #[must_use]
+    pub const fn picker(&self) -> &Entity<ThemePicker> {
+        &self.picker
+    }
+
+    #[must_use]
+    pub fn render(&self, theme: UiTheme) -> Backdrop {
+        let picker = self.picker.clone();
+        Backdrop::new("theme-picker-backdrop", theme)
+            .on_dismiss(move |_, cx| picker.update(cx, ThemePicker::cancel))
+            .child(self.picker.clone())
+    }
+}
 
 impl Render for ThemePicker {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {

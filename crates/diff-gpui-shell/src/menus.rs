@@ -1,6 +1,7 @@
 use crate::run_loop;
 use gpui::{
-    App, KeyBinding, Menu, MenuItem, OsAction, PromptLevel, SystemMenuType, Window, actions,
+    Action, App, KeyBinding, Menu, MenuItem, OsAction, PromptLevel, SharedString, SystemMenuType,
+    Window, actions,
 };
 use gpui_base::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 
@@ -84,6 +85,19 @@ pub fn build(name: &str, app_items: Vec<MenuItem>, menus: Vec<Menu>) -> Vec<Menu
         ],
     });
     all
+}
+
+#[must_use]
+pub fn commands(menus: &[Menu]) -> Vec<(SharedString, Box<dyn Action>)> {
+    menus
+        .iter()
+        .flat_map(|menu| &menu.items)
+        .flat_map(|item| match item {
+            MenuItem::Action { name, action, .. } => vec![(name.clone(), action.boxed_clone())],
+            MenuItem::Submenu(menu) => commands(std::slice::from_ref(menu)),
+            MenuItem::Separator | MenuItem::SystemMenu(_) => Vec::new(),
+        })
+        .collect()
 }
 
 fn with_active_window(cx: &mut App, update: impl FnOnce(&mut Window, &mut App)) {

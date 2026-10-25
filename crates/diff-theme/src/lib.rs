@@ -2,9 +2,11 @@
 
 mod appearance;
 mod selection;
+mod terminal;
 mod ui;
-pub use appearance::{Appearance, ThemePair};
+pub use appearance::{Appearance, AppearanceMode, ThemePair, ThemePreference};
 pub use selection::{ThemeChoice, ThemeSelection};
+pub use terminal::TerminalPalette;
 
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
@@ -46,6 +48,11 @@ impl Rgba {
             channel(self.b, background.b, self.a),
             u8::MAX,
         )
+    }
+
+    #[must_use]
+    pub const fn mix(self, background: Self, amount: u8) -> Self {
+        Self::new(self.r, self.g, self.b, amount).over(background)
     }
 
     #[must_use]
@@ -701,35 +708,25 @@ fn palette_from_arborium(theme: &arborium_theme::Theme) -> DiffPalette {
     let accent = style_color(ThemeSlot::Link)
         .or_else(|| style_color(ThemeSlot::Function))
         .or_else(|| style_color(ThemeSlot::Keyword))
-        .unwrap_or_else(|| mix(foreground, background, 72));
+        .unwrap_or_else(|| foreground.mix(background, 72));
     DiffPalette {
         background,
         foreground,
-        gutter: mix(foreground, background, 45),
+        gutter: foreground.mix(background, 45),
         addition,
         deletion,
         addition_background: diff_background(addition, background),
         deletion_background: diff_background(deletion, background),
-        selection: mix(accent, background, 28),
+        selection: accent.mix(background, 28),
         accent,
-        muted: mix(foreground, background, 62),
-        border: mix(foreground, background, 25),
+        muted: foreground.mix(background, 62),
+        border: foreground.mix(background, 25),
     }
-}
-
-const fn mix(foreground: Rgba, background: Rgba, amount: u8) -> Rgba {
-    Rgba::new(foreground.r, foreground.g, foreground.b, amount).over(background)
 }
 
 const DIFF_BACKGROUND_ALPHA: u8 = 31;
 const fn diff_background(foreground: Rgba, background: Rgba) -> Rgba {
-    Rgba::new(
-        foreground.r,
-        foreground.g,
-        foreground.b,
-        DIFF_BACKGROUND_ALPHA,
-    )
-    .over(background)
+    foreground.mix(background, DIFF_BACKGROUND_ALPHA)
 }
 
 static DEFAULT_THEME: LazyLock<ReviewTheme> =
