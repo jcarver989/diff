@@ -28,6 +28,12 @@ rust-version = "1.98.0"
 license = "MIT"
 repository = "https://github.com/jcarver989/diff"
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.dist]
 inherits = "release"
 lto = "thin"
@@ -57,14 +63,14 @@ crossterm = "0.29.0"
 criterion = "0.8.2"
 ratatui = { version = "0.30.0", default-features = false, features = ["std", "layout-cache"] }
 schemars = { version = "1.2.2", features = ["indexmap2"] }
-serde = { version = "1.0.229", features = ["derive", "rc"] }
+serde = { version = "1.0.229", features = ["alloc", "derive", "rc"] }
 similar = "3.2.0"
 thiserror = "2.0.20"
-tokio = { version = "1.47.1", features = ["fs", "process", "rt-multi-thread"] }
+tokio = { version = "1.47.1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tree-sitter = "0.27.0"
 unicode-width = "0.2.2"
 unicode-segmentation = "1.13.3"
-serde_json = "1.0.151"
+serde_json = { version = "1.0.151", features = ["alloc"] }
 shlex = "2.0.1"
 tempfile = "3.21.0"
 wasm-bindgen = "0.2.120"

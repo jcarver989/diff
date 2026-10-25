@@ -17,10 +17,10 @@ workspace = true
 clankerdiff-core = { version = "0.3.3", path = "../diff-core" }
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "time"] }
+tokio.workspace = true
 
 [dev-dependencies]
 clankerdiff-git = { path = ".", features = ["test-support"] }
 serde_json.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio.workspace = true
