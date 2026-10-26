@@ -47,6 +47,8 @@ pub fn fuzzy_filter<T: AsRef<str>>(query: &str, keys: impl IntoIterator<Item = T
 pub struct PickerItem {
     id: SharedString,
     label: SharedString,
+    icon: Option<IconName>,
+    group: Option<SharedString>,
     detail: Option<SharedString>,
     keywords: Option<SharedString>,
     disabled: bool,
@@ -59,11 +61,25 @@ impl PickerItem {
         Self {
             id: id.into(),
             label: label.into(),
+            icon: None,
+            group: None,
             detail: None,
             keywords: None,
             disabled: false,
             checked: false,
         }
+    }
+
+    #[must_use]
+    pub const fn icon(mut self, icon: IconName) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    #[must_use]
+    pub fn group(mut self, group: impl Into<SharedString>) -> Self {
+        self.group = Some(group.into());
+        self
     }
 
     #[must_use]
@@ -182,7 +198,26 @@ impl RenderOnce for PickerList {
         }
         let id = self.id;
         let theme = self.theme;
-        let rows = self.items.into_iter().enumerate().map(|(position, item)| {
+        let mut previous_group = None;
+        let mut rows = Vec::new();
+        for (position, item) in self.items.into_iter().enumerate() {
+            if item.group.is_some() && item.group != previous_group {
+                previous_group.clone_from(&item.group);
+                let group = item.group.clone().unwrap_or_default();
+                let selector = format!("{id}-group-{group}");
+                rows.push(
+                    div()
+                        .debug_selector(move || selector)
+                        .px_2()
+                        .pt_2()
+                        .pb_1()
+                        .typography(Typography::Caption)
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(colors.text_muted)
+                        .child(group)
+                        .into_any_element(),
+                );
+            }
             let state = if item.disabled {
                 SelectionState::Disabled
             } else if self.highlighted == Some(position) {
@@ -191,25 +226,29 @@ impl RenderOnce for PickerList {
                 SelectionState::None
             };
             let on_choose = self.on_choose.clone().filter(|_| !item.disabled);
-            ListRow::new(format!("{id}-{}", item.id), theme)
-                .state(state)
-                .when_some(on_choose, |row, choose| {
-                    row.on_click(move |_, window, cx| choose(&position, window, cx))
-                })
-                .child(div().flex_1().min_w_0().truncate().child(item.label))
-                .children(item.detail.map(|detail| {
-                    div()
-                        .flex_none()
-                        .max_w(relative(0.5))
-                        .truncate()
-                        .typography(Typography::Small)
-                        .text_color(colors.text_muted)
-                        .child(detail)
-                }))
-                .when(item.checked, |row| {
-                    row.child(Icon::new(IconName::Check, colors.text_muted))
-                })
-        });
+            rows.push(
+                ListRow::new(format!("{id}-{}", item.id), theme)
+                    .state(state)
+                    .when_some(on_choose, |row, choose| {
+                        row.on_click(move |_, window, cx| choose(&position, window, cx))
+                    })
+                    .children(item.icon.map(|icon| Icon::new(icon, colors.text_muted)))
+                    .child(div().flex_1().min_w_0().truncate().child(item.label))
+                    .children(item.detail.map(|detail| {
+                        div()
+                            .flex_none()
+                            .max_w(relative(0.5))
+                            .truncate()
+                            .typography(Typography::Small)
+                            .text_color(colors.text_muted)
+                            .child(detail)
+                    }))
+                    .when(item.checked, |row| {
+                        row.child(Icon::new(IconName::Check, colors.text_muted))
+                    })
+                    .into_any_element(),
+            );
+        }
         let list = format!("{id}-list");
         div()
             .id(SharedString::from(list.clone()))
@@ -433,6 +472,14 @@ impl SearchPicker {
         } else {
             (0..self.items.len()).collect()
         };
+        let items = &self.items;
+        self.matches.sort_by_key(|&index| {
+            items[index].group.as_ref().map(|group| {
+                items
+                    .iter()
+                    .position(|item| item.group.as_ref() == Some(group))
+            })
+        });
         self.highlighted = self.next_enabled(0, 1).unwrap_or(0);
         self.scroll.scroll_to_item(self.highlighted);
     }
