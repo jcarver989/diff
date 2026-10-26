@@ -1,5 +1,5 @@
 use crate::{
-    preferences::load_theme,
+    preferences::{load_theme, load_view_mode, save_view_mode},
     protocol::{SessionRequestRef, SessionResponse, read_response, write_request},
 };
 use clankerdiff_client::{ClientState, DiffClient};
@@ -121,6 +121,7 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
     let mut terminal_size = terminal.size()?;
     let mut state = DiffReviewState::new(Arc::new(DiffDocument::empty()));
     state.set_theme(load_theme());
+    state.set_view_mode(load_view_mode());
     state.set_theme_choices(ThemeChoice::catalog());
     let mut installed = None;
     let mut last_state: Option<Arc<ClientState>> = None;
@@ -169,8 +170,14 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
         }
         for _ in 0..MAX_COALESCED_EVENTS {
             let input = handle_crossterm_event(&mut state, event::read()?);
-            if let InputOutcome::ThemeSelected(id) = &input {
-                let _ = crate::preferences::save_theme(&id.to_string());
+            match &input {
+                InputOutcome::ThemeSelected(id) => {
+                    let _ = crate::preferences::save_theme(&id.to_string());
+                }
+                InputOutcome::ViewModeSelected(mode) => {
+                    let _ = save_view_mode(*mode);
+                }
+                _ => {}
             }
             match input.into_event() {
                 Some(DiffReviewEvent::Cancel) => return Ok(None),

@@ -564,8 +564,8 @@ impl ReviewSession {
         true
     }
 
-    pub fn cycle_view_mode(&mut self) -> bool {
-        self.set_view_mode(self.view_mode.next())
+    pub fn toggle_layout(&mut self) -> bool {
+        self.set_view_mode(self.presentation_options().layout().toggled().into())
     }
 
     #[must_use]

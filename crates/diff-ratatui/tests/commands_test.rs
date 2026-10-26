@@ -1,5 +1,5 @@
 use clankerdiff_core::{
-    DiffReviewEvent, DiffScope, RepositoryAction, RevealAmount, testing::DocumentBuilder,
+    DiffReviewEvent, DiffScope, RepositoryAction, RevealAmount, ViewMode, testing::DocumentBuilder,
 };
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent};
 use clankerdiff_ratatui::{
@@ -29,7 +29,7 @@ fn source_toggle_targets_files_and_isolates_editors_and_overlays() -> Result<(),
     assert!(state.session().source_view().is_some());
     for command in [
         DiffCommand::ToggleFullFile,
-        DiffCommand::CycleViewMode,
+        DiffCommand::ToggleLayout,
         ReviewCommand::UndoComment.into(),
         ReviewCommand::BeginComment.into(),
     ] {
@@ -91,6 +91,39 @@ fn collapse_keys_toggle_the_selected_file_and_every_file() {
     state.handle_command(DiffCommand::ToggleSourceView);
     assert!(!state.command_enabled(&DiffCommand::ToggleAllFilesCollapsed));
     assert!(!state.command_enabled(&DiffCommand::ToggleFileCollapsed(Some(1))));
+}
+
+#[test]
+fn layout_keys_flip_the_shown_layout_and_restore_auto() {
+    let mut state = diff();
+    let toggle = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE);
+    let auto = KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT);
+    assert_eq!(
+        state.command_for_key(toggle),
+        Some(DiffCommand::ToggleLayout)
+    );
+    assert_eq!(
+        state.command_for_key(auto),
+        Some(DiffCommand::SetViewMode(ViewMode::Auto))
+    );
+
+    assert!(matches!(
+        state.handle_input(ReviewInput::Key(toggle)),
+        InputOutcome::ViewModeSelected(ViewMode::Split)
+    ));
+    assert!(state.layout().is_split());
+    assert!(matches!(
+        state.handle_input(ReviewInput::Key(toggle)),
+        InputOutcome::ViewModeSelected(ViewMode::Unified)
+    ));
+    assert!(matches!(
+        state.handle_input(ReviewInput::Key(auto)),
+        InputOutcome::ViewModeSelected(ViewMode::Auto)
+    ));
+    assert!(matches!(
+        state.handle_input(ReviewInput::Key(auto)),
+        InputOutcome::Consumed
+    ));
 }
 
 #[test]

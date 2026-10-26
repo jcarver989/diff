@@ -13,7 +13,7 @@ use crate::{
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
 use clankerdiff_core::{
-    DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PresentedCell, PresentedRow, RowKind,
+    DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PresentedCell, PresentedRow, RowKind, ViewMode,
 };
 use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -30,6 +30,7 @@ pub(crate) const GAP_EXPAND_WIDTH: u16 = 3;
 pub(crate) const FILE_CHEVRON_WIDTH: u16 = 2;
 const DRAWER_MIN_WIDTH: u16 = 20;
 const DRAWER_MAX_WIDTH: u16 = 36;
+const LAYOUT_STATUS_MIN_WIDTH: u16 = 60;
 
 /// Embeddable stateful diff review widget.
 #[derive(Debug, Clone)]
@@ -766,10 +767,18 @@ fn render_footer(
         EmptyState::new(message, NoticeTone::Error, theme).render(area, buffer);
         return;
     }
+    let layout = match (state.view_mode(), state.layout().is_split()) {
+        _ if area.width < LAYOUT_STATUS_MIN_WIDTH => "",
+        _ if state.session.source_view().is_some() => "source · ",
+        (ViewMode::Auto, true) => "auto: split · ",
+        (ViewMode::Auto, false) => "auto: unified · ",
+        (_, true) => "split · ",
+        (_, false) => "unified · ",
+    };
     let review = state.review();
     let outdated = review.outdated_count();
     let status = format!(
-        "  {} comment{}{}",
+        "  {layout}{} comment{}{}",
         review.len(),
         if review.len() == 1 { "" } else { "s" },
         if outdated == 0 {

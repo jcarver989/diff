@@ -40,13 +40,13 @@ impl ViewMode {
             Self::Unified | Self::Auto => Layout::Unified,
         }
     }
+}
 
-    #[must_use]
-    pub const fn next(self) -> Self {
-        match self {
-            Self::Auto => Self::Unified,
-            Self::Unified => Self::Split,
-            Self::Split => Self::Auto,
+impl From<Layout> for ViewMode {
+    fn from(layout: Layout) -> Self {
+        match layout {
+            Layout::Unified => Self::Unified,
+            Layout::Split => Self::Split,
         }
     }
 }
@@ -63,6 +63,14 @@ impl Layout {
     #[must_use]
     pub const fn is_split(self) -> bool {
         matches!(self, Self::Split)
+    }
+
+    #[must_use]
+    pub const fn toggled(self) -> Self {
+        match self {
+            Self::Unified => Self::Split,
+            Self::Split => Self::Unified,
+        }
     }
 }
 
@@ -1619,11 +1627,10 @@ mod tests {
     }
 
     #[test]
-    fn view_modes_resolve_and_cycle() {
+    fn view_modes_resolve() {
         assert_eq!(ViewMode::Auto.resolve(true), Layout::Split);
         assert_eq!(ViewMode::Auto.resolve(false), Layout::Unified);
         assert_eq!(ViewMode::Unified.resolve(true), Layout::Unified);
-        assert_eq!(ViewMode::Split.next().next(), ViewMode::Unified);
     }
 
     #[test]

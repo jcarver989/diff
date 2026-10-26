@@ -279,6 +279,17 @@ fn review_help_layout_and_host_event_shortcuts_are_contextual(cx: &mut TestAppCo
         assert!(!viewer.shortcuts_open());
     });
 
+    cx.simulate_keystrokes(*window, "v");
+    assert_eq!(
+        viewer.read_with(cx, |viewer, _| viewer.view_mode()),
+        ViewMode::Split
+    );
+    cx.simulate_keystrokes(*window, "shift-v");
+    assert_eq!(
+        viewer.read_with(cx, |viewer, _| viewer.view_mode()),
+        ViewMode::Auto
+    );
+
     cx.simulate_keystrokes(*window, "s y escape");
     window
         .read_with(cx, |root, _| {

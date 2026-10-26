@@ -21,7 +21,7 @@ fn source_commands_and_keys_obey_the_same_mode_and_phase_gates(cx: &mut TestAppC
         assert!(harness.dispatch_command(cx, DiffReviewCommand::ToggleSourceView)?);
         for command in [
             DiffReviewCommand::ToggleFullFile,
-            DiffReviewCommand::CycleViewMode,
+            DiffReviewCommand::ToggleLayout,
             ReviewCommand::BeginComment.into(),
             ReviewCommand::EditComment.into(),
             ReviewCommand::DeleteComment.into(),

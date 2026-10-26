@@ -230,10 +230,11 @@ mod wasm {
     use async_channel::{Receiver, Sender};
     use clankerdiff_client::{ClientOptions, ClientState, DiffClient};
     use clankerdiff_core::{
-        DiffDocument, DiffReviewEvent, ReviewCapabilities, ReviewSubmission, ReviewTarget,
+        DiffDocument, DiffReviewEvent, ReviewCapabilities, ReviewSubmission, ReviewTarget, ViewMode,
     };
     use clankerdiff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
+        ViewModeChanged,
         ui::{
             InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE,
             prelude::UI_FONT,
@@ -289,6 +290,7 @@ mod wasm {
         viewer: Entity<DiffViewer>,
         _viewer_subscription: Subscription,
         _viewer_theme_subscription: Subscription,
+        _viewer_view_mode_subscription: Subscription,
         markdown: Option<Entity<MarkdownReviewer>>,
         markdown_subscription: Option<Subscription>,
         markdown_theme_subscription: Option<Subscription>,
@@ -307,7 +309,10 @@ mod wasm {
                 let mut viewer = DiffViewer::with_options(
                     Arc::new(demo_document()),
                     theme,
-                    DiffViewerOptions::default(),
+                    DiffViewerOptions {
+                        view_mode: stored_view_mode(),
+                        ..DiffViewerOptions::default()
+                    },
                 );
                 viewer.set_capabilities(capabilities, cx);
                 viewer
@@ -340,6 +345,10 @@ mod wasm {
                 cx.subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
                     store_theme(&event.id);
                 });
+            let viewer_view_mode_subscription =
+                cx.subscribe(&viewer, |_this, _viewer, event: &ViewModeChanged, _cx| {
+                    store_view_mode(event.mode);
+                });
             let command_task = cx.spawn_in(window, async move |this, cx| {
                 while let Ok(command) = receiver.recv().await {
                     if this
@@ -363,6 +372,7 @@ mod wasm {
                 viewer,
                 _viewer_subscription: viewer_subscription,
                 _viewer_theme_subscription: viewer_theme_subscription,
+                _viewer_view_mode_subscription: viewer_view_mode_subscription,
                 markdown: None,
                 markdown_subscription: None,
                 markdown_theme_subscription: None,
@@ -741,6 +751,25 @@ mod wasm {
             web_sys::window().and_then(|window| window.local_storage().ok().flatten())
         {
             let _ = storage.set_item(THEME_STORAGE_KEY, id);
+        }
+    }
+
+    const VIEW_MODE_STORAGE_KEY: &str = "clankerdiff.view_mode.v1";
+
+    fn stored_view_mode() -> ViewMode {
+        web_sys::window()
+            .and_then(|window| window.local_storage().ok().flatten())
+            .and_then(|storage| storage.get_item(VIEW_MODE_STORAGE_KEY).ok().flatten())
+            .and_then(|mode| serde_json::from_str(&mode).ok())
+            .unwrap_or_default()
+    }
+
+    fn store_view_mode(mode: ViewMode) {
+        if let (Some(storage), Ok(mode)) = (
+            web_sys::window().and_then(|window| window.local_storage().ok().flatten()),
+            serde_json::to_string(&mode),
+        ) {
+            let _ = storage.set_item(VIEW_MODE_STORAGE_KEY, &mode);
         }
     }
 

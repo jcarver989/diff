@@ -454,6 +454,33 @@ fn collapse_all_toggles_every_file_and_survives_refresh() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn toggling_the_layout_flips_the_layout_auto_chose() {
+    let mut session = session();
+    session.set_split_when_auto(true);
+
+    assert!(session.toggle_layout());
+    assert_eq!(session.view_mode(), ViewMode::Unified);
+    assert_eq!(session.layout(), Layout::Unified);
+
+    assert!(session.toggle_layout());
+    assert_eq!(session.view_mode(), ViewMode::Split);
+    assert_eq!(session.layout(), Layout::Split);
+}
+
+#[test]
+fn a_toggled_layout_ignores_width_until_auto_is_restored() {
+    let mut session = session();
+    assert!(session.toggle_layout());
+    assert_eq!(session.layout(), Layout::Split);
+
+    assert!(!session.set_split_when_auto(false));
+    assert_eq!(session.layout(), Layout::Split);
+
+    assert!(session.set_view_mode(ViewMode::Auto));
+    assert_eq!(session.layout(), Layout::Unified);
+}
+
+#[test]
 fn source_view_cannot_collapse_files() {
     let mut session = two_file_session();
     assert!(session.toggle_source_view());

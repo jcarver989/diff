@@ -168,10 +168,10 @@ impl DiffViewer {
                 }
             }
             C::SetViewMode(mode) => {
-                self.change_layout(|session| session.set_view_mode(mode));
+                self.change_view_mode(|session| session.set_view_mode(mode), cx);
             }
-            C::CycleViewMode => {
-                self.change_layout(ReviewSession::cycle_view_mode);
+            C::ToggleLayout => {
+                self.change_view_mode(ReviewSession::toggle_layout, cx);
             }
             C::ToggleStage => {
                 if let Some(path) = self.sidebar_tree.selected().map(|entry| entry.path.clone()) {

@@ -195,12 +195,14 @@ impl DiffReviewState {
                 return InputOutcome::Consumed;
             }
             C::SetViewMode(mode) => {
-                self.set_view_mode(mode);
-                return InputOutcome::Consumed;
+                if !self.change_layout(|state| state.session.set_view_mode(mode)) {
+                    return InputOutcome::Consumed;
+                }
+                return InputOutcome::ViewModeSelected(mode);
             }
-            C::CycleViewMode => {
-                self.change_layout(|state| state.session.cycle_view_mode());
-                return InputOutcome::Consumed;
+            C::ToggleLayout => {
+                self.change_layout(|state| state.session.toggle_layout());
+                return InputOutcome::ViewModeSelected(self.view_mode());
             }
             C::SubmitReview => {
                 return InputOutcome::Emitted(DiffReviewEvent::SubmitReview(

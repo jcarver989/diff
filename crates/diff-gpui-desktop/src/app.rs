@@ -1,9 +1,14 @@
-use crate::{WINDOW_TITLE, args::CliArgs, menus::SetScope, preferences::ThemeStore};
+use crate::{
+    WINDOW_TITLE,
+    args::CliArgs,
+    menus::SetScope,
+    preferences::{ThemeStore, ViewModeStore},
+};
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_gpui::{
-    DiffClientEvent, DiffClientView, NextCommit, PreviousCommit, StageAll, ThemeChanged,
-    UnstageAll,
+    DiffClientEvent, DiffClientView, DiffViewerOptions, NextCommit, PreviousCommit, StageAll,
+    ThemeChanged, UnstageAll, ViewModeChanged,
     ui::{
         InterfaceSize,
         prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme, window_appearance},
@@ -30,7 +35,7 @@ pub(crate) struct DesktopApp {
     command_task: Option<Task<()>>,
     watch_task: Task<()>,
     outcome_sender: Option<Sender<Option<ReviewSubmission>>>,
-    _subscriptions: [Subscription; 3],
+    _subscriptions: [Subscription; 4],
 }
 
 impl DesktopApp {
@@ -42,13 +47,20 @@ impl DesktopApp {
         cx: &mut Context<Self>,
     ) -> Self {
         let theme = ThemeStore::user().theme(window_appearance(window));
-        let view = cx.new(|_| DiffClientView::new(theme));
+        let options = DiffViewerOptions {
+            view_mode: ViewModeStore::user().view_mode(),
+            ..DiffViewerOptions::default()
+        };
+        let view = cx.new(|_| DiffClientView::with_options(theme, options));
         let subscriptions = [
             cx.subscribe(&view, |this, _, event: &DiffClientEvent, cx| {
                 this.on_client_event(event, cx);
             }),
             cx.subscribe_in(&view, window, |_, _, event: &ThemeChanged, window, _| {
                 let _ = ThemeStore::user().remember(window_appearance(window), &event.id);
+            }),
+            cx.subscribe(&view, |_, _, event: &ViewModeChanged, _| {
+                let _ = ViewModeStore::user().remember(event.mode);
             }),
             cx.observe_window_appearance(window, |this, window, cx| {
                 let theme = ThemeStore::user().theme(window_appearance(window));
