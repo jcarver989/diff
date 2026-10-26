@@ -45,7 +45,23 @@ bench-check:
 bench:
     cargo bench --workspace --all-features
 
-feature-check: consumer-check
+# Fail when a crate depends on a crate from a higher domain: util < ui < diff.
+layer-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    violations="$(cargo metadata --format-version 1 --no-deps | jq -r '
+        def domain: capture("/crates/(?<d>[^/]+)/[^/]+/Cargo.toml$").d;
+        def rank: {"util": 0, "ui": 1, "diff": 2}[.] // error("unknown domain \(.)");
+        (.packages | map({key: .name, value: (.manifest_path | domain)}) | from_entries) as $domains
+        | .packages[]
+        | (.manifest_path | domain) as $domain
+        | .name as $name
+        | .dependencies[]
+        | select($domains[.name] != null and ($domains[.name] | rank) > ($domain | rank))
+        | "\($name) (\($domain)) depends on \(.name) (\($domains[.name]))"')"
+    if [ -n "$violations" ]; then printf '%s\n' "$violations" >&2; exit 1; fi
+
+feature-check: consumer-check layer-check
     tree="$(cargo tree -p clankerdiff-git -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(notify|ratatui[^ ]*|crossterm|clankerdiff-(watch|ratatui|syntax|markdown|gpui[^ ]*)) v'; then echo "unexpected UI or watcher dependency in Git graph" >&2; exit 1; fi
     tree="$(cargo tree -p clankerdiff-watch -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(ratatui[^ ]*|crossterm|clankerdiff-(ratatui|syntax|markdown|gpui[^ ]*)) v'; then echo "unexpected renderer dependency in watcher graph" >&2; exit 1; fi
     cargo check -p clankerdiff-ratatui --all-features --all-targets
