@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.3.3...clankerdiff-core-v0.4.0) - 2026-10-26
+
+### Other
+
+- util/ui/diff crate layout, remote machines and framer-generated config ([#104](https://github.com/jcarver989/diff/pull/104))
+
 ## [0.3.0](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.2.1...clankerdiff-core-v0.3.0) - 2026-09-18
 
 ### Added
