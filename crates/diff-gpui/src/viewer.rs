@@ -3,7 +3,7 @@
 mod commands;
 
 use crate::{
-    DiffViewerEvent, ThemeChanged,
+    DiffViewerEvent, ThemeChanged, ViewModeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
     style::color,
     ui::{
@@ -65,7 +65,8 @@ actions!(
         SelectNewSide,
         ExpandOrOpen,
         Collapse,
-        CycleViewMode,
+        ToggleLayout,
+        UseAutoLayout,
         ExpandGap,
         ActivateGap,
         ExpandGapAll,
@@ -109,6 +110,7 @@ pub struct DiffViewerOptions {
     /// Maximum number of syntax-highlight cache entries.
     pub highlight_cache_capacity: usize,
     pub themes: bool,
+    pub view_mode: ViewMode,
 }
 
 impl Default for DiffViewerOptions {
@@ -118,6 +120,7 @@ impl Default for DiffViewerOptions {
             auto_split_width: rem(900.0),
             highlight_cache_capacity: 512,
             themes: true,
+            view_mode: ViewMode::Auto,
         }
     }
 }
@@ -206,7 +209,8 @@ impl DiffViewer {
         );
         let rem_size = px(BASE_SIZE);
         let row_height = rem(CODE_ROW_HEIGHT).to_pixels(rem_size);
-        let session = ReviewSession::new(document);
+        let mut session = ReviewSession::new(document);
+        session.set_view_mode(options.view_mode);
         sidebar_tree.reveal_file(session.selected_file().unwrap_or(0));
         let mut viewer = Self {
             session,
@@ -310,7 +314,8 @@ impl DiffViewer {
             KeyBinding::new("z", ToggleFileCollapsed, Some(DIFF)),
             KeyBinding::new("shift-z", ToggleAllFilesCollapsed, Some(BROWSE)),
             KeyBinding::new("enter", ExpandGap, Some(DIFF_ACTIVATION)),
-            KeyBinding::new("v", CycleViewMode, Some(BROWSE)),
+            KeyBinding::new("v", ToggleLayout, Some(BROWSE)),
+            KeyBinding::new("shift-v", UseAutoLayout, Some(BROWSE)),
             KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
             KeyBinding::new("]", NextCommit, Some(BROWSE)),
             KeyBinding::new("[", PreviousCommit, Some(BROWSE)),
@@ -493,6 +498,20 @@ impl DiffViewer {
             self.restore_diff_viewport(bookmark);
         }
         changed
+    }
+
+    pub(crate) fn change_view_mode(
+        &mut self,
+        change: impl FnOnce(&mut ReviewSession) -> bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.change_layout(change) {
+            return false;
+        }
+        cx.emit(ViewModeChanged {
+            mode: self.session.view_mode(),
+        });
+        true
     }
 
     pub(crate) fn expand_selected_gap(&mut self, amount: RevealAmount, cx: &mut Context<Self>) {
@@ -1404,8 +1423,12 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::StepTarget(-1), window, cx);
     }
 
-    fn cycle_view_mode(&mut self, _: &CycleViewMode, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::CycleViewMode, window, cx);
+    fn toggle_layout(&mut self, _: &ToggleLayout, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::ToggleLayout, window, cx);
+    }
+
+    fn use_auto_layout(&mut self, _: &UseAutoLayout, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::SetViewMode(ViewMode::Auto), window, cx);
     }
 
     fn add_comment_action(&mut self, _: &AddComment, window: &mut Window, cx: &mut Context<Self>) {
@@ -1525,6 +1548,7 @@ impl DiffViewer {
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
 impl EventEmitter<ThemeChanged> for DiffViewer {}
+impl EventEmitter<ViewModeChanged> for DiffViewer {}
 
 fn clamp_rems(width: Rems, min: Rems, max: Rems) -> Rems {
     rems(width.0.clamp(min.0, max.0))
@@ -1642,7 +1666,8 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::cycle_scope))
             .on_action(cx.listener(Self::next_commit))
             .on_action(cx.listener(Self::previous_commit))
-            .on_action(cx.listener(Self::cycle_view_mode))
+            .on_action(cx.listener(Self::toggle_layout))
+            .on_action(cx.listener(Self::use_auto_layout))
             .on_action(cx.listener(Self::expand_gap_action))
             .on_action(cx.listener(Self::activate_gap_action))
             .on_action(cx.listener(Self::expand_gap_all_action))

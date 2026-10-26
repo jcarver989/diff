@@ -4,8 +4,12 @@ use clankerdiff_core::{
     DiffReviewCommand, DiffSide, FocusPane, ReviewCommand, SourceLocation, ViewMode,
     testing::DocumentBuilder,
 };
-use clankerdiff_gpui::testing::{DiffViewerHarness, DiffViewerHarnessBuilder};
+use clankerdiff_gpui::{
+    ViewModeChanged,
+    testing::{DiffViewerHarness, DiffViewerHarnessBuilder},
+};
 use gpui::{ScrollDelta, TestAppContext, point, px};
+use std::{cell::RefCell, rc::Rc};
 
 #[gpui::test]
 fn a_wheel_notch_scrolls_six_code_rows_at_any_interface_size(cx: &mut TestAppContext) {
@@ -410,6 +414,58 @@ fn toolbar_icon_collapses_and_expands_every_file(cx: &mut TestAppContext) {
         assert!(harness.read(cx, |viewer, _| {
             !viewer.session().is_file_collapsed(0) && !viewer.session().is_file_collapsed(1)
         }));
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn toolbar_icons_pick_the_layout_mode_and_report_each_choice(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default()
+        .with_window_size(1200.0, 600.0)
+        .run(cx, |harness, cx| {
+            let picked = Rc::new(RefCell::new(Vec::new()));
+            let _subscription = cx.update(|cx| {
+                let picked = picked.clone();
+                cx.subscribe(&harness.viewer(), move |_, event: &ViewModeChanged, _| {
+                    picked.borrow_mut().push(event.mode);
+                })
+            });
+
+            harness.click(cx, "view-mode-split")?;
+            assert_eq!(
+                harness.read(cx, |viewer, _| viewer.view_mode()),
+                ViewMode::Split
+            );
+            assert!(harness.read(cx, |viewer, _| viewer.session().layout().is_split()));
+
+            harness.click(cx, "view-mode-unified")?;
+            assert_eq!(
+                harness.read(cx, |viewer, _| viewer.view_mode()),
+                ViewMode::Unified
+            );
+            assert!(!harness.read(cx, |viewer, _| viewer.session().layout().is_split()));
+
+            harness.click(cx, "view-mode-auto")?;
+            harness.click(cx, "view-mode-auto")?;
+            assert_eq!(
+                harness.read(cx, |viewer, _| viewer.view_mode()),
+                ViewMode::Auto
+            );
+
+            assert_eq!(
+                *picked.borrow(),
+                [ViewMode::Split, ViewMode::Unified, ViewMode::Auto]
+            );
+            Ok(())
+        });
+}
+
+#[gpui::test]
+fn layout_toggle_is_hidden_in_source_view(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default().run(cx, |harness, cx| {
+        assert!(harness.bounds(cx, "view-mode-toggle").is_some());
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::ToggleSourceView)?);
+        assert!(harness.bounds(cx, "view-mode-toggle").is_none());
         Ok(())
     });
 }

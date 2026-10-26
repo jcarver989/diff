@@ -133,7 +133,7 @@ pub enum DiffReviewCommand {
     ToggleAllFilesCollapsed,
     ToggleSourceView,
     SetViewMode(ViewMode),
-    CycleViewMode,
+    ToggleLayout,
     SubmitReview,
     CopyReview,
     SetScope(DiffScope),
@@ -165,7 +165,7 @@ impl DiffReviewCommand {
                     | Self::ToggleFileCollapsed(_)
                     | Self::ToggleAllFilesCollapsed
                     | Self::SetViewMode(_)
-                    | Self::CycleViewMode
+                    | Self::ToggleLayout
                     | Self::SelectSide(_)
                     | Self::Review(
                         ReviewCommand::BeginComment

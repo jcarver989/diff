@@ -10,12 +10,12 @@ use crate::{
             Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography,
             TypographyExt, rem,
         },
-        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT},
+        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT, RADIUS_CONTROL},
     },
 };
 use clankerdiff_core::{
     DiffReviewCommand, DiffSide, DiffTone, FileDiff, GapInfo, PresentedCell, PresentedRow,
-    RevealAmount, ReviewCommand, ReviewComment, RowKind,
+    RevealAmount, ReviewCommand, ReviewComment, RowKind, ViewMode,
 };
 use gpui::{
     Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString,
@@ -151,8 +151,60 @@ impl DiffViewer {
                     .child(div().typography(Typography::BodyStrong).child(summary))
                     .children(stat_badges(palette, additions, deletions)),
             )
+            .children(self.render_layout_toggle(cx))
             .children(self.render_collapse_all_button(cx))
             .child(self.render_interface_size_controls(window, cx))
+    }
+
+    fn render_layout_toggle(&self, cx: &mut Context<Self>) -> Option<Div> {
+        if self.document().files.is_empty() || self.session().source_view().is_some() {
+            return None;
+        }
+        let theme = self.ui_theme();
+        let current = self.view_mode();
+        let auto_label = if self.layout().is_split() {
+            "Auto layout (showing split)"
+        } else {
+            "Auto layout (showing unified)"
+        };
+        let options = [
+            (
+                "view-mode-auto",
+                ViewMode::Auto,
+                IconName::MoveHorizontal,
+                auto_label,
+            ),
+            (
+                "view-mode-unified",
+                ViewMode::Unified,
+                IconName::Rows2,
+                "Unified view",
+            ),
+            (
+                "view-mode-split",
+                ViewMode::Split,
+                IconName::Columns2,
+                "Split view",
+            ),
+        ];
+        Some(
+            div()
+                .debug_selector(|| "view-mode-toggle".to_owned())
+                .flex()
+                .items_center()
+                .gap(rem(2.0))
+                .p(rem(1.0))
+                .rounded(rem(RADIUS_CONTROL + 1.0))
+                .border_1()
+                .border_color(theme.colors.border)
+                .children(options.map(|(id, mode, icon, label)| {
+                    IconButton::new(id, icon, label, theme)
+                        .selected(current == mode)
+                        .on_click(cx.listener(move |viewer, _, window, cx| {
+                            viewer.handle_command(DiffReviewCommand::SetViewMode(mode), window, cx);
+                        }))
+                })),
+        )
     }
 
     fn render_collapse_all_button(&self, cx: &mut Context<Self>) -> Option<IconButton> {

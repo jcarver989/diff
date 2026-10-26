@@ -1,5 +1,5 @@
 use crate::{
-    DiffViewer, DiffViewerOptions, ThemeChanged,
+    DiffViewer, DiffViewerOptions, ThemeChanged, ViewModeChanged,
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use clankerdiff_client::{ClientState, ConnectionState};
@@ -117,6 +117,9 @@ impl DiffClientView {
                 cx.emit(event.clone());
                 cx.notify();
             }),
+            cx.subscribe(&viewer, |_, _, event: &ViewModeChanged, cx| {
+                cx.emit(*event);
+            }),
         ]);
         self.viewer = Some(viewer);
     }
@@ -163,6 +166,8 @@ impl DiffClientView {
 impl EventEmitter<DiffClientEvent> for DiffClientView {}
 
 impl EventEmitter<ThemeChanged> for DiffClientView {}
+
+impl EventEmitter<ViewModeChanged> for DiffClientView {}
 
 impl Render for DiffClientView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {

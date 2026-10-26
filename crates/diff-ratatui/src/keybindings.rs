@@ -2,7 +2,7 @@ use crate::{
     DiffReviewCommand, FocusPane, KeyCode, KeyEvent, KeyModifiers, MarkdownFocusPane,
     MarkdownReviewCommand, ReviewCommand,
 };
-use clankerdiff_core::{DiffSide, RevealAmount};
+use clankerdiff_core::{DiffSide, RevealAmount, ViewMode};
 use std::{fmt::Write, ptr};
 use unicode_width::UnicodeWidthStr;
 
@@ -257,7 +257,13 @@ pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
             "collapse all",
             Any,
         ),
-        (K::Char('v'), C::CycleViewMode, "view", Any),
+        (K::Char('v'), C::ToggleLayout, "split / unified", Any),
+        (
+            K::Char('V'),
+            C::SetViewMode(ViewMode::Auto),
+            "auto layout",
+            Any,
+        ),
         (K::Char('S'), C::CycleScope, "scope", Any),
         (K::Char(']'), C::StepTarget(1), "next commit", Any),
         (K::Char('['), C::StepTarget(-1), "previous commit", Any),

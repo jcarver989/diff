@@ -30,7 +30,8 @@ const REVIEW: Shortcuts = &[
     ("c / e / x", "add / edit / delete comment"),
     ("u", "undo last comment"),
     ("s / y", "submit / copy review"),
-    ("v", "cycle layout"),
+    ("v", "toggle split / unified"),
+    ("V", "auto layout"),
     ("t", "choose theme (↑ / ↓, Enter, Esc)"),
     ("Esc / Ctrl-G", "cancel review"),
 ];

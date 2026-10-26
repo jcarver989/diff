@@ -19,6 +19,28 @@ use std::sync::Arc;
 
 #[cfg(feature = "test-support")]
 #[test]
+fn the_footer_names_the_layout_and_whether_auto_chose_it() {
+    let mut harness = ReviewHarness::new(
+        DocumentBuilder::new()
+            .changed("a.rs", "old\n", "new\n")
+            .build(),
+        160,
+        12,
+    );
+    harness.draw();
+    harness.assert_contains("auto: split · 0 comments");
+
+    harness.press(KeyCode::Char('v'));
+    harness.draw();
+    harness.assert_contains("unified · 0 comments");
+
+    harness.press(KeyCode::Char('V'));
+    harness.draw();
+    harness.assert_contains("auto: split · 0 comments");
+}
+
+#[cfg(feature = "test-support")]
+#[test]
 fn source_round_trip_restores_an_independently_scrolled_viewport() {
     let builder = DocumentBuilder::new().changed(
         "a.rs",

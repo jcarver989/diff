@@ -69,7 +69,6 @@ pub struct DiffViewerHarnessBuilder {
     pub options: DiffViewerOptions,
     pub window_options: WindowOptions,
     pub comments: Vec<String>,
-    pub view_mode: Option<ViewMode>,
     pub interface_size: f32,
 }
 
@@ -83,7 +82,6 @@ impl Default for DiffViewerHarnessBuilder {
             options: DiffViewerOptions::default(),
             window_options: WindowOptions::default(),
             comments: Vec::new(),
-            view_mode: None,
             interface_size: BASE_SIZE,
         }
     }
@@ -98,7 +96,7 @@ impl DiffViewerHarnessBuilder {
 
     #[must_use]
     pub fn with_view_mode(mut self, view_mode: ViewMode) -> Self {
-        self.view_mode = Some(view_mode);
+        self.options.view_mode = view_mode;
         self
     }
 
@@ -130,16 +128,12 @@ impl DiffViewerHarnessBuilder {
             options,
             window_options,
             comments,
-            view_mode,
             interface_size,
         } = self;
         cx.update(|cx| InterfaceSize::init(interface_size, cx));
         let harness = Harness::open(cx, window_options, move || {
             DiffViewer::with_options(document, theme, options)
         });
-        if let Some(mode) = view_mode {
-            harness.update(cx, |viewer, cx| viewer.set_view_mode(mode, cx));
-        }
         for body in comments {
             harness.add_comment(cx, body).expect("seed review comment");
         }

@@ -18,6 +18,8 @@ pub mod style;
 pub mod testing;
 mod viewer;
 
+use clankerdiff_core::ViewMode;
+
 pub use clankerdiff_core::DiffReviewEvent as DiffViewerEvent;
 pub use clankerdiff_gpui_ui as ui;
 pub use clankerdiff_markdown::MarkdownReviewEvent as MarkdownReviewerEvent;
@@ -29,6 +31,11 @@ pub use diff_preview::DiffPreviewCache;
 pub struct ThemeChanged {
     pub id: String,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewModeChanged {
+    pub mode: ViewMode,
+}
 pub use markdown_viewer::{
     MarkdownAddComment, MarkdownApprove, MarkdownCancel, MarkdownCopyReview, MarkdownDeleteComment,
     MarkdownEditComment, MarkdownFirstTarget, MarkdownLastTarget, MarkdownNextHeading,
@@ -39,11 +46,12 @@ pub use markdown_viewer::{
 };
 pub use viewer::{
     ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse,
-    CommitChanges, ConfirmDiscard, CopyReview, CycleScope, CycleViewMode, DeleteComment,
-    DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap, ExpandGapAll,
-    ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, LastItem, NextCommit, NextFile,
-    NextHunk, NextItem, PageDown, PageUp, PreviousCommit, PreviousFile, PreviousHunk, PreviousItem,
-    Refresh, SelectNewSide, SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment,
-    SubmitReview, ToggleAllFilesCollapsed, ToggleFileCollapsed, ToggleFullFile, TogglePane,
-    ToggleSidebar, ToggleSourceView, ToggleStage, UndoComment, UnstageAll, ViewerPane,
+    CommitChanges, ConfirmDiscard, CopyReview, CycleScope, DeleteComment, DiffViewer,
+    DiffViewerOptions, DiscardChanges, EditComment, ExpandGap, ExpandGapAll, ExpandOrOpen,
+    FirstItem, FocusDiff, FocusFiles, HideShortcuts, LastItem, NextCommit, NextFile, NextHunk,
+    NextItem, PageDown, PageUp, PreviousCommit, PreviousFile, PreviousHunk, PreviousItem, Refresh,
+    SelectNewSide, SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment,
+    SubmitReview, ToggleAllFilesCollapsed, ToggleFileCollapsed, ToggleFullFile, ToggleLayout,
+    TogglePane, ToggleSidebar, ToggleSourceView, ToggleStage, UndoComment, UnstageAll,
+    UseAutoLayout, ViewerPane,
 };

@@ -1,7 +1,7 @@
 use crate::ReviewCommand;
 use bitflags::bitflags;
-use clankerdiff_core::CommentDraft;
 pub use clankerdiff_core::InteractionPhase;
+use clankerdiff_core::{CommentDraft, ViewMode};
 use clankerdiff_markdown::MarkdownCommentDraft;
 use clankerdiff_theme::ThemeId;
 use ratatui::layout::Position;
@@ -12,6 +12,7 @@ pub enum InputOutcome<T> {
     Consumed,
     Emitted(T),
     ThemeSelected(ThemeId),
+    ViewModeSelected(ViewMode),
 }
 
 impl<T> InputOutcome<T> {
