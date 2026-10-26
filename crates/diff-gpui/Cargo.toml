@@ -25,6 +25,10 @@ gpui.workspace = true
 gpui-base.workspace = true
 
 [[test]]
+name = "keyboard"
+required-features = ["test-support"]
+
+[[test]]
 name = "diff_view_test"
 required-features = ["test-support"]
 
