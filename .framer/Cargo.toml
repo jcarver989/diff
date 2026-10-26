@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-framer = { path = "../../framer/crates/framer" }
-framer-presets = { path = "../../framer/crates/framer-presets" }
+framer = "0.1.1"
+framer-presets = "0.1.0"
 
 [workspace]

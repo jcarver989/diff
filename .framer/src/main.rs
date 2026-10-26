@@ -46,7 +46,6 @@ fn ci() -> Ci {
         .setup(GpuiApp::linux_dependencies())
         .compiling_job(features_job())
         .compiling_job(wasm_job())
-        .without_framer_check()
 }
 
 fn features_job() -> CompilingJob {
