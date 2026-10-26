@@ -1,0 +1,46 @@
+[package]
+name = "clankerdiff-cli"
+publish = false
+description = "Agent-driven code review CLI for Diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "clankerdiff"
+path = "src/main.rs"
+
+[package.metadata.dist]
+dist = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["desktop"]
+desktop = ["dep:clankerdiff-gpui-desktop"]
+
+[dependencies]
+clankerdiff-client = { workspace = true, features = ["websocket"] }
+clankerdiff-server.workspace = true
+clankerdiff-protocol.workspace = true
+clap.workspace = true
+crossterm.workspace = true
+clankerdiff-core.workspace = true
+clankerdiff-git.workspace = true
+clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-theme.workspace = true
+clankerdiff-gpui-desktop = { workspace = true, optional = true }
+clankerdiff-ratatui = { workspace = true, features = ["crossterm-backend"] }
+ratatui = { workspace = true, features = ["crossterm"] }
+serde.workspace = true
+serde_json.workspace = true
+shlex.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+clankerdiff-git = { workspace = true, features = ["test-support"] }
