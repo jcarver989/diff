@@ -14,6 +14,12 @@ A crate may depend only on crates in its own domain or a lower one: `util` < `ui
 
 Internal crates are declared once in the root `[workspace.dependencies]`; reference them with `.workspace = true`.
 
+## Generated configuration
+
+[framer](https://github.com/jcarver989/framer) generates the repository's configuration from `.framer/src/main.rs`: the toolchain pin, rustfmt, clippy and nextest config, `.tool-versions`, the workspace members, package settings, lints, profiles, gpui pins and internal crate paths in `Cargo.toml`, the CI and release-plz workflows, `dist-workspace.toml`, and the marked blocks in `justfile` and `.gitignore`. Files and blocks it owns say so in a header. Change `.framer/src/main.rs` and run `just framer` rather than editing them; `just framer-check` fails when they drift. `.framer/` depends on a sibling checkout of `../framer`.
+
+`.framer/src/lib.rs` holds the `GpuiApp` preset, which owns the gpui pins and the internal crate paths (`CRATES`). It's a library so sibling apps such as j-terminal and aether can apply it later; when a crate moves, update `CRATES` and run `just framer`.
+
 ## Coding conventions
 
 ### General
