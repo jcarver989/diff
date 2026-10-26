@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { TestProject } from "vitest/node";
 
 export default async function setup(project: TestProject) {
-  const root = fileURLToPath(new URL("../../../", import.meta.url));
+  const root = fileURLToPath(new URL("../../../../", import.meta.url));
   execFileSync("cargo", ["build", "-p", "clankerdiff-cli", "--no-default-features", "--bin", "clankerdiff", "--target-dir", join(root, "target")], { cwd: root, stdio: "inherit" });
   const repository = await mkdtemp(join(tmpdir(), "clankerdiff-browser-"));
   execFileSync("git", ["init", "-q", repository]);

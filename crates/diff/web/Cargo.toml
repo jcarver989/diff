@@ -15,16 +15,16 @@ crate-type = ["cdylib", "rlib"]
 workspace = true
 
 [dependencies]
-clankerdiff-core = { version = "0.3.3", path = "../diff-core" }
-clankerdiff-markdown = { version = "0.3.3", path = "../diff-markdown", features = ["review"] }
-clankerdiff-theme = { version = "0.3.3", path = "../diff-theme" }
-clankerdiff-gpui = { path = "../diff-gpui" }
+clankerdiff-core.workspace = true
+clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-theme.workspace = true
+clankerdiff-gpui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-clankerdiff-client = { version = "0.3.3", path = "../diff-client" }
+clankerdiff-client = { workspace = true, features = ["websocket"] }
 wasm-bindgen-futures = "0.4.70"
 async-channel.workspace = true
 console_error_panic_hook.workspace = true
