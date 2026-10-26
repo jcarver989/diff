@@ -1,7 +1,8 @@
 use clankerdiff_gpui_ui::{
     picker::fuzzy_filter,
     prelude::{
-        PickerItem, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent, UiTheme,
+        IconName, PickerItem, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent,
+        UiTheme,
     },
     testing::{ComponentHarness, ComponentHarnessBuilder},
 };
@@ -70,6 +71,58 @@ fn search_picker_skips_disabled_items_and_filters_as_the_user_types(cx: &mut Tes
                     SearchPickerEvent::Dismissed
                 ]
             );
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn grouped_items_stay_together_under_their_headings_however_a_search_ranks_them(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_base::init);
+    let picker: Rc<RefCell<Option<Entity<SearchPicker>>>> = Rc::default();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |window, cx| {
+            picker
+                .borrow_mut()
+                .get_or_insert_with(|| {
+                    cx.new(|cx| {
+                        let items = vec![
+                            PickerItem::new("one", "cloud one").group("Running"),
+                            PickerItem::new("new", "cloud")
+                                .group("Launch")
+                                .icon(IconName::Plus),
+                            PickerItem::new("two", "cloud two").group("Running"),
+                        ];
+                        SearchPicker::new(
+                            "picker",
+                            items,
+                            UiTheme::new(&ReviewTheme::default()),
+                            cx,
+                        )
+                        .searchable("Search…", window, cx)
+                    })
+                })
+                .clone()
+                .into_any_element()
+        },
+        |harness, cx| {
+            harness.simulate_input(cx, "cloud");
+            let running = harness
+                .bounds(cx, "picker-group-Running")
+                .ok_or("missing Running heading")?;
+            let launch = harness
+                .bounds(cx, "picker-group-Launch")
+                .ok_or("missing Launch heading")?;
+            let one = harness.bounds(cx, "picker-one").ok_or("missing one")?;
+            let two = harness.bounds(cx, "picker-two").ok_or("missing two")?;
+            let new = harness.bounds(cx, "picker-new").ok_or("missing new")?;
+            assert!(running.bottom() <= one.top());
+            assert!(one.bottom() <= two.top());
+            assert!(two.bottom() <= launch.top());
+            assert!(launch.bottom() <= new.top());
             Ok(())
         },
     );
