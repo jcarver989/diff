@@ -15,7 +15,7 @@ test-support = ["gpui/test-support", "gpui-base/test-support"]
 workspace = true
 
 [dependencies]
-clankerdiff-theme = { version = "0.3.3", path = "../diff-theme" }
+clankerdiff-theme.workspace = true
 gpui.workspace = true
 gpui-base.workspace = true
 nucleo-matcher.workspace = true
