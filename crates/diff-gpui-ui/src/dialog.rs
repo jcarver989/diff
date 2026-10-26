@@ -14,6 +14,7 @@ pub const CONTEXT: &str = "ConfirmDialog";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfirmDialogEvent {
     Confirmed,
+    Alternate,
     Cancelled,
 }
 
@@ -22,6 +23,10 @@ pub struct ConfirmDialog {
     title: SharedString,
     message: SharedString,
     confirm: SharedString,
+    confirm_variant: ButtonVariant,
+    alternate: Option<SharedString>,
+    alternate_variant: ButtonVariant,
+    cancel: bool,
     theme: UiTheme,
     focus_handle: FocusHandle,
 }
@@ -50,9 +55,37 @@ impl ConfirmDialog {
             title: title.into(),
             message: message.into(),
             confirm: confirm.into(),
+            confirm_variant: ButtonVariant::Destructive,
+            alternate: None,
+            alternate_variant: ButtonVariant::Secondary,
+            cancel: true,
             theme,
             focus_handle,
         }
+    }
+
+    #[must_use]
+    pub const fn confirm_variant(mut self, variant: ButtonVariant) -> Self {
+        self.confirm_variant = variant;
+        self
+    }
+
+    #[must_use]
+    pub fn alternate(mut self, label: impl Into<SharedString>) -> Self {
+        self.alternate = Some(label.into());
+        self
+    }
+
+    #[must_use]
+    pub const fn alternate_variant(mut self, variant: ButtonVariant) -> Self {
+        self.alternate_variant = variant;
+        self
+    }
+
+    #[must_use]
+    pub const fn without_cancel(mut self) -> Self {
+        self.cancel = false;
+        self
     }
 }
 
@@ -96,18 +129,23 @@ impl Render for ConfirmDialog {
                             .flex()
                             .justify_end()
                             .gap_2()
-                            .child(
+                            .children(self.cancel.then(|| {
                                 Button::new(format!("{}-cancel", self.id), "Cancel", self.theme)
                                     .variant(ButtonVariant::Secondary)
-                                    .on_click(emit(ConfirmDialogEvent::Cancelled)),
-                            )
+                                    .on_click(emit(ConfirmDialogEvent::Cancelled))
+                            }))
+                            .children(self.alternate.clone().map(|alternate| {
+                                Button::new(format!("{}-alternate", self.id), alternate, self.theme)
+                                    .variant(self.alternate_variant)
+                                    .on_click(emit(ConfirmDialogEvent::Alternate))
+                            }))
                             .child(
                                 Button::new(
                                     format!("{}-confirm", self.id),
                                     self.confirm.clone(),
                                     self.theme,
                                 )
-                                .variant(ButtonVariant::Destructive)
+                                .variant(self.confirm_variant)
                                 .on_click(emit(ConfirmDialogEvent::Confirmed)),
                             ),
                     ),
