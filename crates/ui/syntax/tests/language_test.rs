@@ -1,6 +1,4 @@
-use clankerdiff_syntax::{
-    Fingerprint, LanguageHint, SyntaxError, SyntaxHighlighter, SyntaxTheme, resolve_language,
-};
+use clankerdiff_syntax::{Fingerprint, LanguageHint, SyntaxError, SyntaxHighlighter, SyntaxTheme, resolve_language};
 use tree_sitter::QueryErrorKind;
 
 #[test]
@@ -56,16 +54,10 @@ fn preserves_detector_fallbacks_and_local_precedence() {
         ("xsl", "xml"),
         ("xslt", "xml"),
     ] {
-        for hint in [
-            alias.to_owned(),
-            format!("src/file.{alias}"),
-            format!("SRC\\\\FILE.{}", alias.to_ascii_uppercase()),
-        ] {
-            assert_eq!(
-                resolve_language(hint.as_str(), "#!/bin/bash"),
-                Some(expected),
-                "{hint}"
-            );
+        for hint in
+            [alias.to_owned(), format!("src/file.{alias}"), format!("SRC\\\\FILE.{}", alias.to_ascii_uppercase())]
+        {
+            assert_eq!(resolve_language(hint.as_str(), "#!/bin/bash"), Some(expected), "{hint}");
         }
     }
     for (hint, expected) in [
@@ -149,11 +141,7 @@ fn bundled_grammars_preserve_query_support() -> Result<(), SyntaxError> {
         "zsh",
     ] {
         assert_eq!(resolve_language(language, ""), Some(language));
-        let result = highlighter.with_theme(&theme).highlight_document(
-            Fingerprint::of(["x\n"]),
-            language,
-            || "x\n",
-        );
+        let result = highlighter.with_theme(&theme).highlight_document(Fingerprint::of(["x\n"]), language, || "x\n");
         if language == "perl" {
             assert!(
                 matches!(result, Err(SyntaxError::Query { source, .. })
@@ -168,8 +156,7 @@ fn bundled_grammars_preserve_query_support() -> Result<(), SyntaxError> {
 }
 
 #[test]
-fn bundled_languages_resolve_representative_families_and_exclude_nginx() -> Result<(), SyntaxError>
-{
+fn bundled_languages_resolve_representative_families_and_exclude_nginx() -> Result<(), SyntaxError> {
     let fixtures = [
         ("main.zig", "const x: u8 = 1;", "zig"),
         ("flake.nix", "{ pkgs, ... }: { }", "nix"),
@@ -197,26 +184,17 @@ fn bundled_languages_resolve_representative_families_and_exclude_nginx() -> Resu
     let mut highlighter = SyntaxHighlighter::default();
     let mut styled_fixture_count = 0;
     for (path, source, expected) in fixtures {
-        assert_eq!(
-            resolve_language(LanguageHint::Path(path), source),
-            Some(expected),
-            "{path}"
-        );
+        assert_eq!(resolve_language(LanguageHint::Path(path), source), Some(expected), "{path}");
         let highlights = highlighter.with_theme(&theme).highlight_document(
             Fingerprint::of([source]),
             LanguageHint::Path(path),
             || source,
         )?;
-        styled_fixture_count += usize::from((0..highlights.line_count()).any(|index| {
-            highlights
-                .line(index)
-                .is_some_and(|spans| !spans.is_empty())
-        }));
+        styled_fixture_count += usize::from(
+            (0..highlights.line_count()).any(|index| highlights.line(index).is_some_and(|spans| !spans.is_empty())),
+        );
     }
-    assert!(
-        styled_fixture_count >= 15,
-        "only {styled_fixture_count} fixtures highlighted"
-    );
+    assert!(styled_fixture_count >= 15, "only {styled_fixture_count} fixtures highlighted");
     assert_eq!(resolve_language("nginx", "server {}"), None);
     Ok(())
 }

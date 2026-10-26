@@ -1,8 +1,8 @@
 //! Review comments, submissions, and agent-facing feedback for Markdown documents.
 
 use crate::{
-    MarkdownAnchor, MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownLineRange,
-    MarkdownTargetId, MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT,
+    MarkdownAnchor, MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownLineRange, MarkdownTargetId,
+    MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT,
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, fmt::Write};
@@ -68,13 +68,7 @@ impl MarkdownReview {
     ) -> u64 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
-        self.comments.push(MarkdownReviewComment {
-            id,
-            anchor,
-            body: body.into(),
-            context,
-            outdated: false,
-        });
+        self.comments.push(MarkdownReviewComment { id, anchor, body: body.into(), context, outdated: false });
         id
     }
 
@@ -123,10 +117,7 @@ impl MarkdownReview {
 
     #[must_use]
     pub fn outdated_count(&self) -> usize {
-        self.comments
-            .iter()
-            .filter(|comment| comment.outdated)
-            .count()
+        self.comments.iter().filter(|comment| comment.outdated).count()
     }
 
     /// Returns comments in insertion order.
@@ -145,9 +136,7 @@ impl MarkdownReview {
         &'a self,
         anchor: &MarkdownAnchor,
     ) -> impl DoubleEndedIterator<Item = &'a MarkdownReviewComment> {
-        self.comments
-            .iter()
-            .filter(move |comment| &comment.anchor == anchor)
+        self.comments.iter().filter(move |comment| &comment.anchor == anchor)
     }
 
     /// Returns comments associated with a target in `document`.
@@ -159,11 +148,7 @@ impl MarkdownReview {
     ) -> std::vec::IntoIter<&'a MarkdownReviewComment> {
         document.anchor_for_target(target).map_or_else(
             || Vec::new().into_iter(),
-            |anchor| {
-                self.comments_for_anchor(&anchor)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-            },
+            |anchor| self.comments_for_anchor(&anchor).collect::<Vec<_>>().into_iter(),
         )
     }
 
@@ -201,12 +186,11 @@ impl MarkdownReview {
     /// have been inserted without a session draft.
     #[must_use]
     pub fn submission(&self, decision: MarkdownReviewDecision) -> MarkdownReviewSubmission {
-        self.try_submission(decision)
-            .unwrap_or_else(|_| MarkdownReviewSubmission {
-                decision,
-                comments: self.ordered_comments(),
-                formatted: format_markdown_review(self, decision),
-            })
+        self.try_submission(decision).unwrap_or_else(|_| MarkdownReviewSubmission {
+            decision,
+            comments: self.ordered_comments(),
+            formatted: format_markdown_review(self, decision),
+        })
     }
 
     /// Produces a submission after validating that every body is nonblank.
@@ -219,11 +203,7 @@ impl MarkdownReview {
         &self,
         decision: MarkdownReviewDecision,
     ) -> Result<MarkdownReviewSubmission, MarkdownReviewError> {
-        if let Some(comment) = self
-            .comments
-            .iter()
-            .find(|comment| comment.body.trim().is_empty())
-        {
+        if let Some(comment) = self.comments.iter().find(|comment| comment.body.trim().is_empty()) {
             return Err(MarkdownReviewError::BlankComment { id: comment.id });
         }
         Ok(MarkdownReviewSubmission {
@@ -242,11 +222,7 @@ impl MarkdownReview {
 
 impl MarkdownCommentContext {
     /// Captures the display and source context for a document target.
-    pub fn from_target(
-        document: &MarkdownDocument,
-        target: MarkdownTargetId,
-        anchor: &MarkdownAnchor,
-    ) -> Option<Self> {
+    pub fn from_target(document: &MarkdownDocument, target: MarkdownTargetId, anchor: &MarkdownAnchor) -> Option<Self> {
         let target_info = document.target(target)?;
         let excerpt = match anchor {
             MarkdownAnchor::Block(anchor) => anchor.snapshot.clone(),
@@ -265,22 +241,14 @@ impl MarkdownCommentContext {
 
 fn context_from_anchor(anchor: &MarkdownAnchor) -> MarkdownCommentContext {
     let (kind, source_lines, excerpt, heading_path, code_language) = match anchor {
-        MarkdownAnchor::Block(anchor) => (
-            anchor.kind,
-            anchor.source_lines,
-            anchor.snapshot.clone(),
-            anchor.heading_path.clone(),
-            None,
-        ),
+        MarkdownAnchor::Block(anchor) => {
+            (anchor.kind, anchor.source_lines, anchor.snapshot.clone(), anchor.heading_path.clone(), None)
+        }
         MarkdownAnchor::CodeLine(anchor) => (
             MarkdownTargetKind::CodeLine,
             MarkdownLineRange {
-                start: anchor
-                    .source_line
-                    .unwrap_or(anchor.block.source_lines.start),
-                end: anchor
-                    .source_line
-                    .unwrap_or(anchor.block.source_lines.start),
+                start: anchor.source_line.unwrap_or(anchor.block.source_lines.start),
+                end: anchor.source_line.unwrap_or(anchor.block.source_lines.start),
             },
             anchor.snapshot.clone(),
             anchor.block.heading_path.clone(),
@@ -306,10 +274,7 @@ fn heading_path(document: &MarkdownDocument, line: usize) -> Vec<String> {
         if heading.source.lines.start > line {
             break;
         }
-        while path
-            .last()
-            .is_some_and(|(level, _)| *level >= heading.level)
-        {
+        while path.last().is_some_and(|(level, _)| *level >= heading.level) {
             path.pop();
         }
         path.push((heading.level, heading.title.clone()));
@@ -318,28 +283,20 @@ fn heading_path(document: &MarkdownDocument, line: usize) -> Vec<String> {
 }
 
 fn code_language(document: &MarkdownDocument, target: MarkdownTargetId) -> Option<String> {
-    document
-        .blocks()
-        .iter()
-        .find_map(|block| code_language_in(block, target))
+    document.blocks().iter().find_map(|block| code_language_in(block, target))
 }
 
 fn code_language_in(block: &MarkdownBlock, target: MarkdownTargetId) -> Option<String> {
     match &block.kind {
         MarkdownBlockKind::CodeBlock(code)
-            if code.target_id == Some(target)
-                || code.lines.iter().any(|line| line.target_id == Some(target)) =>
+            if code.target_id == Some(target) || code.lines.iter().any(|line| line.target_id == Some(target)) =>
         {
             code.language.clone()
         }
-        MarkdownBlockKind::List { items, .. } => items.iter().find_map(|item| {
-            item.blocks
-                .iter()
-                .find_map(|block| code_language_in(block, target))
-        }),
-        MarkdownBlockKind::BlockQuote { blocks } => blocks
-            .iter()
-            .find_map(|block| code_language_in(block, target)),
+        MarkdownBlockKind::List { items, .. } => {
+            items.iter().find_map(|item| item.blocks.iter().find_map(|block| code_language_in(block, target)))
+        }
+        MarkdownBlockKind::BlockQuote { blocks } => blocks.iter().find_map(|block| code_language_in(block, target)),
         _ => None,
     }
 }
@@ -362,11 +319,7 @@ pub fn format_markdown_review(review: &MarkdownReview, decision: MarkdownReviewD
     let mut current_heading: Option<&[String]> = None;
 
     for comment in comments {
-        let path = comment
-            .context
-            .source_path
-            .as_deref()
-            .or_else(|| anchor_path(&comment.anchor));
+        let path = comment.context.source_path.as_deref().or_else(|| anchor_path(&comment.anchor));
         if current_path != Some(path) {
             let display_path = path.unwrap_or("<document>");
             let _ = write!(output, "\n\n## `{display_path}`");
@@ -395,11 +348,7 @@ pub fn format_markdown_review(review: &MarkdownReview, decision: MarkdownReviewD
                 "markdown"
             }
         });
-        let _ = write!(
-            output,
-            "\n\n{fence}{language}\n{}\n{fence}",
-            comment.context.source_excerpt
-        );
+        let _ = write!(output, "\n\n{fence}{language}\n{}\n{fence}", comment.context.source_excerpt);
         output.push_str("\n\n");
         quote_body(&mut output, &comment.body);
     }
@@ -411,12 +360,7 @@ fn compare_comments(left: &MarkdownReviewComment, right: &MarkdownReviewComment)
     let right_path = right.context.source_path.as_deref().unwrap_or("");
     left_path
         .cmp(right_path)
-        .then_with(|| {
-            left.context
-                .source_lines
-                .start
-                .cmp(&right.context.source_lines.start)
-        })
+        .then_with(|| left.context.source_lines.start.cmp(&right.context.source_lines.start))
         .then_with(|| code_line_index(&left.anchor).cmp(&code_line_index(&right.anchor)))
         .then_with(|| left.id.cmp(&right.id))
         .then_with(|| left.context.heading_path.cmp(&right.context.heading_path))
@@ -509,12 +453,7 @@ mod tests {
     }
 
     fn target(document: &MarkdownDocument, kind: MarkdownTargetKind) -> MarkdownTargetId {
-        document
-            .targets()
-            .iter()
-            .find(|target| target.kind == kind)
-            .expect("target")
-            .id
+        document.targets().iter().find(|target| target.kind == kind).expect("target").id
     }
 
     #[test]
@@ -522,13 +461,8 @@ mod tests {
         let old = document("# Plan\n\nReview this.\n");
         let id = target(&old, MarkdownTargetKind::Paragraph);
         let mut review = MarkdownReview::default();
-        let comment_id = review
-            .add_comment_for_target(&old, id, "Please clarify.")
-            .unwrap();
-        assert_eq!(
-            review.comment(comment_id).unwrap().context.target_label,
-            "Review this."
-        );
+        let comment_id = review.add_comment_for_target(&old, id, "Please clarify.").unwrap();
+        assert_eq!(review.comment(comment_id).unwrap().context.target_label, "Review this.");
         let replacement = document("# Plan\n\nChanged.\n");
         review.reconcile(&replacement);
         assert!(review.comment(comment_id).unwrap().outdated);
@@ -540,9 +474,7 @@ mod tests {
         let document = document("# Plan\n\nA `quoted` paragraph.\n");
         let id = target(&document, MarkdownTargetKind::Paragraph);
         let mut review = MarkdownReview::default();
-        review
-            .add_comment_for_target(&document, id, "first\nsecond")
-            .unwrap();
+        review.add_comment_for_target(&document, id, "first\nsecond").unwrap();
         let output = format_markdown_review(&review, MarkdownReviewDecision::ChangesRequested);
         assert!(output.contains("### Heading: Plan"));
         assert!(output.contains("> first\n> second"));
@@ -560,10 +492,7 @@ mod tests {
             Err(MarkdownReviewError::BlankComment { .. })
         ));
         assert_eq!(
-            format_markdown_review(
-                &MarkdownReview::default(),
-                MarkdownReviewDecision::ChangesRequested
-            ),
+            format_markdown_review(&MarkdownReview::default(), MarkdownReviewDecision::ChangesRequested),
             "Changes requested, but no inline comments were provided."
         );
         assert_eq!(

@@ -7,15 +7,10 @@ use std::convert::Infallible;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event<T> {
-    Initialize {
-        protocol_version: u32,
-        repository_root: String,
-    },
+    Initialize { protocol_version: u32, repository_root: String },
     Document(T),
     RequestResult(Result<(), RemoteError>),
-    Health {
-        error: Option<RemoteError>,
-    },
+    Health { error: Option<RemoteError> },
     Error(RemoteError),
 }
 
@@ -28,13 +23,9 @@ impl<T> Event<T> {
     pub fn try_map<U, E>(self, document: impl FnOnce(T) -> Result<U, E>) -> Result<Event<U>, E> {
         Ok(match self {
             Self::Document(value) => Event::Document(document(value)?),
-            Self::Initialize {
-                protocol_version,
-                repository_root,
-            } => Event::Initialize {
-                protocol_version,
-                repository_root,
-            },
+            Self::Initialize { protocol_version, repository_root } => {
+                Event::Initialize { protocol_version, repository_root }
+            }
             Self::RequestResult(result) => Event::RequestResult(result),
             Self::Health { error } => Event::Health { error },
             Self::Error(error) => Event::Error(error),

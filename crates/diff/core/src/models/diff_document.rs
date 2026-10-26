@@ -28,14 +28,9 @@ impl DiffDocument {
         T::Error: Into<RepoPathError>,
         U: IntoIterator<Item = (T, &'a str, &'a str)>,
     {
-        let files = files
-            .into_iter()
-            .map(|(path, old, new)| FileDiff::from_texts(path, old, new))
-            .collect::<Result<_, _>>()?;
-        Ok(Self {
-            files,
-            ..Self::default()
-        })
+        let files =
+            files.into_iter().map(|(path, old, new)| FileDiff::from_texts(path, old, new)).collect::<Result<_, _>>()?;
+        Ok(Self { files, ..Self::default() })
     }
 
     #[must_use]

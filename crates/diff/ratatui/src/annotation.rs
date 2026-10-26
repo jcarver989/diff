@@ -54,24 +54,14 @@ impl AnnotationBox {
         available_width: u16,
     ) -> Self {
         let indent = LEFT_INDENT.min(available_width);
-        let width = available_width
-            .saturating_sub(indent)
-            .saturating_sub(RIGHT_INSET);
+        let width = available_width.saturating_sub(indent).saturating_sub(RIGHT_INSET);
         if width < MIN_BOX_WIDTH {
             let compact_width = available_width.saturating_sub(indent);
             let prefix = format!("│ {title}: ");
-            let text = fit_to_width(
-                &format!("{prefix}{}", body.replace('\n', " ⏎ ")),
-                usize::from(compact_width),
-            );
+            let text = fit_to_width(&format!("{prefix}{}", body.replace('\n', " ⏎ ")), usize::from(compact_width));
             let cursor = cursor.map(|cursor| {
                 let before = format!("{prefix}{}", body[..cursor].replace('\n', " ⏎ "));
-                (
-                    0,
-                    indent.saturating_add(
-                        display_width(&before).min(compact_width.saturating_sub(1)),
-                    ),
-                )
+                (0, indent.saturating_add(display_width(&before).min(compact_width.saturating_sub(1))))
             });
             return Self {
                 kind,
@@ -83,9 +73,7 @@ impl AnnotationBox {
             };
         }
 
-        let body_width = width
-            .saturating_sub(2)
-            .saturating_sub(HORIZONTAL_PADDING.saturating_mul(2));
+        let body_width = width.saturating_sub(2).saturating_sub(HORIZONTAL_PADDING.saturating_mul(2));
         let (body_lines, wrapped_cursor) = wrap_with_cursor(body, usize::from(body_width), cursor);
         let mut lines = Vec::with_capacity(body_lines.len() + 2);
         lines.push(AnnotationLine::Top);
@@ -100,14 +88,7 @@ impl AnnotationBox {
                     .saturating_add(u16::try_from(column).unwrap_or(u16::MAX)),
             )
         });
-        Self {
-            kind,
-            title: title.to_owned(),
-            width,
-            indent,
-            lines,
-            cursor,
-        }
+        Self { kind, title: title.to_owned(), width, indent, lines, cursor }
     }
 
     pub(crate) const fn kind(&self) -> AnnotationKind {
@@ -136,17 +117,11 @@ impl AnnotationBox {
     }
 
     pub(crate) fn cursor_column(&self, line: usize) -> Option<u16> {
-        self.cursor
-            .filter(|(cursor_line, _)| *cursor_line == line)
-            .map(|(_, column)| column)
+        self.cursor.filter(|(cursor_line, _)| *cursor_line == line).map(|(_, column)| column)
     }
 }
 
-fn wrap_with_cursor(
-    text: &str,
-    width: usize,
-    cursor: Option<usize>,
-) -> (Vec<String>, Option<(usize, usize)>) {
+fn wrap_with_cursor(text: &str, width: usize, cursor: Option<usize>) -> (Vec<String>, Option<(usize, usize)>) {
     let width = width.max(1);
     let mut lines = Vec::new();
     let mut line = String::new();
@@ -155,8 +130,7 @@ fn wrap_with_cursor(
 
     for (offset, character) in text.char_indices() {
         let character_width = character.width().unwrap_or(0);
-        if character != '\n' && line_width > 0 && line_width.saturating_add(character_width) > width
-        {
+        if character != '\n' && line_width > 0 && line_width.saturating_add(character_width) > width {
             lines.push(std::mem::take(&mut line));
             line_width = 0;
         }
@@ -216,19 +190,13 @@ pub(crate) fn render_annotation_line(
         AnnotationKind::Outdated => theme.ui.text_muted,
         AnnotationKind::Comment | AnnotationKind::Draft => theme.ui.accent,
     };
-    let body_color = if annotation.kind() == AnnotationKind::Outdated {
-        theme.ui.text_muted
-    } else {
-        theme.ui.text
-    };
+    let body_color = if annotation.kind() == AnnotationKind::Outdated { theme.ui.text_muted } else { theme.ui.text };
     let border = Style::new().fg(border_color).bg(theme.ui.canvas);
     let body = Style::new().fg(body_color).bg(theme.ui.canvas);
     let box_area = Rect::new(
         area.x.saturating_add(annotation.indent()),
         area.y,
-        annotation
-            .width()
-            .min(area.width.saturating_sub(annotation.indent())),
+        annotation.width().min(area.width.saturating_sub(annotation.indent())),
         1,
     );
     let width = usize::from(box_area.width);
@@ -265,9 +233,7 @@ pub(crate) fn render_annotation_line(
                 Span::styled(" │", border),
             ])
         }
-        AnnotationLine::Bottom => {
-            Line::styled(format!("╰{}╯", "─".repeat(width.saturating_sub(2))), border)
-        }
+        AnnotationLine::Bottom => Line::styled(format!("╰{}╯", "─".repeat(width.saturating_sub(2))), border),
         AnnotationLine::Compact(text) => Line::from(vec![
             Span::styled("│ ", border),
             Span::styled(text.strip_prefix("│ ").unwrap_or(text).to_owned(), body),
@@ -302,17 +268,8 @@ mod tests {
 
     #[test]
     fn very_narrow_areas_use_a_compact_line() {
-        let box_layout = AnnotationBox::new(
-            AnnotationKind::Draft,
-            "Draft",
-            "界界界",
-            Some("界界界".len()),
-            8,
-        );
-        assert!(matches!(
-            box_layout.lines.as_slice(),
-            [AnnotationLine::Compact(_)]
-        ));
+        let box_layout = AnnotationBox::new(AnnotationKind::Draft, "Draft", "界界界", Some("界界界".len()), 8);
+        assert!(matches!(box_layout.lines.as_slice(), [AnnotationLine::Compact(_)]));
         assert!(box_layout.cursor_column(0).is_some());
     }
 

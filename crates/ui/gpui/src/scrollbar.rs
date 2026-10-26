@@ -3,8 +3,8 @@ use crate::{
     tokens::{SCROLLBAR_MIN_THUMB_HEIGHT, SCROLLBAR_WIDTH, rem},
 };
 use gpui::{
-    App, DragMoveEvent, ElementId, Empty, IntoElement, ListState, MouseButton, MouseDownEvent,
-    Pixels, RenderOnce, Window, div, point, prelude::*, px,
+    App, DragMoveEvent, ElementId, Empty, IntoElement, ListState, MouseButton, MouseDownEvent, Pixels, RenderOnce,
+    Window, div, point, prelude::*, px,
 };
 use std::cell::Cell;
 
@@ -22,11 +22,7 @@ pub struct ListScrollbar {
 impl ListScrollbar {
     #[must_use]
     pub fn new(id: impl Into<ElementId>, list: ListState, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            list,
-            theme,
-        }
+        Self { id: id.into(), list, theme }
     }
 }
 
@@ -72,19 +68,11 @@ impl RenderOnce for ListScrollbar {
             .flex_shrink_0()
             .relative()
             .bg(colors.canvas)
-            .on_mouse_down(
-                MouseButton::Left,
-                move |event: &MouseDownEvent, window, cx| {
-                    set_offset_from_pointer(
-                        &click_list,
-                        event.position.y,
-                        thumb_height / 2.0,
-                        min_thumb_height,
-                    );
-                    cx.stop_propagation();
-                    window.refresh();
-                },
-            )
+            .on_mouse_down(MouseButton::Left, move |event: &MouseDownEvent, window, cx| {
+                set_offset_from_pointer(&click_list, event.position.y, thumb_height / 2.0, min_thumb_height);
+                cx.stop_propagation();
+                window.refresh();
+            })
             .on_drag_move(move |event: &DragMoveEvent<ScrollbarDrag>, window, cx| {
                 let drag = event.drag(cx);
                 if drag.scrollbar != scrollbar {
@@ -150,12 +138,7 @@ fn thumb_height(viewport_height: Pixels, min_thumb_height: Pixels) -> Pixels {
     min_thumb_height.min(viewport_height / 2.0)
 }
 
-fn set_offset_from_pointer(
-    list: &ListState,
-    pointer_y: Pixels,
-    thumb_offset: Pixels,
-    min_thumb_height: Pixels,
-) {
+fn set_offset_from_pointer(list: &ListState, pointer_y: Pixels, thumb_offset: Pixels, min_thumb_height: Pixels) {
     let viewport = list.viewport_bounds();
     let max_offset = list.max_offset_for_scrollbar().y;
     let thumb_height = thumb_height(viewport.size.height, min_thumb_height);

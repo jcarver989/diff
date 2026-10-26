@@ -22,6 +22,4 @@ pub use incremental::MarkdownParseStats;
 pub use review::*;
 #[cfg(feature = "review")]
 pub use session::*;
-pub use stream::{
-    MarkdownStream, MarkdownStreamChanges, MarkdownStreamIdentity, MarkdownStreamUpdate,
-};
+pub use stream::{MarkdownStream, MarkdownStreamChanges, MarkdownStreamIdentity, MarkdownStreamUpdate};

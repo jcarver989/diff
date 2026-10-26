@@ -4,10 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientCommand {
-    Initialize {
-        protocol_version: u32,
-        target: ReviewTarget,
-    },
+    Initialize { protocol_version: u32, target: ReviewTarget },
     SetTarget(ReviewTarget),
     Apply(RepositoryAction),
     Refresh,

@@ -1,8 +1,8 @@
 use crate::document::{
-    LineIndex, MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownDocument,
-    MarkdownSourceStyle, MarkdownTarget, MarkdownTargetId, MarkdownTargetKind, assign_targets,
-    collect_source_styles, event_tree, fence_marker, fenced_code_line, fenced_code_lines,
-    fenced_content_bounds, parse_block, parser_options, source_range,
+    LineIndex, MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownDocument, MarkdownSourceStyle,
+    MarkdownTarget, MarkdownTargetId, MarkdownTargetKind, assign_targets, collect_source_styles, event_tree,
+    fence_marker, fenced_code_line, fenced_code_lines, fenced_content_bounds, parse_block, parser_options,
+    source_range,
 };
 use pulldown_cmark::Parser;
 use std::{borrow::Cow, collections::BTreeMap, ops::Range};
@@ -132,10 +132,7 @@ impl IncrementalDocument {
 
     pub(crate) fn replace(&mut self, source: &str) -> usize {
         let stats = self.stats;
-        *self = Self {
-            stats,
-            ..Self::default()
-        };
+        *self = Self { stats, ..Self::default() };
         self.append(source);
         0
     }
@@ -164,12 +161,7 @@ impl IncrementalDocument {
         let mut first_changed = self.settled.blocks;
         loop {
             first_changed = first_changed.min(self.settled.blocks);
-            let parsed = parse_from(
-                &self.document.source,
-                &self.index,
-                self.settled.source_end,
-                &self.settled.prefix,
-            );
+            let parsed = parse_from(&self.document.source, &self.index, self.settled.source_end, &self.settled.prefix);
             self.stats.parsed_bytes += parsed.parsed_bytes;
             self.stats.source_bytes_copied += parsed.copied_bytes;
             self.stats.prefix_bytes_copied += parsed.prefix_bytes;
@@ -200,18 +192,12 @@ impl IncrementalDocument {
         document.source_styles.extend(styles);
         document.targets.truncate(settled.targets);
         document.outline.truncate(settled.outline);
-        assign_targets(
-            &mut document.blocks[settled.blocks..],
-            &mut document.targets,
-            &mut document.outline,
-        );
+        assign_targets(&mut document.blocks[settled.blocks..], &mut document.targets, &mut document.outline);
     }
 
     fn unsettle(&mut self, block: usize) {
         let blocks = &self.document.blocks;
-        let gap_start = block
-            .checked_sub(1)
-            .map_or(0, |previous| blocks[previous].source.bytes.end);
+        let gap_start = block.checked_sub(1).map_or(0, |previous| blocks[previous].source.bytes.end);
         let end = self.attached_start(blocks[block].source.bytes.start, gap_start);
         self.settled.blocks = block;
         self.settled.source_end = end;
@@ -221,9 +207,7 @@ impl IncrementalDocument {
         for span in &self.settled.definitions {
             self.stats.prefix_bytes_copied += span.len() + 1;
             self.stats.source_bytes_copied += span.len() + 1;
-            self.settled
-                .prefix
-                .push_str(&self.document.source[span.clone()]);
+            self.settled.prefix.push_str(&self.document.source[span.clone()]);
             self.settled.prefix.push('\n');
         }
         self.sync_settled_counts();
@@ -233,15 +217,9 @@ impl IncrementalDocument {
     fn sync_settled_counts(&mut self) {
         let end = self.settled.source_end;
         let document = &self.document;
-        self.settled.targets = document
-            .targets
-            .partition_point(|target| target.source.bytes.start < end);
-        self.settled.outline = document
-            .outline
-            .partition_point(|heading| heading.source.bytes.start < end);
-        self.settled.styles = document
-            .source_styles
-            .partition_point(|style| style.source.bytes.start < end);
+        self.settled.targets = document.targets.partition_point(|target| target.source.bytes.start < end);
+        self.settled.outline = document.outline.partition_point(|heading| heading.source.bytes.start < end);
+        self.settled.styles = document.source_styles.partition_point(|style| style.source.bytes.start < end);
     }
 
     fn settle_tail(&mut self) {
@@ -249,8 +227,7 @@ impl IncrementalDocument {
         let mut settled = self.settled.blocks;
         let mut end = self.settled.source_end;
         while settled < blocks.len() {
-            let Some(boundary) = self.settle_boundary(&blocks[settled], blocks.get(settled + 1))
-            else {
+            let Some(boundary) = self.settle_boundary(&blocks[settled], blocks.get(settled + 1)) else {
                 break;
             };
             end = boundary;
@@ -279,9 +256,7 @@ impl IncrementalDocument {
             if span.end <= end {
                 self.stats.prefix_bytes_copied += span.len() + 1;
                 self.stats.source_bytes_copied += span.len() + 1;
-                self.settled
-                    .prefix
-                    .push_str(&self.document.source[span.clone()]);
+                self.settled.prefix.push_str(&self.document.source[span.clone()]);
                 self.settled.prefix.push('\n');
                 self.settled.definitions.push(span);
             } else {
@@ -291,11 +266,7 @@ impl IncrementalDocument {
         self.tail_definitions = remaining;
     }
 
-    fn settle_boundary(
-        &self,
-        block: &MarkdownBlock,
-        next: Option<&MarkdownBlock>,
-    ) -> Option<usize> {
+    fn settle_boundary(&self, block: &MarkdownBlock, next: Option<&MarkdownBlock>) -> Option<usize> {
         let source = self.document.source.as_str();
         if let Some(next) = next {
             let start = next.source.bytes.start;
@@ -307,9 +278,7 @@ impl IncrementalDocument {
         }
         let end = block.source.bytes.end;
         match &block.kind {
-            MarkdownBlockKind::Heading { .. } | MarkdownBlockKind::Rule => {
-                source[..end].ends_with('\n').then_some(end)
-            }
+            MarkdownBlockKind::Heading { .. } | MarkdownBlockKind::Rule => source[..end].ends_with('\n').then_some(end),
             MarkdownBlockKind::Paragraph { .. }
             | MarkdownBlockKind::Table(_)
             | MarkdownBlockKind::BlockQuote { .. } => blank_line_at(source, end).then_some(end),
@@ -345,13 +314,10 @@ impl IncrementalDocument {
             return;
         };
         let start = block.source.bytes.start;
-        if code.info.is_none() || block.source.bytes.end != len || !self.index.line_complete(start)
-        {
+        if code.info.is_none() || block.source.bytes.end != len || !self.index.line_complete(start) {
             return;
         }
-        let opening_end = source[start..]
-            .find('\n')
-            .map_or(len, |offset| start + offset + 1);
+        let opening_end = source[start..].find('\n').map_or(len, |offset| start + offset + 1);
         let (marker, count) = fence_marker(&source[start..opening_end]);
         let line_start = self.index.line_start_of(len).max(opening_end);
         let mut state = FenceLine::Indent(0);
@@ -373,12 +339,7 @@ impl IncrementalDocument {
 
     fn extend_fence(&mut self, start: usize) -> Option<usize> {
         let mut fence = self.fence.take()?;
-        let MarkdownDocument {
-            source,
-            blocks,
-            targets,
-            ..
-        } = &mut self.document;
+        let MarkdownDocument { source, blocks, targets, .. } = &mut self.document;
         let bytes = source.as_bytes();
         let len = bytes.len();
         let MarkdownBlockKind::CodeBlock(code) = &mut blocks[fence.block].kind else {
@@ -392,9 +353,7 @@ impl IncrementalDocument {
             let byte = bytes[position];
             match byte {
                 b'\n' | b'\r' if fence.state.closes(fence.count) => {
-                    let resume = position
-                        + 1
-                        + usize::from(byte == b'\r' && bytes.get(position + 1) == Some(&b'\n'));
+                    let resume = position + 1 + usize::from(byte == b'\r' && bytes.get(position + 1) == Some(&b'\n'));
                     close = Some((position, resume));
                     break;
                 }
@@ -415,8 +374,8 @@ impl IncrementalDocument {
         }
         self.stats.scanned_bytes += len - start;
         let block_end = close.map_or(len, |(end, _)| end);
-        let closing_start = (close.is_some() || fence.state.closes(fence.count))
-            .then_some(fence.line_start.max(fence.content_start));
+        let closing_start =
+            (close.is_some() || fence.state.closes(fence.count)).then_some(fence.line_start.max(fence.content_start));
         let content = fenced_content_bounds(fence.content_start, closing_start, block_end, source);
         let first_changed_line = if closing_start.is_some() || code.lines.len() < fence.complete {
             self.stats.scanned_bytes += content.len();
@@ -424,8 +383,7 @@ impl IncrementalDocument {
             0
         } else {
             if let Some(last) = code.lines.last_mut() {
-                last.source =
-                    source_range(last.source.bytes.start..fence.line_start - 1, &self.index);
+                last.source = source_range(last.source.bytes.start..fence.line_start - 1, &self.index);
             }
             if len > fence.content_start {
                 self.stats.scanned_bytes += len - fence.line_start;
@@ -490,46 +448,27 @@ fn parse_from(source: &str, index: &LineIndex, tail_start: usize, prefix: &str) 
             },
         );
         if definition.span.start >= shift {
-            tail_definitions.push(
-                definition.span.start - shift + tail_start
-                    ..definition.span.end - shift + tail_start,
-            );
+            tail_definitions.push(definition.span.start - shift + tail_start..definition.span.end - shift + tail_start);
         }
     }
     tail_definitions.sort_by_key(|span| span.start);
     let events = parser
         .into_offset_iter()
         .filter(|(_, range)| range.start >= shift)
-        .map(|(event, range)| {
-            (
-                event.into_static(),
-                range.start - shift + tail_start..range.end - shift + tail_start,
-            )
-        })
+        .map(|(event, range)| (event.into_static(), range.start - shift + tail_start..range.end - shift + tail_start))
         .collect::<Vec<_>>();
     let roots = event_tree(&events);
     let mut styles = Vec::new();
     collect_source_styles(&roots, index, &mut styles);
-    let blocks = roots
-        .iter()
-        .filter_map(|node| parse_block(node, 0, source, index))
-        .collect();
+    let blocks = roots.iter().filter_map(|node| parse_block(node, 0, source, index)).collect();
     TailParse {
         blocks,
         styles,
         definitions,
         tail_definitions,
         parsed_bytes: text.len(),
-        copied_bytes: if matches!(text, Cow::Owned(_)) {
-            text.len()
-        } else {
-            0
-        },
-        prefix_bytes: if prefix.is_empty() {
-            0
-        } else {
-            prefix.len() + 1
-        },
+        copied_bytes: if matches!(text, Cow::Owned(_)) { text.len() } else { 0 },
+        prefix_bytes: if prefix.is_empty() { 0 } else { prefix.len() + 1 },
     }
 }
 

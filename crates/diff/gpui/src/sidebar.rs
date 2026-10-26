@@ -3,8 +3,7 @@ use crate::{
     style::{color, file_status_color},
     ui::{
         prelude::{
-            CODE_FONT, IconButton, IconName, PanelSide, ResizablePanel, TreeRow, Typography,
-            TypographyExt, rem,
+            CODE_FONT, IconButton, IconName, PanelSide, ResizablePanel, TreeRow, Typography, TypographyExt, rem,
         },
         tokens::{BAR_HEIGHT, CHECKBOX_SIZE},
     },
@@ -17,16 +16,11 @@ use gpui_base::{Checkbox, CheckboxIndicator, CheckboxState};
 impl DiffViewer {
     pub(crate) fn render_sidebar_toggle(&self, cx: &mut Context<Self>) -> IconButton {
         let open = !self.sidebar_collapsed();
-        PanelSide::Left
-            .toggle_button(
-                "diff-sidebar-toggle",
-                open,
-                "changed files",
-                self.ui_theme(),
-            )
-            .on_click(cx.listener(move |viewer, _, _, cx| {
+        PanelSide::Left.toggle_button("diff-sidebar-toggle", open, "changed files", self.ui_theme()).on_click(
+            cx.listener(move |viewer, _, _, cx| {
                 viewer.set_sidebar_collapsed(open, cx);
-            }))
+            }),
+        )
     }
 
     pub(crate) fn reveal_focused_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -47,10 +41,7 @@ impl DiffViewer {
         let label = format!("Toggle staging for {path}");
         let mark_color = colors.text;
         let (checkbox_id, id) = if let Some(index) = entry.file {
-            (
-                format!("diff-file-checkbox:{path}"),
-                format!("diff-file-checkbox:{index}"),
-            )
+            (format!("diff-file-checkbox:{path}"), format!("diff-file-checkbox:{index}"))
         } else {
             let id = format!("diff-directory-checkbox:{path}");
             (id.clone(), id)
@@ -75,38 +66,32 @@ impl DiffViewer {
                 cx.stop_propagation();
             })
             .child(
-                CheckboxIndicator::new()
-                    .state(checkbox_state)
-                    .size_full()
-                    .child(
-                        canvas(
-                            |_, _, _| (),
-                            move |bounds, (), window, _| {
-                                if checkbox_state == CheckboxState::Unchecked {
-                                    return;
-                                }
-                                let mut path = PathBuilder::stroke(px(2.0));
-                                let at = |x: f32, y: f32| {
-                                    point(
-                                        bounds.left() + bounds.size.width * x,
-                                        bounds.top() + bounds.size.height * y,
-                                    )
-                                };
-                                if checkbox_state == CheckboxState::Checked {
-                                    path.move_to(at(0.2, 0.5));
-                                    path.line_to(at(0.43, 0.73));
-                                    path.line_to(at(0.8, 0.27));
-                                } else {
-                                    path.move_to(at(0.2, 0.5));
-                                    path.line_to(at(0.8, 0.5));
-                                }
-                                if let Ok(path) = path.build() {
-                                    window.paint_path(path, mark_color);
-                                }
-                            },
-                        )
-                        .size_full(),
-                    ),
+                CheckboxIndicator::new().state(checkbox_state).size_full().child(
+                    canvas(
+                        |_, _, _| (),
+                        move |bounds, (), window, _| {
+                            if checkbox_state == CheckboxState::Unchecked {
+                                return;
+                            }
+                            let mut path = PathBuilder::stroke(px(2.0));
+                            let at = |x: f32, y: f32| {
+                                point(bounds.left() + bounds.size.width * x, bounds.top() + bounds.size.height * y)
+                            };
+                            if checkbox_state == CheckboxState::Checked {
+                                path.move_to(at(0.2, 0.5));
+                                path.line_to(at(0.43, 0.73));
+                                path.line_to(at(0.8, 0.27));
+                            } else {
+                                path.move_to(at(0.2, 0.5));
+                                path.line_to(at(0.8, 0.5));
+                            }
+                            if let Ok(path) = path.build() {
+                                window.paint_path(path, mark_color);
+                            }
+                        },
+                    )
+                    .size_full(),
+                ),
             )
     }
 
@@ -150,9 +135,7 @@ impl DiffViewer {
                 let _ = reset.update(cx, DiffViewer::reset_sidebar_width);
             })
             .bg(colors.surface)
-            .when(self.pane == ViewerPane::Files, |panel| {
-                panel.border_color(colors.accent)
-            })
+            .when(self.pane == ViewerPane::Files, |panel| panel.border_color(colors.accent))
             .child(
                 div()
                     .h(rem(BAR_HEIGHT))
@@ -164,12 +147,7 @@ impl DiffViewer {
                     .border_b_1()
                     .border_color(colors.border)
                     .child(self.render_sidebar_toggle(cx))
-                    .child(
-                        div()
-                            .typography(Typography::Label)
-                            .text_color(colors.text_secondary)
-                            .child("Changed files"),
-                    )
+                    .child(div().typography(Typography::Label).text_color(colors.text_secondary).child("Changed files"))
                     .child(
                         div()
                             .px_1p5()
@@ -191,24 +169,16 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> TreeRow {
         let path = entry.path.clone();
-        let folder = if entry.expanded {
-            IconName::FolderOpen
-        } else {
-            IconName::Folder
-        };
-        TreeRow::new(
-            format!("diff-directory:{path}"),
-            entry.name.clone(),
-            self.ui_theme(),
-        )
-        .depth(entry.depth)
-        .expanded(entry.expanded)
-        .icon(folder, None)
-        .selected(selected)
-        .on_click(cx.listener(move |viewer, _, window, cx| {
-            viewer.toggle_directory(position, &path, window, cx);
-        }))
-        .child(self.stage_checkbox(entry, cx))
+        let folder = if entry.expanded { IconName::FolderOpen } else { IconName::Folder };
+        TreeRow::new(format!("diff-directory:{path}"), entry.name.clone(), self.ui_theme())
+            .depth(entry.depth)
+            .expanded(entry.expanded)
+            .icon(folder, None)
+            .selected(selected)
+            .on_click(cx.listener(move |viewer, _, window, cx| {
+                viewer.toggle_directory(position, &path, window, cx);
+            }))
+            .child(self.stage_checkbox(entry, cx))
     }
 
     fn render_file_row(
@@ -222,49 +192,37 @@ impl DiffViewer {
         let diff = self.document().files.get(index)?;
         let status_color = color(file_status_color(diff.status, palette));
         Some(
-            TreeRow::new(
-                format!("diff-file:{}", diff.path),
-                entry.name.clone(),
-                self.ui_theme(),
-            )
-            .aria_label(diff.path.to_string())
-            .depth(entry.depth)
-            .icon(IconName::File, Some(status_color))
-            .selected(selected)
-            .on_click(cx.listener(move |viewer, _, window, cx| {
-                if viewer.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx) {
-                    viewer.handle_command(DiffReviewCommand::SelectFile(index), window, cx);
-                }
-            }))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .flex()
-                    .gap_1()
-                    .typography(Typography::Caption)
-                    .font_family(CODE_FONT)
-                    .child(
-                        div()
-                            .text_color(color(palette.addition))
-                            .child(format!("+{}", diff.additions())),
-                    )
-                    .child(
-                        div()
-                            .text_color(color(palette.deletion))
-                            .child(format!("−{}", diff.deletions())),
-                    ),
-            )
-            .child(
-                div()
-                    .w(rem(12.0))
-                    .flex_shrink_0()
-                    .text_center()
-                    .typography(Typography::Caption)
-                    .font_family(CODE_FONT)
-                    .text_color(status_color)
-                    .child(diff.status.code().to_string()),
-            )
-            .child(self.stage_checkbox(entry, cx)),
+            TreeRow::new(format!("diff-file:{}", diff.path), entry.name.clone(), self.ui_theme())
+                .aria_label(diff.path.to_string())
+                .depth(entry.depth)
+                .icon(IconName::File, Some(status_color))
+                .selected(selected)
+                .on_click(cx.listener(move |viewer, _, window, cx| {
+                    if viewer.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx) {
+                        viewer.handle_command(DiffReviewCommand::SelectFile(index), window, cx);
+                    }
+                }))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .gap_1()
+                        .typography(Typography::Caption)
+                        .font_family(CODE_FONT)
+                        .child(div().text_color(color(palette.addition)).child(format!("+{}", diff.additions())))
+                        .child(div().text_color(color(palette.deletion)).child(format!("−{}", diff.deletions()))),
+                )
+                .child(
+                    div()
+                        .w(rem(12.0))
+                        .flex_shrink_0()
+                        .text_center()
+                        .typography(Typography::Caption)
+                        .font_family(CODE_FONT)
+                        .text_color(status_color)
+                        .child(diff.status.code().to_string()),
+                )
+                .child(self.stage_checkbox(entry, cx)),
         )
     }
 }

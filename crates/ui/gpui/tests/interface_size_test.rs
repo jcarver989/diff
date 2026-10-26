@@ -1,8 +1,7 @@
 use clankerdiff_gpui_ui::{
     InterfaceSize,
     interface_size::{
-        DecreaseInterfaceSize, IncreaseInterfaceSize, MAX_INTERFACE_SIZE, MIN_INTERFACE_SIZE,
-        ResetInterfaceSize,
+        DecreaseInterfaceSize, IncreaseInterfaceSize, MAX_INTERFACE_SIZE, MIN_INTERFACE_SIZE, ResetInterfaceSize,
     },
     testing::ComponentHarnessBuilder,
 };
@@ -10,16 +9,16 @@ use gpui::{IntoElement, TestAppContext, div, px};
 
 #[gpui::test]
 fn the_interface_size_is_the_window_rem_size(cx: &mut TestAppContext) {
-    ComponentHarnessBuilder {
-        interface_size: 18.0,
-        ..ComponentHarnessBuilder::default()
-    }
-    .run(cx, empty, |harness, cx| {
-        assert_eq!(harness.rem_size(cx), px(18.0));
-        cx.update(|cx| InterfaceSize::set(21.0, cx));
-        assert_eq!(harness.rem_size(cx), px(21.0));
-        Ok(())
-    });
+    ComponentHarnessBuilder { interface_size: 18.0, ..ComponentHarnessBuilder::default() }.run(
+        cx,
+        empty,
+        |harness, cx| {
+            assert_eq!(harness.rem_size(cx), px(18.0));
+            cx.update(|cx| InterfaceSize::set(21.0, cx));
+            assert_eq!(harness.rem_size(cx), px(21.0));
+            Ok(())
+        },
+    );
 }
 
 #[gpui::test]

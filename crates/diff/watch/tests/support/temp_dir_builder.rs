@@ -7,20 +7,11 @@ pub struct TempDirBuilder {
 
 impl TempDirBuilder {
     pub fn new() -> Self {
-        Self {
-            entries: BTreeMap::new(),
-        }
+        Self { entries: BTreeMap::new() }
     }
 
-    pub fn entries<T: Into<PathBuf>, U: Into<String>>(
-        mut self,
-        entries: impl IntoIterator<Item = (T, U)>,
-    ) -> Self {
-        self.entries.extend(
-            entries
-                .into_iter()
-                .map(|(path, contents)| (path.into(), contents.into())),
-        );
+    pub fn entries<T: Into<PathBuf>, U: Into<String>>(mut self, entries: impl IntoIterator<Item = (T, U)>) -> Self {
+        self.entries.extend(entries.into_iter().map(|(path, contents)| (path.into(), contents.into())));
         self
     }
 

@@ -54,11 +54,7 @@ pub trait TypographyExt: Styled + Sized {
             .text_size(rem(typography.size()))
             .line_height(rem(typography.line_height()))
             .font_weight(typography.weight());
-        if typography == Typography::Code {
-            styled.font_family(CODE_FONT)
-        } else {
-            styled
-        }
+        if typography == Typography::Code { styled.font_family(CODE_FONT) } else { styled }
     }
 }
 

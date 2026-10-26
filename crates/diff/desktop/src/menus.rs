@@ -9,13 +9,7 @@ pub(crate) fn install(cx: &mut App) {
     cx.on_action(|_: &SetScope, _: &mut App| {});
     cx.on_action(|_: &NextCommit, _: &mut App| {});
     cx.on_action(|_: &PreviousCommit, _: &mut App| {});
-    clankerdiff_gpui_shell::menus::install(
-        cx,
-        APP_NAME,
-        env!("CARGO_PKG_VERSION"),
-        Vec::new(),
-        extra(),
-    );
+    clankerdiff_gpui_shell::menus::install(cx, APP_NAME, env!("CARGO_PKG_VERSION"), Vec::new(), extra());
 }
 
 pub(crate) fn extra() -> Vec<Menu> {
@@ -49,21 +43,15 @@ pub struct SetScope {
 
 impl SetScope {
     fn unstaged() -> Self {
-        Self {
-            kind: ScopeKind::Unstaged,
-        }
+        Self { kind: ScopeKind::Unstaged }
     }
 
     fn staged() -> Self {
-        Self {
-            kind: ScopeKind::Staged,
-        }
+        Self { kind: ScopeKind::Staged }
     }
 
     fn both() -> Self {
-        Self {
-            kind: ScopeKind::Both,
-        }
+        Self { kind: ScopeKind::Both }
     }
 
     #[must_use]

@@ -148,19 +148,11 @@ impl MarkdownStream {
     #[must_use]
     pub fn changes_since(&self, revision: u64) -> MarkdownStreamChanges {
         if revision < self.replaced_at {
-            return MarkdownStreamChanges {
-                first_block: 0,
-                replaced: true,
-            };
+            return MarkdownStreamChanges { first_block: 0, replaced: true };
         }
-        let position = self
-            .changes
-            .partition_point(|(changed_at, _)| *changed_at <= revision);
+        let position = self.changes.partition_point(|(changed_at, _)| *changed_at <= revision);
         MarkdownStreamChanges {
-            first_block: self
-                .changes
-                .get(position)
-                .map_or_else(|| self.block_count(), |(_, block)| *block),
+            first_block: self.changes.get(position).map_or_else(|| self.block_count(), |(_, block)| *block),
             replaced: false,
         }
     }
@@ -173,22 +165,13 @@ impl MarkdownStream {
         if first_block >= self.block_count() {
             return;
         }
-        while self
-            .changes
-            .last()
-            .is_some_and(|(_, block)| *block >= first_block)
-        {
+        while self.changes.last().is_some_and(|(_, block)| *block >= first_block) {
             self.changes.pop();
         }
         self.changes.push((self.revision, first_block));
     }
 
-    fn update(
-        &self,
-        changed_source: Range<usize>,
-        first_block: usize,
-        reset: bool,
-    ) -> MarkdownStreamUpdate {
+    fn update(&self, changed_source: Range<usize>, first_block: usize, reset: bool) -> MarkdownStreamUpdate {
         MarkdownStreamUpdate {
             revision: self.revision,
             changed_source,

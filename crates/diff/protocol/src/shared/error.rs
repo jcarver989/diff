@@ -37,9 +37,6 @@ impl From<ProtocolError> for RemoteError {
 impl RemoteError {
     #[must_use]
     pub fn new(code: RemoteErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-        }
+        Self { code, message: message.into() }
     }
 }

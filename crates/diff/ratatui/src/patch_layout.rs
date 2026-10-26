@@ -4,8 +4,7 @@ use crate::{
     text::{FitCursor, FitOptions, FitPosition},
 };
 use clankerdiff_core::{
-    CommentDraft, DiffPresentation, DiffSide, Layout, PresentedCell, ReviewComment, ReviewSession,
-    RowKind,
+    CommentDraft, DiffPresentation, DiffSide, Layout, PresentedCell, ReviewComment, ReviewSession, RowKind,
 };
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
@@ -27,8 +26,7 @@ pub(crate) struct PatchRowGeometry {
 
 impl PatchRowGeometry {
     pub(crate) fn new(width: u16, layout: Layout, number_digits: usize) -> Self {
-        let gutter_width = MIN_GUTTER_WIDTH
-            .max(u16::try_from(number_digits.saturating_add(2)).unwrap_or(u16::MAX));
+        let gutter_width = MIN_GUTTER_WIDTH.max(u16::try_from(number_digits.saturating_add(2)).unwrap_or(u16::MAX));
         let split = layout.is_split();
         let (left_width, right_width) = if split {
             let left = width.saturating_sub(1) / 2;
@@ -41,11 +39,7 @@ impl PatchRowGeometry {
             gutter_width: gutter_width.min(pane_width),
             content_width: usize::from(pane_width.saturating_sub(gutter_width)),
         };
-        Self {
-            split,
-            left: pane(left_width),
-            right: pane(right_width),
-        }
+        Self { split, left: pane(left_width), right: pane(right_width) }
     }
 }
 
@@ -66,12 +60,7 @@ pub(crate) struct PatchContentLayout {
 }
 
 impl PatchContentLayout {
-    pub(crate) fn new(
-        presentation: &DiffPresentation,
-        range: Range<usize>,
-        width: u16,
-        tab_width: u16,
-    ) -> Self {
+    pub(crate) fn new(presentation: &DiffPresentation, range: Range<usize>, width: u16, tab_width: u16) -> Self {
         let number_digits = presentation
             .rows(range.clone())
             .iter()
@@ -91,29 +80,16 @@ impl PatchContentLayout {
                     measure_cell(row.right.as_ref(), geometry.right.content_width, tab_width),
                 )
             } else if wrapping {
-                (
-                    Vec::new(),
-                    measure_cell(row.primary_cell(), geometry.right.content_width, tab_width),
-                )
+                (Vec::new(), measure_cell(row.primary_cell(), geometry.right.content_width, tab_width))
             } else {
                 (Vec::new(), Vec::new())
             };
             let height = left.len().max(right.len()).max(1);
             let visual_range = offset..offset.saturating_add(height);
             offset = visual_range.end;
-            rows.push(PatchContentRow {
-                source,
-                range: visual_range,
-                left,
-                right,
-            });
+            rows.push(PatchContentRow { source, range: visual_range, left, right });
         }
-        Self {
-            rows,
-            source_range: range,
-            len: offset,
-            geometry,
-        }
+        Self { rows, source_range: range, len: offset, geometry }
     }
 
     pub(crate) const fn len(&self) -> usize {
@@ -135,12 +111,7 @@ impl PatchContentLayout {
         Some((row.source, content - row.range.start))
     }
 
-    pub(crate) fn checkpoint(
-        &self,
-        source: usize,
-        side: DiffSide,
-        segment: usize,
-    ) -> Option<FitPosition> {
+    pub(crate) fn checkpoint(&self, source: usize, side: DiffSide, segment: usize) -> Option<FitPosition> {
         let index = source.checked_sub(self.source_range.start)?;
         let row = self.rows.get(index)?;
         let checkpoints = match side {
@@ -153,15 +124,8 @@ impl PatchContentLayout {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum PatchVisualRow<'a> {
-    Source {
-        index: usize,
-        segment: usize,
-    },
-    Annotation {
-        source: usize,
-        annotation: &'a AnnotationBox,
-        line: usize,
-    },
+    Source { index: usize, segment: usize },
+    Annotation { source: usize, annotation: &'a AnnotationBox, line: usize },
 }
 
 impl PatchVisualRow<'_> {
@@ -180,30 +144,20 @@ pub(crate) struct PatchVisualLayout {
 }
 
 impl PatchVisualLayout {
-    pub(crate) fn new(
-        session: &ReviewSession,
-        content: Arc<PatchContentLayout>,
-        width: u16,
-    ) -> Self {
+    pub(crate) fn new(session: &ReviewSession, content: Arc<PatchContentLayout>, width: u16) -> Self {
         let mut anchored: BTreeMap<usize, Vec<AnnotationBox>> = BTreeMap::new();
         for comment in session.review().comments() {
             if let Some(source) = session.presentation().row_showing_anchor(&comment.anchor)
                 && let Some(range) = content.content_range_for_source(source)
             {
-                anchored
-                    .entry(range.end - 1)
-                    .or_default()
-                    .push(comment_box(comment, width));
+                anchored.entry(range.end - 1).or_default().push(comment_box(comment, width));
             }
         }
         if let Some(draft) = session.draft()
             && let Some(source) = session.presentation().row_showing_anchor(draft.anchor())
             && let Some(range) = content.content_range_for_source(source)
         {
-            anchored
-                .entry(range.end - 1)
-                .or_default()
-                .push(draft_box(draft, width));
+            anchored.entry(range.end - 1).or_default().push(draft_box(draft, width));
         }
         let layout = AnnotationLayout::new(0..content.len(), anchored);
         Self { content, layout }
@@ -233,17 +187,9 @@ impl PatchVisualLayout {
                 let (index, segment) = self.content.source_at_content_row(content)?;
                 Some(PatchVisualRow::Source { index, segment })
             }
-            AnnotationRow::Annotation {
-                source: content,
-                annotation,
-                line,
-            } => {
+            AnnotationRow::Annotation { source: content, annotation, line } => {
                 let (source, _) = self.content.source_at_content_row(content)?;
-                Some(PatchVisualRow::Annotation {
-                    source,
-                    annotation,
-                    line,
-                })
+                Some(PatchVisualRow::Annotation { source, annotation, line })
             }
         }
     }
@@ -254,12 +200,7 @@ fn measure_cell(cell: Option<&PresentedCell>, width: usize, tab_width: u16) -> V
         return Vec::new();
     };
     let mut cursor = FitCursor::new(
-        FitOptions {
-            width,
-            wrap: true,
-            tab_width: usize::from(tab_width),
-            continuation: "",
-        },
+        FitOptions { width, wrap: true, tab_width: usize::from(tab_width), continuation: "" },
         FitPosition::default(),
     );
     let mut checkpoints = Vec::new();
@@ -274,25 +215,11 @@ fn measure_cell(cell: Option<&PresentedCell>, width: usize, tab_width: u16) -> V
 }
 
 fn comment_box(comment: &ReviewComment, width: u16) -> AnnotationBox {
-    let kind = if comment.outdated {
-        AnnotationKind::Outdated
-    } else {
-        AnnotationKind::Comment
-    };
-    let title = if comment.outdated {
-        "Outdated comment"
-    } else {
-        "Comment"
-    };
+    let kind = if comment.outdated { AnnotationKind::Outdated } else { AnnotationKind::Comment };
+    let title = if comment.outdated { "Outdated comment" } else { "Comment" };
     AnnotationBox::new(kind, title, &comment.body, None, width)
 }
 
 fn draft_box(draft: &CommentDraft, width: u16) -> AnnotationBox {
-    AnnotationBox::new(
-        AnnotationKind::Draft,
-        "Draft",
-        draft.body(),
-        Some(draft.cursor()),
-        width,
-    )
+    AnnotationBox::new(AnnotationKind::Draft, "Draft", draft.body(), Some(draft.cursor()), width)
 }

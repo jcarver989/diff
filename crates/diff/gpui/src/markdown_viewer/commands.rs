@@ -2,8 +2,7 @@ use super::{MarkdownReviewer, Overlay};
 use crate::ui::prelude::ThemePicker;
 use clankerdiff_core::{CommandContext, InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
-    MarkdownFocusPane, MarkdownReviewCommand, MarkdownReviewError, MarkdownReviewEvent,
-    MarkdownTargetId,
+    MarkdownFocusPane, MarkdownReviewCommand, MarkdownReviewError, MarkdownReviewEvent, MarkdownTargetId,
 };
 use gpui::{App, Context, ScrollHandle, Window};
 
@@ -24,10 +23,8 @@ impl MarkdownReviewer {
     }
 
     pub fn command_enabled(&self, command: &MarkdownReviewCommand) -> bool {
-        !matches!(
-            command,
-            MarkdownReviewCommand::Review(ReviewCommand::ScrollHelp(_))
-        ) && command.enabled(&self.command_context())
+        !matches!(command, MarkdownReviewCommand::Review(ReviewCommand::ScrollHelp(_)))
+            && command.enabled(&self.command_context())
     }
 
     pub fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>) {
@@ -35,10 +32,7 @@ impl MarkdownReviewer {
         cx.notify();
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "Exhaustive command dispatch keeps routing in one place"
-    )]
+    #[expect(clippy::too_many_lines, reason = "Exhaustive command dispatch keeps routing in one place")]
     pub fn handle_command(
         &mut self,
         command: impl Into<MarkdownReviewCommand>,
@@ -83,13 +77,8 @@ impl MarkdownReviewer {
             C::Last => self.move_selection(isize::MAX),
             C::Page(delta) => {
                 let scroll = self.scroll_handle(self.pane);
-                let rows = scroll
-                    .bottom_item()
-                    .saturating_sub(scroll.top_item())
-                    .saturating_add(1);
-                self.move_selection(
-                    delta.saturating_mul(isize::try_from(rows).unwrap_or(isize::MAX)),
-                );
+                let rows = scroll.bottom_item().saturating_sub(scroll.top_item()).saturating_add(1);
+                self.move_selection(delta.saturating_mul(isize::try_from(rows).unwrap_or(isize::MAX)));
             }
             C::OpenSelected => {
                 self.pane = MarkdownFocusPane::Document;
@@ -154,9 +143,7 @@ impl MarkdownReviewer {
                 return Ok(self.update_theme_picker(cx, |picker, cx| picker.highlight(index, cx)));
             }
             C::Review(R::MoveTheme(delta)) => {
-                return Ok(
-                    self.update_theme_picker(cx, |picker, cx| picker.move_highlight(delta, cx))
-                );
+                return Ok(self.update_theme_picker(cx, |picker, cx| picker.move_highlight(delta, cx)));
             }
             C::Review(R::CommitTheme) => {
                 return Ok(self.update_theme_picker(cx, ThemePicker::commit));
@@ -201,21 +188,14 @@ impl MarkdownReviewer {
     }
 
     pub(super) fn reveal_selected_target(&self) {
-        if let Some(row) = self
-            .session
-            .selected_target()
-            .and_then(|target| self.target_rows.get(&target))
-        {
+        if let Some(row) = self.session.selected_target().and_then(|target| self.target_rows.get(&target)) {
             self.document_scroll.scroll_to_item(*row);
         }
     }
 
     pub(super) fn active_heading(&self) -> Option<usize> {
         let selected = self.session.selected_target()?;
-        self.document()
-            .outline()
-            .partition_point(|heading| heading.target_id <= selected)
-            .checked_sub(1)
+        self.document().outline().partition_point(|heading| heading.target_id <= selected).checked_sub(1)
     }
 
     const fn scroll_handle(&self, pane: MarkdownFocusPane) -> &ScrollHandle {

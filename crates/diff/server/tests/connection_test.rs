@@ -22,10 +22,7 @@ async fn a_slow_consumer_converges_without_blocking_another_client() -> Result<(
 
     let (mut paused, _) = connect_async(&url).await?;
     send(&mut paused, &hello()).await?;
-    assert!(matches!(
-        timeout(WAIT, receive(&mut paused)).await??,
-        Event::Initialize { .. }
-    ));
+    assert!(matches!(timeout(WAIT, receive(&mut paused)).await??, Event::Initialize { .. }));
 
     let client = DiffClient::connect(&url, ClientOptions::default()).await?;
     let mut updates = client.subscribe();
@@ -42,12 +39,7 @@ async fn a_slow_consumer_converges_without_blocking_another_client() -> Result<(
             if let Event::Document(update) = receive(&mut paused).await? {
                 let snapshot = cache.apply(&update)?;
                 if let Some(file) = snapshot.files.first() {
-                    latest = file
-                        .new_source
-                        .as_ref()
-                        .map_err(Clone::clone)?
-                        .text()
-                        .to_owned();
+                    latest = file.new_source.as_ref().map_err(Clone::clone)?.text().to_owned();
                 }
             }
         }
@@ -70,23 +62,14 @@ async fn unsupported_versions_and_malformed_frames_are_rejected() -> Result<(), 
     let (mut socket, _) = connect_async(&url).await?;
     send(
         &mut socket,
-        &ClientCommand::Initialize {
-            protocol_version: LIVE_PROTOCOL_VERSION + 1,
-            target: DiffScope::Both.into(),
-        },
+        &ClientCommand::Initialize { protocol_version: LIVE_PROTOCOL_VERSION + 1, target: DiffScope::Both.into() },
     )
     .await?;
-    assert!(matches!(
-        timeout(WAIT, receive(&mut socket)).await??,
-        Event::Error(_)
-    ));
+    assert!(matches!(timeout(WAIT, receive(&mut socket)).await??, Event::Error(_)));
 
     let (mut socket, _) = connect_async(&url).await?;
     socket.send(Message::text("not a message")).await?;
-    assert!(matches!(
-        timeout(WAIT, receive(&mut socket)).await??,
-        Event::Error(_)
-    ));
+    assert!(matches!(timeout(WAIT, receive(&mut socket)).await??, Event::Error(_)));
 
     let healthz = format!("http://{}/healthz", listener.local_addr());
     assert!(fetch(&healthz).await?.contains("ok"));
@@ -99,10 +82,7 @@ async fn unsupported_versions_and_malformed_frames_are_rejected() -> Result<(), 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 fn hello() -> ClientCommand {
-    ClientCommand::Initialize {
-        protocol_version: LIVE_PROTOCOL_VERSION,
-        target: DiffScope::Both.into(),
-    }
+    ClientCommand::Initialize { protocol_version: LIVE_PROTOCOL_VERSION, target: DiffScope::Both.into() }
 }
 
 async fn send(socket: &mut Socket, message: &ClientCommand) -> Result<(), Box<dyn Error>> {

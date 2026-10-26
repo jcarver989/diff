@@ -18,14 +18,9 @@ impl WebSocketTransport {
                 "custom WebSocket headers are unavailable in browser clients".to_owned(),
             ));
         }
-        let socket = WebSocket::open(url).map_err(|error| {
-            ClientError::Transport(format!(
-                "{error}; HTTPS pages require a compatible wss:// URL"
-            ))
-        })?;
-        Ok(Self {
-            socket: Some(socket),
-        })
+        let socket = WebSocket::open(url)
+            .map_err(|error| ClientError::Transport(format!("{error}; HTTPS pages require a compatible wss:// URL")))?;
+        Ok(Self { socket: Some(socket) })
     }
 
     fn socket(&mut self) -> Result<&mut WebSocket, ClientError> {
@@ -40,12 +35,7 @@ impl ClientMessageTransport for WebSocketTransport {
     }
 
     async fn recv(&mut self) -> Result<ServerMessage, ClientError> {
-        let message = self
-            .socket()?
-            .next()
-            .await
-            .ok_or(ClientError::Disconnected)?
-            .map_err(transport)?;
+        let message = self.socket()?.next().await.ok_or(ClientError::Disconnected)?.map_err(transport)?;
         let Message::Text(text) = message else {
             return Err(ProtocolError::MessageType.into());
         };

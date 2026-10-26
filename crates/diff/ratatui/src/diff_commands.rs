@@ -1,7 +1,6 @@
 use crate::{
-    DiffReviewCommand, DiffReviewEvent, DiffReviewState, DiffReviewStatus, FocusPane, InputOutcome,
-    InteractionPhase, KeyBinding, KeyEvent, NavigationPane, ReviewCommand, keybindings,
-    theme_picker::ThemePicker,
+    DiffReviewCommand, DiffReviewEvent, DiffReviewState, DiffReviewStatus, FocusPane, InputOutcome, InteractionPhase,
+    KeyBinding, KeyEvent, NavigationPane, ReviewCommand, keybindings, theme_picker::ThemePicker,
 };
 use clankerdiff_core::{CommandContext, RepositoryAction, ReviewCapabilities};
 use std::sync::Arc;
@@ -12,25 +11,15 @@ impl DiffReviewState {
         if self.interaction_phase() != InteractionPhase::Browse {
             return None;
         }
-        keybindings::binding_for_key(
-            &self.keybindings,
-            key,
-            self.focus == FocusPane::Diff,
-            self.layout().is_split(),
-        )
-        .map(|binding| binding.command.clone())
+        keybindings::binding_for_key(&self.keybindings, key, self.focus == FocusPane::Diff, self.layout().is_split())
+            .map(|binding| binding.command.clone())
     }
 
     pub(crate) fn help_bindings(&self) -> impl Iterator<Item = &KeyBinding<DiffReviewCommand>> {
-        let context = CommandContext {
-            phase: InteractionPhase::Browse,
-            ..self.command_context()
-        };
-        keybindings::help_bindings(
-            &self.keybindings,
-            context.navigation_available,
-            move |command| self.command_enabled_in(command, &context),
-        )
+        let context = CommandContext { phase: InteractionPhase::Browse, ..self.command_context() };
+        keybindings::help_bindings(&self.keybindings, context.navigation_available, move |command| {
+            self.command_enabled_in(command, &context)
+        })
     }
 
     pub(crate) fn footer_hint(&self, width: usize) -> String {
@@ -52,10 +41,7 @@ impl DiffReviewState {
             repository_pending: self.repository_pending(),
             document_ready: matches!(self.status, DiffReviewStatus::Ready),
             source_view: self.session.source_view().is_some(),
-            navigation_available: !matches!(
-                self.options.navigation,
-                NavigationPane::Hidden | NavigationPane::Width(0)
-            ),
+            navigation_available: !matches!(self.options.navigation, NavigationPane::Hidden | NavigationPane::Width(0)),
             themes_available: !self.theme_choices.is_empty(),
         }
     }
@@ -74,23 +60,16 @@ impl DiffReviewState {
     }
 
     fn command_enabled_in(&self, command: &DiffReviewCommand, context: &CommandContext) -> bool {
-        command.enabled(context)
-            && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
+        command.enabled(context) && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
     }
 
-    pub fn handle_command(
-        &mut self,
-        command: impl Into<DiffReviewCommand>,
-    ) -> InputOutcome<DiffReviewEvent> {
+    pub fn handle_command(&mut self, command: impl Into<DiffReviewCommand>) -> InputOutcome<DiffReviewEvent> {
         let outcome = self.dispatch_command(command.into());
         self.install_deferred();
         outcome
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "Exhaustive command dispatch keeps routing in one place"
-    )]
+    #[expect(clippy::too_many_lines, reason = "Exhaustive command dispatch keeps routing in one place")]
     fn dispatch_command(&mut self, command: DiffReviewCommand) -> InputOutcome<DiffReviewEvent> {
         use DiffReviewCommand as C;
         use ReviewCommand as R;
@@ -205,9 +184,7 @@ impl DiffReviewState {
                 return InputOutcome::ViewModeSelected(self.view_mode());
             }
             C::SubmitReview => {
-                return InputOutcome::Emitted(DiffReviewEvent::SubmitReview(
-                    self.session.submission(),
-                ));
+                return InputOutcome::Emitted(DiffReviewEvent::SubmitReview(self.session.submission()));
             }
             C::CopyReview => {
                 return InputOutcome::Emitted(DiffReviewEvent::CopyFormattedReview(
@@ -215,21 +192,14 @@ impl DiffReviewState {
                 ));
             }
             C::SetScope(_) | C::CycleScope | C::StepTarget(_) => {
-                return self
-                    .session
-                    .target_event(&command)
-                    .map_or(InputOutcome::Ignored, InputOutcome::Emitted);
+                return self.session.target_event(&command).map_or(InputOutcome::Ignored, InputOutcome::Emitted);
             }
             C::Refresh => return InputOutcome::Emitted(DiffReviewEvent::Refresh),
             C::StageAll => {
-                return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(
-                    RepositoryAction::StageAll,
-                ));
+                return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(RepositoryAction::StageAll));
             }
             C::UnstageAll => {
-                return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(
-                    RepositoryAction::UnstageAll,
-                ));
+                return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(RepositoryAction::UnstageAll));
             }
             C::RepositoryAction(action) => {
                 return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(action));
@@ -281,20 +251,14 @@ impl DiffReviewState {
                 self.help_scroll = 0;
             }
             C::Review(R::ScrollHelp(lines)) => {
-                self.help_scroll = self
-                    .help_scroll
-                    .saturating_add_signed(lines)
-                    .min(self.help_bindings().count().saturating_sub(1));
+                self.help_scroll =
+                    self.help_scroll.saturating_add_signed(lines).min(self.help_bindings().count().saturating_sub(1));
             }
             C::Review(R::OpenThemePicker) => {
                 self.theme_picker = ThemePicker::new(&self.theme, Arc::clone(&self.theme_choices));
             }
             C::Review(R::SelectTheme(index)) => {
-                let Some(theme) = self
-                    .theme_picker
-                    .as_mut()
-                    .and_then(|picker| picker.select(index))
-                else {
+                let Some(theme) = self.theme_picker.as_mut().and_then(|picker| picker.select(index)) else {
                     return InputOutcome::Ignored;
                 };
                 self.apply_theme(theme);

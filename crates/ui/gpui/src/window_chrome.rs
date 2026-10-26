@@ -8,9 +8,9 @@ use crate::{
     typography::{Typography, TypographyExt},
 };
 use gpui::{
-    AnyElement, App, BoxShadow, CursorStyle, Decorations, MouseButton, Pixels, Point, Rems,
-    ResizeEdge, SharedString, Size, Tiling, Window, WindowButton, WindowButtonLayout,
-    WindowControlArea, WindowControls, div, hsla, point, prelude::*, px, transparent_black,
+    AnyElement, App, BoxShadow, CursorStyle, Decorations, MouseButton, Pixels, Point, Rems, ResizeEdge, SharedString,
+    Size, Tiling, Window, WindowButton, WindowButtonLayout, WindowControlArea, WindowControls, div, hsla, point,
+    prelude::*, px, transparent_black,
 };
 
 const CLIENT_INSET: Pixels = px(8.0);
@@ -21,16 +21,15 @@ const BUTTON_WIDTH: Rems = rem(BAR_HEIGHT);
 pub trait WindowDragExt: InteractiveElement {
     #[must_use]
     fn window_drag_area(self) -> Self {
-        self.window_control_area(WindowControlArea::Drag)
-            .on_mouse_down(MouseButton::Left, |event, window, _| {
-                match event.click_count {
-                    2 if cfg!(target_os = "macos") => window.titlebar_double_click(),
-                    2 if window.window_controls().maximize && window.is_resizable() => {
-                        window.zoom_window();
-                    }
-                    _ => window.start_window_move(),
+        self.window_control_area(WindowControlArea::Drag).on_mouse_down(MouseButton::Left, |event, window, _| {
+            match event.click_count {
+                2 if cfg!(target_os = "macos") => window.titlebar_double_click(),
+                2 if window.window_controls().maximize && window.is_resizable() => {
+                    window.zoom_window();
                 }
-            })
+                _ => window.start_window_move(),
+            }
+        })
     }
 
     #[must_use]
@@ -63,11 +62,7 @@ pub fn decorate(
     let controls = window.window_controls();
     let layout = cx.button_layout().unwrap_or(WindowButtonLayout {
         left: [None, None, None],
-        right: [
-            Some(WindowButton::Minimize),
-            Some(WindowButton::Maximize),
-            Some(WindowButton::Close),
-        ],
+        right: [Some(WindowButton::Minimize), Some(WindowButton::Maximize), Some(WindowButton::Close)],
     });
     let left_controls = supported_buttons(layout.left, controls, is_resizable, is_minimizable);
     let right_controls = supported_buttons(layout.right, controls, is_resizable, is_minimizable);
@@ -93,13 +88,7 @@ pub fn decorate(
                 inset: false,
             }])
         })
-        .child(title_bar(
-            title.into(),
-            theme,
-            left_controls,
-            right_controls,
-            window.is_maximized(),
-        ))
+        .child(title_bar(title.into(), theme, left_controls, right_controls, window.is_maximized()))
         .child(div().flex_1().min_h_0().min_w_0().child(content));
 
     div()
@@ -121,12 +110,7 @@ pub fn decorate(
             })
         })
         .child(framed_content)
-        .children(resize_hit_zones(
-            window_size,
-            CLIENT_INSET,
-            tiling,
-            is_resizable,
-        ))
+        .children(resize_hit_zones(window_size, CLIENT_INSET, tiling, is_resizable))
         .into_any_element()
 }
 
@@ -159,47 +143,36 @@ fn title_bar(
         .child(window_button_group(theme, right_controls, is_maximized))
 }
 
-fn window_button_group(
-    theme: &UiTheme,
-    buttons: Vec<WindowButton>,
-    is_maximized: bool,
-) -> impl IntoElement {
-    div()
-        .h_full()
-        .flex()
-        .children(buttons.into_iter().map(|button| {
-            let (icon, area) = match button {
-                WindowButton::Minimize => (IconName::Minus, WindowControlArea::Min),
-                WindowButton::Maximize if is_maximized => (IconName::Copy, WindowControlArea::Max),
-                WindowButton::Maximize => (IconName::Square, WindowControlArea::Max),
-                WindowButton::Close => (IconName::X, WindowControlArea::Close),
-            };
-            let hover = if button == WindowButton::Close {
-                theme.colors.destructive
-            } else {
-                theme.colors.surface_hover
-            };
-            div()
-                .id(button.id())
-                .window_control_area(area)
-                .h_full()
-                .w(BUTTON_WIDTH)
-                .flex()
-                .items_center()
-                .justify_center()
-                .cursor(CursorStyle::PointingHand)
-                .hover(move |element| element.bg(hover))
-                .no_window_drag()
-                .on_click(move |_, window, cx| {
-                    cx.stop_propagation();
-                    match button {
-                        WindowButton::Minimize => window.minimize_window(),
-                        WindowButton::Maximize => window.zoom_window(),
-                        WindowButton::Close => window.remove_window(),
-                    }
-                })
-                .child(Icon::new(icon, theme.colors.text_secondary))
-        }))
+fn window_button_group(theme: &UiTheme, buttons: Vec<WindowButton>, is_maximized: bool) -> impl IntoElement {
+    div().h_full().flex().children(buttons.into_iter().map(|button| {
+        let (icon, area) = match button {
+            WindowButton::Minimize => (IconName::Minus, WindowControlArea::Min),
+            WindowButton::Maximize if is_maximized => (IconName::Copy, WindowControlArea::Max),
+            WindowButton::Maximize => (IconName::Square, WindowControlArea::Max),
+            WindowButton::Close => (IconName::X, WindowControlArea::Close),
+        };
+        let hover = if button == WindowButton::Close { theme.colors.destructive } else { theme.colors.surface_hover };
+        div()
+            .id(button.id())
+            .window_control_area(area)
+            .h_full()
+            .w(BUTTON_WIDTH)
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor(CursorStyle::PointingHand)
+            .hover(move |element| element.bg(hover))
+            .no_window_drag()
+            .on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                match button {
+                    WindowButton::Minimize => window.minimize_window(),
+                    WindowButton::Maximize => window.zoom_window(),
+                    WindowButton::Close => window.remove_window(),
+                }
+            })
+            .child(Icon::new(icon, theme.colors.text_secondary))
+    }))
 }
 
 fn supported_buttons(
@@ -219,12 +192,7 @@ fn supported_buttons(
         .collect()
 }
 
-fn resize_hit_zones(
-    size: Size<Pixels>,
-    inset: Pixels,
-    tiling: Tiling,
-    is_resizable: bool,
-) -> Vec<AnyElement> {
+fn resize_hit_zones(size: Size<Pixels>, inset: Pixels, tiling: Tiling, is_resizable: bool) -> Vec<AnyElement> {
     if !is_resizable {
         return Vec::new();
     }
@@ -234,84 +202,23 @@ fn resize_hit_zones(
     let zero = px(0.0);
     [
         (!tiling.top, ResizeEdge::Top, zero, zero, size.width, inset),
-        (
-            !tiling.bottom,
-            ResizeEdge::Bottom,
-            zero,
-            bottom,
-            size.width,
-            inset,
-        ),
-        (
-            !tiling.left,
-            ResizeEdge::Left,
-            zero,
-            zero,
-            inset,
-            size.height,
-        ),
-        (
-            !tiling.right,
-            ResizeEdge::Right,
-            right,
-            zero,
-            inset,
-            size.height,
-        ),
-        (
-            !tiling.top && !tiling.left,
-            ResizeEdge::TopLeft,
-            zero,
-            zero,
-            inset,
-            inset,
-        ),
-        (
-            !tiling.top && !tiling.right,
-            ResizeEdge::TopRight,
-            right,
-            zero,
-            inset,
-            inset,
-        ),
-        (
-            !tiling.bottom && !tiling.left,
-            ResizeEdge::BottomLeft,
-            zero,
-            bottom,
-            inset,
-            inset,
-        ),
-        (
-            !tiling.bottom && !tiling.right,
-            ResizeEdge::BottomRight,
-            right,
-            bottom,
-            inset,
-            inset,
-        ),
+        (!tiling.bottom, ResizeEdge::Bottom, zero, bottom, size.width, inset),
+        (!tiling.left, ResizeEdge::Left, zero, zero, inset, size.height),
+        (!tiling.right, ResizeEdge::Right, right, zero, inset, size.height),
+        (!tiling.top && !tiling.left, ResizeEdge::TopLeft, zero, zero, inset, inset),
+        (!tiling.top && !tiling.right, ResizeEdge::TopRight, right, zero, inset, inset),
+        (!tiling.bottom && !tiling.left, ResizeEdge::BottomLeft, zero, bottom, inset, inset),
+        (!tiling.bottom && !tiling.right, ResizeEdge::BottomRight, right, bottom, inset, inset),
     ]
     .into_iter()
     .filter(|(enabled, ..)| *enabled)
     .map(|(_, edge, left, top, width, height)| {
-        div()
-            .absolute()
-            .left(left)
-            .top(top)
-            .w(width)
-            .h(height)
-            .cursor(cursor_for_edge(edge))
-            .into_any_element()
+        div().absolute().left(left).top(top).w(width).h(height).cursor(cursor_for_edge(edge)).into_any_element()
     })
     .collect()
 }
 
-fn resize_edge(
-    position: Point<Pixels>,
-    size: Size<Pixels>,
-    inset: Pixels,
-    tiling: Tiling,
-) -> Option<ResizeEdge> {
+fn resize_edge(position: Point<Pixels>, size: Size<Pixels>, inset: Pixels, tiling: Tiling) -> Option<ResizeEdge> {
     let on_top = !tiling.top && position.y < inset;
     let on_bottom = !tiling.bottom && position.y >= size.height - inset;
     let on_left = !tiling.left && position.x < inset;
@@ -368,57 +275,21 @@ mod tests {
     #[test]
     fn tiled_edges_are_not_resizable() {
         let size = size(px(100.0), px(80.0));
-        let tiling = Tiling {
-            top: true,
-            left: true,
-            right: false,
-            bottom: false,
-        };
+        let tiling = Tiling { top: true, left: true, right: false, bottom: false };
 
-        assert_eq!(
-            resize_edge(point(px(1.0), px(1.0)), size, CLIENT_INSET, tiling),
-            None
-        );
-        assert_eq!(
-            resize_edge(point(px(99.0), px(1.0)), size, CLIENT_INSET, tiling),
-            Some(ResizeEdge::Right)
-        );
-        assert_eq!(
-            resize_edge(point(px(1.0), px(79.0)), size, CLIENT_INSET, tiling),
-            Some(ResizeEdge::Bottom)
-        );
+        assert_eq!(resize_edge(point(px(1.0), px(1.0)), size, CLIENT_INSET, tiling), None);
+        assert_eq!(resize_edge(point(px(99.0), px(1.0)), size, CLIENT_INSET, tiling), Some(ResizeEdge::Right));
+        assert_eq!(resize_edge(point(px(1.0), px(79.0)), size, CLIENT_INSET, tiling), Some(ResizeEdge::Bottom));
     }
 
     #[test]
     fn preserves_layout_order_and_filters_unsupported_controls() {
-        let controls = WindowControls {
-            fullscreen: true,
-            maximize: false,
-            minimize: true,
-            window_menu: true,
-        };
-        let left = [
-            Some(WindowButton::Close),
-            Some(WindowButton::Minimize),
-            None,
-        ];
-        let right = [
-            Some(WindowButton::Maximize),
-            Some(WindowButton::Close),
-            None,
-        ];
+        let controls = WindowControls { fullscreen: true, maximize: false, minimize: true, window_menu: true };
+        let left = [Some(WindowButton::Close), Some(WindowButton::Minimize), None];
+        let right = [Some(WindowButton::Maximize), Some(WindowButton::Close), None];
 
-        assert_eq!(
-            supported_buttons(left, controls, true, true),
-            vec![WindowButton::Close, WindowButton::Minimize]
-        );
-        assert_eq!(
-            supported_buttons(right, controls, true, true),
-            vec![WindowButton::Close]
-        );
-        assert_eq!(
-            supported_buttons(left, controls, true, false),
-            vec![WindowButton::Close]
-        );
+        assert_eq!(supported_buttons(left, controls, true, true), vec![WindowButton::Close, WindowButton::Minimize]);
+        assert_eq!(supported_buttons(right, controls, true, true), vec![WindowButton::Close]);
+        assert_eq!(supported_buttons(left, controls, true, false), vec![WindowButton::Close]);
     }
 }

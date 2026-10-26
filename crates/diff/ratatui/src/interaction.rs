@@ -210,18 +210,12 @@ pub(crate) trait ReviewWidget {
     type Error;
     type Draft: DraftEditor;
     fn phase(&self) -> InteractionPhase;
-    fn handle_review_command(
-        &mut self,
-        command: ReviewCommand,
-    ) -> Result<InputOutcome<Self::Event>, Self::Error>;
+    fn handle_review_command(&mut self, command: ReviewCommand) -> Result<InputOutcome<Self::Event>, Self::Error>;
     fn contains(&self, position: Position) -> bool;
     fn mark_dirty(&mut self);
     fn draft_mut(&mut self) -> Option<&mut Self::Draft>;
     fn draft_changed(&mut self);
-    fn handle_browse_key(
-        &mut self,
-        key: KeyEvent,
-    ) -> Result<InputOutcome<Self::Event>, Self::Error>;
+    fn handle_browse_key(&mut self, key: KeyEvent) -> Result<InputOutcome<Self::Event>, Self::Error>;
     fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<Self::Event>;
     fn handle_draft_mouse(&mut self, _mouse: MouseEvent) -> InputOutcome<Self::Event> {
         InputOutcome::Consumed
@@ -279,10 +273,7 @@ pub(crate) fn handle_input<T: ReviewWidget>(
     Ok(outcome)
 }
 
-fn handle_key<T: ReviewWidget>(
-    state: &mut T,
-    key: KeyEvent,
-) -> Result<InputOutcome<T::Event>, T::Error> {
+fn handle_key<T: ReviewWidget>(state: &mut T, key: KeyEvent) -> Result<InputOutcome<T::Event>, T::Error> {
     let command = match state.phase() {
         InteractionPhase::ThemePicker => {
             if !is_plain_key(key) {
@@ -330,10 +321,7 @@ pub(crate) fn is_plain_key(key: KeyEvent) -> bool {
     key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT
 }
 
-fn handle_draft_key<T: ReviewWidget>(
-    state: &mut T,
-    key: KeyEvent,
-) -> Result<InputOutcome<T::Event>, T::Error> {
+fn handle_draft_key<T: ReviewWidget>(state: &mut T, key: KeyEvent) -> Result<InputOutcome<T::Event>, T::Error> {
     if key.code == KeyCode::Esc {
         return state.handle_review_command(ReviewCommand::Cancel);
     } else if key.code == KeyCode::Enter && !key.modifiers.contains(KeyModifiers::SHIFT) {

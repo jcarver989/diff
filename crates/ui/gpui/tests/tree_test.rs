@@ -10,11 +10,7 @@ use std::{cell::Cell, rc::Rc};
 #[gpui::test]
 fn rows_are_one_row_tall_and_scale_with_the_interface_size(cx: &mut TestAppContext) {
     for interface_size in [16.0, 20.0] {
-        ComponentHarnessBuilder {
-            interface_size,
-            ..ComponentHarnessBuilder::default()
-        }
-        .run(
+        ComponentHarnessBuilder { interface_size, ..ComponentHarnessBuilder::default() }.run(
             cx,
             |_, _| tree([row("src", 0).expanded(true), row("lib.rs", 1)]),
             |harness, cx| {

@@ -5,9 +5,7 @@ mod test_result;
 #[path = "support/wait.rs"]
 mod wait;
 
-use clankerdiff_core::{
-    DiffDocument, DiffScope, RepoPath, RepositoryAction, ReviewTarget, StageState,
-};
+use clankerdiff_core::{DiffDocument, DiffScope, RepoPath, RepositoryAction, ReviewTarget, StageState};
 use clankerdiff_git::testing::{RepoFixture, RepoFixtureBuilder};
 use clankerdiff_watch::{RepositoryRequest, RepositoryWatcher, WatchOptions};
 use repository_watcher_assertions::{assert_snapshot_unchanged, healthy, wait_for_snapshot};
@@ -18,10 +16,7 @@ use wait::{observe, wait_for, wait_until};
 
 #[tokio::test]
 async fn a_worktree_edit_publishes_a_snapshot_with_the_new_hunk() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("src/lib.rs", "fn main() {}\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("src/lib.rs", "fn main() {}\n").committed().build();
     let watcher = watcher(&repo).await?;
     let mut state = watcher.state_rx.clone();
     repo.write("src/lib.rs", "fn main() {}\nfn added() {}\n");
@@ -32,11 +27,7 @@ async fn a_worktree_edit_publishes_a_snapshot_with_the_new_hunk() -> TestResult 
 
 #[tokio::test]
 async fn tracked_worktree_lock_files_are_not_filtered_as_metadata() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("Cargo.lock", "original\n")
-        .gitignore(&["*.lock"])
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("Cargo.lock", "original\n").gitignore(&["*.lock"]).committed().build();
     repo.git(&["add", "--force", "Cargo.lock"]);
     repo.git(&["commit", "-m", "track lock file"]);
     let watcher = watcher(&repo).await?;
@@ -49,35 +40,21 @@ async fn tracked_worktree_lock_files_are_not_filtered_as_metadata() -> TestResul
 
 #[tokio::test]
 async fn staging_is_observed_without_extra_notifications() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("src/lib.rs", "fn main() {}\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("src/lib.rs", "fn main() {}\n").committed().build();
 
     repo.write("src/lib.rs", "fn main() {}\nfn added() {}\n");
     let watcher = watcher(&repo).await?;
-    repo.repository()
-        .await
-        .apply(RepositoryAction::StagePaths(vec![RepoPath::new(
-            "src/lib.rs",
-        )?]))
-        .await?;
+    repo.repository().await.apply(RepositoryAction::StagePaths(vec![RepoPath::new("src/lib.rs")?])).await?;
 
     let published = wait_for_snapshot(&mut watcher.state_rx.clone()).await?;
-    assert_eq!(
-        stage_state(&published, "src/lib.rs"),
-        Some(StageState::Staged)
-    );
+    assert_eq!(stage_state(&published, "src/lib.rs"), Some(StageState::Staged));
     assert_snapshot_unchanged(&mut watcher.state_rx.clone()).await;
     Ok(())
 }
 
 #[tokio::test]
 async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "original\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "original\n").committed().build();
     repo.write("file.txt", "updated\n");
 
     let repository = repo.repository().await;
@@ -91,10 +68,7 @@ async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
     repository.apply(RepositoryAction::UnstageAll).await?;
     let unstaged = wait_for_snapshot(&mut snapshots).await?;
 
-    assert_eq!(
-        stage_state(&unstaged, "file.txt"),
-        Some(StageState::Unstaged)
-    );
+    assert_eq!(stage_state(&unstaged, "file.txt"), Some(StageState::Unstaged));
 
     repository
         .apply(RepositoryAction::Discard {
@@ -113,11 +87,7 @@ async fn host_mutations_are_observed_through_filesystem_events() -> TestResult {
 
     assert_eq!(stage_state(&staged, "file.txt"), Some(StageState::Staged));
 
-    repository
-        .apply(RepositoryAction::Commit {
-            message: "watched commit".into(),
-        })
-        .await?;
+    repository.apply(RepositoryAction::Commit { message: "watched commit".into() }).await?;
     let committed = wait_for_snapshot(&mut snapshots).await?;
     assert_eq!(committed.files.len(), 0);
     Ok(())
@@ -149,52 +119,28 @@ async fn ignored_edits_do_not_publish_or_hide_relevant_edits() -> TestResult {
 
 #[tokio::test]
 async fn changing_the_scope_republishes_for_the_new_scope() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("src/lib.rs", "fn main() {}\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("src/lib.rs", "fn main() {}\n").committed().build();
     repo.write("src/lib.rs", "fn main() {}\nfn staged() {}\n");
     repo.git(&["add", "src/lib.rs"]);
-    repo.write(
-        "src/lib.rs",
-        "fn main() {}\nfn staged() {}\nfn unstaged() {}\n",
-    );
+    repo.write("src/lib.rs", "fn main() {}\nfn staged() {}\nfn unstaged() {}\n");
     let watcher = watcher(&repo).await?;
     let (result_tx, completion) = oneshot::channel();
-    watcher
-        .request_tx
-        .send(RepositoryRequest::SetTarget {
-            target: DiffScope::Staged.into(),
-            result_tx,
-        })
-        .await?;
+    watcher.request_tx.send(RepositoryRequest::SetTarget { target: DiffScope::Staged.into(), result_tx }).await?;
     wait_for("scope acknowledgement", completion).await??;
     let published = healthy(&watcher.state_rx.borrow())?;
     assert_eq!(published.target.scope(), Some(DiffScope::Staged));
     assert!(watcher.state_rx.has_changed()?);
-    assert_eq!(
-        added_lines(&published, "src/lib.rs"),
-        vec!["fn staged() {}"]
-    );
+    assert_eq!(added_lines(&published, "src/lib.rs"), vec!["fn staged() {}"]);
     Ok(())
 }
 
 #[tokio::test]
 async fn a_scope_only_change_notifies_but_repeated_scope_does_not() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "original\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "original\n").committed().build();
     let watcher = watcher(&repo).await?;
     let original = healthy(&watcher.state_rx.borrow())?;
     let (result_tx, completion) = oneshot::channel();
-    watcher
-        .request_tx
-        .send(RepositoryRequest::SetTarget {
-            target: DiffScope::Staged.into(),
-            result_tx,
-        })
-        .await?;
+    watcher.request_tx.send(RepositoryRequest::SetTarget { target: DiffScope::Staged.into(), result_tx }).await?;
     wait_for("scope acknowledgement", completion).await??;
     let staged = healthy(&watcher.state_rx.borrow())?;
     assert_eq!(original.target.scope(), Some(DiffScope::Both));
@@ -204,13 +150,7 @@ async fn a_scope_only_change_notifies_but_repeated_scope_does_not() -> TestResul
     assert_eq!(staged.target.scope(), Some(DiffScope::Staged));
     assert_eq!(original.files, staged.files);
     let (result_tx, completion) = oneshot::channel();
-    watcher
-        .request_tx
-        .send(RepositoryRequest::SetTarget {
-            target: DiffScope::Staged.into(),
-            result_tx,
-        })
-        .await?;
+    watcher.request_tx.send(RepositoryRequest::SetTarget { target: DiffScope::Staged.into(), result_tx }).await?;
     wait_for("scope acknowledgement", completion).await??;
     assert!(!updates.has_changed()?);
     Ok(())
@@ -218,10 +158,7 @@ async fn a_scope_only_change_notifies_but_repeated_scope_does_not() -> TestResul
 
 #[tokio::test]
 async fn a_burst_of_edits_publishes_the_latest_contents_and_settles() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "original\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "original\n").committed().build();
     let watcher = watcher(&repo).await?;
     let mut snapshots = watcher.state_rx.clone();
     for index in 0..50 {
@@ -235,18 +172,12 @@ async fn a_burst_of_edits_publishes_the_latest_contents_and_settles() -> TestRes
 
 #[tokio::test]
 async fn linked_worktree_index_head_and_shared_refs_are_watched() -> TestResult {
-    let main = RepoFixtureBuilder::new()
-        .file("file.txt", "old\n")
-        .committed()
-        .build();
+    let main = RepoFixtureBuilder::new().file("file.txt", "old\n").committed().build();
     let repo = main.linked_worktree("review");
     repo.write("file.txt", "new\n");
     let watcher = watcher(&repo).await?;
     let mut state = watcher.state_rx.clone();
-    assert_eq!(
-        stage_state(healthy(&state.borrow())?.as_ref(), "file.txt"),
-        Some(StageState::Unstaged)
-    );
+    assert_eq!(stage_state(healthy(&state.borrow())?.as_ref(), "file.txt"), Some(StageState::Unstaged));
     repo.git(&["add", "file.txt"]);
     let staged = wait_for_snapshot(&mut state).await?;
     assert_eq!(stage_state(&staged, "file.txt"), Some(StageState::Staged));
@@ -265,10 +196,7 @@ async fn linked_worktree_index_head_and_shared_refs_are_watched() -> TestResult 
 
 #[tokio::test]
 async fn background_recovery_publishes_success_even_with_unchanged_content() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "old\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "old\n").committed().build();
     let watcher = watcher(&repo).await?;
     let mut state = watcher.state_rx.clone();
     let original = healthy(&state.borrow())?;
@@ -289,16 +217,8 @@ async fn background_recovery_publishes_success_even_with_unchanged_content() -> 
     // The failed load keeps the last good snapshot in place.
     assert_eq!(state.borrow().snapshot, original);
     let (result_tx, completion) = oneshot::channel();
-    watcher
-        .request_tx
-        .send(RepositoryRequest::SetTarget {
-            target: DiffScope::Both.into(),
-            result_tx,
-        })
-        .await?;
-    wait_for("repeated failure acknowledgement", completion)
-        .await?
-        .expect_err("the index is still corrupt");
+    watcher.request_tx.send(RepositoryRequest::SetTarget { target: DiffScope::Both.into(), result_tx }).await?;
+    wait_for("repeated failure acknowledgement", completion).await?.expect_err("the index is still corrupt");
     assert_eq!(state.borrow().error_message(), original_error);
     assert!(!state.has_changed()?);
     repo.write(".git/index", index);
@@ -319,24 +239,12 @@ async fn background_recovery_publishes_success_even_with_unchanged_content() -> 
 #[cfg(unix)]
 #[tokio::test]
 async fn changes_from_a_failed_mutation_are_observed() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "old\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "old\n").committed().build();
     repo.write("file.txt", "staged\n");
     repo.git(&["add", "file.txt"]);
-    repo.write_executable(
-        ".git/hooks/pre-commit",
-        "#!/bin/sh\nprintf 'hook changed\\n' > file.txt\nexit 1\n",
-    );
+    repo.write_executable(".git/hooks/pre-commit", "#!/bin/sh\nprintf 'hook changed\\n' > file.txt\nexit 1\n");
     let watcher = watcher(&repo).await?;
-    let result = repo
-        .repository()
-        .await
-        .apply(RepositoryAction::Commit {
-            message: "rejected by hook".into(),
-        })
-        .await;
+    let result = repo.repository().await.apply(RepositoryAction::Commit { message: "rejected by hook".into() }).await;
     assert!(result.is_err());
     let mut snapshots = watcher.state_rx.clone();
     wait_for("the failed hook's worktree edit", async {
@@ -354,53 +262,31 @@ async fn changes_from_a_failed_mutation_are_observed() -> TestResult {
 #[cfg(unix)]
 #[tokio::test]
 async fn cancelling_a_host_owned_mutation_leaves_the_watcher_running() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "old\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "old\n").committed().build();
     repo.write("file.txt", "new\n");
     repo.git(&["add", "file.txt"]);
     repo.write_executable(".git/hooks/pre-commit", "#!/bin/sh\n: > .git/hook-started\ni=0\nwhile [ ! -f .git/hook-release ] && [ $i -lt 500 ]; do\n  sleep 0.01\n  i=$((i + 1))\ndone\n");
     let watcher = watcher(&repo).await?;
     let repository = repo.repository().await;
     let command = tokio::spawn(async move {
-        repository
-            .apply(RepositoryAction::Commit {
-                message: "must be cancelled".into(),
-            })
-            .await
+        repository.apply(RepositoryAction::Commit { message: "must be cancelled".into() }).await
     });
-    wait_until("Git to enter the hook", || {
-        repo.root().join(".git/hook-started").exists()
-    })
-    .await;
+    wait_until("Git to enter the hook", || repo.root().join(".git/hook-started").exists()).await;
     command.abort();
-    assert!(
-        command
-            .await
-            .expect_err("the host task was cancelled")
-            .is_cancelled()
-    );
+    assert!(command.await.expect_err("the host task was cancelled").is_cancelled());
     repo.write("file.txt", "after cancellation\n");
     let published = wait_for_snapshot(&mut watcher.state_rx.clone()).await?;
     assert!(added_lines(&published, "file.txt").contains(&"after cancellation".to_owned()));
     repo.write(".git/hook-release", "");
     observe().await;
     let snapshot = repo.repository().await.snapshot(DiffScope::Staged).await?;
-    assert!(
-        !snapshot.files.is_empty(),
-        "the cancelled commit must not finish after its owner is dropped"
-    );
+    assert!(!snapshot.files.is_empty(), "the cancelled commit must not finish after its owner is dropped");
     Ok(())
 }
 
 #[tokio::test]
-async fn watched_snapshots_are_immutable_and_scope_requests_publish_before_acknowledging()
--> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "old\n")
-        .committed()
-        .build();
+async fn watched_snapshots_are_immutable_and_scope_requests_publish_before_acknowledging() -> TestResult {
+    let repo = RepoFixtureBuilder::new().file("file.txt", "old\n").committed().build();
     let repository = repo.repository().await;
     let watcher = watcher(&repo).await?;
     let mut snapshots = watcher.state_rx.clone();
@@ -408,61 +294,36 @@ async fn watched_snapshots_are_immutable_and_scope_requests_publish_before_ackno
     for contents in ["first\n", "second\n", "third\n"] {
         repo.write("file.txt", contents);
         wait_for_snapshot(&mut snapshots).await?;
-        assert_eq!(
-            added_lines(healthy(&snapshots.borrow())?.as_ref(), "file.txt"),
-            vec![contents.trim_end()]
-        );
+        assert_eq!(added_lines(healthy(&snapshots.borrow())?.as_ref(), "file.txt"), vec![contents.trim_end()]);
     }
     assert_eq!(original.files.len(), 0);
     assert!(!snapshots.has_changed()?);
     let expected = repository.snapshot_with_sources(DiffScope::Both).await?;
     assert_eq!(*healthy(&snapshots.borrow())?, expected);
     let (result_tx, completion) = oneshot::channel();
-    watcher
-        .request_tx
-        .send(RepositoryRequest::SetTarget {
-            target: DiffScope::Staged.into(),
-            result_tx,
-        })
-        .await?;
+    watcher.request_tx.send(RepositoryRequest::SetTarget { target: DiffScope::Staged.into(), result_tx }).await?;
     wait_for("raw scope acknowledgement", completion).await??;
-    assert_eq!(
-        healthy(&snapshots.borrow())?.target.scope(),
-        Some(DiffScope::Staged)
-    );
+    assert_eq!(healthy(&snapshots.borrow())?.target.scope(), Some(DiffScope::Staged));
     assert_eq!(healthy(&snapshots.borrow())?.files.len(), 0);
     Ok(())
 }
 
 #[tokio::test]
 async fn dropping_the_watcher_closes_queued_replies_and_channels() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "old\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "old\n").committed().build();
     let watcher = watcher(&repo).await?;
     let requests = watcher.request_tx.clone();
     let mut snapshots = watcher.state_rx.clone();
     let (result_tx, completion) = oneshot::channel();
-    requests
-        .send(RepositoryRequest::SetTarget {
-            target: DiffScope::Staged.into(),
-            result_tx,
-        })
-        .await?;
+    requests.send(RepositoryRequest::SetTarget { target: DiffScope::Staged.into(), result_tx }).await?;
     drop(watcher);
     wait_for("queued reply closure", completion)
         .await
         .expect_err("the stopped actor cannot acknowledge a scope change");
-    wait_for("snapshot channel closure", snapshots.changed())
-        .await
-        .expect_err("the snapshot publisher must stop");
+    wait_for("snapshot channel closure", snapshots.changed()).await.expect_err("the snapshot publisher must stop");
     let (result_tx, _completion) = oneshot::channel();
     requests
-        .send(RepositoryRequest::SetTarget {
-            target: DiffScope::Staged.into(),
-            result_tx,
-        })
+        .send(RepositoryRequest::SetTarget { target: DiffScope::Staged.into(), result_tx })
         .await
         .expect_err("a stopped watcher rejects requests");
     Ok(())
@@ -470,11 +331,7 @@ async fn dropping_the_watcher_closes_queued_replies_and_channels() -> TestResult
 
 #[tokio::test]
 async fn new_nested_directories_and_ignore_changes_are_observed() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "original\n")
-        .gitignore(&["generated/"])
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "original\n").gitignore(&["generated/"]).committed().build();
     repo.write("generated/nested/file.txt", "hidden\n");
     let subscription = watcher(&repo).await?;
     let mut state = subscription.state_rx.clone();
@@ -486,55 +343,30 @@ async fn new_nested_directories_and_ignore_changes_are_observed() -> TestResult 
     assert_eq!(added_lines(&snapshot, "new/deep/file.txt"), vec!["second"]);
     repo.write(".gitignore", "");
     let snapshot = wait_for_snapshot(&mut state).await?;
-    assert_eq!(
-        added_lines(&snapshot, "generated/nested/file.txt"),
-        vec!["hidden"]
-    );
+    assert_eq!(added_lines(&snapshot, "generated/nested/file.txt"), vec!["hidden"]);
     repo.write("generated/nested/file.txt", "visible\n");
     let snapshot = wait_for_snapshot(&mut state).await?;
-    assert_eq!(
-        added_lines(&snapshot, "generated/nested/file.txt"),
-        vec!["visible"]
-    );
+    assert_eq!(added_lines(&snapshot, "generated/nested/file.txt"), vec!["visible"]);
     drop(subscription);
-    assert!(
-        wait_for("old subscription closed", state.changed())
-            .await
-            .is_err()
-    );
+    assert!(wait_for("old subscription closed", state.changed()).await.is_err());
     let reopened = watcher(&repo).await?;
     repo.write("new/deep/file.txt", "reopened\n");
     let snapshot = wait_for_snapshot(&mut reopened.state_rx.clone()).await?;
-    assert_eq!(
-        added_lines(&snapshot, "new/deep/file.txt"),
-        vec!["reopened"]
-    );
+    assert_eq!(added_lines(&snapshot, "new/deep/file.txt"), vec!["reopened"]);
     Ok(())
 }
 
 #[tokio::test]
 async fn snapshots_carry_the_commit_stack_and_follow_new_commits() -> TestResult {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "original\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "original\n").committed().build();
     repo.git(&["checkout", "-b", "feature"]);
     repo.write("file.txt", "first\n");
     let first = repo.commit("First");
     let watcher = watcher(&repo).await?;
     let commit_ids = |document: &DiffDocument| {
-        document.commits.as_ref().map(|stack| {
-            stack
-                .commits
-                .iter()
-                .map(|commit| commit.id.clone())
-                .collect::<Vec<_>>()
-        })
+        document.commits.as_ref().map(|stack| stack.commits.iter().map(|commit| commit.id.clone()).collect::<Vec<_>>())
     };
-    assert_eq!(
-        commit_ids(&watcher.state_rx.borrow().snapshot),
-        Some(vec![first.clone()])
-    );
+    assert_eq!(commit_ids(&watcher.state_rx.borrow().snapshot), Some(vec![first.clone()]));
 
     let commit_state = watcher.handle().subscribe(first.clone()).await?;
     let commit_snapshot = healthy(&commit_state.borrow())?;
@@ -552,9 +384,7 @@ async fn snapshots_carry_the_commit_stack_and_follow_new_commits() -> TestResult
 }
 
 fn options() -> WatchOptions {
-    WatchOptions {
-        debounce: Duration::from_millis(50),
-    }
+    WatchOptions { debounce: Duration::from_millis(50) }
 }
 
 async fn watcher(repo: &RepoFixture) -> TestResult<RepositoryWatcher> {
@@ -574,9 +404,5 @@ fn added_lines(published: &DiffDocument, path: &str) -> Vec<String> {
 }
 
 fn stage_state(published: &DiffDocument, path: &str) -> Option<StageState> {
-    published
-        .files
-        .iter()
-        .find(|file| file.path.as_str() == path)
-        .map(|file| file.staged)
+    published.files.iter().find(|file| file.path.as_str() == path).map(|file| file.staged)
 }

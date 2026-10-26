@@ -2,12 +2,11 @@
 
 use crate::comment_editor::CommentEditor;
 use clankerdiff_gpui_ui::prelude::{
-    Button, ButtonVariant, ControlSize, IconButton, IconName, Surface, Typography, TypographyExt,
-    UiTheme,
+    Button, ButtonVariant, ControlSize, IconButton, IconName, Surface, Typography, TypographyExt, UiTheme,
 };
 use gpui::{
-    AnyElement, App, ClickEvent, Context, ElementId, Entity, IntoElement, MouseButton, RenderOnce,
-    SharedString, Window, div, prelude::*,
+    AnyElement, App, ClickEvent, Context, ElementId, Entity, IntoElement, MouseButton, RenderOnce, SharedString,
+    Window, div, prelude::*,
 };
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -20,10 +19,7 @@ pub(crate) struct CommentCount {
 }
 impl CommentCount {
     pub(crate) fn new(count: usize, theme: &UiTheme) -> Self {
-        Self {
-            count,
-            theme: *theme,
-        }
+        Self { count, theme: *theme }
     }
 }
 impl RenderOnce for CommentCount {
@@ -48,20 +44,8 @@ pub(crate) struct CommentCard {
     header_actions: Option<AnyElement>,
 }
 impl CommentCard {
-    pub(crate) fn new(
-        id: u64,
-        title: impl Into<SharedString>,
-        body: impl Into<SharedString>,
-        theme: &UiTheme,
-    ) -> Self {
-        Self {
-            id,
-            title: title.into(),
-            body: body.into(),
-            theme: *theme,
-            last: false,
-            header_actions: None,
-        }
+    pub(crate) fn new(id: u64, title: impl Into<SharedString>, body: impl Into<SharedString>, theme: &UiTheme) -> Self {
+        Self { id, title: title.into(), body: body.into(), theme: *theme, last: false, header_actions: None }
     }
 
     pub(crate) fn header_actions(mut self, actions: impl IntoElement) -> Self {
@@ -78,9 +62,7 @@ impl RenderOnce for CommentCard {
             .w_full()
             .flex()
             .flex_col()
-            .when(!self.last, |comment| {
-                comment.border_b_1().border_color(colors.border)
-            })
+            .when(!self.last, |comment| comment.border_b_1().border_color(colors.border))
             .child(
                 div()
                     .px_3()
@@ -116,11 +98,7 @@ pub(crate) struct CommentThread {
 }
 impl CommentThread {
     pub(crate) fn new(id: impl Into<ElementId>, theme: &UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            theme: *theme,
-            cards: Vec::new(),
-        }
+        Self { id: id.into(), theme: *theme, cards: Vec::new() }
     }
 
     pub(crate) fn cards(mut self, cards: impl IntoIterator<Item = CommentCard>) -> Self {
@@ -174,16 +152,11 @@ pub(crate) fn comment_dismiss_button<T: 'static>(
         })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(
-            IconButton::new(
-                ("dismiss-comment", id),
-                IconName::X,
-                "Dismiss comment",
-                *theme,
-            )
-            .keyboard_focusable()
-            .on_click(cx.listener(move |viewer, _, window, cx| {
-                handler(viewer, window, cx);
-            })),
+            IconButton::new(("dismiss-comment", id), IconName::X, "Dismiss comment", *theme)
+                .keyboard_focusable()
+                .on_click(cx.listener(move |viewer, _, window, cx| {
+                    handler(viewer, window, cx);
+                })),
         )
         .into_any_element()
 }
@@ -198,32 +171,16 @@ pub(crate) struct CommentComposer {
     on_submit: Option<ClickHandler>,
 }
 impl CommentComposer {
-    pub(crate) fn new(
-        editor: Entity<CommentEditor>,
-        title: impl Into<SharedString>,
-        theme: &UiTheme,
-    ) -> Self {
-        Self {
-            editor,
-            title: title.into(),
-            theme: *theme,
-            on_cancel: None,
-            on_submit: None,
-        }
+    pub(crate) fn new(editor: Entity<CommentEditor>, title: impl Into<SharedString>, theme: &UiTheme) -> Self {
+        Self { editor, title: title.into(), theme: *theme, on_cancel: None, on_submit: None }
     }
 
-    pub(crate) fn on_cancel(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub(crate) fn on_cancel(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_cancel = Some(Box::new(handler));
         self
     }
 
-    pub(crate) fn on_submit(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub(crate) fn on_submit(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_submit = Some(Box::new(handler));
         self
     }
@@ -245,23 +202,9 @@ impl RenderOnce for CommentComposer {
                 .flex()
                 .flex_col()
                 .gap_3()
-                .child(
-                    div()
-                        .typography(Typography::BodyStrong)
-                        .text_color(colors.text)
-                        .child(self.title),
-                )
+                .child(div().typography(Typography::BodyStrong).text_color(colors.text).child(self.title))
                 .child(self.editor)
-                .child(
-                    div()
-                        .w_full()
-                        .flex()
-                        .justify_end()
-                        .items_center()
-                        .gap_2()
-                        .child(cancel)
-                        .child(submit),
-                ),
+                .child(div().w_full().flex().justify_end().items_center().gap_2().child(cancel).child(submit)),
         )
     }
 }

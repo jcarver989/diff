@@ -25,14 +25,8 @@ pub(super) fn derive_patch(old: &str, new: &str) -> (Vec<Hunk>, bool) {
         });
     }
 
-    let changed = lines
-        .iter()
-        .any(|line| matches!(line.kind, PatchLineKind::Added | PatchLineKind::Removed));
-    let mut hunks = if changed {
-        grouped_hunks(&lines, 3)
-    } else {
-        Vec::new()
-    };
+    let changed = lines.iter().any(|line| matches!(line.kind, PatchLineKind::Added | PatchLineKind::Removed));
+    let mut hunks = if changed { grouped_hunks(&lines, 3) } else { Vec::new() };
 
     let old_incomplete = !old.is_empty() && !old.ends_with('\n');
     let new_incomplete = !new.is_empty() && !new.ends_with('\n');
@@ -48,17 +42,13 @@ pub(super) fn derive_patch(old: &str, new: &str) -> (Vec<Hunk>, bool) {
 }
 
 fn strip_line_ending(value: &str) -> &str {
-    value.strip_suffix('\n').map_or(value, |trimmed| {
-        trimmed.strip_suffix('\r').unwrap_or(trimmed)
-    })
+    value.strip_suffix('\n').map_or(value, |trimmed| trimmed.strip_suffix('\r').unwrap_or(trimmed))
 }
 
 fn grouped_hunks(lines: &[PatchLine], context: usize) -> Vec<Hunk> {
     let mut ranges = Vec::<Range<usize>>::new();
-    for index in lines
-        .iter()
-        .enumerate()
-        .filter_map(|(index, line)| (line.kind != PatchLineKind::Context).then_some(index))
+    for index in
+        lines.iter().enumerate().filter_map(|(index, line)| (line.kind != PatchLineKind::Context).then_some(index))
     {
         let start = index.saturating_sub(context);
         let end = index.saturating_add(context + 1).min(lines.len());
@@ -70,23 +60,14 @@ fn grouped_hunks(lines: &[PatchLine], context: usize) -> Vec<Hunk> {
             ranges.push(start..end);
         }
     }
-    ranges
-        .into_iter()
-        .map(|range| whole_file_hunk(lines[range].to_vec()))
-        .collect()
+    ranges.into_iter().map(|range| whole_file_hunk(lines[range].to_vec())).collect()
 }
 
 fn whole_file_hunk(lines: Vec<PatchLine>) -> Hunk {
     let old_start = lines.iter().find_map(|line| line.old_line_no).unwrap_or(0);
     let new_start = lines.iter().find_map(|line| line.new_line_no).unwrap_or(0);
-    let old_count = lines
-        .iter()
-        .filter(|line| line.old_line_no.is_some())
-        .count();
-    let new_count = lines
-        .iter()
-        .filter(|line| line.new_line_no.is_some())
-        .count();
+    let old_count = lines.iter().filter(|line| line.old_line_no.is_some()).count();
+    let new_count = lines.iter().filter(|line| line.new_line_no.is_some()).count();
     Hunk {
         header: format!("@@ -{old_start},{old_count} +{new_start},{new_count} @@"),
         function_context: None,

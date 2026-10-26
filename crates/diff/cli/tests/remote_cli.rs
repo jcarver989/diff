@@ -12,9 +12,7 @@ use std::{
 #[test]
 fn remote_commands_are_available_in_executable() -> Result<(), Box<dyn Error>> {
     for command in ["serve", "connect"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_clankerdiff"))
-            .args([command, "--help"])
-            .output()?;
+        let output = Command::new(env!("CARGO_BIN_EXE_clankerdiff")).args([command, "--help"]).output()?;
         assert!(output.status.success());
         let text = String::from_utf8(output.stdout)?;
         assert!(text.contains(command));
@@ -34,19 +32,13 @@ fn remote_commands_are_available_in_executable() -> Result<(), Box<dyn Error>> {
 
 #[tokio::test]
 async fn server_stdout_receives_remote_submission() -> Result<(), Box<dyn Error>> {
-    let repo = RepoFixtureBuilder::new()
-        .file("file", "old\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file", "old\n").committed().build();
     repo.write("file", "new\n");
     let repository = repo.repository().await;
     let mut server = RunningServer::spawn(repository.root())?;
     let url = server.url()?;
     let client = DiffClient::connect(&url, ClientOptions::default()).await?;
-    let state = client
-        .subscribe()
-        .wait_until(Duration::from_secs(10), |state| state.snapshot.is_some())
-        .await?;
+    let state = client.subscribe().wait_until(Duration::from_secs(10), |state| state.snapshot.is_some()).await?;
     let file = &state.snapshot.as_ref().ok_or("snapshot")?.files[0];
     let anchor = (0..file.hunks[0].lines.len())
         .find_map(|line| LineAnchor::for_line(file, DiffSide::New, 0, line))
@@ -54,9 +46,7 @@ async fn server_stdout_receives_remote_submission() -> Result<(), Box<dyn Error>
     let mut review = Review::default();
     review.add_comment(anchor, "feedback from machine B");
     let submission = review.submission();
-    client
-        .handle(DiffReviewEvent::SubmitReview(submission.clone()))
-        .await?;
+    client.handle(DiffReviewEvent::SubmitReview(submission.clone())).await?;
     drop(client);
 
     let output = server.finish()?;
@@ -75,10 +65,7 @@ async fn server_stdout_receives_remote_submission() -> Result<(), Box<dyn Error>
 
 #[tokio::test]
 async fn server_cancellation_uses_the_review_exit_code() -> Result<(), Box<dyn Error>> {
-    let repo = RepoFixtureBuilder::new()
-        .file("file", "old\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file", "old\n").committed().build();
     let repository = repo.repository().await;
     let mut server = RunningServer::spawn(repository.root())?;
     let client = DiffClient::connect(&server.url()?, ClientOptions::default()).await?;
@@ -89,24 +76,14 @@ async fn server_cancellation_uses_the_review_exit_code() -> Result<(), Box<dyn E
     assert_eq!(output.status.code(), Some(2));
     assert!(matches!(
         parse_response(&output.stdout)?,
-        ReviewResponse::Diff {
-            outcome: ReviewOutcome::Cancelled,
-            submission: None,
-            ..
-        }
+        ReviewResponse::Diff { outcome: ReviewOutcome::Cancelled, submission: None, .. }
     ));
     Ok(())
 }
 
 #[test]
 fn malformed_connection_headers_fail_before_network_connection() -> Result<(), Box<dyn Error>> {
-    for header in [
-        "MissingColon",
-        ": value",
-        "Bad Name: value",
-        "Host: example.com",
-        "X-Test: value\nother",
-    ] {
+    for header in ["MissingColon", ": value", "Bad Name: value", "Host: example.com", "X-Test: value\nother"] {
         let output = Command::new(env!("CARGO_BIN_EXE_clankerdiff"))
             .args(["connect", "ws://127.0.0.1:1/ws", "-H", header])
             .output()?;
@@ -145,11 +122,7 @@ impl RunningServer {
     }
 
     fn url(&mut self) -> Result<String, Box<dyn Error>> {
-        let stderr = self
-            .0
-            .as_mut()
-            .and_then(|child| child.stderr.as_mut())
-            .ok_or("server stderr unavailable")?;
+        let stderr = self.0.as_mut().and_then(|child| child.stderr.as_mut()).ok_or("server stderr unavailable")?;
         let mut line = String::new();
         BufReader::new(stderr).read_line(&mut line)?;
         line.split_whitespace()

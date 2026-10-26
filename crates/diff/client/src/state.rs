@@ -19,10 +19,7 @@ pub struct ClientOptions {
 
 impl From<ReviewTarget> for ClientOptions {
     fn from(target: ReviewTarget) -> Self {
-        Self {
-            target,
-            ..Self::default()
-        }
+        Self { target, ..Self::default() }
     }
 }
 
@@ -51,26 +48,16 @@ impl ClientState {
     #[must_use]
     pub fn apply(self, event: &ServerEvent) -> Self {
         match event {
-            Event::Initialize { .. } => Self {
-                error: None,
-                ..self
+            Event::Initialize { .. } => Self { error: None, ..self }.with_capabilities(),
+            Event::Document(snapshot) => {
+                Self { snapshot: Some(snapshot.clone()), connection: ConnectionState::Connected, ..self }
+                    .with_capabilities()
             }
-            .with_capabilities(),
-            Event::Document(snapshot) => Self {
-                snapshot: Some(snapshot.clone()),
-                connection: ConnectionState::Connected,
-                ..self
+            Event::Health { error } => Self { error: error.clone(), ..self },
+            Event::Error(error) => {
+                Self { connection: ConnectionState::Failed(ClientError::Remote(error.clone())), ..self }
+                    .with_capabilities()
             }
-            .with_capabilities(),
-            Event::Health { error } => Self {
-                error: error.clone(),
-                ..self
-            },
-            Event::Error(error) => Self {
-                connection: ConnectionState::Failed(ClientError::Remote(error.clone())),
-                ..self
-            }
-            .with_capabilities(),
             Event::RequestResult(_) => self,
         }
     }
@@ -91,15 +78,9 @@ impl ClientState {
     }
 
     #[must_use]
-    pub fn snapshot_if_changed(
-        &self,
-        installed: &mut Option<Arc<DiffDocument>>,
-    ) -> Option<&Arc<DiffDocument>> {
+    pub fn snapshot_if_changed(&self, installed: &mut Option<Arc<DiffDocument>>) -> Option<&Arc<DiffDocument>> {
         let snapshot = self.snapshot.as_ref()?;
-        if installed
-            .as_ref()
-            .is_some_and(|old| Arc::ptr_eq(old, snapshot))
-        {
+        if installed.as_ref().is_some_and(|old| Arc::ptr_eq(old, snapshot)) {
             return None;
         }
         *installed = Some(snapshot.clone());
@@ -110,9 +91,7 @@ impl ClientState {
     pub fn status(&self) -> Option<String> {
         match &self.connection {
             ConnectionState::Connected => self.error.as_ref().map(ToString::to_string),
-            ConnectionState::Connecting if self.snapshot.is_some() => {
-                Some("Disconnected; reconnecting…".to_owned())
-            }
+            ConnectionState::Connecting if self.snapshot.is_some() => Some("Disconnected; reconnecting…".to_owned()),
             ConnectionState::Connecting => Some("Loading repository…".to_owned()),
             ConnectionState::Failed(error) => Some(error.to_string()),
         }

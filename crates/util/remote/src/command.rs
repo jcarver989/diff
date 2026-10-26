@@ -50,18 +50,13 @@ impl Remotes for CommandRemotes {
         let text = text.trim();
         let id = if text.starts_with('{') {
             serde_json::from_str::<Launched>(text)
-                .map_err(|source| RemoteError::Output {
-                    program: invocation.program.clone(),
-                    source,
-                })?
+                .map_err(|source| RemoteError::Output { program: invocation.program.clone(), source })?
                 .id
         } else {
             text.lines().next().unwrap_or_default().trim().to_owned()
         };
         if id.is_empty() {
-            return Err(RemoteError::NoId {
-                program: invocation.program,
-            });
+            return Err(RemoteError::NoId { program: invocation.program });
         }
         Ok(id)
     }
@@ -82,26 +77,18 @@ impl Invocation {
             .current_dir(&self.dir)
             .stdin(Stdio::null())
             .output()
-            .map_err(|source| RemoteError::Spawn {
-                program: self.program.clone(),
-                source,
-            })?;
+            .map_err(|source| RemoteError::Spawn { program: self.program.clone(), source })?;
         if output.status.success() {
             return Ok(output.stdout);
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
         let last_line = stderr.lines().map(str::trim).rfind(|line| !line.is_empty());
-        Err(RemoteError::Failed(last_line.map_or_else(
-            || format!("{} {}", self.program, output.status),
-            str::to_owned,
-        )))
+        Err(RemoteError::Failed(last_line.map_or_else(|| format!("{} {}", self.program, output.status), str::to_owned)))
     }
 
     pub fn run_json<T: DeserializeOwned>(&self) -> Result<T, RemoteError> {
-        serde_json::from_slice(&self.run()?).map_err(|source| RemoteError::Output {
-            program: self.program.clone(),
-            source,
-        })
+        serde_json::from_slice(&self.run()?)
+            .map_err(|source| RemoteError::Output { program: self.program.clone(), source })
     }
 }
 
@@ -155,23 +142,14 @@ impl TryFrom<ListedInstance> for Instance {
             .expires_at
             .map(|time| humantime::parse_rfc3339_weak(&time).map_err(|_| RemoteError::Time(time)))
             .transpose()?;
-        Ok(Self {
-            id: listed.id,
-            state: listed.state,
-            expires_at,
-        })
+        Ok(Self { id: listed.id, state: listed.state, expires_at })
     }
 }
 
 fn required(remote: &RemoteSpec, action: Action) -> Result<Invocation, RemoteError> {
-    remote
-        .invocation(action, None)?
-        .ok_or_else(|| unsupported(remote, action))
+    remote.invocation(action, None)?.ok_or_else(|| unsupported(remote, action))
 }
 
 fn unsupported(remote: &RemoteSpec, action: Action) -> RemoteError {
-    RemoteError::Unsupported {
-        remote: remote.name.clone(),
-        action,
-    }
+    RemoteError::Unsupported { remote: remote.name.clone(), action }
 }

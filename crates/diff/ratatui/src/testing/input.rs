@@ -12,10 +12,5 @@ pub fn key_with(code: KeyCode, modifiers: KeyModifiers) -> ReviewInput {
 
 #[must_use]
 pub fn mouse(kind: MouseEventKind, column: u16, row: u16) -> ReviewInput {
-    ReviewInput::Mouse(MouseEvent {
-        kind,
-        column,
-        row,
-        modifiers: KeyModifiers::NONE,
-    })
+    ReviewInput::Mouse(MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE })
 }

@@ -1,8 +1,8 @@
 use super::{DiffViewer, ViewerPane};
 use crate::{DiffViewerEvent, ui::prelude::ThemePicker};
 use clankerdiff_core::{
-    CommandContext, DiffReviewCommand, InteractionPhase, RepositoryAction, ReviewCapabilities,
-    ReviewCommand, ReviewSession,
+    CommandContext, DiffReviewCommand, InteractionPhase, RepositoryAction, ReviewCapabilities, ReviewCommand,
+    ReviewSession,
 };
 use gpui::{Context, ListOffset, Window, px};
 
@@ -33,15 +33,10 @@ impl DiffViewer {
     #[must_use]
     pub fn command_enabled(&self, command: &DiffReviewCommand) -> bool {
         command.enabled(&self.command_context())
-            && !matches!(
-                command,
-                DiffReviewCommand::Review(ReviewCommand::ScrollHelp(_))
-            )
+            && !matches!(command, DiffReviewCommand::Review(ReviewCommand::ScrollHelp(_)))
             && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
             && match command {
-                DiffReviewCommand::StepTarget(delta) => {
-                    self.session.stepped_target(*delta).is_some()
-                }
+                DiffReviewCommand::StepTarget(delta) => self.session.stepped_target(*delta).is_some(),
                 _ => true,
             }
     }
@@ -54,10 +49,7 @@ impl DiffViewer {
         cx.notify();
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "Exhaustive command dispatch keeps routing in one place"
-    )]
+    #[expect(clippy::too_many_lines, reason = "Exhaustive command dispatch keeps routing in one place")]
     pub fn handle_command(
         &mut self,
         command: impl Into<DiffReviewCommand>,
@@ -137,8 +129,7 @@ impl DiffViewer {
             }
             C::ToggleSourceView => {
                 if self.session.source_view().is_none() && self.pane == ViewerPane::Files {
-                    let Some(index) = self.sidebar_tree.selected().and_then(|entry| entry.file)
-                    else {
+                    let Some(index) = self.sidebar_tree.selected().and_then(|entry| entry.file) else {
                         return false;
                     };
                     if self.session.selected_file() != Some(index) {
@@ -188,15 +179,11 @@ impl DiffViewer {
                 return true;
             }
             C::StageAll => {
-                cx.emit(DiffViewerEvent::RepositoryAction(
-                    RepositoryAction::StageAll,
-                ));
+                cx.emit(DiffViewerEvent::RepositoryAction(RepositoryAction::StageAll));
                 return true;
             }
             C::UnstageAll => {
-                cx.emit(DiffViewerEvent::RepositoryAction(
-                    RepositoryAction::UnstageAll,
-                ));
+                cx.emit(DiffViewerEvent::RepositoryAction(RepositoryAction::UnstageAll));
                 return true;
             }
             C::RepositoryAction(action) => {
@@ -219,23 +206,13 @@ impl DiffViewer {
                 return true;
             }
             C::CopyReview => {
-                cx.emit(DiffViewerEvent::CopyFormattedReview(
-                    self.session.submission().formatted,
-                ));
+                cx.emit(DiffViewerEvent::CopyFormattedReview(self.session.submission().formatted));
                 return true;
             }
-            C::Scroll {
-                pane: ViewerPane::Files,
-                lines,
-            } => self.sidebar_scroll_handle.scroll_to_item(
-                self.sidebar_scroll_handle
-                    .top_item()
-                    .saturating_add_signed(lines),
-            ),
-            C::Scroll {
-                pane: ViewerPane::Diff,
-                lines,
-            } => {
+            C::Scroll { pane: ViewerPane::Files, lines } => self
+                .sidebar_scroll_handle
+                .scroll_to_item(self.sidebar_scroll_handle.top_item().saturating_add_signed(lines)),
+            C::Scroll { pane: ViewerPane::Diff, lines } => {
                 let top = self.diff_list_state.logical_scroll_top();
                 self.diff_list_state.scroll_to(ListOffset {
                     item_ix: top.item_ix.saturating_add_signed(lines),

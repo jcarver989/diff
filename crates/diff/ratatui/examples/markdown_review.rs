@@ -1,9 +1,7 @@
 //! Review one rendered Markdown file in a terminal.
 
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
-use clankerdiff_ratatui::{
-    MarkdownReviewState, MarkdownReviewWidget, ThemeChoice, handle_markdown_crossterm_event,
-};
+use clankerdiff_ratatui::{MarkdownReviewState, MarkdownReviewWidget, ThemeChoice, handle_markdown_crossterm_event};
 use crossterm::{
     event, execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -29,13 +27,9 @@ impl Drop for TerminalGuard {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let path = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "markdown-plan.md".into());
+    let path = env::args().nth(1).unwrap_or_else(|| "markdown-plan.md".into());
     let source = fs::read_to_string(&path)?;
-    let title = Path::new(&path)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned());
+    let title = Path::new(&path).file_name().map(|name| name.to_string_lossy().into_owned());
     let document = MarkdownDocument::parse_with_metadata(Some(path), title, source);
     let outcome = run(Arc::new(document))?;
     if let Some(submission) = outcome {
@@ -44,9 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run(
-    document: Arc<MarkdownDocument>,
-) -> Result<Option<MarkdownReviewSubmission>, Box<dyn Error>> {
+fn run(document: Arc<MarkdownDocument>) -> Result<Option<MarkdownReviewSubmission>, Box<dyn Error>> {
     let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut state = MarkdownReviewState::new(document);

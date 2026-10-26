@@ -3,29 +3,25 @@
 use crate::{
     color::{layered_style, page_color},
     markdown_layout::{
-        MarkdownLayout, MarkdownLayoutOptions, MarkdownPresentation, MarkdownRow,
-        MarkdownRowUpdate, RowCheckpoint, RowChunk, RowStore, TargetIndex,
+        MarkdownLayout, MarkdownLayoutOptions, MarkdownPresentation, MarkdownRow, MarkdownRowUpdate, RowCheckpoint,
+        RowChunk, RowStore, TargetIndex,
     },
     syntax::highlighted_line,
     text::{FitOptions, FitPosition, fit_spans_from},
 };
 use clankerdiff_core::SourceSequenceId;
 pub use clankerdiff_markdown::{
-    Fingerprint, FingerprintError, MarkdownAnchor, MarkdownBlock, MarkdownBlockAnchor,
-    MarkdownBlockKind, MarkdownCodeBlock, MarkdownCodeLine, MarkdownCodeLineAnchor,
-    MarkdownCommentContext, MarkdownCommentDraft, MarkdownDocument, MarkdownFocusPane,
-    MarkdownHeading, MarkdownInline, MarkdownLineRange, MarkdownListItem, MarkdownParseStats,
-    MarkdownReview, MarkdownReviewCommand, MarkdownReviewComment, MarkdownReviewDecision,
-    MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSession, MarkdownReviewSubmission,
-    MarkdownSourceRole, MarkdownSourceStyle, MarkdownStream, MarkdownStreamChanges,
-    MarkdownStreamIdentity, MarkdownStreamUpdate, MarkdownTable, MarkdownTableAlignment,
-    MarkdownTableCell, MarkdownTableRow, MarkdownTarget, MarkdownTargetId, MarkdownTargetKind,
-    SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review, parse_markdown,
+    Fingerprint, FingerprintError, MarkdownAnchor, MarkdownBlock, MarkdownBlockAnchor, MarkdownBlockKind,
+    MarkdownCodeBlock, MarkdownCodeLine, MarkdownCodeLineAnchor, MarkdownCommentContext, MarkdownCommentDraft,
+    MarkdownDocument, MarkdownFocusPane, MarkdownHeading, MarkdownInline, MarkdownLineRange, MarkdownListItem,
+    MarkdownParseStats, MarkdownReview, MarkdownReviewCommand, MarkdownReviewComment, MarkdownReviewDecision,
+    MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSession, MarkdownReviewSubmission, MarkdownSourceRole,
+    MarkdownSourceStyle, MarkdownStream, MarkdownStreamChanges, MarkdownStreamIdentity, MarkdownStreamUpdate,
+    MarkdownTable, MarkdownTableAlignment, MarkdownTableCell, MarkdownTableRow, MarkdownTarget, MarkdownTargetId,
+    MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review, parse_markdown,
     rendered_text, resolve_anchor,
 };
-use clankerdiff_syntax::{
-    DocumentHighlights, HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxStream,
-};
+use clankerdiff_syntax::{DocumentHighlights, HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxStream};
 use clankerdiff_theme::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Modifier, Style},
@@ -61,12 +57,8 @@ impl MarkdownRenderStats {
     fn record_parse(&mut self, parse: MarkdownParseStats, seen: MarkdownParseStats) {
         self.parsed_bytes += parse.parsed_bytes.saturating_sub(seen.parsed_bytes);
         self.scanned_bytes += parse.scanned_bytes.saturating_sub(seen.scanned_bytes);
-        self.source_bytes_copied += parse
-            .source_bytes_copied
-            .saturating_sub(seen.source_bytes_copied);
-        self.prefix_bytes_copied += parse
-            .prefix_bytes_copied
-            .saturating_sub(seen.prefix_bytes_copied);
+        self.source_bytes_copied += parse.source_bytes_copied.saturating_sub(seen.source_bytes_copied);
+        self.prefix_bytes_copied += parse.prefix_bytes_copied.saturating_sub(seen.prefix_bytes_copied);
         self.parsed_documents += parse.parses.saturating_sub(seen.parses);
     }
 }
@@ -113,10 +105,7 @@ pub struct StreamingMarkdownState {
 impl StreamingMarkdownState {
     #[must_use]
     pub fn new(policy: StreamingMarkdownPolicy) -> Self {
-        Self {
-            policy,
-            ..Self::default()
-        }
+        Self { policy, ..Self::default() }
     }
 
     #[must_use]
@@ -175,33 +164,20 @@ impl StreamingMarkdownState {
         }
     }
 
-    pub fn commit_rows(
-        &mut self,
-        base_revision: u64,
-        end_exclusive: usize,
-    ) -> Result<(), MarkdownCommitError> {
+    pub fn commit_rows(&mut self, base_revision: u64, end_exclusive: usize) -> Result<(), MarkdownCommitError> {
         if self.policy != StreamingMarkdownPolicy::Terminal {
             return Err(MarkdownCommitError::Reflowable);
         }
         if base_revision != self.revision {
-            return Err(MarkdownCommitError::StaleRevision {
-                base: base_revision,
-                revision: self.revision,
-            });
+            return Err(MarkdownCommitError::StaleRevision { base: base_revision, revision: self.revision });
         }
         let committed = self.history.rows;
         if end_exclusive < committed {
-            return Err(MarkdownCommitError::Decreasing {
-                committed,
-                requested: end_exclusive,
-            });
+            return Err(MarkdownCommitError::Decreasing { committed, requested: end_exclusive });
         }
         let rows = self.layout.row_count();
         if end_exclusive > rows {
-            return Err(MarkdownCommitError::OutOfRange {
-                rows,
-                requested: end_exclusive,
-            });
+            return Err(MarkdownCommitError::OutOfRange { rows, requested: end_exclusive });
         }
         if end_exclusive == committed {
             return Ok(());
@@ -214,17 +190,11 @@ impl StreamingMarkdownState {
         self.update = None;
         if let Some(boundary) = self.cache.boundary_at(end_exclusive) {
             let mut boundary = boundary;
-            boundary.checkpoint = self
-                .layout
-                .row(end_exclusive - 1)
-                .and_then(|row| row.checkpoint.clone());
+            boundary.checkpoint = self.layout.row(end_exclusive - 1).and_then(|row| row.checkpoint.clone());
             self.history.boundary = Some(boundary);
         }
         if self.history.bound.is_none() {
-            self.history.bound = self
-                .cache
-                .identity
-                .map(|identity| (identity, self.cache.revision));
+            self.history.bound = self.cache.identity.map(|identity| (identity, self.cache.revision));
         }
         Ok(())
     }
@@ -249,8 +219,7 @@ impl MarkdownRenderer {
         theme: &ReviewTheme,
         highlighter: &mut SyntaxHighlighter,
     ) -> Arc<[Line<'static>]> {
-        self.render_layout(document, options, theme, highlighter)
-            .materialize()
+        self.render_layout(document, options, theme, highlighter).materialize()
     }
 
     pub fn render_stream_lines(
@@ -306,22 +275,15 @@ impl MarkdownRenderer {
         state.history.validate_source(stream)?;
         let same_stream = state.cache.identity == Some(stream.identity());
         let changes = same_stream.then(|| stream.changes_since(state.cache.revision));
-        let same_shape =
-            state.cache.options == Some(options) && state.cache.theme == Some(theme_revision);
+        let same_shape = state.cache.options == Some(options) && state.cache.theme == Some(theme_revision);
         let same_source = same_stream && state.cache.source_revision == stream.source_revision();
         let parse = stream.parse_stats();
-        let seen = if same_stream {
-            state.cache.parse_stats
-        } else {
-            MarkdownParseStats::default()
-        };
+        let seen = if same_stream { state.cache.parse_stats } else { MarkdownParseStats::default() };
         state.stats.record_parse(parse, seen);
         state.cache.parse_stats = parse;
         let unchanged = same_shape
             && same_source
-            && changes.is_some_and(|changes| {
-                !changes.replaced && changes.first_block >= document.blocks().len()
-            });
+            && changes.is_some_and(|changes| !changes.replaced && changes.first_block >= document.blocks().len());
         if unchanged {
             state.cache.revision = stream.revision();
             state.stats.rows_reused += state.layout.row_count();
@@ -344,8 +306,7 @@ impl MarkdownRenderer {
             &state.history,
             &mut state.stats,
         );
-        state.stats.highlighted_bytes +=
-            highlighter.stats().bytes.saturating_sub(highlighted_before);
+        state.stats.highlighted_bytes += highlighter.stats().bytes.saturating_sub(highlighted_before);
         state.cache.identity = Some(stream.identity());
         state.cache.revision = stream.revision();
         state.cache.source_revision = stream.source_revision();
@@ -354,20 +315,11 @@ impl MarkdownRenderer {
         let layout = MarkdownLayout::new(build.store, state.cache.targets.clone());
         let previous = state.layout.rows();
         let reset = reset && state.history.rows == 0;
-        let mut first_changed_row = if reset {
-            0
-        } else {
-            build
-                .first_generated
-                .unwrap_or(layout.row_count())
-                .min(previous.len())
-        };
+        let mut first_changed_row =
+            if reset { 0 } else { build.first_generated.unwrap_or(layout.row_count()).min(previous.len()) };
         while !reset
             && first_changed_row < layout.row_count()
-            && let (Some(left), Some(right)) = (
-                previous.get(first_changed_row),
-                layout.row(first_changed_row),
-            )
+            && let (Some(left), Some(right)) = (previous.get(first_changed_row), layout.row(first_changed_row))
         {
             state.stats.rows_compared += 1;
             if Arc::ptr_eq(left, right) || left == right {
@@ -413,9 +365,7 @@ impl History {
         if let Some((identity, revision)) = self.bound
             && (stream.identity() != identity || stream.changes_since(revision).replaced)
         {
-            return Err(MarkdownStreamError::CommittedSourceReplaced {
-                committed: self.rows,
-            });
+            return Err(MarkdownStreamError::CommittedSourceReplaced { committed: self.rows });
         }
         Ok(())
     }
@@ -493,9 +443,7 @@ impl LayoutCache {
         let index = self.block_ends.partition_point(|end| *end <= offset);
         let index = index.min(self.units.len().checked_sub(1)?);
         let unit = self.units.get(index)?;
-        let start = index
-            .checked_sub(1)
-            .map_or(0, |previous| self.block_ends[previous]);
+        let start = index.checked_sub(1).map_or(0, |previous| self.block_ends[previous]);
         Some(Boundary {
             block_start: unit.block_start,
             rows: self.skipped_rows[index] + offset.saturating_sub(start),
@@ -526,11 +474,7 @@ impl LayoutCache {
             self.source_lines.clear();
             self.line_ranges.clear();
         }
-        if self
-            .open
-            .as_ref()
-            .is_some_and(|open| Some(open.block) != open_block)
-        {
+        if self.open.as_ref().is_some_and(|open| Some(open.block) != open_block) {
             self.open = None;
         }
         self.sync_targets(document, first_block, open_block, stats);
@@ -573,10 +517,7 @@ impl LayoutCache {
         }
         stats.row_store_updates += store.take_updates();
         self.store = store.clone();
-        LayoutBuild {
-            store,
-            first_generated,
-        }
+        LayoutBuild { store, first_generated }
     }
 
     fn sync_targets(
@@ -587,13 +528,9 @@ impl LayoutCache {
         stats: &mut MarkdownRenderStats,
     ) {
         let targets = document.targets();
-        let mut first_target = document
-            .blocks()
-            .get(first_block)
-            .map_or(targets.len(), |block| {
-                targets
-                    .partition_point(|target| target.source.bytes.start < block.source.bytes.start)
-            });
+        let mut first_target = document.blocks().get(first_block).map_or(targets.len(), |block| {
+            targets.partition_point(|target| target.source.bytes.start < block.source.bytes.start)
+        });
         let code_prefix = self.open.as_ref().and_then(|open| {
             if open_block != Some(first_block) || open.block != first_block || open.failed {
                 return None;
@@ -647,10 +584,9 @@ impl LayoutCache {
         let blocks = document.blocks();
         let boundary_index = history.boundary.as_ref().map_or(0, |boundary| {
             blocks.partition_point(|block| {
-                boundary.checkpoint.as_ref().map_or(
-                    block.source.bytes.start < boundary.block_start,
-                    |checkpoint| block.source.bytes.end <= checkpoint.source.bytes.start,
-                )
+                boundary.checkpoint.as_ref().map_or(block.source.bytes.start < boundary.block_start, |checkpoint| {
+                    block.source.bytes.end <= checkpoint.source.bytes.start
+                })
             })
         });
         let first_block = first_block.max(boundary_index).min(blocks.len());
@@ -671,9 +607,8 @@ impl LayoutCache {
         self.block_ends.resize(first_block, history.rows);
         self.skipped_rows.truncate(first_block);
         self.skipped_rows.resize(first_block, 0);
-        let mut next_source_line = first_block
-            .checked_sub(1)
-            .map_or(1, |index| blocks[index].source.lines.end.saturating_add(1));
+        let mut next_source_line =
+            first_block.checked_sub(1).map_or(1, |index| blocks[index].source.lines.end.saturating_add(1));
         for (index, block) in blocks.iter().enumerate().skip(first_block) {
             stats.blocks_visited += 1;
             let start = block.source.bytes.start;
@@ -681,18 +616,13 @@ impl LayoutCache {
             next_source_line = block.source.lines.end.saturating_add(1);
             let boundary = history.boundary.as_ref();
             let at_boundary = boundary.filter(|boundary| {
-                boundary
-                    .checkpoint
-                    .as_ref()
-                    .map_or(boundary.block_start == start, |checkpoint| {
-                        start <= checkpoint.source.bytes.start
-                            && checkpoint.source.bytes.start < block.source.bytes.end
-                    })
+                boundary.checkpoint.as_ref().map_or(boundary.block_start == start, |checkpoint| {
+                    start <= checkpoint.source.bytes.start && checkpoint.source.bytes.start < block.source.bytes.end
+                })
             });
             let checkpoint = at_boundary.and_then(|boundary| boundary.checkpoint.as_ref());
-            let unit_options = at_boundary
-                .filter(|_| checkpoint.is_none())
-                .map_or(options, |boundary| boundary.options);
+            let unit_options =
+                at_boundary.filter(|_| checkpoint.is_none()).map_or(options, |boundary| boundary.options);
             let unit = self.render_unit(
                 document,
                 index,
@@ -706,9 +636,7 @@ impl LayoutCache {
                 stats,
             );
             self.units.push(unit.clone());
-            let skip = at_boundary
-                .filter(|_| checkpoint.is_none())
-                .map_or(0, |boundary| boundary.rows);
+            let skip = at_boundary.filter(|_| checkpoint.is_none()).map_or(0, |boundary| boundary.rows);
             self.skipped_rows.push(skip.min(unit.len));
             emit_unit(&unit, skip, store, first_generated);
             self.block_ends.push(store.len());
@@ -729,10 +657,7 @@ impl LayoutCache {
         highlighter: &mut SyntaxHighlighter,
         stats: &mut MarkdownRenderStats,
     ) -> Unit {
-        let mut unit = Unit {
-            block_start: block.source.bytes.start,
-            ..Unit::default()
-        };
+        let mut unit = Unit { block_start: block.source.bytes.start, ..Unit::default() };
         if options.preserve_source_gaps {
             if checkpoint.is_none() && !gap.is_empty() {
                 self.line_ranges(document.source());
@@ -762,35 +687,24 @@ impl LayoutCache {
             });
             unit.push(spacer, true);
         }
-        let context = BlockContext {
-            target: None,
-            foreground: theme.diff.foreground,
-            prefix: "",
-        };
-        if let (MarkdownBlockKind::CodeBlock(code), true) = (&block.kind, open_block == Some(index))
-        {
-            let (highlights, changed_from) =
-                self.open_code_highlights(index, code, theme, highlighter);
+        let context = BlockContext { target: None, foreground: theme.diff.foreground, prefix: "" };
+        if let (MarkdownBlockKind::CodeBlock(code), true) = (&block.kind, open_block == Some(index)) {
+            let (highlights, changed_from) = self.open_code_highlights(index, code, theme, highlighter);
             let open = self.open.as_mut().expect("open code cache initialised");
             let first_line = checkpoint.map_or(0, |checkpoint| {
-                code.lines
-                    .partition_point(|line| line.source.bytes.end <= checkpoint.source.bytes.start)
+                code.lines.partition_point(|line| line.source.bytes.end <= checkpoint.source.bytes.start)
             });
             let reuse = if open.options == Some(options)
                 && open.checkpoint.as_ref() == checkpoint
                 && open.first_line == first_line
             {
-                changed_from
-                    .saturating_sub(first_line)
-                    .min(open.line_ends.len())
+                changed_from.saturating_sub(first_line).min(open.line_ends.len())
             } else {
                 0
             };
             open.options = Some(options);
             open.checkpoint = checkpoint.cloned();
-            let retained = reuse
-                .checked_sub(1)
-                .map_or(0, |index| open.line_ends[index]);
+            let retained = reuse.checked_sub(1).map_or(0, |index| open.line_ends[index]);
             open.store.truncate(retained);
             open.line_ends.truncate(reuse);
             open.first_line = first_line;
@@ -846,10 +760,7 @@ impl LayoutCache {
                 && !open.failed
                 && open.hint == hint
                 && code.lines.len() >= open.fed_lines
-                && open
-                    .fed_lines
-                    .checked_sub(1)
-                    .is_none_or(|last| code.lines[last].text.len() >= open.fed_partial)
+                && open.fed_lines.checked_sub(1).is_none_or(|last| code.lines[last].text.len() >= open.fed_partial)
         });
         if !reusable {
             self.open = Some(OpenCode {
@@ -883,14 +794,8 @@ impl LayoutCache {
         if open.failed {
             return (Arc::default(), 0);
         }
-        if let Ok(update) = highlighter
-            .with_theme(&theme.syntax)
-            .append(&mut open.syntax, &delta)
-        {
-            (
-                update.highlights,
-                update.changed_lines.start.min(first_text_change),
-            )
+        if let Ok(update) = highlighter.with_theme(&theme.syntax).append(&mut open.syntax, &delta) {
+            (update.highlights, update.changed_lines.start.min(first_text_change))
         } else {
             open.failed = true;
             open.store = RowStore::default();
@@ -925,15 +830,10 @@ impl LayoutCache {
         };
         let mut line = self.line_ranges.len() + 1;
         loop {
-            let end = source[cursor..]
-                .find('\n')
-                .map(|offset| cursor + offset + 1);
+            let end = source[cursor..].find('\n').map(|offset| cursor + offset + 1);
             self.line_ranges.push(SourceRange {
                 bytes: cursor..end.unwrap_or(source.len()),
-                lines: MarkdownLineRange {
-                    start: line,
-                    end: line,
-                },
+                lines: MarkdownLineRange { start: line, end: line },
             });
             line += 1;
             match end {
@@ -960,21 +860,14 @@ impl LayoutCache {
     ) {
         let source = document.source();
         let blocks = document.blocks();
-        let first_block = if history
-            .boundary
-            .as_ref()
-            .is_some_and(|boundary| boundary.checkpoint.is_some())
-        {
+        let first_block = if history.boundary.as_ref().is_some_and(|boundary| boundary.checkpoint.is_some()) {
             0
         } else {
             first_block
         };
-        let first_byte = blocks
-            .get(first_block)
-            .map_or(source.len(), |block| block.source.bytes.start);
-        let mut first_line = blocks.get(first_block).map_or(usize::MAX, |block| {
-            block.source.lines.start.saturating_sub(1)
-        });
+        let first_byte = blocks.get(first_block).map_or(source.len(), |block| block.source.bytes.start);
+        let mut first_line =
+            blocks.get(first_block).map_or(usize::MAX, |block| block.source.lines.start.saturating_sub(1));
         first_line = first_line.min(self.line_ranges(source));
         let code_style = fenced_code_style(theme);
         let mut code_lines = HashMap::new();
@@ -996,37 +889,23 @@ impl LayoutCache {
                     if let Some(source_line) = line.source_line {
                         code_lines.insert(
                             source_line,
-                            (
-                                line.text.as_str(),
-                                highlights.line_shared(line_index).unwrap_or_default(),
-                            ),
+                            (line.text.as_str(), highlights.line_shared(line_index).unwrap_or_default()),
                         );
                     }
                 }
             }
         }
         let lines = std::mem::take(&mut self.line_ranges);
-        let checkpoint = history
-            .boundary
-            .as_ref()
-            .and_then(|boundary| boundary.checkpoint.as_ref());
-        let first_line = if checkpoint.is_some() {
-            0
-        } else {
-            first_line.min(lines.len())
-        };
-        let first_style = document
-            .source_styles()
-            .partition_point(|style| style.source.bytes.start < first_byte);
+        let checkpoint = history.boundary.as_ref().and_then(|boundary| boundary.checkpoint.as_ref());
+        let first_line = if checkpoint.is_some() { 0 } else { first_line.min(lines.len()) };
+        let first_style = document.source_styles().partition_point(|style| style.source.bytes.start < first_byte);
         let mut styles_by_line: HashMap<usize, Vec<&MarkdownSourceStyle>> = HashMap::new();
         for style in &document.source_styles()[first_style..] {
             for line in style.source.lines.start..=style.source.lines.end {
                 styles_by_line.entry(line).or_default().push(style);
             }
         }
-        let first_target = document
-            .targets()
-            .partition_point(|target| target.source.bytes.start < first_byte);
+        let first_target = document.targets().partition_point(|target| target.source.bytes.start < first_byte);
         let mut target_by_line: HashMap<usize, (usize, MarkdownTargetId)> = HashMap::new();
         for target in &document.targets()[first_target..] {
             for line in target.source.lines.start..=target.source.lines.end {
@@ -1038,8 +917,7 @@ impl LayoutCache {
             }
         }
         let base = Style::new().fg(page_color(theme, theme.diff.foreground));
-        self.source_lines
-            .truncate(first_line.min(self.source_lines.len()));
+        self.source_lines.truncate(first_line.min(self.source_lines.len()));
         let mut unit = Unit::default();
         for (index, range) in lines.iter().enumerate() {
             stats.chunks_visited += 1;
@@ -1056,9 +934,7 @@ impl LayoutCache {
             let line_number = index + 1;
             let target = target_by_line.get(&line_number).map(|(_, id)| *id);
             let code_input = code_lines.get(&line_number);
-            let styles = styles_by_line
-                .get(&line_number)
-                .map_or(&[][..], Vec::as_slice);
+            let styles = styles_by_line.get(&line_number).map_or(&[][..], Vec::as_slice);
             if let Some(cached) = self
                 .source_lines
                 .get(index)
@@ -1072,12 +948,8 @@ impl LayoutCache {
             stats.rows_compared += usize::from(self.source_lines.get(index).is_some());
             self.source_lines.truncate(index);
             let mut output = RowOutput::new(options).after(checkpoint);
-            let code = code_input.and_then(|(code, spans)| {
-                Some((
-                    text.strip_suffix(code)?,
-                    highlighted_line(code, spans, code_style),
-                ))
-            });
+            let code = code_input
+                .and_then(|(code, spans)| Some((text.strip_suffix(code)?, highlighted_line(code, spans, code_style))));
             let spans = match code {
                 Some((prefix, line)) => {
                     let mut spans = vec![Span::styled(prefix.to_owned(), code_style)];
@@ -1091,21 +963,12 @@ impl LayoutCache {
                         let style = styles
                             .iter()
                             .filter(|style| style.source.bytes.contains(&position))
-                            .fold(base, |style, role| {
-                                source_role_style(role.role, style, theme)
-                            });
+                            .fold(base, |style, role| source_role_style(role.role, style, theme));
                         Span::styled(grapheme.to_owned(), style)
                     })
                     .collect(),
             };
-            output.push_wrapped(
-                spans,
-                "",
-                RowOrigin {
-                    source: range,
-                    target,
-                },
-            );
+            output.push_wrapped(spans, "", RowOrigin { source: range, target });
             let chunk: RowChunk = output.rows.into();
             stats.rows_generated += chunk.len();
             self.source_lines.push(CachedSourceLine {
@@ -1122,11 +985,7 @@ impl LayoutCache {
         }
         self.source_lines.truncate(lines.len());
         self.line_ranges = lines;
-        let skip = if checkpoint.is_some() {
-            0
-        } else {
-            history.boundary.as_ref().map_or(0, |_| history.rows)
-        };
+        let skip = if checkpoint.is_some() { 0 } else { history.boundary.as_ref().map_or(0, |_| history.rows) };
         stats.row_store_updates += unit.store.take_updates();
         emit_unit(&unit, skip, store, first_generated);
         self.skipped_rows.push(skip.min(unit.len));
@@ -1168,20 +1027,12 @@ fn block_code_blocks(block: &MarkdownBlock) -> Vec<&MarkdownCodeBlock> {
 
 /// Foreground and background for fenced code, composited over the page.
 fn fenced_code_style(theme: &ReviewTheme) -> Style {
-    layered_style(
-        theme.markdown.code,
-        theme.markdown.code_background,
-        theme.diff.background,
-    )
+    layered_style(theme.markdown.code, theme.markdown.code_background, theme.diff.background)
 }
 
 /// Applies the inline-code role on top of `style`.
 fn inline_code_style(style: Style, theme: &ReviewTheme) -> Style {
-    style.patch(layered_style(
-        theme.markdown.inline_code,
-        theme.markdown.inline_code_background,
-        theme.diff.background,
-    ))
+    style.patch(layered_style(theme.markdown.inline_code, theme.markdown.inline_code_background, theme.diff.background))
 }
 
 /// Highlights a fenced block with its complete content as parser context.
@@ -1195,18 +1046,10 @@ fn highlight_code_block(
         .highlight_document(
             Fingerprint::of([
                 b"markdown-code-without-final-newline".as_slice(),
-                SourceSequenceId::from_lines(code.lines.iter().map(|line| line.text.as_str()))
-                    .fingerprint()
-                    .as_bytes(),
+                SourceSequenceId::from_lines(code.lines.iter().map(|line| line.text.as_str())).fingerprint().as_bytes(),
             ]),
             LanguageHint::InfoString(code.highlight_hint()),
-            || {
-                code.lines
-                    .iter()
-                    .map(|line| line.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            },
+            || code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n"),
         )
         .unwrap_or_default()
 }
@@ -1234,11 +1077,7 @@ struct RowOutput {
 
 impl RowOutput {
     const fn new(options: MarkdownLayoutOptions) -> Self {
-        Self {
-            rows: Vec::new(),
-            options,
-            checkpoint: None,
-        }
+        Self { rows: Vec::new(), options, checkpoint: None }
     }
 
     fn after(mut self, checkpoint: Option<&RowCheckpoint>) -> Self {
@@ -1255,24 +1094,11 @@ impl RowOutput {
         }));
     }
 
-    fn push_wrapped(
-        &mut self,
-        spans: Vec<Span<'static>>,
-        continuation: &str,
-        origin: RowOrigin<'_>,
-    ) {
-        if self
-            .checkpoint
-            .as_ref()
-            .is_some_and(|checkpoint| origin.source.bytes.end <= checkpoint.source.bytes.start)
-        {
+    fn push_wrapped(&mut self, spans: Vec<Span<'static>>, continuation: &str, origin: RowOrigin<'_>) {
+        if self.checkpoint.as_ref().is_some_and(|checkpoint| origin.source.bytes.end <= checkpoint.source.bytes.start) {
             return;
         }
-        let rendered: Arc<str> = spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect::<String>()
-            .into();
+        let rendered: Arc<str> = spans.iter().map(|span| span.content.as_ref()).collect::<String>().into();
         let mut from = FitPosition::default();
         if let Some(checkpoint) = &self.checkpoint {
             if origin.source.bytes.end <= checkpoint.source.bytes.start {
@@ -1342,10 +1168,7 @@ fn render_block(
 ) {
     let prefix = context.prefix;
     let width = output.options.width;
-    let origin = RowOrigin {
-        source: &block.source,
-        target: block.target_id.or(context.target),
-    };
+    let origin = RowOrigin { source: &block.source, target: block.target_id.or(context.target) };
     match &block.kind {
         MarkdownBlockKind::Heading { level, content } => {
             let marker = if output.options.heading_markers {
@@ -1353,9 +1176,7 @@ fn render_block(
             } else {
                 String::new()
             };
-            let base = Style::new()
-                .fg(page_color(theme, theme.markdown.heading))
-                .add_modifier(Modifier::BOLD);
+            let base = Style::new().fg(page_color(theme, theme.markdown.heading)).add_modifier(Modifier::BOLD);
             let mut spans = vec![Span::styled(format!("{prefix}{marker}"), base)];
             spans.extend(inline_spans(content, base, theme));
             output.push_wrapped(spans, prefix, origin);
@@ -1366,20 +1187,13 @@ fn render_block(
             spans.extend(inline_spans(content, base, theme));
             output.push_wrapped(spans, prefix, origin);
         }
-        MarkdownBlockKind::List {
-            ordered,
-            start,
-            items,
-        } => render_list(
+        MarkdownBlockKind::List { ordered, start, items } => render_list(
             items,
             (*ordered, *start),
             theme,
             highlighter,
             output,
-            BlockContext {
-                target: origin.target,
-                ..context
-            },
+            BlockContext { target: origin.target, ..context },
         ),
         MarkdownBlockKind::BlockQuote { blocks } => {
             let quote_prefix = format!("{prefix}│ ");
@@ -1389,11 +1203,7 @@ fn render_block(
                     theme,
                     highlighter,
                     output,
-                    BlockContext {
-                        target: origin.target,
-                        foreground: theme.markdown.quote,
-                        prefix: &quote_prefix,
-                    },
+                    BlockContext { target: origin.target, foreground: theme.markdown.quote, prefix: &quote_prefix },
                 );
             }
         }
@@ -1401,20 +1211,10 @@ fn render_block(
             render_code(code, theme, highlighter, output, origin.target, prefix);
         }
         MarkdownBlockKind::Table(table) => {
-            render_table(
-                table,
-                theme,
-                output,
-                context.foreground,
-                origin.target,
-                prefix,
-            );
+            render_table(table, theme, output, context.foreground, origin.target, prefix);
         }
         MarkdownBlockKind::Rule => output.push(
-            Line::styled(
-                "─".repeat(usize::from(width)),
-                Style::new().fg(page_color(theme, theme.diff.border)),
-            ),
+            Line::styled("─".repeat(usize::from(width)), Style::new().fg(page_color(theme, theme.diff.border))),
             origin,
         ),
     }
@@ -1432,25 +1232,12 @@ fn render_list(
     let base = Style::new().fg(page_color(theme, context.foreground));
     for (index, item) in items.iter().enumerate() {
         let item_target = item.target_id.or(context.target);
-        let marker = if ordered {
-            format!("{}.", start.unwrap_or(1).saturating_add(index as u64))
-        } else {
-            "•".to_owned()
-        };
-        let mut spans = vec![Span::styled(
-            format!("{prefix}{}{marker} ", "  ".repeat(item.depth)),
-            base,
-        )];
+        let marker =
+            if ordered { format!("{}.", start.unwrap_or(1).saturating_add(index as u64)) } else { "•".to_owned() };
+        let mut spans = vec![Span::styled(format!("{prefix}{}{marker} ", "  ".repeat(item.depth)), base)];
         spans.extend(inline_spans(&item.content, base, theme));
         let continuation = format!("{prefix}{}", " ".repeat(marker.width() + 1));
-        output.push_wrapped(
-            spans,
-            &continuation,
-            RowOrigin {
-                source: &item.source,
-                target: item_target,
-            },
-        );
+        output.push_wrapped(spans, &continuation, RowOrigin { source: &item.source, target: item_target });
         let child_prefix = format!("{prefix}  ");
         for child in &item.blocks {
             render_block(
@@ -1458,11 +1245,7 @@ fn render_list(
                 theme,
                 highlighter,
                 output,
-                BlockContext {
-                    target: item_target,
-                    prefix: &child_prefix,
-                    ..context
-                },
+                BlockContext { target: item_target, prefix: &child_prefix, ..context },
             );
         }
     }
@@ -1499,17 +1282,8 @@ fn render_code_line(
     output: &mut RowOutput,
 ) {
     let mut rendered = highlighted_line(&line.text, spans, base);
-    rendered
-        .spans
-        .insert(0, Span::styled(prefix.to_owned(), base));
-    output.push_wrapped(
-        rendered.spans,
-        prefix,
-        RowOrigin {
-            source: &line.source,
-            target,
-        },
-    );
+    rendered.spans.insert(0, Span::styled(prefix.to_owned(), base));
+    output.push_wrapped(rendered.spans, prefix, RowOrigin { source: &line.source, target });
 }
 
 /// Column widths for `table`, or `None` when the columns cannot fit side by
@@ -1541,12 +1315,7 @@ fn table_column_widths(table: &MarkdownTable, available: usize, wrap: bool) -> O
 }
 
 fn table_columns(table: &MarkdownTable) -> usize {
-    table
-        .rows
-        .iter()
-        .map(|row| row.cells.len())
-        .max()
-        .unwrap_or(0)
+    table.rows.iter().map(|row| row.cells.len()).max().unwrap_or(0)
 }
 
 fn render_table(
@@ -1560,19 +1329,11 @@ fn render_table(
     let text = Style::new().fg(page_color(theme, foreground));
     let border = Style::new().fg(page_color(theme, theme.diff.border));
     let columns = table_columns(table);
-    let available =
-        usize::from(output.options.width).saturating_sub(prefix.width() + columns * 3 + 1);
+    let available = usize::from(output.options.width).saturating_sub(prefix.width() + columns * 3 + 1);
     let widths = table_column_widths(table, available, output.options.wrap);
     for row in &table.rows {
-        let base = if row.header {
-            text.add_modifier(Modifier::BOLD)
-        } else {
-            text
-        };
-        let origin = RowOrigin {
-            source: &row.source,
-            target: row.target_id.or(target),
-        };
+        let base = if row.header { text.add_modifier(Modifier::BOLD) } else { text };
+        let origin = RowOrigin { source: &row.source, target: row.target_id.or(target) };
         let Some(widths) = &widths else {
             for cell in &row.cells {
                 output.push_wrapped(inline_spans(&cell.content, base, theme), prefix, origin);
@@ -1622,17 +1383,8 @@ fn render_table(
     }
 }
 
-fn inline_spans(
-    inlines: &[MarkdownInline],
-    style: Style,
-    theme: &ReviewTheme,
-) -> Vec<Span<'static>> {
-    fn append(
-        inline: &MarkdownInline,
-        style: Style,
-        theme: &ReviewTheme,
-        output: &mut Vec<Span<'static>>,
-    ) {
+fn inline_spans(inlines: &[MarkdownInline], style: Style, theme: &ReviewTheme) -> Vec<Span<'static>> {
+    fn append(inline: &MarkdownInline, style: Style, theme: &ReviewTheme, output: &mut Vec<Span<'static>>) {
         match inline {
             MarkdownInline::Text(text) => output.push(Span::styled(text.clone(), style)),
             MarkdownInline::Code(text) => {
@@ -1645,19 +1397,12 @@ fn inline_spans(
                 append(child, style.add_modifier(Modifier::ITALIC), theme, output);
             }),
             MarkdownInline::Strikethrough(children) => children.iter().for_each(|child| {
-                append(
-                    child,
-                    style.add_modifier(Modifier::CROSSED_OUT),
-                    theme,
-                    output,
-                );
+                append(child, style.add_modifier(Modifier::CROSSED_OUT), theme, output);
             }),
             MarkdownInline::Link { content, .. } => content.iter().for_each(|child| {
                 append(
                     child,
-                    style
-                        .fg(page_color(theme, theme.markdown.link))
-                        .add_modifier(Modifier::UNDERLINED),
+                    style.fg(page_color(theme, theme.markdown.link)).add_modifier(Modifier::UNDERLINED),
                     theme,
                     output,
                 );
@@ -1666,9 +1411,7 @@ fn inline_spans(
             MarkdownInline::HardBreak => output.push(Span::styled("\n", style)),
             MarkdownInline::ImageAlt(text) => output.push(Span::styled(
                 format!("Image: {text}"),
-                style
-                    .fg(page_color(theme, theme.markdown.link))
-                    .add_modifier(Modifier::ITALIC),
+                style.fg(page_color(theme, theme.markdown.link)).add_modifier(Modifier::ITALIC),
             )),
         }
     }
@@ -1705,8 +1448,7 @@ impl SourceLineKey {
             && match (&self.code, code) {
                 (None, None) => true,
                 (Some((cached_text, cached_spans)), Some((text, spans))) => {
-                    cached_text == text
-                        && (Arc::ptr_eq(cached_spans, spans) || cached_spans == spans)
+                    cached_text == text && (Arc::ptr_eq(cached_spans, spans) || cached_spans == spans)
                 }
                 _ => false,
             }
@@ -1721,12 +1463,8 @@ struct CachedSourceLine {
 
 fn source_role_style(role: MarkdownSourceRole, style: Style, theme: &ReviewTheme) -> Style {
     match role {
-        MarkdownSourceRole::Heading => style
-            .fg(page_color(theme, theme.markdown.heading))
-            .add_modifier(Modifier::BOLD),
-        MarkdownSourceRole::Link => style
-            .fg(page_color(theme, theme.markdown.link))
-            .add_modifier(Modifier::UNDERLINED),
+        MarkdownSourceRole::Heading => style.fg(page_color(theme, theme.markdown.heading)).add_modifier(Modifier::BOLD),
+        MarkdownSourceRole::Link => style.fg(page_color(theme, theme.markdown.link)).add_modifier(Modifier::UNDERLINED),
         MarkdownSourceRole::Quote => style.fg(page_color(theme, theme.markdown.quote)),
         MarkdownSourceRole::Code => inline_code_style(style, theme),
         MarkdownSourceRole::Strong => style.add_modifier(Modifier::BOLD),

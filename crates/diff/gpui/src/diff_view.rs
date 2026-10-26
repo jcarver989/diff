@@ -7,19 +7,18 @@ use crate::{
     ui::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
         prelude::{
-            Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography,
-            TypographyExt, rem,
+            Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography, TypographyExt, rem,
         },
         tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT, RADIUS_CONTROL},
     },
 };
 use clankerdiff_core::{
-    DiffReviewCommand, DiffSide, DiffTone, FileDiff, GapInfo, PresentedCell, PresentedRow,
-    RevealAmount, ReviewCommand, ReviewComment, RowKind, ViewMode,
+    DiffReviewCommand, DiffSide, DiffTone, FileDiff, GapInfo, PresentedCell, PresentedRow, RevealAmount, ReviewCommand,
+    ReviewComment, RowKind, ViewMode,
 };
 use gpui::{
-    Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString,
-    Stateful, StyledText, Window, div, list, prelude::*, px,
+    Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString, Stateful, StyledText,
+    Window, div, list, prelude::*, px,
 };
 
 const CHANGE_INDICATOR_WIDTH: f32 = 4.0;
@@ -65,15 +64,11 @@ impl DiffViewer {
             .file_range(file_index)
             .and_then(|range| self.list_item(range.end))
             .and_then(|next| list_state.bounds_for_item(next))
-            .map_or(px(0.0), |next| {
-                (next.top() - viewport.top() - divider_height).min(px(0.0))
-            });
+            .map_or(px(0.0), |next| (next.top() - viewport.top() - divider_height).min(px(0.0)));
         let start = self.session().visible_range().start;
         let list = list(
             list_state,
-            cx.processor(move |viewer, offset: usize, _window, cx| {
-                viewer.render_visible_row(start + offset, cx)
-            }),
+            cx.processor(move |viewer, offset: usize, _window, cx| viewer.render_visible_row(start + offset, cx)),
         )
         .size_full();
 
@@ -81,10 +76,9 @@ impl DiffViewer {
             .debug_selector(|| "diff-pane".to_owned())
             .flex_1()
             .h_full()
-            .when(
-                self.pane == ViewerPane::Diff && !self.sidebar_collapsed(),
-                |pane| pane.border_l_1().border_color(style::color(palette.accent)),
-            )
+            .when(self.pane == ViewerPane::Diff && !self.sidebar_collapsed(), |pane| {
+                pane.border_l_1().border_color(style::color(palette.accent))
+            })
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -94,22 +88,13 @@ impl DiffViewer {
                     .flex_1()
                     .flex()
                     .overflow_hidden()
-                    .child(
-                        div()
-                            .relative()
-                            .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .overflow_hidden()
-                            .child(list)
-                            .child(div().absolute().top(sticky_top).left_0().right_0().child(
-                                self.render_file_divider(
-                                    file_index,
-                                    FileDividerPlacement::Sticky,
-                                    cx,
-                                ),
-                            )),
-                    )
+                    .child(div().relative().flex_1().min_w_0().h_full().overflow_hidden().child(list).child(
+                        div().absolute().top(sticky_top).left_0().right_0().child(self.render_file_divider(
+                            file_index,
+                            FileDividerPlacement::Sticky,
+                            cx,
+                        )),
+                    ))
                     .child(scrollbar),
             )
     }
@@ -136,9 +121,7 @@ impl DiffViewer {
             .px_3()
             .border_b_1()
             .border_color(style::color(palette.border))
-            .when(self.sidebar_collapsed(), |toolbar| {
-                toolbar.child(self.render_sidebar_toggle(cx))
-            })
+            .when(self.sidebar_collapsed(), |toolbar| toolbar.child(self.render_sidebar_toggle(cx)))
             .child(
                 div()
                     .debug_selector(|| "diff-summary".to_owned())
@@ -162,30 +145,12 @@ impl DiffViewer {
         }
         let theme = self.ui_theme();
         let current = self.view_mode();
-        let auto_label = if self.layout().is_split() {
-            "Auto layout (showing split)"
-        } else {
-            "Auto layout (showing unified)"
-        };
+        let auto_label =
+            if self.layout().is_split() { "Auto layout (showing split)" } else { "Auto layout (showing unified)" };
         let options = [
-            (
-                "view-mode-auto",
-                ViewMode::Auto,
-                IconName::MoveHorizontal,
-                auto_label,
-            ),
-            (
-                "view-mode-unified",
-                ViewMode::Unified,
-                IconName::Rows2,
-                "Unified view",
-            ),
-            (
-                "view-mode-split",
-                ViewMode::Split,
-                IconName::Columns2,
-                "Split view",
-            ),
+            ("view-mode-auto", ViewMode::Auto, IconName::MoveHorizontal, auto_label),
+            ("view-mode-unified", ViewMode::Unified, IconName::Rows2, "Unified view"),
+            ("view-mode-split", ViewMode::Split, IconName::Columns2, "Split view"),
         ];
         Some(
             div()
@@ -198,11 +163,11 @@ impl DiffViewer {
                 .border_1()
                 .border_color(theme.colors.border)
                 .children(options.map(|(id, mode, icon, label)| {
-                    IconButton::new(id, icon, label, theme)
-                        .selected(current == mode)
-                        .on_click(cx.listener(move |viewer, _, window, cx| {
+                    IconButton::new(id, icon, label, theme).selected(current == mode).on_click(cx.listener(
+                        move |viewer, _, window, cx| {
                             viewer.handle_command(DiffReviewCommand::SetViewMode(mode), window, cx);
-                        }))
+                        },
+                    ))
                 })),
         )
     }
@@ -216,13 +181,11 @@ impl DiffViewer {
         } else {
             (IconName::ChevronsDownUp, "Collapse all files")
         };
-        Some(
-            IconButton::new("toggle-all-files-collapsed", icon, label, self.ui_theme()).on_click(
-                cx.listener(|viewer, _, window, cx| {
-                    viewer.handle_command(DiffReviewCommand::ToggleAllFilesCollapsed, window, cx);
-                }),
-            ),
-        )
+        Some(IconButton::new("toggle-all-files-collapsed", icon, label, self.ui_theme()).on_click(cx.listener(
+            |viewer, _, window, cx| {
+                viewer.handle_command(DiffReviewCommand::ToggleAllFilesCollapsed, window, cx);
+            },
+        )))
     }
 
     fn render_file_chevron(&self, file_index: usize, cx: &mut Context<Self>) -> IconButton {
@@ -231,29 +194,17 @@ impl DiffViewer {
         } else {
             (IconName::ChevronDown, "Collapse file")
         };
-        IconButton::new(
-            format!("diff-file-collapse:{file_index}"),
-            icon,
-            label,
-            self.ui_theme(),
-        )
-        .on_click(cx.listener(move |viewer, _, window, cx| {
-            cx.stop_propagation();
-            viewer.handle_command(
-                DiffReviewCommand::ToggleFileCollapsed(Some(file_index)),
-                window,
-                cx,
-            );
-        }))
+        IconButton::new(format!("diff-file-collapse:{file_index}"), icon, label, self.ui_theme()).on_click(cx.listener(
+            move |viewer, _, window, cx| {
+                cx.stop_propagation();
+                viewer.handle_command(DiffReviewCommand::ToggleFileCollapsed(Some(file_index)), window, cx);
+            },
+        ))
     }
 
     fn file_header_selected(&self, file_index: usize) -> bool {
         self.pane == ViewerPane::Diff
-            && self.session().selected_row()
-                == self
-                    .presentation()
-                    .file_range(file_index)
-                    .map(|range| range.start)
+            && self.session().selected_row() == self.presentation().file_range(file_index).map(|range| range.start)
     }
 
     fn collapsed_comment_count(&self, file_index: usize) -> usize {
@@ -261,10 +212,7 @@ impl DiffViewer {
             return 0;
         }
         let path = &self.document().files[file_index].path;
-        self.review()
-            .comments()
-            .filter(|comment| &comment.anchor.path == path)
-            .count()
+        self.review().comments().filter(|comment| &comment.anchor.path == path).count()
     }
 
     fn render_file_divider(
@@ -278,10 +226,7 @@ impl DiffViewer {
         let file = &self.document().files[file_index];
         let selected = self.file_header_selected(file_index);
         let comments = self.collapsed_comment_count(file_index);
-        let directory = file
-            .path
-            .directory()
-            .map(|directory| format!("{directory}/"));
+        let directory = file.path.directory().map(|directory| format!("{directory}/"));
         let renamed_from = file.renamed_from().map(|old| format!("← {old}"));
         let source_label = self.session().source_view_label();
         let (id, selector) = match placement {
@@ -309,26 +254,17 @@ impl DiffViewer {
                     .px_3()
                     .rounded_md()
                     .border_1()
-                    .border_color(style::color(if selected {
-                        palette.accent
-                    } else {
-                        palette.border
-                    }))
+                    .border_color(style::color(if selected { palette.accent } else { palette.border }))
                     .bg(style::color(surface))
                     .typography(Typography::Body)
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .when(source_label.is_none(), |bar| {
-                        bar.child(self.render_file_chevron(file_index, cx))
-                    })
+                    .when(source_label.is_none(), |bar| bar.child(self.render_file_chevron(file_index, cx)))
                     .child(
                         div()
                             .flex_shrink_0()
                             .typography(Typography::Code)
-                            .text_color(style::color(style::file_status_color(
-                                file.status,
-                                palette,
-                            )))
+                            .text_color(style::color(style::file_status_color(file.status, palette)))
                             .child(file.status.code().to_string()),
                     )
                     .child(
@@ -362,9 +298,7 @@ impl DiffViewer {
                     .when(comments != 0, |bar| {
                         bar.child(
                             div()
-                                .debug_selector(move || {
-                                    format!("diff-file-comment-count:{file_index}")
-                                })
+                                .debug_selector(move || format!("diff-file-comment-count:{file_index}"))
                                 .flex_shrink_0()
                                 .child(CommentCount::new(comments, &self.ui_theme())),
                         )
@@ -379,39 +313,27 @@ impl DiffViewer {
             .items_center()
             .gap_1()
             .child(
-                IconButton::new(
-                    "decrease-interface-size",
-                    IconName::Minus,
-                    "Decrease interface size",
-                    theme,
-                )
-                .on_click(|_, window, cx| {
-                    window.dispatch_action(DecreaseInterfaceSize.boxed_clone(), cx);
-                }),
+                IconButton::new("decrease-interface-size", IconName::Minus, "Decrease interface size", theme).on_click(
+                    |_, window, cx| {
+                        window.dispatch_action(DecreaseInterfaceSize.boxed_clone(), cx);
+                    },
+                ),
             )
             .child(
-                Button::new(
-                    "reset-interface-size",
-                    format!("{:.0}", f32::from(window.rem_size())),
-                    theme,
-                )
-                .variant(ButtonVariant::Secondary)
-                .size(ControlSize::Small)
-                .aria_label("Reset interface size")
-                .on_click(|_, window, cx| {
-                    window.dispatch_action(ResetInterfaceSize.boxed_clone(), cx);
-                }),
+                Button::new("reset-interface-size", format!("{:.0}", f32::from(window.rem_size())), theme)
+                    .variant(ButtonVariant::Secondary)
+                    .size(ControlSize::Small)
+                    .aria_label("Reset interface size")
+                    .on_click(|_, window, cx| {
+                        window.dispatch_action(ResetInterfaceSize.boxed_clone(), cx);
+                    }),
             )
             .child(
-                IconButton::new(
-                    "increase-interface-size",
-                    IconName::Plus,
-                    "Increase interface size",
-                    theme,
-                )
-                .on_click(|_, window, cx| {
-                    window.dispatch_action(IncreaseInterfaceSize.boxed_clone(), cx);
-                }),
+                IconButton::new("increase-interface-size", IconName::Plus, "Increase interface size", theme).on_click(
+                    |_, window, cx| {
+                        window.dispatch_action(IncreaseInterfaceSize.boxed_clone(), cx);
+                    },
+                ),
             )
     }
 
@@ -422,22 +344,12 @@ impl DiffViewer {
         self.render_presented_row(index, &row, cx)
     }
 
-    fn render_gap_row(
-        &self,
-        index: usize,
-        row: &PresentedRow,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn render_gap_row(&self, index: usize, row: &PresentedRow, cx: &mut Context<Self>) -> AnyElement {
         let palette = &self.theme().diff;
         let info = self.presentation().gap_info(index);
         let expandable = info.is_some_and(GapInfo::is_expandable);
-        let selected =
-            self.pane == ViewerPane::Diff && self.session().selected_row() == Some(index);
-        let line_color = style::color(if selected {
-            palette.accent
-        } else {
-            palette.border
-        });
+        let selected = self.pane == ViewerPane::Diff && self.session().selected_row() == Some(index);
+        let line_color = style::color(if selected { palette.accent } else { palette.border });
         let line = || div().h(px(1.0)).bg(line_color);
         div()
             .id(("diff-row", row.id.0))
@@ -452,41 +364,24 @@ impl DiffViewer {
                     viewer.handle_command(DiffReviewCommand::SelectRow(index), window, cx);
                 }),
             )
-            .child(
-                div()
-                    .w(rem(CHANGE_INDICATOR_WIDTH + GUTTER_WIDTH))
-                    .flex_shrink_0()
-                    .flex()
-                    .justify_center()
-                    .when(expandable, |gutter| {
-                        gutter.child(
-                            IconButton::new(
-                                ("diff-gap-expand", index),
-                                IconName::ChevronsUpDown,
-                                info.map_or_else(
-                                    || "Expand unchanged lines".to_owned(),
-                                    GapInfo::message,
-                                ),
-                                self.ui_theme(),
-                            )
-                            .on_click(cx.listener(
-                                move |viewer, _, window, cx| {
-                                    if viewer.handle_command(
-                                        DiffReviewCommand::SelectRow(index),
-                                        window,
-                                        cx,
-                                    ) {
-                                        viewer.handle_command(
-                                            DiffReviewCommand::RevealGap(RevealAmount::Step),
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                },
-                            )),
+            .child(div().w(rem(CHANGE_INDICATOR_WIDTH + GUTTER_WIDTH)).flex_shrink_0().flex().justify_center().when(
+                expandable,
+                |gutter| {
+                    gutter.child(
+                        IconButton::new(
+                            ("diff-gap-expand", index),
+                            IconName::ChevronsUpDown,
+                            info.map_or_else(|| "Expand unchanged lines".to_owned(), GapInfo::message),
+                            self.ui_theme(),
                         )
-                    }),
-            )
+                        .on_click(cx.listener(move |viewer, _, window, cx| {
+                            if viewer.handle_command(DiffReviewCommand::SelectRow(index), window, cx) {
+                                viewer.handle_command(DiffReviewCommand::RevealGap(RevealAmount::Step), window, cx);
+                            }
+                        })),
+                    )
+                },
+            ))
             .when_some(info.filter(|_| selected), |gap, info| {
                 gap.child(line().w(rem(12.0)).flex_shrink_0()).child(
                     div()
@@ -504,9 +399,8 @@ impl DiffViewer {
 
     fn render_meta_row(&self, row: &PresentedRow) -> AnyElement {
         let palette = &self.theme().diff;
-        let text: SharedString = row
-            .primary_cell()
-            .map_or_else(SharedString::default, |cell| cell.text.to_string().into());
+        let text: SharedString =
+            row.primary_cell().map_or_else(SharedString::default, |cell| cell.text.to_string().into());
         div()
             .id(("diff-row", row.id.0))
             .h(rem(CODE_ROW_HEIGHT))
@@ -524,18 +418,11 @@ impl DiffViewer {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn render_presented_row(
-        &mut self,
-        index: usize,
-        row: &PresentedRow,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn render_presented_row(&mut self, index: usize, row: &PresentedRow, cx: &mut Context<Self>) -> AnyElement {
         let row_height = rem(CODE_ROW_HEIGHT);
         match row.kind {
             RowKind::FileHeader => {
-                return self
-                    .render_file_divider(row.file_index, FileDividerPlacement::Inline, cx)
-                    .into_any_element();
+                return self.render_file_divider(row.file_index, FileDividerPlacement::Inline, cx).into_any_element();
             }
             RowKind::ExpandGap => return self.render_gap_row(index, row, cx),
             RowKind::Meta => return self.render_meta_row(row),
@@ -549,36 +436,21 @@ impl DiffViewer {
                 .child(self.render_cell(index, row, DiffSide::Old, row.left.as_ref(), true, cx))
                 .child(self.render_cell(index, row, DiffSide::New, row.right.as_ref(), false, cx));
         } else {
-            let side = if row.right.is_some() {
-                DiffSide::New
-            } else {
-                DiffSide::Old
-            };
+            let side = if row.right.is_some() { DiffSide::New } else { DiffSide::Old };
             cells = cells.child(self.render_cell(index, row, side, row.primary_cell(), false, cx));
         }
 
-        let active_editor = self
-            .session()
-            .draft()
-            .filter(|draft| self.presentation().row_shows_anchor(row, draft.anchor()))
-            .and_then(|_| {
-                self.comment_target
-                    .as_ref()
-                    .filter(|target| target.row_index == index)
-                    .and_then(|target| {
-                        self.comment_editor
-                            .clone()
-                            .map(|editor| (target.side, editor))
-                    })
-            });
+        let active_editor =
+            self.session().draft().filter(|draft| self.presentation().row_shows_anchor(row, draft.anchor())).and_then(
+                |_| {
+                    self.comment_target
+                        .as_ref()
+                        .filter(|target| target.row_index == index)
+                        .and_then(|target| self.comment_editor.clone().map(|editor| (target.side, editor)))
+                },
+            );
 
-        let mut element = div()
-            .id(("diff-row", row.id.0))
-            .min_h(row_height)
-            .w_full()
-            .flex()
-            .flex_col()
-            .child(cells);
+        let mut element = div().id(("diff-row", row.id.0)).min_h(row_height).w_full().flex().flex_col().child(cells);
         if split {
             let old_comments = self.comments_for_row(row, Some(DiffSide::Old));
             let new_comments = self.comments_for_row(row, Some(DiffSide::New));
@@ -636,8 +508,7 @@ impl DiffViewer {
         let commentable = cell.patch_source.is_some();
         let comments = self.comments_on(index, cell);
         let hover_group: SharedString = format!("comment-cell-{index}-{side:?}").into();
-        let selected =
-            self.session().selected_row() == Some(index) && self.session().selected_side() == side;
+        let selected = self.session().selected_row() == Some(index) && self.session().selected_side() == side;
 
         let mut element = div()
             .id((if left { "old-cell" } else { "new-cell" }, index))
@@ -649,11 +520,7 @@ impl DiffViewer {
             .flex()
             .items_start()
             .overflow_hidden()
-            .bg(style::color(if selected {
-                palette.selection
-            } else {
-                tone_background
-            }))
+            .bg(style::color(if selected { palette.selection } else { tone_background }))
             .when(left, |value| value.border_r_1().border_color(border_color))
             .on_mouse_down(
                 MouseButton::Left,
@@ -676,22 +543,11 @@ impl DiffViewer {
                     .min_h(rem(CODE_ROW_HEIGHT))
                     .self_stretch()
                     .flex_shrink_0()
-                    .when_some(indicator_color, |indicator, color| {
-                        indicator.bg(style::color(color))
-                    }),
+                    .when_some(indicator_color, |indicator, color| indicator.bg(style::color(color))),
             )
             .child(self.render_comment_gutter(index, side, cell, commentable, hover_group, cx))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .overflow_hidden()
-                    .whitespace_normal()
-                    .child(styled),
-            )
-            .when(comments != 0, |value| {
-                value.child(CommentCount::new(comments, &self.ui_theme()))
-            })
+            .child(div().min_w_0().flex_1().overflow_hidden().whitespace_normal().child(styled))
+            .when(comments != 0, |value| value.child(CommentCount::new(comments, &self.ui_theme())))
             .into_any_element()
     }
 
@@ -717,21 +573,15 @@ impl DiffViewer {
             .relative()
             .text_color(style::color(foreground))
             .text_center()
-            .child(
-                cell.line_number()
-                    .map_or_else(String::new, |number| number.to_string()),
-            )
+            .child(cell.line_number().map_or_else(String::new, |number| number.to_string()))
             .when(commentable, |gutter| {
                 gutter.child(
-                    add_comment_button(
-                        format!("add-comment-{index}-{side:?}"),
-                        hover_group,
-                        palette,
-                    )
-                    .on_click(cx.listener(move |viewer, _, window, cx| {
-                        cx.stop_propagation();
-                        viewer.begin_comment(index, side, window, cx);
-                    })),
+                    add_comment_button(format!("add-comment-{index}-{side:?}"), hover_group, palette).on_click(
+                        cx.listener(move |viewer, _, window, cx| {
+                            cx.stop_propagation();
+                            viewer.begin_comment(index, side, window, cx);
+                        }),
+                    ),
                 )
             })
     }
@@ -759,13 +609,9 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let palette = self.theme().diff.clone();
-        let old_editor = active_editor
-            .as_ref()
-            .filter(|(side, _)| *side == DiffSide::Old)
-            .map(|(_, editor)| editor.clone());
-        let new_editor = active_editor
-            .filter(|(side, _)| *side == DiffSide::New)
-            .map(|(_, editor)| editor);
+        let old_editor =
+            active_editor.as_ref().filter(|(side, _)| *side == DiffSide::Old).map(|(_, editor)| editor.clone());
+        let new_editor = active_editor.filter(|(side, _)| *side == DiffSide::New).map(|(_, editor)| editor);
 
         let old_column = div()
             .w_1_2()
@@ -774,9 +620,7 @@ impl DiffViewer {
             .flex_col()
             .border_r_1()
             .border_color(style::color(palette.border))
-            .when(!old_comments.is_empty(), |column| {
-                column.child(self.render_comment_thread(index, old_comments, cx))
-            })
+            .when(!old_comments.is_empty(), |column| column.child(self.render_comment_thread(index, old_comments, cx)))
             .when_some(old_editor, |column, editor| {
                 column.child(self.render_comment_dialog(index, row, DiffSide::Old, editor, cx))
             });
@@ -785,9 +629,7 @@ impl DiffViewer {
             .min_w_0()
             .flex()
             .flex_col()
-            .when(!new_comments.is_empty(), |column| {
-                column.child(self.render_comment_thread(index, new_comments, cx))
-            })
+            .when(!new_comments.is_empty(), |column| column.child(self.render_comment_thread(index, new_comments, cx)))
             .when_some(new_editor, |column, editor| {
                 column.child(self.render_comment_dialog(index, row, DiffSide::New, editor, cx))
             });
@@ -803,38 +645,17 @@ impl DiffViewer {
             .into_any_element()
     }
 
-    fn render_comment_thread(
-        &self,
-        index: usize,
-        comments: Vec<ReviewComment>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn render_comment_thread(&self, index: usize, comments: Vec<ReviewComment>, cx: &mut Context<Self>) -> AnyElement {
         let palette = self.theme().diff.clone();
         let theme = self.ui_theme();
         let cards = comments.into_iter().map(|comment| {
-            let side = if comment.anchor.side == DiffSide::Old {
-                "old"
-            } else {
-                "new"
-            };
-            let line = comment
-                .anchor
-                .line_number()
-                .map_or_else(|| "line".to_owned(), |line| format!("line {line}"));
-            CommentCard::new(
-                comment.id,
-                format!("Your comment on {side} {line}"),
-                comment.body,
-                &theme,
-            )
-            .header_actions(comment_dismiss_button(
-                comment.id,
-                &theme,
-                cx,
-                move |viewer, window, cx| {
+            let side = if comment.anchor.side == DiffSide::Old { "old" } else { "new" };
+            let line = comment.anchor.line_number().map_or_else(|| "line".to_owned(), |line| format!("line {line}"));
+            CommentCard::new(comment.id, format!("Your comment on {side} {line}"), comment.body, &theme).header_actions(
+                comment_dismiss_button(comment.id, &theme, cx, move |viewer, window, cx| {
                     viewer.dismiss_comment(comment.id, window, cx);
-                },
-            ))
+                }),
+            )
         });
         div()
             .w_full()
@@ -866,17 +687,13 @@ impl DiffViewer {
             .pb_3()
             .bg(style::color(palette.background))
             .child(
-                CommentComposer::new(
-                    editor,
-                    format!("Add a comment on {side_label} {line}"),
-                    &self.ui_theme(),
-                )
-                .on_cancel(cx.listener(|viewer, _, window, cx| {
-                    viewer.handle_command(ReviewCommand::Cancel, window, cx);
-                }))
-                .on_submit(cx.listener(|viewer, _, window, cx| {
-                    viewer.handle_command(ReviewCommand::SubmitComment, window, cx);
-                })),
+                CommentComposer::new(editor, format!("Add a comment on {side_label} {line}"), &self.ui_theme())
+                    .on_cancel(cx.listener(|viewer, _, window, cx| {
+                        viewer.handle_command(ReviewCommand::Cancel, window, cx);
+                    }))
+                    .on_submit(cx.listener(|viewer, _, window, cx| {
+                        viewer.handle_command(ReviewCommand::SubmitComment, window, cx);
+                    })),
             )
             .into_any_element()
     }
@@ -899,37 +716,20 @@ mod tests {
 
     #[test]
     fn submitted_comments_remain_attached_to_their_row() {
-        let mut viewer = DiffViewer::new(
-            DocumentBuilder::new()
-                .changed("src/main.rs", "old\n", "new\n")
-                .build(),
-        );
+        let mut viewer = DiffViewer::new(DocumentBuilder::new().changed("src/main.rs", "old\n", "new\n").build());
         let row_index = (0..viewer.presentation().row_count())
             .find(|index| viewer.presentation().is_commentable(*index))
             .expect("a changed document has a commentable row");
-        let row = viewer
-            .presentation()
-            .row(row_index)
-            .expect("selected presentation row exists")
-            .clone();
+        let row = viewer.presentation().row(row_index).expect("selected presentation row exists").clone();
         let cell = row.primary_cell().expect("commentable row has a cell");
-        let anchor = viewer
-            .presentation()
-            .cell_anchor(&row, cell)
-            .expect("commentable cell has an anchor");
+        let anchor = viewer.presentation().cell_anchor(&row, cell).expect("commentable cell has an anchor");
         let side = anchor.side;
-        viewer
-            .session_mut()
-            .review_mut()
-            .add_comment(anchor, "Keep this visible");
+        viewer.session_mut().review_mut().add_comment(anchor, "Keep this visible");
 
         let comments = viewer.comments_for_row(&row, None);
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].body, "Keep this visible");
         assert_eq!(viewer.comments_for_row(&row, Some(side)).len(), 1);
-        assert_eq!(
-            viewer.comments_for_row(&row, Some(side.opposite())).len(),
-            0
-        );
+        assert_eq!(viewer.comments_for_row(&row, Some(side.opposite())).len(), 0);
     }
 }

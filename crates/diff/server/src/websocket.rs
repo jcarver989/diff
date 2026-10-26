@@ -47,31 +47,18 @@ impl Drop for ServerListener {
     }
 }
 
-pub(crate) async fn listen(
-    handle: Handle,
-    address: SocketAddr,
-) -> Result<ServerListener, ServerError> {
+pub(crate) async fn listen(handle: Handle, address: SocketAddr) -> Result<ServerListener, ServerError> {
     let listener = TcpListener::bind(address).await?;
     let address = listener.local_addr()?;
     let stop = handle.child_token();
     let router = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/ws", get(upgrade))
-        .with_state(Accepting {
-            handle: handle.clone(),
-            stop: stop.clone(),
-        });
+        .with_state(Accepting { handle: handle.clone(), stop: stop.clone() });
     let shutdown = stop.clone();
-    let task = handle.spawn(
-        axum::serve(listener, router)
-            .with_graceful_shutdown(shutdown.cancelled_owned())
-            .into_future(),
-    );
-    Ok(ServerListener {
-        address,
-        stop,
-        task,
-    })
+    let task =
+        handle.spawn(axum::serve(listener, router).with_graceful_shutdown(shutdown.cancelled_owned()).into_future());
+    Ok(ServerListener { address, stop, task })
 }
 
 #[derive(Clone)]
@@ -81,14 +68,9 @@ struct Accepting {
 }
 
 async fn upgrade(State(accepting): State<Accepting>, ws: WebSocketUpgrade) -> Response {
-    ws.max_message_size(MAX_MESSAGE_BYTES)
-        .max_frame_size(MAX_MESSAGE_BYTES)
-        .on_upgrade(move |socket| async move {
-            accepting.handle.accept(
-                Encoded::new(WebSocketTransport::new(socket)),
-                accepting.stop,
-            );
-        })
+    ws.max_message_size(MAX_MESSAGE_BYTES).max_frame_size(MAX_MESSAGE_BYTES).on_upgrade(move |socket| async move {
+        accepting.handle.accept(Encoded::new(WebSocketTransport::new(socket)), accepting.stop);
+    })
 }
 
 pub(crate) struct WebSocketTransport {
@@ -116,10 +98,7 @@ impl ServerMessageTransport for WebSocketTransport {
     }
 
     async fn send(&mut self, message: ServerMessage) -> Result<(), RemoteError> {
-        self.socket
-            .send(Message::text(message.encode()?))
-            .await
-            .map_err(protocol)
+        self.socket.send(Message::text(message.encode()?)).await.map_err(protocol)
     }
 
     async fn close(&mut self) {

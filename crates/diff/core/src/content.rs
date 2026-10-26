@@ -105,21 +105,10 @@ impl SourceDocument {
         let text: Arc<str> = Arc::from(text);
         let sequence_id = SourceSequenceId::from_lines((0..line_count).map(|line| {
             let start = line_starts[line];
-            let end = text[start..]
-                .find('\n')
-                .map_or(text.len(), |offset| start + offset);
-            text[start..end]
-                .strip_suffix('\r')
-                .unwrap_or(&text[start..end])
+            let end = text[start..].find('\n').map_or(text.len(), |offset| start + offset);
+            text[start..end].strip_suffix('\r').unwrap_or(&text[start..end])
         }));
-        Ok(Self {
-            text,
-            line_starts: line_starts.into(),
-            content_id,
-            sequence_id,
-            byte_len,
-            trailing_newline,
-        })
+        Ok(Self { text, line_starts: line_starts.into(), content_id, sequence_id, byte_len, trailing_newline })
     }
 
     /// Returns a one-based normalized source line.
@@ -134,21 +123,9 @@ impl SourceDocument {
     pub fn line_span(&self, number: usize) -> Option<std::ops::Range<usize>> {
         let index = number.checked_sub(1)?;
         let start = *self.line_starts.get(index)?;
-        let end = self
-            .line_starts
-            .get(index + 1)
-            .copied()
-            .unwrap_or(self.text.len());
-        let end = if end > start && self.text.as_bytes()[end - 1] == b'\n' {
-            end - 1
-        } else {
-            end
-        };
-        let end = if end > start && self.text.as_bytes()[end - 1] == b'\r' {
-            end - 1
-        } else {
-            end
-        };
+        let end = self.line_starts.get(index + 1).copied().unwrap_or(self.text.len());
+        let end = if end > start && self.text.as_bytes()[end - 1] == b'\n' { end - 1 } else { end };
+        let end = if end > start && self.text.as_bytes()[end - 1] == b'\r' { end - 1 } else { end };
         Some(start..end)
     }
 

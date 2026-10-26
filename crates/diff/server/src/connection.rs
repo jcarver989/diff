@@ -28,11 +28,7 @@ struct CommandResult {
     completion: Option<ReviewCompletion>,
 }
 
-pub(crate) async fn accept<T: Transport>(
-    context: Arc<Context>,
-    mut transport: T,
-    stop: CancellationToken,
-) {
+pub(crate) async fn accept<T: Transport>(context: Arc<Context>, mut transport: T, stop: CancellationToken) {
     let result = tokio::select! {
         result = session(&context, &mut transport) => Some(result),
         () = stop.cancelled() => None,
@@ -45,40 +41,21 @@ pub(crate) async fn accept<T: Transport>(
 
 async fn session<T: Transport>(context: &Context, transport: &mut T) -> Result<(), RemoteError> {
     let target = handshake(context, transport).await?;
-    let state = context
-        .watcher
-        .subscribe(target.clone())
-        .await
-        .map_err(watcher_error)?;
+    let state = context.watcher.subscribe(target.clone()).await.map_err(watcher_error)?;
     serve(context, transport, state, target).await
 }
 
-async fn handshake<T: Transport>(
-    context: &Context,
-    transport: &mut T,
-) -> Result<ReviewTarget, RemoteError> {
-    let hello = timeout(HANDSHAKE_TIMEOUT, transport.recv())
-        .await
-        .map_err(|_| stopped())??;
-    let ClientCommand::Initialize {
-        protocol_version,
-        target,
-    } = hello
-    else {
+async fn handshake<T: Transport>(context: &Context, transport: &mut T) -> Result<ReviewTarget, RemoteError> {
+    let hello = timeout(HANDSHAKE_TIMEOUT, transport.recv()).await.map_err(|_| stopped())??;
+    let ClientCommand::Initialize { protocol_version, target } = hello else {
         return Err(protocol("expected Hello"));
     };
     if protocol_version != LIVE_PROTOCOL_VERSION {
-        return Err(RemoteError::new(
-            RemoteErrorCode::UnsupportedVersion,
-            "unsupported live protocol version",
-        ));
+        return Err(RemoteError::new(RemoteErrorCode::UnsupportedVersion, "unsupported live protocol version"));
     }
     publish(
         transport,
-        Event::Initialize {
-            protocol_version: LIVE_PROTOCOL_VERSION,
-            repository_root: context.root.to_string(),
-        },
+        Event::Initialize { protocol_version: LIVE_PROTOCOL_VERSION, repository_root: context.root.to_string() },
     )
     .await?;
     Ok(target)
@@ -100,10 +77,7 @@ async fn serve<T: Transport>(
 
     loop {
         let current = state.borrow_and_update().clone();
-        if published
-            .as_ref()
-            .is_none_or(|old| !Arc::ptr_eq(old, &current.snapshot))
-        {
+        if published.as_ref().is_none_or(|old| !Arc::ptr_eq(old, &current.snapshot)) {
             publish(transport, Event::Document(current.snapshot.clone())).await?;
             published = Some(current.snapshot.clone());
         }
@@ -113,8 +87,7 @@ async fn serve<T: Transport>(
             publish(transport, Event::Health { error: latest }).await?;
         }
         if let Some(finished) = finished.take() {
-            let acknowledgement =
-                publish(transport, Event::RequestResult(finished.result.clone())).await;
+            let acknowledgement = publish(transport, Event::RequestResult(finished.result.clone())).await;
             if let Some(completion) = finished.completion {
                 context.publish_completion(completion).await?;
                 acknowledgement?;
@@ -158,27 +131,15 @@ async fn serve<T: Transport>(
     }
 }
 
-fn start(
-    context: &Context,
-    current_target: ReviewTarget,
-    command: ClientCommand,
-) -> Result<Command, RemoteError> {
+fn start(context: &Context, current_target: ReviewTarget, command: ClientCommand) -> Result<Command, RemoteError> {
     match command {
         ClientCommand::Initialize { .. } => Err(protocol("repeated Hello")),
         ClientCommand::SetTarget(target) => {
             let watcher = context.watcher.clone();
             Ok(Box::pin(async move {
                 match watcher.subscribe(target).await {
-                    Ok(state) => CommandResult {
-                        result: Ok(()),
-                        state: Some(state),
-                        completion: None,
-                    },
-                    Err(error) => CommandResult {
-                        result: Err(watcher_error(error)),
-                        state: None,
-                        completion: None,
-                    },
+                    Ok(state) => CommandResult { result: Ok(()), state: Some(state), completion: None },
+                    Err(error) => CommandResult { result: Err(watcher_error(error)), state: None, completion: None },
                 }
             }))
         }
@@ -197,33 +158,21 @@ fn start(
             let watcher = context.watcher.clone();
             Ok(Box::pin(async move {
                 let result = async {
-                    repository.apply(action).await.map_err(|error| {
-                        RemoteError::new(RemoteErrorCode::Git, error.to_string())
-                    })?;
+                    repository
+                        .apply(action)
+                        .await
+                        .map_err(|error| RemoteError::new(RemoteErrorCode::Git, error.to_string()))?;
                     let _ = watcher.refresh(current_target).await;
                     Ok(())
                 }
                 .await;
-                CommandResult {
-                    result,
-                    state: None,
-                    completion: None,
-                }
+                CommandResult { result, state: None, completion: None }
             }))
         }
-        ClientCommand::Submit(submission) => Ok(complete(
-            context,
-            ReviewCompletion::Submitted {
-                target: current_target,
-                submission,
-            },
-        )),
-        ClientCommand::Cancel => Ok(complete(
-            context,
-            ReviewCompletion::Cancelled {
-                target: current_target,
-            },
-        )),
+        ClientCommand::Submit(submission) => {
+            Ok(complete(context, ReviewCompletion::Submitted { target: current_target, submission }))
+        }
+        ClientCommand::Cancel => Ok(complete(context, ReviewCompletion::Cancelled { target: current_target })),
     }
 }
 
@@ -231,18 +180,12 @@ fn complete(context: &Context, completion: ReviewCompletion) -> Command {
     let result = context.reserve_completion();
     Box::pin(async move {
         let completion = result.is_ok().then_some(completion);
-        CommandResult {
-            result,
-            state: None,
-            completion,
-        }
+        CommandResult { result, state: None, completion }
     })
 }
 
 async fn publish<T: Transport>(transport: &mut T, event: ServerEvent) -> Result<(), RemoteError> {
-    timeout(SEND_TIMEOUT, transport.send(event))
-        .await
-        .map_err(|_| stopped())?
+    timeout(SEND_TIMEOUT, transport.send(event)).await.map_err(|_| stopped())?
 }
 
 fn watcher_error(error: impl ToString) -> RemoteError {

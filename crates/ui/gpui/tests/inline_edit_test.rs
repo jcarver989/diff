@@ -4,8 +4,7 @@ use clankerdiff_gpui_ui::{
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    AppContext as _, Context, Entity, EventEmitter, IntoElement, Render, TestAppContext, Window,
-    WindowOptions,
+    AppContext as _, Context, Entity, EventEmitter, IntoElement, Render, TestAppContext, Window, WindowOptions,
 };
 use gpui_base::input::InputState;
 

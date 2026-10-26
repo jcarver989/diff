@@ -11,15 +11,9 @@ const PLAN: &str = "# Plan\n\nIntro with **bold** text.\n\n## Options\n\n- Postg
 #[gpui::test]
 fn code_block_lines_render_as_one_contiguous_card(cx: &mut TestAppContext) {
     plan().run(cx, |harness, cx| {
-        let first = harness
-            .bounds(cx, "markdown-row-6")
-            .ok_or("missing first code line")?;
-        let second = harness
-            .bounds(cx, "markdown-row-7")
-            .ok_or("missing second code line")?;
-        let last = harness
-            .bounds(cx, "markdown-row-8")
-            .ok_or("missing last code line")?;
+        let first = harness.bounds(cx, "markdown-row-6").ok_or("missing first code line")?;
+        let second = harness.bounds(cx, "markdown-row-7").ok_or("missing second code line")?;
+        let last = harness.bounds(cx, "markdown-row-8").ok_or("missing last code line")?;
         assert_eq!(first.bottom(), second.origin.y);
         assert_eq!(second.bottom(), last.origin.y);
         assert_eq!(first.size.height, second.size.height);
@@ -31,12 +25,8 @@ fn code_block_lines_render_as_one_contiguous_card(cx: &mut TestAppContext) {
 #[gpui::test]
 fn headings_render_larger_than_body_text(cx: &mut TestAppContext) {
     plan().run(cx, |harness, cx| {
-        let heading = harness
-            .bounds(cx, "markdown-row-0")
-            .ok_or("missing heading")?;
-        let paragraph = harness
-            .bounds(cx, "markdown-row-1")
-            .ok_or("missing paragraph")?;
+        let heading = harness.bounds(cx, "markdown-row-0").ok_or("missing heading")?;
+        let paragraph = harness.bounds(cx, "markdown-row-1").ok_or("missing paragraph")?;
         assert!(heading.size.height > paragraph.size.height);
         Ok(())
     });
@@ -47,12 +37,8 @@ fn block_quotes_render_their_nested_blocks_in_one_row(cx: &mut TestAppContext) {
     MarkdownReviewerHarnessBuilder::default()
         .with_source("# Quote\n\n> First line.\n>\n> - nested item\n\nAfter.")
         .run(cx, |harness, cx| {
-            let quote = harness
-                .bounds(cx, "markdown-row-1")
-                .ok_or("missing quote")?;
-            let after = harness
-                .bounds(cx, "markdown-row-2")
-                .ok_or("missing paragraph")?;
+            let quote = harness.bounds(cx, "markdown-row-1").ok_or("missing quote")?;
+            let after = harness.bounds(cx, "markdown-row-2").ok_or("missing paragraph")?;
             assert!(quote.size.height > after.size.height * 1.5);
             assert!(quote.bottom() <= after.origin.y);
             Ok(())
@@ -61,32 +47,24 @@ fn block_quotes_render_their_nested_blocks_in_one_row(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn document_text_is_centered_in_a_reading_column(cx: &mut TestAppContext) {
-    plan()
-        .with_window_size(1800.0, 900.0)
-        .run(cx, |harness, cx| {
-            let document = harness
-                .bounds(cx, "markdown-document")
-                .ok_or("missing document")?;
-            let paragraph = harness
-                .bounds(cx, "markdown-row-1")
-                .ok_or("missing paragraph")?;
-            assert!(paragraph.size.width < px(900.0));
-            let left = paragraph.origin.x - document.origin.x;
-            let right = document.right() - paragraph.right();
-            assert!((left - right).abs() <= px(16.0));
-            Ok(())
-        });
+    plan().with_window_size(1800.0, 900.0).run(cx, |harness, cx| {
+        let document = harness.bounds(cx, "markdown-document").ok_or("missing document")?;
+        let paragraph = harness.bounds(cx, "markdown-row-1").ok_or("missing paragraph")?;
+        assert!(paragraph.size.width < px(900.0));
+        let left = paragraph.origin.x - document.origin.x;
+        let right = document.right() - paragraph.right();
+        assert!((left - right).abs() <= px(16.0));
+        Ok(())
+    });
 }
 
 #[gpui::test]
 fn header_shows_the_artifact_title_and_path(cx: &mut TestAppContext) {
-    plan()
-        .with_metadata(Some("docs/plan.md"), Some("Choose a database"))
-        .run(cx, |harness, cx| {
-            assert!(harness.bounds(cx, "markdown-title").is_some());
-            assert!(harness.bounds(cx, "markdown-path").is_some());
-            Ok(())
-        });
+    plan().with_metadata(Some("docs/plan.md"), Some("Choose a database")).run(cx, |harness, cx| {
+        assert!(harness.bounds(cx, "markdown-title").is_some());
+        assert!(harness.bounds(cx, "markdown-path").is_some());
+        Ok(())
+    });
     plan().run(cx, |harness, cx| {
         assert!(harness.bounds(cx, "markdown-title").is_some());
         assert!(harness.bounds(cx, "markdown-path").is_none());
@@ -98,26 +76,18 @@ fn header_shows_the_artifact_title_and_path(cx: &mut TestAppContext) {
 fn primary_action_approves_a_review_without_comments(cx: &mut TestAppContext) {
     plan().run(cx, |harness, cx| {
         harness.click(cx, "markdown-submit")?;
-        assert_eq!(
-            submitted_decision(&harness.events(cx)),
-            Some(MarkdownReviewDecision::Approved)
-        );
+        assert_eq!(submitted_decision(&harness.events(cx)), Some(MarkdownReviewDecision::Approved));
         Ok(())
     });
 }
 
 #[gpui::test]
 fn primary_action_sends_feedback_when_there_are_comments(cx: &mut TestAppContext) {
-    plan()
-        .with_comments(["Prefer Postgres"])
-        .run(cx, |harness, cx| {
-            harness.click(cx, "markdown-submit")?;
-            assert_eq!(
-                submitted_decision(&harness.events(cx)),
-                Some(MarkdownReviewDecision::ChangesRequested)
-            );
-            Ok(())
-        });
+    plan().with_comments(["Prefer Postgres"]).run(cx, |harness, cx| {
+        harness.click(cx, "markdown-submit")?;
+        assert_eq!(submitted_decision(&harness.events(cx)), Some(MarkdownReviewDecision::ChangesRequested));
+        Ok(())
+    });
 }
 
 #[gpui::test]
@@ -134,12 +104,8 @@ fn hovering_a_block_offers_an_add_comment_button(cx: &mut TestAppContext) {
 #[gpui::test]
 fn saved_comments_render_in_a_thread_below_their_block(cx: &mut TestAppContext) {
     plan().with_comments(["Looks good"]).run(cx, |harness, cx| {
-        let heading = harness
-            .bounds(cx, "markdown-row-0")
-            .ok_or("missing heading")?;
-        let thread = harness
-            .bounds(cx, "comment-thread-0")
-            .ok_or("missing thread")?;
+        let heading = harness.bounds(cx, "markdown-row-0").ok_or("missing heading")?;
+        let thread = harness.bounds(cx, "comment-thread-0").ok_or("missing thread")?;
         assert!(thread.origin.y >= heading.origin.y);
         assert!(thread.bottom() <= heading.bottom());
         Ok(())
@@ -152,19 +118,17 @@ fn theme_controls_follow_the_themes_option(cx: &mut TestAppContext) {
         assert!(harness.bounds(cx, "markdown-theme").is_some());
         Ok(())
     });
-    plan()
-        .with_options(MarkdownReviewerOptions {
-            themes: false,
-            ..MarkdownReviewerOptions::default()
-        })
-        .run(cx, |harness, cx| {
+    plan().with_options(MarkdownReviewerOptions { themes: false, ..MarkdownReviewerOptions::default() }).run(
+        cx,
+        |harness, cx| {
             assert!(harness.bounds(cx, "markdown-theme").is_none());
             harness.simulate_keystrokes(cx, "t");
-            assert!(!harness.read(cx, |reviewer, _| {
-                reviewer.command_enabled(&ReviewCommand::OpenThemePicker.into())
-            }));
+            assert!(
+                !harness.read(cx, |reviewer, _| { reviewer.command_enabled(&ReviewCommand::OpenThemePicker.into()) })
+            );
             Ok(())
-        });
+        },
+    );
 }
 
 #[gpui::test]
@@ -204,12 +168,10 @@ fn outline_is_hidden_for_documents_with_one_heading(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn empty_documents_show_an_empty_state(cx: &mut TestAppContext) {
-    MarkdownReviewerHarnessBuilder::default()
-        .with_source("")
-        .run(cx, |harness, cx| {
-            assert!(harness.bounds(cx, "markdown-empty").is_some());
-            Ok(())
-        });
+    MarkdownReviewerHarnessBuilder::default().with_source("").run(cx, |harness, cx| {
+        assert!(harness.bounds(cx, "markdown-empty").is_some());
+        Ok(())
+    });
 }
 
 fn plan() -> MarkdownReviewerHarnessBuilder {
@@ -222,13 +184,7 @@ fn target(
     index: usize,
 ) -> Result<MarkdownTargetId, &'static str> {
     harness
-        .read(cx, |reviewer, _| {
-            reviewer
-                .document()
-                .targets()
-                .get(index)
-                .map(|target| target.id)
-        })
+        .read(cx, |reviewer, _| reviewer.document().targets().get(index).map(|target| target.id))
         .ok_or("missing target")
 }
 

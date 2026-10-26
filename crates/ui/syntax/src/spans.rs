@@ -43,11 +43,7 @@ pub(crate) fn spans_to_flat_tokens(source: &str, spans: Vec<Span>) -> Vec<FlatTo
                 {
                     last.end = position;
                 } else {
-                    tokens.push(FlatToken {
-                        start: previous,
-                        end: position,
-                        tag,
-                    });
+                    tokens.push(FlatToken { start: previous, end: position, tag });
                 }
             }
             previous = position;
@@ -66,10 +62,7 @@ fn normalize(spans: Vec<Span>) -> Vec<FlatToken> {
     for span in spans {
         let key = (span.start, span.end);
         let priority = |span: &Span| (tag_for_capture(&span.capture).is_some(), span.pattern_index);
-        if unique
-            .get(&key)
-            .is_none_or(|existing| priority(&span) >= priority(existing))
-        {
+        if unique.get(&key).is_none_or(|existing| priority(&span) >= priority(existing)) {
             unique.insert(key, span);
         }
     }
@@ -84,11 +77,7 @@ fn normalize(spans: Vec<Span>) -> Vec<FlatToken> {
         {
             last.end = last.end.max(span.end);
         } else {
-            normalized.push(FlatToken {
-                start: span.start,
-                end: span.end,
-                tag,
-            });
+            normalized.push(FlatToken { start: span.start, end: span.end, tag });
         }
     }
     normalized.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));

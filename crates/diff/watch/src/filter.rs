@@ -1,15 +1,8 @@
 use clankerdiff_git::GitRepository;
 use std::path::{Component, Path, PathBuf};
 
-const GIT_METADATA_ENTRIES: [&str; 7] = [
-    "index",
-    "HEAD",
-    "ORIG_HEAD",
-    "MERGE_HEAD",
-    "CHERRY_PICK_HEAD",
-    "REBASE_HEAD",
-    "packed-refs",
-];
+const GIT_METADATA_ENTRIES: [&str; 7] =
+    ["index", "HEAD", "ORIG_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REBASE_HEAD", "packed-refs"];
 
 /// What a watched path means for the next snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,18 +70,15 @@ fn normal_components(path: &Path) -> Vec<String> {
 fn classify_metadata(components: &[String]) -> PathClass {
     // Git writes `*.lock` siblings for every ref and index update it makes, and
     // renames them into place, so only the renamed target is interesting.
-    if components.last().is_some_and(|name| {
-        Path::new(name)
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("lock"))
-    }) {
+    if components
+        .last()
+        .is_some_and(|name| Path::new(name).extension().is_some_and(|extension| extension.eq_ignore_ascii_case("lock")))
+    {
         return PathClass::Ignored;
     }
     match components.first().map(String::as_str) {
         None | Some("refs" | "info" | "config") => PathClass::GitMetadata,
-        Some(name) if components.len() == 1 && GIT_METADATA_ENTRIES.contains(&name) => {
-            PathClass::GitMetadata
-        }
+        Some(name) if components.len() == 1 && GIT_METADATA_ENTRIES.contains(&name) => PathClass::GitMetadata,
         Some(_) => PathClass::Ignored,
     }
 }
@@ -99,19 +89,12 @@ mod tests {
     use std::path::PathBuf;
 
     fn class(relative: &str) -> PathClass {
-        classify(
-            Path::new("/repo"),
-            &[],
-            &PathBuf::from("/repo").join(relative),
-        )
+        classify(Path::new("/repo"), &[], &PathBuf::from("/repo").join(relative))
     }
 
     #[test]
     fn worktree_paths_become_repository_relative_strings() {
-        assert_eq!(
-            class("src/lib.rs"),
-            PathClass::Worktree("src/lib.rs".to_owned())
-        );
+        assert_eq!(class("src/lib.rs"), PathClass::Worktree("src/lib.rs".to_owned()));
         assert_eq!(
             class("Cargo.lock"),
             PathClass::Worktree("Cargo.lock".to_owned()),

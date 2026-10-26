@@ -27,57 +27,32 @@ fn escape_cancels(cx: &mut TestAppContext) {
 fn the_buttons_answer(cx: &mut TestAppContext) {
     let dialog = dialog(cx);
 
-    dialog
-        .click(cx, "close-confirm")
-        .expect("the confirm button is drawn");
-    dialog
-        .click(cx, "close-cancel")
-        .expect("the cancel button is drawn");
+    dialog.click(cx, "close-confirm").expect("the confirm button is drawn");
+    dialog.click(cx, "close-cancel").expect("the cancel button is drawn");
 
-    assert_eq!(
-        dialog.events(cx),
-        [ConfirmDialogEvent::Confirmed, ConfirmDialogEvent::Cancelled]
-    );
+    assert_eq!(dialog.events(cx), [ConfirmDialogEvent::Confirmed, ConfirmDialogEvent::Cancelled]);
 }
 
 #[gpui::test]
 fn the_alternate_button_answers_alternate(cx: &mut TestAppContext) {
-    let dialog = dialog_with(cx, |dialog| {
-        dialog
-            .alternate("Keep Running")
-            .confirm_variant(ButtonVariant::Primary)
-    });
+    let dialog = dialog_with(cx, |dialog| dialog.alternate("Keep Running").confirm_variant(ButtonVariant::Primary));
 
-    dialog
-        .click(cx, "close-alternate")
-        .expect("the alternate button is drawn");
+    dialog.click(cx, "close-alternate").expect("the alternate button is drawn");
     dialog.simulate_keystrokes(cx, "enter");
 
-    assert_eq!(
-        dialog.events(cx),
-        [ConfirmDialogEvent::Alternate, ConfirmDialogEvent::Confirmed]
-    );
+    assert_eq!(dialog.events(cx), [ConfirmDialogEvent::Alternate, ConfirmDialogEvent::Confirmed]);
 }
 
 #[gpui::test]
 fn a_dialog_without_cancel_still_cancels_on_escape(cx: &mut TestAppContext) {
     let dialog = dialog_with(cx, |dialog| {
-        dialog
-            .alternate("Terminate")
-            .alternate_variant(ButtonVariant::Destructive)
-            .without_cancel()
+        dialog.alternate("Terminate").alternate_variant(ButtonVariant::Destructive).without_cancel()
     });
 
     dialog.simulate_keystrokes(cx, "escape");
 
-    assert!(
-        dialog.bounds(cx, "close-cancel").is_none(),
-        "no cancel button is drawn"
-    );
-    assert!(
-        dialog.bounds(cx, "close-alternate").is_some(),
-        "the alternate button is drawn"
-    );
+    assert!(dialog.bounds(cx, "close-cancel").is_none(), "no cancel button is drawn");
+    assert!(dialog.bounds(cx, "close-alternate").is_some(), "the alternate button is drawn");
     assert_eq!(dialog.events(cx), [ConfirmDialogEvent::Cancelled]);
 }
 
@@ -92,17 +67,7 @@ fn dialog_with(
     cx.update(ConfirmDialog::bind_keys);
     let theme = UiTheme::new(&ReviewTheme::default());
     let dialog = ViewHarness::open(cx, WindowOptions::default(), |window, cx| {
-        cx.new(|cx| {
-            configure(ConfirmDialog::new(
-                "close",
-                "Close?",
-                "It is running.",
-                "Close",
-                theme,
-                window,
-                cx,
-            ))
-        })
+        cx.new(|cx| configure(ConfirmDialog::new("close", "Close?", "It is running.", "Close", theme, window, cx)))
     });
     dialog.draw(cx);
     dialog

@@ -24,18 +24,14 @@ impl RepoFixtureBuilder {
     /// Writes a file, creating parent directories, before the optional commit.
     #[must_use]
     pub fn file(mut self, path: &str, contents: impl AsRef<[u8]>) -> Self {
-        self.files
-            .push((path.to_owned(), contents.as_ref().to_vec()));
+        self.files.push((path.to_owned(), contents.as_ref().to_vec()));
         self
     }
 
     /// Writes `.gitignore` with one pattern per line.
     #[must_use]
     pub fn gitignore(mut self, patterns: &[&str]) -> Self {
-        self.ignored = patterns
-            .iter()
-            .map(|pattern| (*pattern).to_owned())
-            .collect();
+        self.ignored = patterns.iter().map(|pattern| (*pattern).to_owned()).collect();
         self
     }
 
@@ -51,11 +47,7 @@ impl RepoFixtureBuilder {
     pub fn build(self) -> RepoFixture {
         let dir = TempDir::new().expect("temporary directory");
         let root = dir.path().canonicalize().expect("canonical temporary path");
-        let repo = RepoFixture {
-            directory: Arc::new(dir),
-            shared_repository: None,
-            root,
-        };
+        let repo = RepoFixture { directory: Arc::new(dir), shared_repository: None, root };
         repo.git(&["init", "--initial-branch=main"]);
         repo.git(&["config", "user.name", "Diff Contract Test"]);
         repo.git(&["config", "user.email", "diff@example.com"]);
@@ -94,22 +86,11 @@ impl RepoFixture {
     pub fn linked_worktree(&self, branch: &str) -> Self {
         let dir = TempDir::new().expect("temporary worktree directory");
         let root = dir.path().join("worktree");
-        self.git(&[
-            "worktree",
-            "add",
-            "-b",
-            branch,
-            root.to_str().expect("UTF-8 fixture path"),
-        ]);
+        self.git(&["worktree", "add", "-b", branch, root.to_str().expect("UTF-8 fixture path")]);
         Self {
             root: root.canonicalize().expect("canonical worktree path"),
             directory: Arc::new(dir),
-            shared_repository: Some(
-                self.shared_repository
-                    .as_ref()
-                    .unwrap_or(&self.directory)
-                    .clone(),
-            ),
+            shared_repository: Some(self.shared_repository.as_ref().unwrap_or(&self.directory).clone()),
         }
     }
 
@@ -118,8 +99,7 @@ impl RepoFixture {
     pub fn write_executable(&self, path: &str, contents: &str) {
         use std::os::unix::fs::PermissionsExt;
         self.write(path, contents);
-        fs::set_permissions(self.root.join(path), fs::Permissions::from_mode(0o755))
-            .expect("make fixture executable");
+        fs::set_permissions(self.root.join(path), fs::Permissions::from_mode(0o755)).expect("make fixture executable");
     }
 
     /// Returns the canonical worktree root.
@@ -134,19 +114,9 @@ impl RepoFixture {
     }
 
     fn run_git(&self, args: &[&str]) -> String {
-        let output = Command::new("git")
-            .current_dir(&self.root)
-            .args(args)
-            .output()
-            .expect("git must run");
-        assert!(
-            output.status.success(),
-            "git {args:?} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8_lossy(&output.stdout)
-            .trim_end()
-            .to_owned()
+        let output = Command::new("git").current_dir(&self.root).args(args).output().expect("git must run");
+        assert!(output.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim_end().to_owned()
     }
 
     #[must_use]
@@ -180,8 +150,6 @@ impl RepoFixture {
 
     /// Discovers the fixture as a [`GitRepository`].
     pub async fn repository(&self) -> GitRepository {
-        GitRepository::discover(&self.root)
-            .await
-            .expect("discover fixture repository")
+        GitRepository::discover(&self.root).await.expect("discover fixture repository")
     }
 }

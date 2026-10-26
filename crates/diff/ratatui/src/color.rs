@@ -16,9 +16,7 @@ pub const fn page_color(theme: &ReviewTheme, value: Rgba) -> Color {
 pub fn layered_style(foreground: Rgba, background: Rgba, canvas: Rgba) -> Style {
     let canvas = canvas.over(Rgba::new(0, 0, 0, 255));
     let background = background.over(canvas);
-    Style::new()
-        .fg(composite_color(foreground, background))
-        .bg(composite_color(background, canvas))
+    Style::new().fg(composite_color(foreground, background)).bg(composite_color(background, canvas))
 }
 
 pub(crate) const fn native_color(value: Rgba, background: Color) -> Color {
@@ -73,13 +71,5 @@ const fn indexed_color(value: Rgba, index: u8) -> Color {
         return composite_color(value, Rgba::new(gray, gray, gray, 255));
     }
     let index = (index - 16) as usize;
-    composite_color(
-        value,
-        Rgba::new(
-            LEVEL[index / 36],
-            LEVEL[(index / 6) % 6],
-            LEVEL[index % 6],
-            255,
-        ),
-    )
+    composite_color(value, Rgba::new(LEVEL[index / 36], LEVEL[(index / 6) % 6], LEVEL[index % 6], 255))
 }

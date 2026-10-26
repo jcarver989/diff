@@ -41,11 +41,7 @@ pub struct ReviewHarnessBuilder {
 
 impl Default for ReviewHarnessBuilder {
     fn default() -> Self {
-        Self {
-            document: Arc::new(DiffDocument::empty()),
-            width: 80,
-            height: 24,
-        }
+        Self { document: Arc::new(DiffDocument::empty()), width: 80, height: 24 }
     }
 }
 
@@ -64,8 +60,7 @@ impl ReviewHarnessBuilder {
     pub fn build(self) -> ReviewHarness {
         let state = DiffReviewState::new(self.document);
         ReviewHarness {
-            terminal: Terminal::new(CountingBackend::new(self.width, self.height))
-                .expect("infallible test terminal"),
+            terminal: Terminal::new(CountingBackend::new(self.width, self.height)).expect("infallible test terminal"),
             state,
         }
     }
@@ -80,12 +75,7 @@ pub struct ReviewHarness {
 impl ReviewHarness {
     #[must_use]
     pub fn new(document: Arc<DiffDocument>, width: u16, height: u16) -> Self {
-        ReviewHarnessBuilder {
-            document,
-            width,
-            height,
-        }
-        .build()
+        ReviewHarnessBuilder { document, width, height }.build()
     }
 
     /// Draws one frame and returns deterministic rendering work statistics.
@@ -97,11 +87,7 @@ impl ReviewHarness {
         let before = self.state.highlight_stats();
         self.terminal
             .draw(|frame| {
-                frame.render_stateful_widget(
-                    DiffReviewWidget::new(),
-                    frame.area(),
-                    &mut self.state,
-                );
+                frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), &mut self.state);
                 if let Some(position) = self.state.cursor_position() {
                     frame.set_cursor_position(position);
                 }
@@ -112,9 +98,7 @@ impl ReviewHarness {
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
-        self.terminal
-            .resize(Rect::new(0, 0, width, height))
-            .expect("infallible test resize");
+        self.terminal.resize(Rect::new(0, 0, width, height)).expect("infallible test resize");
         self.state.mark_dirty();
     }
 
@@ -174,10 +158,7 @@ impl ReviewHarness {
     /// Panics if the rendered buffer does not contain `expected`.
     pub fn assert_contains(&self, expected: &str) {
         let rendered = self.text();
-        assert!(
-            rendered.contains(expected),
-            "rendered output did not contain {expected:?}:\n{rendered}"
-        );
+        assert!(rendered.contains(expected), "rendered output did not contain {expected:?}:\n{rendered}");
     }
 
     /// Asserts a rendered row after ignoring incidental trailing terminal spaces.

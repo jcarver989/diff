@@ -1,7 +1,7 @@
 use clankerdiff_core::{Fingerprint, SourceSequenceId, join_lines};
 use clankerdiff_markdown::{
-    MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownInline, MarkdownListItem,
-    MarkdownTable, MarkdownTableAlignment, MarkdownTargetId,
+    MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownInline, MarkdownListItem, MarkdownTable,
+    MarkdownTableAlignment, MarkdownTargetId,
 };
 use std::sync::Arc;
 
@@ -15,12 +15,7 @@ pub(super) struct DocumentRow {
 
 impl DocumentRow {
     const fn new(target: Option<MarkdownTargetId>, depth: u16, kind: RowKind) -> Self {
-        Self {
-            target,
-            depth,
-            gap: 0.0,
-            kind,
-        }
+        Self { target, depth, gap: 0.0, kind }
     }
 }
 
@@ -82,51 +77,24 @@ pub(super) fn document_rows(blocks: &[MarkdownBlock]) -> Vec<DocumentRow> {
 
 fn push_block(block: &MarkdownBlock, depth: u16, rows: &mut Vec<DocumentRow>) {
     let kind = match &block.kind {
-        MarkdownBlockKind::Heading { level, content } => RowKind::Heading {
-            level: *level,
-            content: content.clone(),
-        },
-        MarkdownBlockKind::Paragraph { content } => RowKind::Paragraph {
-            content: content.clone(),
-        },
-        MarkdownBlockKind::BlockQuote { blocks } => RowKind::Quote {
-            rows: document_rows(blocks),
-        },
-        MarkdownBlockKind::HtmlFallback { content } => RowKind::Html {
-            content: content.clone(),
-        },
+        MarkdownBlockKind::Heading { level, content } => RowKind::Heading { level: *level, content: content.clone() },
+        MarkdownBlockKind::Paragraph { content } => RowKind::Paragraph { content: content.clone() },
+        MarkdownBlockKind::BlockQuote { blocks } => RowKind::Quote { rows: document_rows(blocks) },
+        MarkdownBlockKind::HtmlFallback { content } => RowKind::Html { content: content.clone() },
         MarkdownBlockKind::Rule => RowKind::Rule,
-        MarkdownBlockKind::List {
-            ordered,
-            start,
-            items,
-        } => return push_list(*ordered, *start, items, depth, rows),
+        MarkdownBlockKind::List { ordered, start, items } => return push_list(*ordered, *start, items, depth, rows),
         MarkdownBlockKind::CodeBlock(code) => return push_code(code, depth, rows),
         MarkdownBlockKind::Table(table) => return push_table(table, depth, rows),
     };
     rows.push(DocumentRow::new(block.target_id, depth, kind));
 }
 
-fn push_list(
-    ordered: bool,
-    start: Option<u64>,
-    items: &[MarkdownListItem],
-    depth: u16,
-    rows: &mut Vec<DocumentRow>,
-) {
+fn push_list(ordered: bool, start: Option<u64>, items: &[MarkdownListItem], depth: u16, rows: &mut Vec<DocumentRow>) {
     let first = start.unwrap_or(1);
     for (offset, item) in (0_u64..).zip(items) {
-        let marker = if ordered {
-            format!("{}.", first + offset)
-        } else {
-            bullet(depth).to_owned()
-        };
+        let marker = if ordered { format!("{}.", first + offset) } else { bullet(depth).to_owned() };
         let content = item.content.clone();
-        rows.push(DocumentRow::new(
-            item.target_id,
-            depth,
-            RowKind::ListItem { marker, content },
-        ));
+        rows.push(DocumentRow::new(item.target_id, depth, RowKind::ListItem { marker, content }));
         for block in &item.blocks {
             push_block(block, depth.saturating_add(1), rows);
         }
@@ -142,21 +110,12 @@ fn push_code(code: &MarkdownCodeBlock, depth: u16, rows: &mut Vec<DocumentRow>) 
         source_id: SourceSequenceId::from_lines(lines.iter().map(String::as_str)).fingerprint(),
         lines,
     });
-    rows.push(DocumentRow::new(
-        code.target_id,
-        depth,
-        RowKind::CodeHeader {
-            code: Arc::clone(&code_source),
-        },
-    ));
+    rows.push(DocumentRow::new(code.target_id, depth, RowKind::CodeHeader { code: Arc::clone(&code_source) }));
     for line in &code.lines {
         rows.push(DocumentRow::new(
             line.target_id,
             depth,
-            RowKind::CodeLine {
-                code: Arc::clone(&code_source),
-                index: line.index,
-            },
+            RowKind::CodeLine { code: Arc::clone(&code_source), index: line.index },
         ));
     }
 }

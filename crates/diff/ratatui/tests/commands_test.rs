@@ -3,10 +3,9 @@ use clankerdiff_core::{
 };
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent};
 use clankerdiff_ratatui::{
-    BindingScope, DiffReviewCommand as DiffCommand, DiffReviewState, DiffReviewWidget, FocusPane,
-    InputOutcome, InteractionPhase, KeyBinding, KeyCode, KeyEvent, KeyModifiers, MarkdownFocusPane,
-    MarkdownReviewCommand as MarkdownCommand, MarkdownReviewState, MarkdownReviewWidget,
-    ReviewCommand, ReviewInput,
+    BindingScope, DiffReviewCommand as DiffCommand, DiffReviewState, DiffReviewWidget, FocusPane, InputOutcome,
+    InteractionPhase, KeyBinding, KeyCode, KeyEvent, KeyModifiers, MarkdownFocusPane,
+    MarkdownReviewCommand as MarkdownCommand, MarkdownReviewState, MarkdownReviewWidget, ReviewCommand, ReviewInput,
 };
 use clankerdiff_theme::ThemeChoice;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
@@ -14,17 +13,10 @@ use std::{error::Error, sync::Arc};
 
 #[test]
 fn source_toggle_targets_files_and_isolates_editors_and_overlays() -> Result<(), Box<dyn Error>> {
-    let mut state = DiffReviewState::new(
-        DocumentBuilder::new()
-            .changed("src/a.rs", "old", "new")
-            .build(),
-    );
+    let mut state = DiffReviewState::new(DocumentBuilder::new().changed("src/a.rs", "old", "new").build());
     state.handle_command(DiffCommand::Focus(FocusPane::Diff));
     let shortcut = KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE);
-    assert_eq!(
-        state.command_for_key(shortcut),
-        Some(DiffCommand::ToggleSourceView)
-    );
+    assert_eq!(state.command_for_key(shortcut), Some(DiffCommand::ToggleSourceView));
     let _ = state.handle_input(ReviewInput::Key(shortcut));
     assert!(state.session().source_view().is_some());
     for command in [
@@ -50,39 +42,24 @@ fn source_toggle_targets_files_and_isolates_editors_and_overlays() -> Result<(),
     state.handle_command(DiffCommand::Focus(FocusPane::Files));
     state.handle_command(DiffCommand::MoveSelection(-1));
     let _ = state.handle_input(ReviewInput::Key(shortcut));
-    assert!(
-        state.session().source_view().is_none(),
-        "directory does not open stale file"
-    );
+    assert!(state.session().source_view().is_none(), "directory does not open stale file");
     Ok(())
 }
 
 #[test]
 fn collapse_keys_toggle_the_selected_file_and_every_file() {
     let mut state = DiffReviewState::new(
-        DocumentBuilder::new()
-            .changed("src/a.rs", "old", "new")
-            .changed("src/b.rs", "old", "new")
-            .build(),
+        DocumentBuilder::new().changed("src/a.rs", "old", "new").changed("src/b.rs", "old", "new").build(),
     );
     state.handle_command(DiffCommand::Focus(FocusPane::Diff));
     let collapse = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
     let collapse_all = KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::SHIFT);
-    assert_eq!(
-        state.command_for_key(collapse),
-        Some(DiffCommand::ToggleFileCollapsed(None))
-    );
-    assert_eq!(
-        state.command_for_key(collapse_all),
-        Some(DiffCommand::ToggleAllFilesCollapsed)
-    );
+    assert_eq!(state.command_for_key(collapse), Some(DiffCommand::ToggleFileCollapsed(None)));
+    assert_eq!(state.command_for_key(collapse_all), Some(DiffCommand::ToggleAllFilesCollapsed));
     let _ = state.handle_input(ReviewInput::Key(collapse));
     assert!(state.session().is_file_collapsed(0));
     assert!(!state.session().is_file_collapsed(1));
-    let _ = state.handle_input(ReviewInput::Key(KeyEvent::new(
-        KeyCode::Enter,
-        KeyModifiers::NONE,
-    )));
+    let _ = state.handle_input(ReviewInput::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(!state.session().is_file_collapsed(0));
     let _ = state.handle_input(ReviewInput::Key(collapse_all));
     assert!(state.session().all_files_collapsed());
@@ -98,32 +75,14 @@ fn layout_keys_flip_the_shown_layout_and_restore_auto() {
     let mut state = diff();
     let toggle = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE);
     let auto = KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT);
-    assert_eq!(
-        state.command_for_key(toggle),
-        Some(DiffCommand::ToggleLayout)
-    );
-    assert_eq!(
-        state.command_for_key(auto),
-        Some(DiffCommand::SetViewMode(ViewMode::Auto))
-    );
+    assert_eq!(state.command_for_key(toggle), Some(DiffCommand::ToggleLayout));
+    assert_eq!(state.command_for_key(auto), Some(DiffCommand::SetViewMode(ViewMode::Auto)));
 
-    assert!(matches!(
-        state.handle_input(ReviewInput::Key(toggle)),
-        InputOutcome::ViewModeSelected(ViewMode::Split)
-    ));
+    assert!(matches!(state.handle_input(ReviewInput::Key(toggle)), InputOutcome::ViewModeSelected(ViewMode::Split)));
     assert!(state.layout().is_split());
-    assert!(matches!(
-        state.handle_input(ReviewInput::Key(toggle)),
-        InputOutcome::ViewModeSelected(ViewMode::Unified)
-    ));
-    assert!(matches!(
-        state.handle_input(ReviewInput::Key(auto)),
-        InputOutcome::ViewModeSelected(ViewMode::Auto)
-    ));
-    assert!(matches!(
-        state.handle_input(ReviewInput::Key(auto)),
-        InputOutcome::Consumed
-    ));
+    assert!(matches!(state.handle_input(ReviewInput::Key(toggle)), InputOutcome::ViewModeSelected(ViewMode::Unified)));
+    assert!(matches!(state.handle_input(ReviewInput::Key(auto)), InputOutcome::ViewModeSelected(ViewMode::Auto)));
+    assert!(matches!(state.handle_input(ReviewInput::Key(auto)), InputOutcome::Consumed));
 }
 
 #[test]
@@ -135,33 +94,15 @@ fn replacement_bindings_and_direct_commands_are_independent() {
         DiffCommand::Review(ReviewCommand::BeginComment),
         "annotate",
     )]);
-    assert!(matches!(
-        state.handle_input(key(KeyCode::Tab)),
-        InputOutcome::Ignored
-    ));
-    assert!(matches!(
-        state.handle_input(key(KeyCode::Char('c'))),
-        InputOutcome::Ignored
-    ));
-    assert_eq!(
-        state.command_for_key(shortcut),
-        Some(ReviewCommand::BeginComment.into())
-    );
-    assert!(matches!(
-        state.handle_input(ReviewInput::Key(shortcut)),
-        InputOutcome::Consumed
-    ));
+    assert!(matches!(state.handle_input(key(KeyCode::Tab)), InputOutcome::Ignored));
+    assert!(matches!(state.handle_input(key(KeyCode::Char('c'))), InputOutcome::Ignored));
+    assert_eq!(state.command_for_key(shortcut), Some(ReviewCommand::BeginComment.into()));
+    assert!(matches!(state.handle_input(ReviewInput::Key(shortcut)), InputOutcome::Consumed));
     assert_eq!(state.interaction_phase(), InteractionPhase::Draft);
     state.set_keybindings(Vec::new());
     state.handle_command(ReviewCommand::Cancel);
-    assert!(matches!(
-        state.handle_input(key(KeyCode::Esc)),
-        InputOutcome::Ignored
-    ));
-    assert!(matches!(
-        state.handle_command(ReviewCommand::Cancel),
-        InputOutcome::Emitted(DiffReviewEvent::Cancel)
-    ));
+    assert!(matches!(state.handle_input(key(KeyCode::Esc)), InputOutcome::Ignored));
+    assert!(matches!(state.handle_command(ReviewCommand::Cancel), InputOutcome::Emitted(DiffReviewEvent::Cancel)));
 }
 
 #[test]
@@ -170,19 +111,12 @@ fn later_bindings_override_in_their_context() {
     let shortcut = KeyEvent::new(KeyCode::F(2), KeyModifiers::ALT);
     state.set_keybindings(vec![
         KeyBinding::new(shortcut, DiffCommand::Refresh, "reload"),
-        KeyBinding::new(shortcut, DiffCommand::CopyReview, "copy")
-            .with_scope(BindingScope::Document),
+        KeyBinding::new(shortcut, DiffCommand::CopyReview, "copy").with_scope(BindingScope::Document),
     ]);
     assert_eq!(state.command_for_key(shortcut), Some(DiffCommand::Refresh));
     state.handle_command(DiffCommand::Focus(FocusPane::Diff));
-    assert_eq!(
-        state.command_for_key(shortcut),
-        Some(DiffCommand::CopyReview)
-    );
-    assert_eq!(
-        state.command_for_key(KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE)),
-        None
-    );
+    assert_eq!(state.command_for_key(shortcut), Some(DiffCommand::CopyReview));
+    assert_eq!(state.command_for_key(KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE)), None);
 }
 
 #[test]
@@ -190,20 +124,10 @@ fn default_shortcuts_do_not_capture_composed_keys() -> Result<(), Box<dyn Error>
     let mut state = diff();
     state.handle_command(DiffCommand::Focus(FocusPane::Diff));
     let mut markdown = markdown();
-    for modifiers in [
-        KeyModifiers::CONTROL,
-        KeyModifiers::ALT,
-        KeyModifiers::SUPER,
-    ] {
+    for modifiers in [KeyModifiers::CONTROL, KeyModifiers::ALT, KeyModifiers::SUPER] {
         let input = ReviewInput::Key(KeyEvent::new(KeyCode::Char('c'), modifiers));
-        assert!(matches!(
-            state.handle_input(input.clone()),
-            InputOutcome::Ignored
-        ));
-        assert!(matches!(
-            markdown.handle_input(input)?,
-            InputOutcome::Ignored
-        ));
+        assert!(matches!(state.handle_input(input.clone()), InputOutcome::Ignored));
+        assert!(matches!(markdown.handle_input(input)?, InputOutcome::Ignored));
     }
     assert_eq!(
         state.command_for_key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)),
@@ -232,81 +156,46 @@ fn default_keyboard_and_semantic_commands_produce_the_same_review() {
     assert_eq!(keyboard.review(), commands.review());
     assert_eq!(keyboard.selected_row(), commands.selected_row());
     assert_eq!(commands.review().len(), 1);
-    for command in [
-        DiffCommand::StageAll,
-        DiffCommand::Refresh,
-        DiffCommand::SetScope(DiffScope::Staged),
-    ] {
-        assert!(matches!(
-            commands.handle_command(command),
-            InputOutcome::Emitted(_)
-        ));
+    for command in [DiffCommand::StageAll, DiffCommand::Refresh, DiffCommand::SetScope(DiffScope::Staged)] {
+        assert!(matches!(commands.handle_command(command), InputOutcome::Emitted(_)));
         assert!(!commands.repository_pending());
         assert_eq!(commands.scope(), DiffScope::Both);
         assert_eq!(commands.review().len(), 1);
     }
     assert!(matches!(
         commands.handle_command(DiffCommand::RepositoryAction(RepositoryAction::UnstageAll)),
-        InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(
-            RepositoryAction::UnstageAll
-        ))
+        InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(RepositoryAction::UnstageAll))
     ));
     commands.set_repository_pending();
-    assert!(matches!(
-        commands.handle_command(DiffCommand::StageAll),
-        InputOutcome::Ignored
-    ));
+    assert!(matches!(commands.handle_command(DiffCommand::StageAll), InputOutcome::Ignored));
     assert_eq!(commands.review().len(), 1);
-    assert!(matches!(
-        commands.handle_command(ReviewCommand::Cancel),
-        InputOutcome::Emitted(DiffReviewEvent::Cancel)
-    ));
+    assert!(matches!(commands.handle_command(ReviewCommand::Cancel), InputOutcome::Emitted(DiffReviewEvent::Cancel)));
 }
 
 #[test]
 fn direct_file_selection_synchronizes_navigation() {
     let mut state = DiffReviewState::new(
-        DocumentBuilder::new()
-            .changed("a.rs", "old", "new")
-            .changed("nested/b.rs", "old", "new")
-            .build(),
+        DocumentBuilder::new().changed("a.rs", "old", "new").changed("nested/b.rs", "old", "new").build(),
     );
     let area = Rect::new(0, 0, 100, 20);
     DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut state);
     assert!(!state.is_dirty());
-    assert!(matches!(
-        state.handle_command(DiffCommand::SelectFile(1)),
-        InputOutcome::Consumed
-    ));
+    assert!(matches!(state.handle_command(DiffCommand::SelectFile(1)), InputOutcome::Consumed));
     assert!(state.is_dirty());
     assert_eq!(state.selected_file(), Some(1));
     state.handle_command(DiffCommand::OpenSelected);
     assert_eq!(state.focus(), FocusPane::Diff);
     assert_eq!(state.selected_file(), Some(1));
-    assert!(matches!(
-        state.handle_command(DiffCommand::SelectFile(100)),
-        InputOutcome::Ignored
-    ));
-    assert!(matches!(
-        state.handle_command(DiffCommand::SelectRow(usize::MAX)),
-        InputOutcome::Ignored
-    ));
+    assert!(matches!(state.handle_command(DiffCommand::SelectFile(100)), InputOutcome::Ignored));
+    assert!(matches!(state.handle_command(DiffCommand::SelectRow(usize::MAX)), InputOutcome::Ignored));
 }
 
 #[test]
-fn markdown_bindings_and_outline_commands_work_without_default_keys() -> Result<(), Box<dyn Error>>
-{
+fn markdown_bindings_and_outline_commands_work_without_default_keys() -> Result<(), Box<dyn Error>> {
     let mut state = markdown();
     let shortcut = KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
-    state.set_keybindings(vec![KeyBinding::new(
-        shortcut,
-        MarkdownCommand::Approve,
-        "accept",
-    )]);
-    assert!(matches!(
-        state.handle_input(key(KeyCode::Char('a')))?,
-        InputOutcome::Ignored
-    ));
+    state.set_keybindings(vec![KeyBinding::new(shortcut, MarkdownCommand::Approve, "accept")]);
+    assert!(matches!(state.handle_input(key(KeyCode::Char('a')))?, InputOutcome::Ignored));
     assert!(matches!(
         state.handle_input(ReviewInput::Key(shortcut))?,
         InputOutcome::Emitted(MarkdownReviewEvent::Submit(_))
@@ -323,10 +212,7 @@ fn markdown_bindings_and_outline_commands_work_without_default_keys() -> Result<
     state.handle_input(ReviewInput::Paste("Review this".into()))?;
     state.handle_command(ReviewCommand::SubmitComment)?;
     assert_eq!(state.review().len(), 1);
-    assert!(matches!(
-        state.handle_command(ReviewCommand::Cancel)?,
-        InputOutcome::Emitted(MarkdownReviewEvent::Cancel)
-    ));
+    assert!(matches!(state.handle_command(ReviewCommand::Cancel)?, InputOutcome::Emitted(MarkdownReviewEvent::Cancel)));
     assert_eq!(state.review().len(), 1);
     Ok(())
 }
@@ -334,31 +220,16 @@ fn markdown_bindings_and_outline_commands_work_without_default_keys() -> Result<
 #[test]
 fn repository_commands_depend_on_capabilities_not_footer_visibility() {
     let mut state = diff();
-    state.set_options(clankerdiff_ratatui::ReviewOptions {
-        footer: false,
-        ..Default::default()
-    });
+    state.set_options(clankerdiff_ratatui::ReviewOptions { footer: false, ..Default::default() });
     assert!(state.command_enabled(&DiffCommand::BeginCommit));
-    assert!(matches!(
-        state.handle_command(DiffCommand::BeginCommit),
-        InputOutcome::Consumed
-    ));
-    assert_eq!(
-        state.interaction_phase(),
-        InteractionPhase::RepositoryPrompt
-    );
+    assert!(matches!(state.handle_command(DiffCommand::BeginCommit), InputOutcome::Consumed));
+    assert_eq!(state.interaction_phase(), InteractionPhase::RepositoryPrompt);
     let area = Rect::new(0, 0, 100, 20);
     DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut state);
     state.handle_command(ReviewCommand::Cancel);
-    state.set_capabilities(clankerdiff_core::ReviewCapabilities {
-        repository: false,
-        ..Default::default()
-    });
+    state.set_capabilities(clankerdiff_core::ReviewCapabilities { repository: false, ..Default::default() });
     assert!(!state.command_enabled(&DiffCommand::BeginCommit));
-    assert!(matches!(
-        state.handle_command(DiffCommand::StageAll),
-        InputOutcome::Ignored
-    ));
+    assert!(matches!(state.handle_command(DiffCommand::StageAll), InputOutcome::Ignored));
 }
 
 #[test]
@@ -369,33 +240,18 @@ fn no_op_commands_and_keys_leave_rendered_states_clean() -> Result<(), Box<dyn E
     DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut diff);
     MarkdownReviewWidget::new().render(area, &mut Buffer::empty(area), &mut markdown);
     let row = diff.selected_row().ok_or("missing diff row")?;
-    let target = markdown
-        .selected_target()
-        .ok_or("missing Markdown target")?;
+    let target = markdown.selected_target().ok_or("missing Markdown target")?;
     let diff_command = DiffCommand::SelectRow(row);
     let markdown_command = MarkdownCommand::SelectTarget(target);
     let shortcut = KeyEvent::new(KeyCode::F(3), KeyModifiers::NONE);
-    diff.set_keybindings(vec![KeyBinding::new(
-        shortcut,
-        diff_command.clone(),
-        "select",
-    )]);
+    diff.set_keybindings(vec![KeyBinding::new(shortcut, diff_command.clone(), "select")]);
     markdown.set_keybindings(vec![KeyBinding::new(shortcut, markdown_command, "select")]);
     DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut diff);
     MarkdownReviewWidget::new().render(area, &mut Buffer::empty(area), &mut markdown);
     assert_eq!(diff.handle_command(diff_command), InputOutcome::Consumed);
-    assert_eq!(
-        markdown.handle_command(markdown_command)?,
-        InputOutcome::Consumed
-    );
-    assert_eq!(
-        diff.handle_input(ReviewInput::Key(shortcut)),
-        InputOutcome::Consumed
-    );
-    assert_eq!(
-        markdown.handle_input(ReviewInput::Key(shortcut))?,
-        InputOutcome::Consumed
-    );
+    assert_eq!(markdown.handle_command(markdown_command)?, InputOutcome::Consumed);
+    assert_eq!(diff.handle_input(ReviewInput::Key(shortcut)), InputOutcome::Consumed);
+    assert_eq!(markdown.handle_input(ReviewInput::Key(shortcut))?, InputOutcome::Consumed);
     assert!(!diff.is_dirty());
     assert!(!markdown.is_dirty());
     diff.handle_command(ReviewCommand::BeginComment);
@@ -414,8 +270,7 @@ fn no_op_commands_and_keys_leave_rendered_states_clean() -> Result<(), Box<dyn E
 }
 
 #[test]
-fn unchanged_layout_and_heading_commands_leave_rendered_states_clean() -> Result<(), Box<dyn Error>>
-{
+fn unchanged_layout_and_heading_commands_leave_rendered_states_clean() -> Result<(), Box<dyn Error>> {
     let mut diff = diff();
     let mut markdown = markdown();
     markdown.handle_command(MarkdownCommand::SelectHeading(0))?;
@@ -430,11 +285,7 @@ fn unchanged_layout_and_heading_commands_leave_rendered_states_clean() -> Result
         assert_eq!(diff.handle_command(command), InputOutcome::Consumed);
         assert!(!diff.is_dirty());
     }
-    for command in [
-        MarkdownCommand::SelectHeading(0),
-        MarkdownCommand::PreviousHeading,
-        MarkdownCommand::First,
-    ] {
+    for command in [MarkdownCommand::SelectHeading(0), MarkdownCommand::PreviousHeading, MarkdownCommand::First] {
         assert_eq!(markdown.handle_command(command)?, InputOutcome::Consumed);
         assert!(!markdown.is_dirty());
     }
@@ -454,10 +305,7 @@ fn loading_blocks_comment_mutations_but_not_host_refresh() {
     ] {
         assert_eq!(state.handle_command(command), InputOutcome::Ignored);
     }
-    assert_eq!(
-        state.handle_command(DiffCommand::Refresh),
-        InputOutcome::Emitted(DiffReviewEvent::Refresh)
-    );
+    assert_eq!(state.handle_command(DiffCommand::Refresh), InputOutcome::Emitted(DiffReviewEvent::Refresh));
     assert!(!state.command_context().document_ready);
     assert!(!state.repository_pending());
 }
@@ -469,50 +317,26 @@ fn modal_commands_block_browse_actions_and_cancel_locally() {
     for (command, phase) in [
         (ReviewCommand::BeginComment.into(), InteractionPhase::Draft),
         (ReviewCommand::ShowHelp.into(), InteractionPhase::Help),
-        (
-            ReviewCommand::OpenThemePicker.into(),
-            InteractionPhase::ThemePicker,
-        ),
+        (ReviewCommand::OpenThemePicker.into(), InteractionPhase::ThemePicker),
         (DiffCommand::BeginCommit, InteractionPhase::RepositoryPrompt),
     ] {
         assert_eq!(state.handle_command(command), InputOutcome::Consumed);
         assert_eq!(state.interaction_phase(), phase);
-        assert_eq!(
-            state.handle_command(DiffCommand::Refresh),
-            InputOutcome::Ignored
-        );
-        assert_eq!(
-            state.handle_command(DiffCommand::SelectRow(0)),
-            InputOutcome::Ignored
-        );
-        assert_eq!(
-            state.handle_command(ReviewCommand::DeleteComment),
-            InputOutcome::Ignored
-        );
-        assert_eq!(
-            state.handle_command(ReviewCommand::Cancel),
-            InputOutcome::Consumed
-        );
+        assert_eq!(state.handle_command(DiffCommand::Refresh), InputOutcome::Ignored);
+        assert_eq!(state.handle_command(DiffCommand::SelectRow(0)), InputOutcome::Ignored);
+        assert_eq!(state.handle_command(ReviewCommand::DeleteComment), InputOutcome::Ignored);
+        assert_eq!(state.handle_command(ReviewCommand::Cancel), InputOutcome::Consumed);
         assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
     }
-    assert_eq!(
-        state.handle_command(ReviewCommand::Cancel),
-        InputOutcome::Emitted(DiffReviewEvent::Cancel)
-    );
+    assert_eq!(state.handle_command(ReviewCommand::Cancel), InputOutcome::Emitted(DiffReviewEvent::Cancel));
 }
 
 fn diff() -> DiffReviewState {
-    DiffReviewState::new(
-        DocumentBuilder::new()
-            .changed("a.rs", "old\n", "new\n")
-            .build(),
-    )
+    DiffReviewState::new(DocumentBuilder::new().changed("a.rs", "old\n", "new\n").build())
 }
 
 fn markdown() -> MarkdownReviewState {
-    MarkdownReviewState::new(Arc::new(MarkdownDocument::parse(
-        "# One\n\nText\n\n## Two\n\nMore text",
-    )))
+    MarkdownReviewState::new(Arc::new(MarkdownDocument::parse("# One\n\nText\n\n## Two\n\nMore text")))
 }
 
 fn key(code: KeyCode) -> ReviewInput {

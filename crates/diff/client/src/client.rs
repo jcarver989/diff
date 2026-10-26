@@ -1,6 +1,6 @@
 use crate::{
-    ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, ReconnectPolicy,
-    RemoteError, RepositoryAction, ReviewTarget, platform,
+    ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, ReconnectPolicy, RemoteError,
+    RepositoryAction, ReviewTarget, platform,
     protocol::{
         client::{ClientCommand, LocalClientTransport},
         server::ServerEvent,
@@ -37,10 +37,7 @@ impl ClientSubscription {
     }
 
     pub async fn changed(&mut self) -> Result<Arc<ClientState>, ClientError> {
-        self.state
-            .changed()
-            .await
-            .map_err(|_| ClientError::Disconnected)?;
+        self.state.changed().await.map_err(|_| ClientError::Disconnected)?;
         Ok(self.state.borrow_and_update().clone())
     }
 
@@ -88,10 +85,7 @@ impl DiffClient {
         Self::start(transport, options).await
     }
 
-    pub async fn from_transport(
-        transport: LocalClientTransport,
-        options: ClientOptions,
-    ) -> Result<Self, ClientError> {
+    pub async fn from_transport(transport: LocalClientTransport, options: ClientOptions) -> Result<Self, ClientError> {
         Self::start(transport, options).await
     }
 
@@ -140,9 +134,7 @@ impl DiffClient {
 
     #[must_use]
     pub fn subscribe(&self) -> ClientSubscription {
-        ClientSubscription {
-            state: self.state.clone(),
-        }
+        ClientSubscription { state: self.state.clone() }
     }
 
     pub async fn set_target(&self, target: impl Into<ReviewTarget>) -> Result<(), ClientError> {
@@ -177,9 +169,7 @@ impl DiffClient {
             DiffReviewEvent::CopyFormattedReview(_) => return Ok(None),
         };
         let (reply, receiver) = oneshot::channel();
-        self.commands
-            .try_send(Command::Request(request, reply))
-            .map_err(|_| ClientError::Disconnected)?;
+        self.commands.try_send(Command::Request(request, reply)).map_err(|_| ClientError::Disconnected)?;
         Ok(Some(receiver))
     }
 
@@ -193,10 +183,7 @@ impl DiffClient {
 
     async fn command(&self, build: impl FnOnce(Reply) -> Command) -> Result<(), ClientError> {
         let (reply, rx) = oneshot::channel();
-        self.commands
-            .send(build(reply))
-            .await
-            .map_err(|_| ClientError::Disconnected)?;
+        self.commands.send(build(reply)).await.map_err(|_| ClientError::Disconnected)?;
         rx.await.map_err(|_| ClientError::Disconnected)?
     }
 }
@@ -239,9 +226,7 @@ impl Handshake {
 
     fn check(&mut self, event: &ServerEvent) -> Result<(), ClientError> {
         match event {
-            Event::Initialize {
-                protocol_version, ..
-            } => {
+            Event::Initialize { protocol_version, .. } => {
                 if *protocol_version != LIVE_PROTOCOL_VERSION {
                     return Err(ClientError::Remote(RemoteError::new(
                         RemoteErrorCode::UnsupportedVersion,
@@ -254,9 +239,7 @@ impl Handshake {
                 Ok(())
             }
             Event::Error(_) => Ok(()),
-            _ if !self.initialized => {
-                Err(ClientError::Protocol("expected initialization".to_owned()))
-            }
+            _ if !self.initialized => Err(ClientError::Protocol("expected initialization".to_owned())),
             _ => Ok(()),
         }
     }
@@ -282,9 +265,7 @@ impl Worker {
                 let _ = ready.send(result.clone());
             }
             if !retry {
-                self.client.set_connection(ConnectionState::Failed(
-                    result.err().unwrap_or(ClientError::Disconnected),
-                ));
+                self.client.set_connection(ConnectionState::Failed(result.err().unwrap_or(ClientError::Disconnected)));
                 self.publish();
                 return;
             }
@@ -294,8 +275,7 @@ impl Worker {
                 break;
             }
         }
-        self.client
-            .set_connection(ConnectionState::Failed(ClientError::Disconnected));
+        self.client.set_connection(ConnectionState::Failed(ClientError::Disconnected));
         self.publish();
     }
 
@@ -363,9 +343,7 @@ impl Worker {
         self.handshake.check(event)?;
         if let Event::RequestResult(result) = event {
             if let Some(pending) = self.pending.take() {
-                let _ = pending
-                    .reply
-                    .send(result.clone().map_err(ClientError::Remote));
+                let _ = pending.reply.send(result.clone().map_err(ClientError::Remote));
             }
             return Ok(());
         }
@@ -393,30 +371,23 @@ impl Worker {
             let _ = reply.send(Err(ClientError::Disconnected));
             return Ok(());
         }
-        let outcome_unknown_on_disconnect = matches!(
-            request,
-            ClientCommand::Apply(_) | ClientCommand::Submit(_) | ClientCommand::Cancel
-        );
+        let outcome_unknown_on_disconnect =
+            matches!(request, ClientCommand::Apply(_) | ClientCommand::Submit(_) | ClientCommand::Cancel);
         if transport.send(request).await.is_err() {
             let _ = reply.send(Err(ClientError::Disconnected));
             return Err(ClientError::Disconnected);
         }
-        self.pending = Some(Pending {
-            reply,
-            outcome_unknown_on_disconnect,
-        });
+        self.pending = Some(Pending { reply, outcome_unknown_on_disconnect });
         Ok(())
     }
 
     fn abandon_request(&mut self) {
         if let Some(pending) = self.pending.take() {
-            let _ = pending
-                .reply
-                .send(Err(if pending.outcome_unknown_on_disconnect {
-                    ClientError::OutcomeUnknown
-                } else {
-                    ClientError::Disconnected
-                }));
+            let _ = pending.reply.send(Err(if pending.outcome_unknown_on_disconnect {
+                ClientError::OutcomeUnknown
+            } else {
+                ClientError::Disconnected
+            }));
         }
     }
 

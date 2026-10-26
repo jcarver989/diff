@@ -5,8 +5,7 @@ use clankerdiff_core::FileStatus;
 pub(crate) use clankerdiff_gpui_ui::theme::color;
 use clankerdiff_theme::{DiffPalette, FontStyle, Rgba};
 use gpui::{
-    Div, FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, ParentElement, Styled,
-    UnderlineStyle, div, px,
+    Div, FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, ParentElement, Styled, UnderlineStyle, div, px,
 };
 
 /// Converts a syntax-highlight modifier and color to a GPUI highlight style.

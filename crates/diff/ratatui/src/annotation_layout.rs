@@ -4,11 +4,7 @@ use std::{collections::BTreeMap, ops::Range};
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum AnnotationRow<'a> {
     Source(usize),
-    Annotation {
-        source: usize,
-        annotation: &'a AnnotationBox,
-        line: usize,
-    },
+    Annotation { source: usize, annotation: &'a AnnotationBox, line: usize },
 }
 
 #[derive(Debug, Default)]
@@ -33,11 +29,7 @@ impl AnnotationLayout {
             }
         }
         let len = range.len() + extra;
-        Self {
-            range,
-            annotations,
-            len,
-        }
+        Self { range, annotations, len }
     }
 
     pub(crate) const fn len(&self) -> usize {
@@ -80,11 +72,7 @@ impl AnnotationLayout {
                 break;
             }
             if visual < start + annotation.lines().len() {
-                return Some(AnnotationRow::Annotation {
-                    source: *source,
-                    annotation,
-                    line: visual - start,
-                });
+                return Some(AnnotationRow::Annotation { source: *source, annotation, line: visual - start });
             }
             extra += annotation.lines().len();
         }

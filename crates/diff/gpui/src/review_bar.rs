@@ -1,8 +1,8 @@
 use crate::{
     DiffViewer, ViewerPane,
     ui::prelude::{
-        ActionBar, Button, ButtonVariant, ControlSize, EmptyState, MutedText, NoticeTone,
-        Typography, TypographyExt, rem,
+        ActionBar, Button, ButtonVariant, ControlSize, EmptyState, MutedText, NoticeTone, Typography, TypographyExt,
+        rem,
     },
 };
 use clankerdiff_core::{DiffReviewCommand, DiffScope, ReviewCommand};
@@ -30,10 +30,7 @@ impl DiffViewer {
                 .flex_1()
                 .overflow_hidden()
                 .whitespace_nowrap()
-                .child(MutedText::new(
-                    format!("{hint}    ·    {} review comments", self.review().len()),
-                    theme,
-                )),
+                .child(MutedText::new(format!("{hint}    ·    {} review comments", self.review().len()), theme)),
         );
         bar = bar.child(self.render_navigation(cx));
         bar.when(self.options.themes, |bar| {
@@ -66,13 +63,11 @@ impl DiffViewer {
                     })),
             )
         })
-        .child(
-            Button::new("cancel-review", "Cancel", theme)
-                .size(ControlSize::Small)
-                .on_click(cx.listener(|viewer, _, window, cx| {
-                    viewer.handle_command(ReviewCommand::Cancel, window, cx);
-                })),
-        )
+        .child(Button::new("cancel-review", "Cancel", theme).size(ControlSize::Small).on_click(cx.listener(
+            |viewer, _, window, cx| {
+                viewer.handle_command(ReviewCommand::Cancel, window, cx);
+            },
+        )))
     }
 
     pub(crate) fn render_clean(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -96,12 +91,11 @@ impl DiffViewer {
     fn render_navigation(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.ui_theme();
         let button = |id: &'static str, label: &'static str, command: DiffReviewCommand| {
-            Button::new(id, label, theme)
-                .size(ControlSize::Small)
-                .disabled(!self.command_enabled(&command))
-                .on_click(cx.listener(move |viewer, _, window, cx| {
+            Button::new(id, label, theme).size(ControlSize::Small).disabled(!self.command_enabled(&command)).on_click(
+                cx.listener(move |viewer, _, window, cx| {
                     viewer.handle_command(command.clone(), window, cx);
-                }))
+                }),
+            )
         };
         let stepper = self.session().page_title().map(|title| {
             div()
@@ -132,21 +126,15 @@ impl DiffViewer {
                 )
         });
         let selected = self.session().target().scope();
-        div()
-            .flex()
-            .items_center()
-            .gap_1()
-            .children(stepper)
-            .children(
-                [
-                    ("scope-unstaged", "Unstaged", DiffScope::Unstaged),
-                    ("scope-staged", "Staged", DiffScope::Staged),
-                    ("scope-both", "Both", DiffScope::Both),
-                ]
-                .map(|(id, label, scope)| {
-                    button(id, label, DiffReviewCommand::SetScope(scope))
-                        .selected(selected == Some(scope))
-                }),
-            )
+        div().flex().items_center().gap_1().children(stepper).children(
+            [
+                ("scope-unstaged", "Unstaged", DiffScope::Unstaged),
+                ("scope-staged", "Staged", DiffScope::Staged),
+                ("scope-both", "Both", DiffScope::Both),
+            ]
+            .map(|(id, label, scope)| {
+                button(id, label, DiffReviewCommand::SetScope(scope)).selected(selected == Some(scope))
+            }),
+        )
     }
 }

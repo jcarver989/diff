@@ -13,20 +13,12 @@ use std::{error::Error, sync::Arc};
 
 #[test]
 fn split_additions_fill_missing_left_side_and_empty_source_lines() -> Result<(), Box<dyn Error>> {
-    assert_split_backgrounds(
-        "",
-        "let added = 1;\n\n",
-        &[(None, Some(DiffTone::Added)); 2],
-    )
+    assert_split_backgrounds("", "let added = 1;\n\n", &[(None, Some(DiffTone::Added)); 2])
 }
 
 #[test]
 fn split_deletions_fill_missing_right_side_and_empty_source_lines() -> Result<(), Box<dyn Error>> {
-    assert_split_backgrounds(
-        "let removed = 1;\n\n",
-        "",
-        &[(Some(DiffTone::Removed), None); 2],
-    )
+    assert_split_backgrounds("let removed = 1;\n\n", "", &[(Some(DiffTone::Removed), None); 2])
 }
 
 #[test]
@@ -36,18 +28,12 @@ fn split_replacements_fill_unequal_sides() -> Result<(), Box<dyn Error>> {
     assert_split_backgrounds(
         short,
         long,
-        &[
-            (Some(DiffTone::Removed), Some(DiffTone::Added)),
-            (None, Some(DiffTone::Added)),
-        ],
+        &[(Some(DiffTone::Removed), Some(DiffTone::Added)), (None, Some(DiffTone::Added))],
     )?;
     assert_split_backgrounds(
         long,
         short,
-        &[
-            (Some(DiffTone::Removed), Some(DiffTone::Added)),
-            (Some(DiffTone::Removed), None),
-        ],
+        &[(Some(DiffTone::Removed), Some(DiffTone::Added)), (Some(DiffTone::Removed), None)],
     )
 }
 
@@ -63,25 +49,16 @@ fn split_divider_does_not_inherit_parent_background() -> Result<(), Box<dyn Erro
 #[test]
 fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box<dyn Error>> {
     assert_eq!(DiffPreviewOptions::default().tab_width, 2);
-    let mut state = DiffPreviewState::new(FileDiff::from_texts(
-        "tabs.rs",
-        "",
-        "\tlet a = 1;\na\tb\n界\tx\n    spaces\n",
-    )?);
+    let mut state =
+        DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "\tlet a = 1;\na\tb\n界\tx\n    spaces\n")?);
     let theme = ReviewTheme::default();
     let mut highlighter = SyntaxHighlighter::default();
     for width in [80, 120] {
         let mut previous = None;
-        for (tab_width, indent, middle, wide) in [
-            (2, "  ", "a b", "界  x"),
-            (4, "    ", "a   b", "界  x"),
-            (0, " ", "a b", "界 x"),
-        ] {
-            let options = DiffPreviewOptions {
-                tab_width,
-                include_gaps: false,
-                ..Default::default()
-            };
+        for (tab_width, indent, middle, wide) in
+            [(2, "  ", "a b", "界  x"), (4, "    ", "a   b", "界  x"), (0, " ", "a b", "界 x")]
+        {
+            let options = DiffPreviewOptions { tab_width, include_gaps: false, ..Default::default() };
             let rows = state.render(width, &theme, &mut highlighter, options);
             let rendered = text(&rows);
             for expected in [
@@ -90,10 +67,7 @@ fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box
                 format!("▌   3 {wide}"),
                 "▌   4     spaces".to_owned(),
             ] {
-                assert!(
-                    rendered.iter().any(|line| line.contains(&expected)),
-                    "{expected:?}: {rendered:?}"
-                );
+                assert!(rendered.iter().any(|line| line.contains(&expected)), "{expected:?}: {rendered:?}");
             }
             assert!(rows.iter().all(|row| row.width() <= usize::from(width)));
             if let Some(previous) = previous {
@@ -113,8 +87,7 @@ fn expanded_tabs_preserve_syntax_styles() -> Result<(), Box<dyn Error>> {
     let options = DiffPreviewOptions::default();
     let mut highlighter = SyntaxHighlighter::default();
     let mut actual = DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "\tlet a = 1;\n")?);
-    let mut expected =
-        DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "  let a = 1;\n")?);
+    let mut expected = DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "  let a = 1;\n")?);
     assert_eq!(
         actual.render(80, &theme, &mut highlighter, options),
         expected.render(80, &theme, &mut highlighter, options),
@@ -133,28 +106,17 @@ fn previews_reuse_rows_and_invalidate_replaced_files() -> Result<(), Box<dyn Err
     let unchanged = state.render(80, &theme, &mut highlighter, options);
     assert!(Arc::ptr_eq(&first, &unchanged));
     assert_eq!(state.take_stats().cache_hits, 1);
-    state.set_file(FileDiff::from_texts(
-        "src/main.rs",
-        "new\n",
-        "replacement\n",
-    )?);
+    state.set_file(FileDiff::from_texts("src/main.rs", "new\n", "replacement\n")?);
     let replaced = state.render(80, &theme, &mut highlighter, options);
     assert!(!Arc::ptr_eq(&first, &replaced));
-    assert!(
-        replaced
-            .iter()
-            .any(|row| row.to_string().contains("replacement"))
-    );
+    assert!(replaced.iter().any(|row| row.to_string().contains("replacement")));
     Ok(())
 }
 
 #[test]
 fn theme_changes_recolor_previews_without_parsing() -> Result<(), Box<dyn Error>> {
-    let mut state = DiffPreviewState::new(FileDiff::from_texts(
-        "src/main.rs",
-        "let before = 1;\n",
-        "let after = 2;\n",
-    )?);
+    let mut state =
+        DiffPreviewState::new(FileDiff::from_texts("src/main.rs", "let before = 1;\n", "let after = 2;\n")?);
     let mut highlighter = SyntaxHighlighter::default();
     let options = DiffPreviewOptions::default();
     let first = state.render(80, &ReviewTheme::default(), &mut highlighter, options);
@@ -170,35 +132,15 @@ fn theme_changes_recolor_previews_without_parsing() -> Result<(), Box<dyn Error>
 
 #[test]
 fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn Error>> {
-    let mut state = DiffPreviewState::new(FileDiff::from_texts(
-        "wide.rs",
-        "界界界\te\u{301}\n",
-        "changed\n",
-    )?);
-    for (width, expected_rows) in [
-        (0, 0),
-        (1, 2),
-        (2, 2),
-        (5, 2),
-        (10, 5),
-        (95, 2),
-        (96, 1),
-        (120, 1),
-    ] {
+    let mut state = DiffPreviewState::new(FileDiff::from_texts("wide.rs", "界界界\te\u{301}\n", "changed\n")?);
+    for (width, expected_rows) in [(0, 0), (1, 2), (2, 2), (5, 2), (10, 5), (95, 2), (96, 1), (120, 1)] {
         let rows = state.render(
             width,
             &ReviewTheme::default(),
             &mut SyntaxHighlighter::default(),
-            DiffPreviewOptions {
-                view_mode: ViewMode::Auto,
-                include_gaps: false,
-                ..DiffPreviewOptions::default()
-            },
+            DiffPreviewOptions { view_mode: ViewMode::Auto, include_gaps: false, ..DiffPreviewOptions::default() },
         );
-        assert!(
-            rows.iter().all(|row| row.width() <= usize::from(width)),
-            "width: {width}"
-        );
+        assert!(rows.iter().all(|row| row.width() <= usize::from(width)), "width: {width}");
         assert_eq!(rows.len(), expected_rows, "width: {width}");
     }
     Ok(())
@@ -206,32 +148,17 @@ fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn 
 
 #[test]
 fn unified_previews_wrap_source_rows_and_preserve_gutters() -> Result<(), Box<dyn Error>> {
-    let file = FileDiff::from_texts(
-        "example.txt",
-        "abcdefghij\ncontext123\n",
-        "ABCDEFGHIJ\ncontext123\n",
-    )?;
+    let file = FileDiff::from_texts("example.txt", "abcdefghij\ncontext123\n", "ABCDEFGHIJ\ncontext123\n")?;
     let rows = render_diff_preview(
         file,
         11,
         &ReviewTheme::default(),
         &mut SyntaxHighlighter::default(),
-        DiffPreviewOptions {
-            view_mode: ViewMode::Unified,
-            include_gaps: false,
-            ..Default::default()
-        },
+        DiffPreviewOptions { view_mode: ViewMode::Unified, include_gaps: false, ..Default::default() },
     );
     assert_eq!(
         text(&rows),
-        [
-            "▌   1 abcde",
-            "▌   ↪ fghij",
-            "▌   1 ABCDE",
-            "▌   ↪ FGHIJ",
-            "    2 conte",
-            "    ↪ xt123",
-        ]
+        ["▌   1 abcde", "▌   ↪ fghij", "▌   1 ABCDE", "▌   ↪ FGHIJ", "    2 conte", "    ↪ xt123",]
     );
     assert!(rows.iter().all(|row| row.width() == 11));
     Ok(())
@@ -243,20 +170,12 @@ fn split_previews_align_continuations_before_the_next_source_row() -> Result<(),
         (
             "abcdefghij\nsame\n",
             "XYZ\nsame\n",
-            vec![
-                "▌   1 abcde│▌   1 XYZ  ",
-                "▌   ↪ fghij│▌          ",
-                "    2 same │    2 same ",
-            ],
+            vec!["▌   1 abcde│▌   1 XYZ  ", "▌   ↪ fghij│▌          ", "    2 same │    2 same "],
         ),
         (
             "XYZ\nsame\n",
             "abcdefghij\nsame\n",
-            vec![
-                "▌   1 XYZ  │▌   1 abcde",
-                "▌          │▌   ↪ fghij",
-                "    2 same │    2 same ",
-            ],
+            vec!["▌   1 XYZ  │▌   1 abcde", "▌          │▌   ↪ fghij", "    2 same │    2 same "],
         ),
         (
             "abcdefghij\nsame\n",
@@ -274,11 +193,7 @@ fn split_previews_align_continuations_before_the_next_source_row() -> Result<(),
             23,
             &ReviewTheme::default(),
             &mut SyntaxHighlighter::default(),
-            DiffPreviewOptions {
-                view_mode: ViewMode::Split,
-                include_gaps: false,
-                ..Default::default()
-            },
+            DiffPreviewOptions { view_mode: ViewMode::Split, include_gaps: false, ..Default::default() },
         );
         assert_eq!(text(&rows), expected);
         assert!(rows.iter().all(|row| row.width() == 23));
@@ -287,14 +202,9 @@ fn split_previews_align_continuations_before_the_next_source_row() -> Result<(),
 }
 
 #[test]
-fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result<(), Box<dyn Error>>
-{
+fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result<(), Box<dyn Error>> {
     for (view_mode, width) in [(ViewMode::Unified, 24), (ViewMode::Split, 49)] {
-        let file = FileDiff::from_texts(
-            "example.txt",
-            "",
-            &format!("{}\nnext\n", "x".repeat(100_000)),
-        )?;
+        let file = FileDiff::from_texts("example.txt", "", &format!("{}\nnext\n", "x".repeat(100_000)))?;
         let mut state = DiffPreviewState::new(file);
         for max_content_rows in [0, 1, 2, 20] {
             for overflow_summary in [false, true] {
@@ -317,10 +227,7 @@ fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result
                 assert_eq!(rows.len(), max_content_rows + usize::from(overflow_summary));
                 assert!(rows.iter().all(|row| row.width() == usize::from(width)));
                 if overflow_summary {
-                    assert!(
-                        rows.last()
-                            .is_some_and(|row| row.to_string().starts_with("… 2 more rows"))
-                    );
+                    assert!(rows.last().is_some_and(|row| row.to_string().starts_with("… 2 more rows")));
                 }
                 assert!(rows.iter().all(|row| !row.to_string().contains("next")));
             }
@@ -331,13 +238,9 @@ fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result
 
 #[test]
 fn exact_preview_budget_does_not_report_overflow() -> Result<(), Box<dyn Error>> {
-    for (after, budget, count) in [
-        ("abcde\n", 1, 1),
-        ("abcdef\n", 2, 2),
-        ("\n", 1, 1),
-        ("abcdef\n", usize::MAX, 2),
-        ("abcde\nnext\n", 1, 2),
-    ] {
+    for (after, budget, count) in
+        [("abcde\n", 1, 1), ("abcdef\n", 2, 2), ("\n", 1, 1), ("abcdef\n", usize::MAX, 2), ("abcde\nnext\n", 1, 2)]
+    {
         let rows = render_diff_preview(
             FileDiff::from_texts("example.txt", "", after)?,
             11,
@@ -361,29 +264,15 @@ fn exact_preview_budget_does_not_report_overflow() -> Result<(), Box<dyn Error>>
 #[test]
 fn wrapped_tabs_unicode_and_styles_match_expanded_source() -> Result<(), Box<dyn Error>> {
     let theme = ReviewTheme::default();
-    let options = DiffPreviewOptions {
-        view_mode: ViewMode::Unified,
-        include_gaps: false,
-        tab_width: 4,
-        ..Default::default()
-    };
-    let mut actual = DiffPreviewState::new(FileDiff::from_texts(
-        "example.rs",
-        "",
-        "\tlet a = \"界e\u{301}👩‍💻\";  \n",
-    )?);
-    let mut expanded = DiffPreviewState::new(FileDiff::from_texts(
-        "example.rs",
-        "",
-        "    let a = \"界e\u{301}👩‍💻\";  \n",
-    )?);
+    let options =
+        DiffPreviewOptions { view_mode: ViewMode::Unified, include_gaps: false, tab_width: 4, ..Default::default() };
+    let mut actual = DiffPreviewState::new(FileDiff::from_texts("example.rs", "", "\tlet a = \"界e\u{301}👩‍💻\";  \n")?);
+    let mut expanded =
+        DiffPreviewState::new(FileDiff::from_texts("example.rs", "", "    let a = \"界e\u{301}👩‍💻\";  \n")?);
     let mut highlighter = SyntaxHighlighter::default();
     for width in [11, 13, 80, 13] {
         let rows = actual.render(width, &theme, &mut highlighter, options);
-        assert_eq!(
-            rows,
-            expanded.render(width, &theme, &mut highlighter, options)
-        );
+        assert_eq!(rows, expanded.render(width, &theme, &mut highlighter, options));
         assert!(rows.iter().all(|row| row.width() == usize::from(width)));
         assert!(rows.iter().any(|row| row.to_string().contains("e\u{301}")));
         assert!(rows.iter().any(|row| row.to_string().contains("👩‍💻")));
@@ -397,29 +286,13 @@ fn wrapped_tabs_unicode_and_styles_match_expanded_source() -> Result<(), Box<dyn
 fn split_wrapped_rows_keep_diff_backgrounds_on_padding() -> Result<(), Box<dyn Error>> {
     let long = format!("{}\n", "x".repeat(110));
     for whitespace in ["\n", "   \n", "\t\n"] {
-        assert_split_backgrounds(
-            whitespace,
-            &long,
-            &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3],
-        )?;
-        assert_split_backgrounds(
-            &long,
-            whitespace,
-            &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3],
-        )?;
+        assert_split_backgrounds(whitespace, &long, &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3])?;
+        assert_split_backgrounds(&long, whitespace, &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3])?;
     }
     assert_split_backgrounds("", &long, &[(None, Some(DiffTone::Added)); 3])?;
     assert_split_backgrounds(&long, "", &[(Some(DiffTone::Removed), None); 3])?;
-    assert_split_backgrounds(
-        "short\n",
-        &long,
-        &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3],
-    )?;
-    assert_split_backgrounds(
-        &long,
-        "short\n",
-        &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3],
-    )
+    assert_split_backgrounds("short\n", &long, &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3])?;
+    assert_split_backgrounds(&long, "short\n", &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3])
 }
 
 fn text(rows: &[Line<'_>]) -> Vec<String> {
@@ -452,9 +325,8 @@ fn assert_split_backgrounds(
             for (y, &(left, right)) in expected.iter().enumerate() {
                 let y = u16::try_from(y)?;
                 for (range, tone) in [(0..divider, left), (divider + 1..width, right)] {
-                    let expected_bg = tone.map_or(background, |tone| {
-                        page_color(&theme, theme.diff.tone(tone).background)
-                    });
+                    let expected_bg =
+                        tone.map_or(background, |tone| page_color(&theme, theme.diff.tone(tone).background));
                     if let Some(tone) = tone {
                         let foreground = match tone {
                             DiffTone::Added => theme.diff.addition,
@@ -465,11 +337,7 @@ fn assert_split_backgrounds(
                         assert_eq!(buffer[(range.start, y)].fg, page_color(&theme, foreground));
                     }
                     for x in range {
-                        assert_eq!(
-                            buffer[(x, y)].bg,
-                            expected_bg,
-                            "width {width}, cell ({x}, {y}), tone {tone:?}"
-                        );
+                        assert_eq!(buffer[(x, y)].bg, expected_bg, "width {width}, cell ({x}, {y}), tone {tone:?}");
                         if tone.is_none() {
                             assert_eq!(buffer[(x, y)].symbol(), " ");
                         }
@@ -477,10 +345,7 @@ fn assert_split_backgrounds(
                 }
                 assert_eq!(buffer[(divider, y)].symbol(), "│");
                 assert_eq!(buffer[(divider, y)].bg, background);
-                assert_eq!(
-                    buffer[(divider, y)].fg,
-                    page_color(&theme, theme.diff.border)
-                );
+                assert_eq!(buffer[(divider, y)].fg, page_color(&theme, theme.diff.border));
             }
         }
     }

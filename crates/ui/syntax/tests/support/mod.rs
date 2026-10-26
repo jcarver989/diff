@@ -1,6 +1,6 @@
 use clankerdiff_syntax::{
-    CacheConfig, DocumentHighlights, Fingerprint, HighlightSpan, SyntaxError, SyntaxHighlighter,
-    SyntaxStream, SyntaxStreamUpdate, SyntaxTheme,
+    CacheConfig, DocumentHighlights, Fingerprint, HighlightSpan, SyntaxError, SyntaxHighlighter, SyntaxStream,
+    SyntaxStreamUpdate, SyntaxTheme,
 };
 use std::{error::Error, sync::Arc};
 
@@ -14,11 +14,7 @@ pub struct CacheBuilder {
 
 impl Default for CacheBuilder {
     fn default() -> Self {
-        Self {
-            config: CacheConfig::default(),
-            language: "rust".to_owned(),
-            theme: SyntaxTheme::default(),
-        }
+        Self { config: CacheConfig::default(), language: "rust".to_owned(), theme: SyntaxTheme::default() }
     }
 }
 
@@ -65,16 +61,16 @@ impl SyntaxFixture {
     }
 
     pub fn append(&mut self, source: &str) -> Result<SyntaxStreamUpdate, SyntaxError> {
-        self.highlighter
-            .with_theme(&self.theme)
-            .append(&mut self.stream, source)
+        self.highlighter.with_theme(&self.theme).append(&mut self.stream, source)
     }
 
     pub fn assert_equivalent(&mut self) -> TestResult {
         let source = self.stream.source();
-        let complete = SyntaxHighlighter::new(0)
-            .with_theme(&self.theme)
-            .highlight_document(Fingerprint::of([source]), self.language.as_str(), || source)?;
+        let complete = SyntaxHighlighter::new(0).with_theme(&self.theme).highlight_document(
+            Fingerprint::of([source]),
+            self.language.as_str(),
+            || source,
+        )?;
         assert_eq!(self.stream.highlights().line_count(), complete.line_count());
         for index in 0..complete.line_count() {
             assert_eq!(
@@ -88,11 +84,6 @@ impl SyntaxFixture {
     }
 }
 
-pub fn line(
-    highlights: &DocumentHighlights,
-    index: usize,
-) -> Result<&[HighlightSpan], Box<dyn Error>> {
-    highlights
-        .line(index)
-        .ok_or_else(|| format!("missing line {index}").into())
+pub fn line(highlights: &DocumentHighlights, index: usize) -> Result<&[HighlightSpan], Box<dyn Error>> {
+    highlights.line(index).ok_or_else(|| format!("missing line {index}").into())
 }

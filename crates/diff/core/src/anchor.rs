@@ -58,21 +58,11 @@ impl LineAnchor {
     }
 }
 
-fn context_fingerprint(
-    path: &RepoPath,
-    side: DiffSide,
-    line: &PatchLine,
-    nearby: &[PatchLine],
-) -> Fingerprint {
+fn context_fingerprint(path: &RepoPath, side: DiffSide, line: &PatchLine, nearby: &[PatchLine]) -> Fingerprint {
     Fingerprint::of(
-        [
-            path.as_str(),
-            side.as_str(),
-            line.text.as_ref(),
-            line.kind.as_str(),
-        ]
-        .into_iter()
-        .chain(nearby.iter().map(|context| context.text.as_ref())),
+        [path.as_str(), side.as_str(), line.text.as_ref(), line.kind.as_str()]
+            .into_iter()
+            .chain(nearby.iter().map(|context| context.text.as_ref())),
     )
 }
 
@@ -87,10 +77,7 @@ mod tests {
         let old = LineAnchor::for_line(&file, DiffSide::Old, 0, 0).unwrap();
         let new = LineAnchor::for_line(&file, DiffSide::New, 0, 1).unwrap();
         assert_ne!(old.fingerprint, new.fingerprint);
-        assert_eq!(
-            old,
-            LineAnchor::for_line(&file, DiffSide::Old, 0, 0).unwrap()
-        );
+        assert_eq!(old, LineAnchor::for_line(&file, DiffSide::Old, 0, 0).unwrap());
         assert!(!old.addresses_same_side(&new));
     }
 
@@ -99,10 +86,7 @@ mod tests {
         let file = FileDiff::from_texts("a.rs", "x\n", "y\n").unwrap();
         let anchor = LineAnchor::for_line(&file, DiffSide::New, 0, 1).unwrap();
         let line = file.line(0, 1).unwrap();
-        assert_eq!(
-            anchor.content_fingerprint,
-            LineAnchor::content_fingerprint_of(DiffSide::New, line)
-        );
+        assert_eq!(anchor.content_fingerprint, LineAnchor::content_fingerprint_of(DiffSide::New, line));
     }
 
     #[test]

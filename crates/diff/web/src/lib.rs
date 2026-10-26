@@ -64,28 +64,15 @@ enum DocumentPayload {
 /// Returns an error when `json` is neither form.
 pub fn decode_document_command(json: &str) -> Result<DocumentCommand, WebError> {
     match serde_json::from_str::<DocumentPayload>(json)? {
-        DocumentPayload::Envelope {
-            revision,
-            request_id,
-            scope,
-            document,
-        } => {
+        DocumentPayload::Envelope { revision, request_id, scope, document } => {
             let scope = scope
                 .map(|value| DiffScope::from_str(&value).map_err(|_| WebError::InvalidScope(value)))
                 .transpose()?;
-            Ok(DocumentCommand {
-                revision,
-                request_id,
-                scope,
-                document,
-            })
+            Ok(DocumentCommand { revision, request_id, scope, document })
         }
-        DocumentPayload::Bare(document) => Ok(DocumentCommand {
-            revision: None,
-            request_id: None,
-            scope: None,
-            document,
-        }),
+        DocumentPayload::Bare(document) => {
+            Ok(DocumentCommand { revision: None, request_id: None, scope: None, document })
+        }
     }
 }
 
@@ -181,13 +168,8 @@ pub struct MarkdownSourcePayload {
 /// # Errors
 /// Returns an error when `json` is not a valid Markdown source payload.
 pub fn decode_markdown_document(json: &str) -> Result<MarkdownDocument, WebError> {
-    let payload: MarkdownSourcePayload =
-        serde_json::from_str(json).map_err(WebError::InvalidMarkdownPayload)?;
-    Ok(MarkdownDocument::parse_with_metadata(
-        payload.source_path,
-        payload.title,
-        payload.source,
-    ))
+    let payload: MarkdownSourcePayload = serde_json::from_str(json).map_err(WebError::InvalidMarkdownPayload)?;
+    Ok(MarkdownDocument::parse_with_metadata(payload.source_path, payload.title, payload.source))
 }
 
 /// Markdown-specific browser event names; existing diff event names remain unchanged.
@@ -203,8 +185,7 @@ pub const MARKDOWN_CANCEL_EVENT: &str = "markdown-review-cancel";
 /// Panics if the checked-in JSON fixture is invalid.
 #[must_use]
 pub fn demo_document() -> DiffDocument {
-    decode_document(include_str!("../demo-document.json"))
-        .expect("the checked-in web demo document must be valid")
+    decode_document(include_str!("../demo-document.json")).expect("the checked-in web demo document must be valid")
 }
 
 /// Resolves an embedded browser theme name.
@@ -218,14 +199,14 @@ pub fn decode_theme(name: &str) -> Result<ReviewTheme, WebError> {
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::commands::{
-        CAPABILITIES_EVENT, COMMAND_EVENT, COMMAND_RESULT_EVENT, CommandError, CommandRequest,
-        CommandResult, ViewerCommand, decode_capabilities, decode_command,
+        CAPABILITIES_EVENT, COMMAND_EVENT, COMMAND_RESULT_EVENT, CommandError, CommandRequest, CommandResult,
+        ViewerCommand, decode_capabilities, decode_command,
     };
     use super::{
         DOCUMENT_APPLIED_EVENT, MARKDOWN_CANCEL_EVENT, MARKDOWN_CLEAR_EVENT, MARKDOWN_COPY_EVENT,
-        MARKDOWN_SET_DOCUMENT_EVENT, MARKDOWN_SUBMIT_EVENT, RepositoryReply, RepositoryRequests,
-        UpdateDecision, WebError, decode_document_command, decode_markdown_document, decode_theme,
-        demo_document, document_update_decision,
+        MARKDOWN_SET_DOCUMENT_EVENT, MARKDOWN_SUBMIT_EVENT, RepositoryReply, RepositoryRequests, UpdateDecision,
+        WebError, decode_document_command, decode_markdown_document, decode_theme, demo_document,
+        document_update_decision,
     };
     use async_channel::{Receiver, Sender};
     use clankerdiff_client::{ClientOptions, ClientState, DiffClient};
@@ -233,18 +214,14 @@ mod wasm {
         DiffDocument, DiffReviewEvent, ReviewCapabilities, ReviewSubmission, ReviewTarget, ViewMode,
     };
     use clankerdiff_gpui::{
-        DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged,
-        ViewModeChanged,
-        ui::{
-            InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE,
-            prelude::UI_FONT,
-        },
+        DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged, ViewModeChanged,
+        ui::{InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE, prelude::UI_FONT},
     };
     use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
     use clankerdiff_theme::ReviewTheme;
     use gpui::{
-        App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task,
-        Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
+        App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
+        WindowOptions, div, prelude::*, px, size,
     };
     use std::{
         cell::{Cell, RefCell},
@@ -267,11 +244,7 @@ mod wasm {
         InstallRemote(DiffClient),
         DisconnectRemote,
         RemoteFinished(RepositoryReply),
-        SetDocument {
-            document: Arc<DiffDocument>,
-            revision: Option<u64>,
-            request_id: Option<u64>,
-        },
+        SetDocument { document: Arc<DiffDocument>, revision: Option<u64>, request_id: Option<u64> },
         SetTheme(ReviewTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
         RepositoryFinished(RepositoryReply),
@@ -298,53 +271,40 @@ mod wasm {
     }
 
     impl WebRoot {
-        fn new(
-            receiver: Receiver<WebCommand>,
-            window: &mut Window,
-            cx: &mut Context<Self>,
-        ) -> Self {
+        fn new(receiver: Receiver<WebCommand>, window: &mut Window, cx: &mut Context<Self>) -> Self {
             let theme = stored_theme();
             let capabilities = ReviewCapabilities::default();
             let viewer = cx.new(|cx| {
                 let mut viewer = DiffViewer::with_options(
                     Arc::new(demo_document()),
                     theme,
-                    DiffViewerOptions {
-                        view_mode: stored_view_mode(),
-                        ..DiffViewerOptions::default()
-                    },
+                    DiffViewerOptions { view_mode: stored_view_mode(), ..DiffViewerOptions::default() },
                 );
                 viewer.set_capabilities(capabilities, cx);
                 viewer
             });
-            let viewer_subscription = cx.subscribe(
-                &viewer,
-                |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| {
-                    if MANAGED.get() && !matches!(event, DiffReviewEvent::CopyFormattedReview(_)) {
-                        this.remote_request(event.clone(), cx);
-                        return;
+            let viewer_subscription = cx.subscribe(&viewer, |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| {
+                if MANAGED.get() && !matches!(event, DiffReviewEvent::CopyFormattedReview(_)) {
+                    this.remote_request(event.clone(), cx);
+                    return;
+                }
+                match event {
+                    DiffReviewEvent::RepositoryAction(action) => {
+                        this.request_repository(cx, |request_id| dispatch_repository_action(request_id, action))
                     }
-                    match event {
-                        DiffReviewEvent::RepositoryAction(action) => this
-                            .request_repository(cx, |request_id| {
-                                dispatch_repository_action(request_id, action)
-                            }),
-                        DiffReviewEvent::SetTarget(target) => {
-                            this.request_repository(cx, |_| dispatch_target_request(target));
-                        }
-                        DiffReviewEvent::Refresh => this.request_repository(cx, |request_id| {
-                            let detail =
-                                serde_json::json!({ "request_id": request_id }).to_string();
-                            dispatch_custom_event(super::REFRESH_REQUEST_EVENT, Some(&detail))
-                        }),
-                        _ => dispatch_viewer_event(event),
+                    DiffReviewEvent::SetTarget(target) => {
+                        this.request_repository(cx, |_| dispatch_target_request(target));
                     }
-                },
-            );
-            let viewer_theme_subscription =
-                cx.subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
-                    store_theme(&event.id);
-                });
+                    DiffReviewEvent::Refresh => this.request_repository(cx, |request_id| {
+                        let detail = serde_json::json!({ "request_id": request_id }).to_string();
+                        dispatch_custom_event(super::REFRESH_REQUEST_EVENT, Some(&detail))
+                    }),
+                    _ => dispatch_viewer_event(event),
+                }
+            });
+            let viewer_theme_subscription = cx.subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
+                store_theme(&event.id);
+            });
             let viewer_view_mode_subscription =
                 cx.subscribe(&viewer, |_this, _viewer, event: &ViewModeChanged, _cx| {
                     store_view_mode(event.mode);
@@ -394,10 +354,7 @@ mod wasm {
             self.remote = Some(client);
             self.remote_task = Some(cx.spawn(async move |this, cx| {
                 while let Ok(state) = subscription.changed().await {
-                    if this
-                        .update(cx, |this, cx| this.apply_remote_state(&state, cx))
-                        .is_err()
-                    {
+                    if this.update(cx, |this, cx| this.apply_remote_state(&state, cx)).is_err() {
                         break;
                     }
                 }
@@ -435,8 +392,7 @@ mod wasm {
             let Some(request_id) = self.requests.begin() else {
                 return;
             };
-            self.viewer
-                .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+            self.viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
             spawn_local(async move {
                 let result = client.handle(event).await;
                 let _ = send(WebCommand::RemoteFinished(RepositoryReply {
@@ -455,43 +411,28 @@ mod wasm {
             }
         }
 
-        fn request_repository(
-            &mut self,
-            cx: &mut Context<Self>,
-            dispatch: impl FnOnce(u64) -> Result<(), JsValue>,
-        ) {
+        fn request_repository(&mut self, cx: &mut Context<Self>, dispatch: impl FnOnce(u64) -> Result<(), JsValue>) {
             let Some(request_id) = self.requests.begin() else {
                 return;
             };
-            self.viewer
-                .update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
+            self.viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
             if let Err(error) = dispatch(request_id) {
                 self.finish_repository(
-                    RepositoryReply {
-                        request_id,
-                        error: Some(format!("could not dispatch request: {error:?}")),
-                    },
+                    RepositoryReply { request_id, error: Some(format!("could not dispatch request: {error:?}")) },
                     cx,
                 );
             }
         }
 
-        fn dispatch_command(
-            &mut self,
-            request: CommandRequest,
-            window: &mut Window,
-            cx: &mut Context<Self>,
-        ) {
+        fn dispatch_command(&mut self, request: CommandRequest, window: &mut Window, cx: &mut Context<Self>) {
             let result = match request.command {
-                ViewerCommand::Diff(command) if self.markdown.is_none() => Ok(self
-                    .viewer
-                    .update(cx, |viewer, cx| viewer.handle_command(command, window, cx))),
+                ViewerCommand::Diff(command) if self.markdown.is_none() => {
+                    Ok(self.viewer.update(cx, |viewer, cx| viewer.handle_command(command, window, cx)))
+                }
                 ViewerCommand::Markdown(command) => {
                     if let Some(markdown) = &self.markdown {
                         markdown
-                            .update(cx, |reviewer, cx| {
-                                reviewer.handle_command(command, window, cx)
-                            })
+                            .update(cx, |reviewer, cx| reviewer.handle_command(command, window, cx))
                             .map_err(|error| error.to_string())
                     } else {
                         Err(CommandError::InactiveReviewer.to_string())
@@ -514,8 +455,7 @@ mod wasm {
 
         fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>) {
             self.capabilities = capabilities;
-            self.viewer
-                .update(cx, |viewer, cx| viewer.set_capabilities(capabilities, cx));
+            self.viewer.update(cx, |viewer, cx| viewer.set_capabilities(capabilities, cx));
             if let Some(markdown) = &self.markdown {
                 markdown.update(cx, |reviewer, cx| {
                     reviewer.set_capabilities(capabilities, cx);
@@ -523,12 +463,7 @@ mod wasm {
             }
         }
 
-        fn apply_command(
-            &mut self,
-            command: WebCommand,
-            window: &mut Window,
-            cx: &mut Context<Self>,
-        ) {
+        fn apply_command(&mut self, command: WebCommand, window: &mut Window, cx: &mut Context<Self>) {
             match command {
                 WebCommand::InstallRemote(client) => self.install_remote(client, cx),
                 WebCommand::DisconnectRemote => {
@@ -545,18 +480,12 @@ mod wasm {
                         self.finish_repository(reply, cx);
                     }
                 }
-                WebCommand::SetDocument {
-                    document,
-                    revision,
-                    request_id,
-                } => {
-                    let decision =
-                        document_update_decision(self.applied_revision, revision, || {
-                            self.viewer.read(cx).document().as_ref() == document.as_ref()
-                        });
+                WebCommand::SetDocument { document, revision, request_id } => {
+                    let decision = document_update_decision(self.applied_revision, revision, || {
+                        self.viewer.read(cx).document().as_ref() == document.as_ref()
+                    });
                     if decision == UpdateDecision::Apply {
-                        self.viewer
-                            .update(cx, |viewer, cx| viewer.set_document(document, cx));
+                        self.viewer.update(cx, |viewer, cx| viewer.set_document(document, cx));
                     }
                     if decision != UpdateDecision::SkipStale {
                         self.markdown = None;
@@ -566,17 +495,9 @@ mod wasm {
                         self.applied_revision = revision.or(self.applied_revision);
                     }
                     if let Some(request_id) = request_id {
-                        self.finish_repository(
-                            RepositoryReply {
-                                request_id,
-                                error: None,
-                            },
-                            cx,
-                        );
+                        self.finish_repository(RepositoryReply { request_id, error: None }, cx);
                     }
-                    if let Err(error) =
-                        dispatch_document_applied(revision, decision == UpdateDecision::Apply)
-                    {
+                    if let Err(error) = dispatch_document_applied(revision, decision == UpdateDecision::Apply) {
                         web_sys::console::error_1(&error);
                     }
                 }
@@ -586,24 +507,19 @@ mod wasm {
                     } else {
                         let theme = stored_theme();
                         let markdown = cx.new(|cx| {
-                            let mut reviewer = MarkdownReviewer::with_options(
-                                document,
-                                theme,
-                                MarkdownReviewerOptions::default(),
-                            );
+                            let mut reviewer =
+                                MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default());
                             reviewer.set_capabilities(self.capabilities, cx);
                             reviewer
                         });
-                        self.markdown_subscription = Some(cx.subscribe(
-                            &markdown,
-                            |_this, _reviewer, event: &MarkdownReviewEvent, _cx| {
+                        self.markdown_subscription =
+                            Some(cx.subscribe(&markdown, |_this, _reviewer, event: &MarkdownReviewEvent, _cx| {
                                 dispatch_markdown_event(event);
-                            },
-                        ));
-                        self.markdown_theme_subscription = Some(cx.subscribe(
-                            &markdown,
-                            |_this, _reviewer, event: &ThemeChanged, _cx| store_theme(&event.id),
-                        ));
+                            }));
+                        self.markdown_theme_subscription =
+                            Some(cx.subscribe(&markdown, |_this, _reviewer, event: &ThemeChanged, _cx| {
+                                store_theme(&event.id)
+                            }));
                         self.markdown = Some(markdown);
                     }
                 }
@@ -611,8 +527,7 @@ mod wasm {
                     if let Some(markdown) = &self.markdown {
                         markdown.update(cx, |reviewer, cx| reviewer.set_theme(theme, cx));
                     } else {
-                        self.viewer
-                            .update(cx, |viewer, cx| viewer.set_theme(theme, cx));
+                        self.viewer.update(cx, |viewer, cx| viewer.set_theme(theme, cx));
                     }
                 }
                 WebCommand::RepositoryFinished(reply) => self.finish_repository(reply, cx),
@@ -635,25 +550,20 @@ mod wasm {
     impl Render for WebRoot {
         fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             InterfaceSize::apply(window, cx);
-            div()
-                .size_full()
-                .font_family(UI_FONT)
-                .child(self.markdown.as_ref().map_or_else(
+            div().size_full().font_family(UI_FONT).child(
+                self.markdown.as_ref().map_or_else(
                     || self.viewer.clone().into_any_element(),
                     |reviewer| reviewer.clone().into_any_element(),
-                ))
+                ),
+            )
         }
     }
 
     fn dispatch_viewer_event(event: &DiffReviewEvent) {
         let result = match event {
-            DiffReviewEvent::RepositoryAction(_)
-            | DiffReviewEvent::SetTarget(_)
-            | DiffReviewEvent::Refresh => return,
+            DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetTarget(_) | DiffReviewEvent::Refresh => return,
             DiffReviewEvent::SubmitReview(submission) => dispatch_submission(submission),
-            DiffReviewEvent::CopyFormattedReview(text) => {
-                dispatch_custom_event("diff-review-copy", Some(text))
-            }
+            DiffReviewEvent::CopyFormattedReview(text) => dispatch_custom_event("diff-review-copy", Some(text)),
             DiffReviewEvent::Cancel => dispatch_custom_event("diff-review-cancel", None),
         };
         if let Err(error) = result {
@@ -664,9 +574,7 @@ mod wasm {
     fn dispatch_markdown_event(event: &MarkdownReviewEvent) {
         let result = match event {
             MarkdownReviewEvent::Submit(submission) => dispatch_markdown_submission(submission),
-            MarkdownReviewEvent::CopyFormatted(text) => {
-                dispatch_custom_event(MARKDOWN_COPY_EVENT, Some(text))
-            }
+            MarkdownReviewEvent::CopyFormatted(text) => dispatch_custom_event(MARKDOWN_COPY_EVENT, Some(text)),
             MarkdownReviewEvent::Cancel => dispatch_custom_event(MARKDOWN_CANCEL_EVENT, None),
         };
         if let Err(error) = result {
@@ -675,9 +583,8 @@ mod wasm {
     }
 
     fn dispatch_markdown_submission(submission: &MarkdownReviewSubmission) -> Result<(), JsValue> {
-        let json = serde_json::to_string(submission).map_err(|error| {
-            JsValue::from_str(&format!("failed to serialize Markdown review: {error}"))
-        })?;
+        let json = serde_json::to_string(submission)
+            .map_err(|error| JsValue::from_str(&format!("failed to serialize Markdown review: {error}")))?;
         dispatch_custom_event(MARKDOWN_SUBMIT_EVENT, Some(&json))
     }
 
@@ -694,16 +601,9 @@ mod wasm {
         dispatch_custom_event(super::TARGET_REQUEST_EVENT, Some(&detail))
     }
 
-    fn dispatch_repository_action(
-        request_id: u64,
-        action: &clankerdiff_core::RepositoryAction,
-    ) -> Result<(), JsValue> {
-        let json = serde_json::to_string(
-            &serde_json::json!({ "request_id": request_id, "action": action }),
-        )
-        .map_err(|error| {
-            JsValue::from_str(&format!("failed to serialize repository action: {error}"))
-        })?;
+    fn dispatch_repository_action(request_id: u64, action: &clankerdiff_core::RepositoryAction) -> Result<(), JsValue> {
+        let json = serde_json::to_string(&serde_json::json!({ "request_id": request_id, "action": action }))
+            .map_err(|error| JsValue::from_str(&format!("failed to serialize repository action: {error}")))?;
         dispatch_custom_event("diff-review-repository-action", Some(&json))
     }
 
@@ -747,9 +647,7 @@ mod wasm {
     }
 
     fn store_theme(id: &str) {
-        if let Some(storage) =
-            web_sys::window().and_then(|window| window.local_storage().ok().flatten())
-        {
+        if let Some(storage) = web_sys::window().and_then(|window| window.local_storage().ok().flatten()) {
             let _ = storage.set_item(THEME_STORAGE_KEY, id);
         }
     }
@@ -765,10 +663,9 @@ mod wasm {
     }
 
     fn store_view_mode(mode: ViewMode) {
-        if let (Some(storage), Ok(mode)) = (
-            web_sys::window().and_then(|window| window.local_storage().ok().flatten()),
-            serde_json::to_string(&mode),
-        ) {
+        if let (Some(storage), Ok(mode)) =
+            (web_sys::window().and_then(|window| window.local_storage().ok().flatten()), serde_json::to_string(&mode))
+        {
             let _ = storage.set_item(VIEW_MODE_STORAGE_KEY, &mode);
         }
     }
@@ -791,29 +688,18 @@ mod wasm {
             .ok_or_else(|| JsValue::from_str("browser document is unavailable"))?;
 
         install_string_command(&document, "diff-review-set-document", set_document_json)?;
-        install_string_command(
-            &document,
-            MARKDOWN_SET_DOCUMENT_EVENT,
-            set_markdown_document_json,
-        )?;
+        install_string_command(&document, MARKDOWN_SET_DOCUMENT_EVENT, set_markdown_document_json)?;
         install_string_command(&document, "diff-review-set-theme", set_theme)?;
         install_string_command(&document, COMMAND_EVENT, dispatch_command_json)?;
         install_string_command(&document, CAPABILITIES_EVENT, set_capabilities_json)?;
-        install_string_command(
-            &document,
-            "diff-review-repository-completed",
-            complete_repository_json,
-        )?;
+        install_string_command(&document, "diff-review-repository-completed", complete_repository_json)?;
 
         let clear = Closure::<dyn FnMut(CustomEvent)>::new(|_event: CustomEvent| {
             if let Err(error) = clear_review() {
                 web_sys::console::error_1(&error);
             }
         });
-        document.add_event_listener_with_callback(
-            "diff-review-clear",
-            clear.as_ref().unchecked_ref(),
-        )?;
+        document.add_event_listener_with_callback("diff-review-clear", clear.as_ref().unchecked_ref())?;
         clear.forget();
 
         let clear_markdown = Closure::<dyn FnMut(CustomEvent)>::new(|_event: CustomEvent| {
@@ -821,10 +707,7 @@ mod wasm {
                 web_sys::console::error_1(&error);
             }
         });
-        document.add_event_listener_with_callback(
-            MARKDOWN_CLEAR_EVENT,
-            clear_markdown.as_ref().unchecked_ref(),
-        )?;
+        document.add_event_listener_with_callback(MARKDOWN_CLEAR_EVENT, clear_markdown.as_ref().unchecked_ref())?;
         clear_markdown.forget();
         Ok(())
     }
@@ -836,9 +719,7 @@ mod wasm {
     ) -> Result<(), JsValue> {
         let listener = Closure::<dyn FnMut(CustomEvent)>::new(move |event: CustomEvent| {
             let Some(value) = event.detail().as_string() else {
-                web_sys::console::error_1(&JsValue::from_str(
-                    "diff review command detail must be a string",
-                ));
+                web_sys::console::error_1(&JsValue::from_str("diff review command detail must be a string"));
                 return;
             };
             if let Err(error) = command(&value) {
@@ -943,8 +824,8 @@ mod wasm {
     #[wasm_bindgen]
     pub fn complete_repository_json(json: &str) -> Result<(), JsValue> {
         ensure_host_mode()?;
-        let reply = serde_json::from_str::<RepositoryReply>(json)
-            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        let reply =
+            serde_json::from_str::<RepositoryReply>(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
         send(WebCommand::RepositoryFinished(reply)).map_err(js_error)
     }
 
@@ -981,9 +862,7 @@ mod wasm {
 
     fn ensure_host_mode() -> Result<(), JsValue> {
         if MANAGED.get() {
-            Err(JsValue::from_str(
-                "managed remote connection owns the document; disconnect_remote first",
-            ))
+            Err(JsValue::from_str("managed remote connection owns the document; disconnect_remote first"))
         } else {
             Ok(())
         }
@@ -1022,25 +901,22 @@ mod wasm {
 
     #[wasm_bindgen]
     pub fn dispatch_command_json(json: &str) -> Result<(), JsValue> {
-        let request =
-            decode_command(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
+        let request = decode_command(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
         send(WebCommand::Dispatch(request)).map_err(js_error)
     }
 
     #[wasm_bindgen]
     pub fn set_capabilities_json(json: &str) -> Result<(), JsValue> {
         ensure_host_mode()?;
-        let capabilities =
-            decode_capabilities(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
+        let capabilities = decode_capabilities(json).map_err(|error| JsValue::from_str(&error.to_string()))?;
         send(WebCommand::SetCapabilities(capabilities)).map_err(js_error)
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm::{
-    clear_review, complete_repository_json, connect_remote, disconnect_remote,
-    dispatch_command_json, set_capabilities_json, set_document_json, set_markdown_document_json,
-    set_theme, start,
+    clear_review, complete_repository_json, connect_remote, disconnect_remote, dispatch_command_json,
+    set_capabilities_json, set_document_json, set_markdown_document_json, set_theme, start,
 };
 
 #[cfg(test)]
@@ -1055,23 +931,13 @@ mod tests {
         assert!(requests.begin().is_none(), "only one command owns pending");
         for unchanged in [false, true] {
             let _ = document_update_decision(None, None, || unchanged);
-            assert_eq!(
-                requests.pending,
-                Some(first),
-                "pushes do not complete commands"
-            );
+            assert_eq!(requests.pending, Some(first), "pushes do not complete commands");
         }
         let decision = document_update_decision(Some(2), Some(3), || true);
         assert_eq!(decision, UpdateDecision::SkipUnchanged);
-        assert!(
-            requests.finish(first),
-            "an unchanged success completes its command"
-        );
+        assert!(requests.finish(first), "an unchanged success completes its command");
         let second = requests.begin().unwrap();
-        assert!(
-            !requests.finish(first),
-            "duplicate/late replies cannot clear the next command"
-        );
+        assert!(!requests.finish(first), "duplicate/late replies cannot clear the next command");
         assert_eq!(requests.pending, Some(second));
         assert!(requests.finish(second));
     }
@@ -1088,14 +954,11 @@ mod tests {
             r#"{"revision":4,"scope":"staged","document":{"repo_root":"/fixture","files":[]}}"#,
         )?;
         assert_eq!(staged.scope, Some(clankerdiff_core::DiffScope::Staged));
-        let both = decode_document_command(
-            r#"{"revision":4,"scope":"both","document":{"repo_root":"/fixture","files":[]}}"#,
-        )?;
+        let both =
+            decode_document_command(r#"{"revision":4,"scope":"both","document":{"repo_root":"/fixture","files":[]}}"#)?;
         assert_eq!(both.scope, Some(clankerdiff_core::DiffScope::Both));
         assert!(matches!(
-            decode_document_command(
-                r#"{"scope":"invalid","document":{"repo_root":"/fixture","files":[]}}"#
-            ),
+            decode_document_command(r#"{"scope":"invalid","document":{"repo_root":"/fixture","files":[]}}"#),
             Err(WebError::InvalidScope(_))
         ));
         assert_eq!(TARGET_REQUEST_EVENT, "diff-review-set-target");
@@ -1104,14 +967,12 @@ mod tests {
 
     #[test]
     fn document_envelopes_can_complete_a_specific_command() {
-        let command = decode_document_command(
-            r#"{"revision":4,"request_id":7,"document":{"repo_root":"/fixture","files":[]}}"#,
-        )
-        .unwrap();
+        let command =
+            decode_document_command(r#"{"revision":4,"request_id":7,"document":{"repo_root":"/fixture","files":[]}}"#)
+                .unwrap();
         assert_eq!(command.request_id, Some(7));
         assert_eq!(command.revision, Some(4));
-        let reply: RepositoryReply =
-            serde_json::from_str(r#"{"request_id":7,"error":"git failed"}"#).unwrap();
+        let reply: RepositoryReply = serde_json::from_str(r#"{"request_id":7,"error":"git failed"}"#).unwrap();
         assert_eq!(reply.request_id, 7);
         assert_eq!(reply.error.as_deref(), Some("git failed"));
     }
@@ -1136,10 +997,8 @@ mod tests {
         assert_eq!(bare.revision, None);
         assert_eq!(bare.document.repo_root, "/fixture");
 
-        let envelope = decode_document_command(
-            r#"{"revision":4,"document":{"repo_root":"/fixture","files":[]}}"#,
-        )
-        .unwrap();
+        let envelope =
+            decode_document_command(r#"{"revision":4,"document":{"repo_root":"/fixture","files":[]}}"#).unwrap();
         assert_eq!(envelope.revision, Some(4));
         assert_eq!(envelope.document.repo_root, "/fixture");
     }
@@ -1147,68 +1006,40 @@ mod tests {
     #[test]
     fn stale_pushes_do_not_inspect_document_content() {
         assert_eq!(
-            document_update_decision(Some(3), Some(2), || panic!(
-                "stale content must not be compared"
-            )),
+            document_update_decision(Some(3), Some(2), || panic!("stale content must not be compared")),
             UpdateDecision::SkipStale
         );
     }
 
     #[test]
     fn pushes_are_idempotent_and_ordered_when_revisions_are_supplied() {
-        assert_eq!(
-            document_update_decision(None, None, || false),
-            UpdateDecision::Apply
-        );
-        assert_eq!(
-            document_update_decision(None, None, || true),
-            UpdateDecision::SkipUnchanged
-        );
-        assert_eq!(
-            document_update_decision(Some(2), Some(3), || false),
-            UpdateDecision::Apply
-        );
-        assert_eq!(
-            document_update_decision(Some(3), Some(3), || false),
-            UpdateDecision::SkipStale
-        );
-        assert_eq!(
-            document_update_decision(Some(3), Some(2), || false),
-            UpdateDecision::SkipStale
-        );
+        assert_eq!(document_update_decision(None, None, || false), UpdateDecision::Apply);
+        assert_eq!(document_update_decision(None, None, || true), UpdateDecision::SkipUnchanged);
+        assert_eq!(document_update_decision(Some(2), Some(3), || false), UpdateDecision::Apply);
+        assert_eq!(document_update_decision(Some(3), Some(3), || false), UpdateDecision::SkipStale);
+        assert_eq!(document_update_decision(Some(3), Some(2), || false), UpdateDecision::SkipStale);
         assert_eq!(
             document_update_decision(Some(3), None, || false),
             UpdateDecision::Apply,
             "a host without revisions is never stale"
         );
-        assert_eq!(
-            document_update_decision(Some(2), Some(3), || true),
-            UpdateDecision::SkipUnchanged
-        );
+        assert_eq!(document_update_decision(Some(2), Some(3), || true), UpdateDecision::SkipUnchanged);
     }
 
     #[test]
     fn rejects_malformed_document() {
-        assert!(matches!(
-            decode_document("not json"),
-            Err(WebError::InvalidDocument(_))
-        ));
+        assert!(matches!(decode_document("not json"), Err(WebError::InvalidDocument(_))));
     }
 
     #[test]
     fn decodes_markdown_source_payload_in_rust() {
-        let document = decode_markdown_document(
-            r##"{"source":"# Plan","source_path":"plan.md","title":"Review"}"##,
-        )
-        .unwrap();
+        let document =
+            decode_markdown_document(r##"{"source":"# Plan","source_path":"plan.md","title":"Review"}"##).unwrap();
         assert_eq!(document.source(), "# Plan");
         assert_eq!(document.source_path(), Some("plan.md"));
         assert_eq!(document.title(), Some("Review"));
         assert_eq!(document.outline()[0].title, "Plan");
-        assert!(matches!(
-            decode_markdown_document("not json"),
-            Err(WebError::InvalidMarkdownPayload(_))
-        ));
+        assert!(matches!(decode_markdown_document("not json"), Err(WebError::InvalidMarkdownPayload(_))));
     }
 
     #[test]
@@ -1222,13 +1053,7 @@ mod tests {
     fn accepts_embedded_theme_names() {
         assert_eq!(decode_theme("sage").unwrap().id(), &ThemeId::Sage);
         assert_eq!(decode_theme("ayu-dark").unwrap().id(), &ThemeId::Ayu);
-        assert_eq!(
-            decode_theme("tokyo-night").unwrap().id().to_string(),
-            "tokyo-night"
-        );
-        assert!(matches!(
-            decode_theme("unknown"),
-            Err(WebError::UnknownTheme(_))
-        ));
+        assert_eq!(decode_theme("tokyo-night").unwrap().id().to_string(), "tokyo-night");
+        assert!(matches!(decode_theme("unknown"), Err(WebError::UnknownTheme(_))));
     }
 }

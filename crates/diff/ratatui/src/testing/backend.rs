@@ -20,10 +20,7 @@ pub struct CountingBackend {
 impl CountingBackend {
     #[must_use]
     pub fn new(width: u16, height: u16) -> Self {
-        Self {
-            inner: TestBackend::new(width, height),
-            stats: BackendStats::default(),
-        }
+        Self { inner: TestBackend::new(width, height), stats: BackendStats::default() }
     }
 
     pub fn take_stats(&mut self) -> BackendStats {

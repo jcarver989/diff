@@ -8,17 +8,14 @@ use crate::{
     DiffViewer, DiffViewerEvent, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions,
     ui::{InterfaceSize, testing::ViewHarness, tokens::BASE_SIZE},
 };
-use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand, Review, ReviewCommand, ViewMode, testing::DocumentBuilder,
-};
+use clankerdiff_core::{DiffDocument, DiffReviewCommand, Review, ReviewCommand, ViewMode, testing::DocumentBuilder};
 use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReview, MarkdownReviewCommand, MarkdownReviewEvent, MarkdownTargetId,
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    App, Bounds, Context, ElementInputHandler, Entity, EventEmitter, Focusable, InputHandler,
-    ListOffset, Pixels, Render, TestAppContext, Window, WindowBounds, WindowOptions, point,
-    prelude::*, px, size,
+    App, Bounds, Context, ElementInputHandler, Entity, EventEmitter, Focusable, InputHandler, ListOffset, Pixels,
+    Render, TestAppContext, Window, WindowBounds, WindowOptions, point, prelude::*, px, size,
 };
 use gpui_base::input::TextareaState;
 use std::{error::Error, ops::Deref, sync::Arc};
@@ -38,14 +35,8 @@ impl<T, U> Deref for Harness<T, U> {
 }
 
 impl<T: Render + EventEmitter<U>, U: Clone + 'static> Harness<T, U> {
-    fn open(
-        cx: &mut TestAppContext,
-        window_options: WindowOptions,
-        view: impl FnOnce() -> T,
-    ) -> Self {
-        Self(ViewHarness::open(cx, window_options, |_, cx| {
-            cx.new(|_| view())
-        }))
+    fn open(cx: &mut TestAppContext, window_options: WindowOptions, view: impl FnOnce() -> T) -> Self {
+        Self(ViewHarness::open(cx, window_options, |_, cx| cx.new(|_| view())))
     }
 }
 
@@ -75,9 +66,7 @@ pub struct DiffViewerHarnessBuilder {
 impl Default for DiffViewerHarnessBuilder {
     fn default() -> Self {
         Self {
-            document: DocumentBuilder::new()
-                .changed("src/lib.rs", "old\n", "new\n")
-                .build(),
+            document: DocumentBuilder::new().changed("src/lib.rs", "old\n", "new\n").build(),
             theme: ReviewTheme::default(),
             options: DiffViewerOptions::default(),
             window_options: WindowOptions::default(),
@@ -122,18 +111,9 @@ impl DiffViewerHarnessBuilder {
     /// Panics if GPUI cannot open, read, or draw the test window.
     pub fn build(self, cx: &mut TestAppContext) -> DiffViewerHarness {
         cx.update(DiffViewer::bind_keys);
-        let Self {
-            document,
-            theme,
-            options,
-            window_options,
-            comments,
-            interface_size,
-        } = self;
+        let Self { document, theme, options, window_options, comments, interface_size } = self;
         cx.update(|cx| InterfaceSize::init(interface_size, cx));
-        let harness = Harness::open(cx, window_options, move || {
-            DiffViewer::with_options(document, theme, options)
-        });
+        let harness = Harness::open(cx, window_options, move || DiffViewer::with_options(document, theme, options));
         for body in comments {
             harness.add_comment(cx, body).expect("seed review comment");
         }
@@ -153,23 +133,11 @@ impl DiffViewerHarness {
         self.draw(cx);
     }
 
-    pub fn add_comment(
-        &self,
-        cx: &mut TestAppContext,
-        body: impl Into<String>,
-    ) -> Result<u64, Box<dyn Error>> {
+    pub fn add_comment(&self, cx: &mut TestAppContext, body: impl Into<String>) -> Result<u64, Box<dyn Error>> {
         let (anchor, text) = self.read(cx, |viewer, _| {
             Ok::<_, Box<dyn Error>>((
-                viewer
-                    .session()
-                    .selected_anchor()
-                    .ok_or("missing selected anchor")?,
-                viewer
-                    .session()
-                    .selected_cell()
-                    .ok_or("missing selected cell")?
-                    .text
-                    .to_string(),
+                viewer.session().selected_anchor().ok_or("missing selected anchor")?,
+                viewer.session().selected_cell().ok_or("missing selected cell")?.text.to_string(),
             ))
         })?;
         let id = self.update(cx, |viewer, cx| viewer.add_comment(anchor, text, body, cx));
@@ -184,10 +152,7 @@ impl DiffViewerHarness {
 
     #[must_use]
     pub fn comment_bodies(&self, cx: &TestAppContext) -> Vec<String> {
-        self.review(cx)
-            .comments()
-            .map(|comment| comment.body.clone())
-            .collect()
+        self.review(cx).comments().map(|comment| comment.body.clone()).collect()
     }
 
     #[must_use]
@@ -197,12 +162,7 @@ impl DiffViewerHarness {
 
     #[must_use]
     pub fn draft_body(&self, cx: &TestAppContext) -> Option<String> {
-        self.read(cx, |viewer, _| {
-            viewer
-                .session()
-                .draft()
-                .map(|draft| draft.body().to_owned())
-        })
+        self.read(cx, |viewer, _| viewer.session().draft().map(|draft| draft.body().to_owned()))
     }
 
     pub fn dispatch_command(
@@ -212,8 +172,7 @@ impl DiffViewerHarness {
     ) -> Result<bool, Box<dyn Error>> {
         let command = command.into();
         let handled = cx.update_window(self.window(), |_, window, cx| {
-            self.view()
-                .update(cx, |viewer, cx| viewer.handle_command(command, window, cx))
+            self.view().update(cx, |viewer, cx| viewer.handle_command(command, window, cx))
         })?;
         self.draw(cx);
         Ok(handled)
@@ -225,14 +184,10 @@ impl DiffViewerHarness {
         update: impl FnOnce(&mut dyn InputHandler, &mut Window, &mut App) -> T,
     ) -> Result<T, Box<dyn Error>> {
         self.draw(cx);
-        let editor = self
-            .read(cx, |viewer, _| viewer.comment_editor.clone())
-            .ok_or("no comment editor")?;
+        let editor = self.read(cx, |viewer, _| viewer.comment_editor.clone()).ok_or("no comment editor")?;
 
         let input = editor.read_with(cx, |editor, _| editor.input());
-        let bounds = input
-            .read_with(cx, |input, _| input.text_bounds())
-            .ok_or("comment text not painted")?;
+        let bounds = input.read_with(cx, |input, _| input.text_bounds()).ok_or("comment text not painted")?;
         let result = cx.update_window(self.window(), |_, window, cx| {
             update(&mut ElementInputHandler::new(bounds, input), window, cx)
         })?;
@@ -246,33 +201,22 @@ impl DiffViewerHarness {
         update: impl FnOnce(&mut TextareaState, &mut Window, &mut Context<TextareaState>) -> T,
     ) -> Result<T, Box<dyn Error>> {
         let input = self
-            .read(cx, |viewer, cx| {
-                viewer
-                    .comment_editor
-                    .as_ref()
-                    .map(|editor| editor.read(cx).input())
-            })
+            .read(cx, |viewer, cx| viewer.comment_editor.as_ref().map(|editor| editor.read(cx).input()))
             .ok_or("no comment editor")?;
-        let result = cx.update_window(self.window(), |_, window, cx| {
-            input.update(cx, |input, cx| update(input, window, cx))
-        })?;
+        let result =
+            cx.update_window(self.window(), |_, window, cx| input.update(cx, |input, cx| update(input, window, cx)))?;
         self.draw(cx);
         Ok(result)
     }
 
     pub fn comment_focused(&self, cx: &mut TestAppContext) -> Result<bool, Box<dyn Error>> {
-        self.with_comment_state(cx, |input, window, cx| {
-            input.focus_handle(cx).is_focused(window)
-        })
+        self.with_comment_state(cx, |input, window, cx| input.focus_handle(cx).is_focused(window))
     }
 
     #[must_use]
     pub fn comment_text_bounds(&self, cx: &TestAppContext) -> Option<Bounds<Pixels>> {
         self.read(cx, |viewer, cx| {
-            viewer
-                .comment_editor
-                .as_ref()
-                .and_then(|editor| editor.read(cx).input().read(cx).text_bounds())
+            viewer.comment_editor.as_ref().and_then(|editor| editor.read(cx).input().read(cx).text_bounds())
         })
     }
 
@@ -359,23 +303,12 @@ impl MarkdownReviewerHarnessBuilder {
     /// Panics if GPUI cannot open, update, or draw the test window.
     pub fn build(self, cx: &mut TestAppContext) -> MarkdownReviewerHarness {
         cx.update(MarkdownReviewer::bind_keys);
-        let Self {
-            source,
-            path,
-            title,
-            theme,
-            options,
-            window_options,
-            comments,
-        } = self;
+        let Self { source, path, title, theme, options, window_options, comments } = self;
         let document = Arc::new(MarkdownDocument::parse_with_metadata(path, title, source));
-        let harness = Harness::open(cx, window_options, move || {
-            MarkdownReviewer::with_options(document, theme, options)
-        });
+        let harness =
+            Harness::open(cx, window_options, move || MarkdownReviewer::with_options(document, theme, options));
         for body in comments {
-            harness
-                .add_comment(cx, body)
-                .expect("seed Markdown review comment");
+            harness.add_comment(cx, body).expect("seed Markdown review comment");
         }
         harness.draw(cx);
         harness
@@ -390,19 +323,13 @@ impl MarkdownReviewerHarness {
     ) -> Result<bool, Box<dyn Error>> {
         let command = command.into();
         let handled = cx.update_window(self.window(), |_, window, cx| {
-            self.view().update(cx, |reviewer, cx| {
-                reviewer.handle_command(command, window, cx)
-            })
+            self.view().update(cx, |reviewer, cx| reviewer.handle_command(command, window, cx))
         })??;
         self.draw(cx);
         Ok(handled)
     }
 
-    pub fn add_comment(
-        &self,
-        cx: &mut TestAppContext,
-        body: impl Into<String>,
-    ) -> Result<u64, Box<dyn Error>> {
+    pub fn add_comment(&self, cx: &mut TestAppContext, body: impl Into<String>) -> Result<u64, Box<dyn Error>> {
         let body = body.into();
         if body.trim().is_empty() {
             return Err("cannot seed a blank Markdown comment".into());
@@ -411,18 +338,10 @@ impl MarkdownReviewerHarness {
             return Err("cannot begin Markdown comment".into());
         }
         self.update(cx, |reviewer, _| {
-            reviewer
-                .session_mut()
-                .draft_mut()
-                .map(|draft| draft.set_body(body))
-                .ok_or("missing draft")
+            reviewer.session_mut().draft_mut().map(|draft| draft.set_body(body)).ok_or("missing draft")
         })?;
         self.dispatch_command(cx, ReviewCommand::SubmitComment)?;
-        self.review(cx)
-            .comments()
-            .last()
-            .map(|comment| comment.id)
-            .ok_or_else(|| "missing submitted comment".into())
+        self.review(cx).comments().last().map(|comment| comment.id).ok_or_else(|| "missing submitted comment".into())
     }
 
     #[must_use]
@@ -432,11 +351,7 @@ impl MarkdownReviewerHarness {
 
     #[must_use]
     pub fn comment_bodies(&self, cx: &TestAppContext) -> Vec<String> {
-        self.review(cx)
-            .comments()
-            .iter()
-            .map(|comment| comment.body.clone())
-            .collect()
+        self.review(cx).comments().iter().map(|comment| comment.body.clone()).collect()
     }
 
     #[must_use]
@@ -445,18 +360,12 @@ impl MarkdownReviewerHarness {
     }
 }
 
-fn run_test(
-    cx: &mut TestAppContext,
-    test: impl FnOnce(&mut TestAppContext) -> Result<(), Box<dyn Error>>,
-) {
+fn run_test(cx: &mut TestAppContext, test: impl FnOnce(&mut TestAppContext) -> Result<(), Box<dyn Error>>) {
     if let Err(error) = test(cx) {
         panic!("{error}");
     }
 }
 
 fn window_bounds(width: f32, height: f32) -> WindowBounds {
-    WindowBounds::Windowed(Bounds::new(
-        point(px(0.0), px(0.0)),
-        size(px(width), px(height)),
-    ))
+    WindowBounds::Windowed(Bounds::new(point(px(0.0), px(0.0)), size(px(width), px(height))))
 }

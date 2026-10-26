@@ -1,9 +1,6 @@
 use clankerdiff_gpui_ui::{
     picker::fuzzy_filter,
-    prelude::{
-        IconName, PickerItem, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent,
-        UiTheme,
-    },
+    prelude::{IconName, PickerItem, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent, UiTheme},
     testing::{ComponentHarness, ComponentHarnessBuilder},
 };
 use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeId};
@@ -36,13 +33,11 @@ fn search_picker_skips_disabled_items_and_filters_as_the_user_types(cx: &mut Tes
                             PickerItem::new("beta", "Beta").disabled(true),
                             PickerItem::new("gamma", "Gamma"),
                         ];
-                        SearchPicker::new(
-                            "picker",
-                            items,
-                            UiTheme::new(&ReviewTheme::default()),
+                        SearchPicker::new("picker", items, UiTheme::new(&ReviewTheme::default()), cx).searchable(
+                            "Search…",
+                            window,
                             cx,
                         )
-                        .searchable("Search…", window, cx)
                     });
                     let recorded = recorded.clone();
                     cx.subscribe(&picker, move |_, event: &SearchPickerEvent, _| {
@@ -77,9 +72,7 @@ fn search_picker_skips_disabled_items_and_filters_as_the_user_types(cx: &mut Tes
 }
 
 #[gpui::test]
-fn grouped_items_stay_together_under_their_headings_however_a_search_ranks_them(
-    cx: &mut TestAppContext,
-) {
+fn grouped_items_stay_together_under_their_headings_however_a_search_ranks_them(cx: &mut TestAppContext) {
     cx.update(gpui_base::init);
     let picker: Rc<RefCell<Option<Entity<SearchPicker>>>> = Rc::default();
     ComponentHarnessBuilder::default().run(
@@ -91,18 +84,14 @@ fn grouped_items_stay_together_under_their_headings_however_a_search_ranks_them(
                     cx.new(|cx| {
                         let items = vec![
                             PickerItem::new("one", "cloud one").group("Running"),
-                            PickerItem::new("new", "cloud")
-                                .group("Launch")
-                                .icon(IconName::Plus),
+                            PickerItem::new("new", "cloud").group("Launch").icon(IconName::Plus),
                             PickerItem::new("two", "cloud two").group("Running"),
                         ];
-                        SearchPicker::new(
-                            "picker",
-                            items,
-                            UiTheme::new(&ReviewTheme::default()),
+                        SearchPicker::new("picker", items, UiTheme::new(&ReviewTheme::default()), cx).searchable(
+                            "Search…",
+                            window,
                             cx,
                         )
-                        .searchable("Search…", window, cx)
                     })
                 })
                 .clone()
@@ -110,12 +99,8 @@ fn grouped_items_stay_together_under_their_headings_however_a_search_ranks_them(
         },
         |harness, cx| {
             harness.simulate_input(cx, "cloud");
-            let running = harness
-                .bounds(cx, "picker-group-Running")
-                .ok_or("missing Running heading")?;
-            let launch = harness
-                .bounds(cx, "picker-group-Launch")
-                .ok_or("missing Launch heading")?;
+            let running = harness.bounds(cx, "picker-group-Running").ok_or("missing Running heading")?;
+            let launch = harness.bounds(cx, "picker-group-Launch").ok_or("missing Launch heading")?;
             let one = harness.bounds(cx, "picker-one").ok_or("missing one")?;
             let two = harness.bounds(cx, "picker-two").ok_or("missing two")?;
             let new = harness.bounds(cx, "picker-new").ok_or("missing new")?;
@@ -134,14 +119,8 @@ fn the_theme_picker_previews_the_highlighted_theme_and_commits_it(cx: &mut TestA
     let (harness, events) = theme_picker(cx, Arc::clone(&themes));
     harness.press_key(cx, "down");
     harness.press_key(cx, "enter");
-    let next = themes[position(&themes, &ReviewTheme::default()) + 1]
-        .theme
-        .id()
-        .clone();
-    assert_eq!(
-        *events.borrow(),
-        vec![Event::Preview(next.clone()), Event::Commit(next)]
-    );
+    let next = themes[position(&themes, &ReviewTheme::default()) + 1].theme.id().clone();
+    assert_eq!(*events.borrow(), vec![Event::Preview(next.clone()), Event::Commit(next)]);
 }
 
 #[gpui::test]
@@ -152,10 +131,7 @@ fn escape_cancels_the_theme_picker_back_to_the_original_theme(cx: &mut TestAppCo
     harness.press_key(cx, "escape");
     let events = events.borrow();
     assert_eq!(events.len(), 2, "{events:?}");
-    assert_eq!(
-        events[1],
-        Event::Cancel(ReviewTheme::default().id().clone())
-    );
+    assert_eq!(events[1], Event::Cancel(ReviewTheme::default().id().clone()));
 }
 
 #[gpui::test]
@@ -166,10 +142,7 @@ fn the_theme_picker_lists_only_the_themes_it_is_given_and_filters_them(cx: &mut 
     harness.simulate_input(cx, "solarized");
     assert!(harness.bounds(cx, "themes-github-light").is_none());
     harness.press_key(cx, "enter");
-    assert_eq!(
-        events.borrow().last(),
-        Some(&Event::Commit(ThemeId::Builtin("solarized-light".into())))
-    );
+    assert_eq!(events.borrow().last(), Some(&Event::Commit(ThemeId::Builtin("solarized-light".into()))));
 }
 
 #[derive(Debug, PartialEq)]
@@ -179,10 +152,7 @@ enum Event {
     Cancel(ThemeId),
 }
 
-fn theme_picker(
-    cx: &mut TestAppContext,
-    themes: Arc<[ThemeChoice]>,
-) -> (ComponentHarness, Rc<RefCell<Vec<Event>>>) {
+fn theme_picker(cx: &mut TestAppContext, themes: Arc<[ThemeChoice]>) -> (ComponentHarness, Rc<RefCell<Vec<Event>>>) {
     cx.update(gpui_base::init);
     let events = Rc::new(RefCell::new(Vec::new()));
     let picker: Rc<RefCell<Option<Entity<ThemePicker>>>> = Rc::default();
@@ -194,8 +164,7 @@ fn theme_picker(
                 let current = ReviewTheme::default();
                 let ui = UiTheme::new(&current);
                 let themes = themes.clone();
-                let picker =
-                    cx.new(|cx| ThemePicker::new("themes", &current, themes, ui, window, cx));
+                let picker = cx.new(|cx| ThemePicker::new("themes", &current, themes, ui, window, cx));
                 let recorded = recorded.clone();
                 cx.subscribe(&picker, move |_, event: &ThemePickerEvent, _| {
                     recorded.borrow_mut().push(match event {
@@ -214,8 +183,5 @@ fn theme_picker(
 }
 
 fn position(themes: &[ThemeChoice], theme: &ReviewTheme) -> usize {
-    themes
-        .iter()
-        .position(|choice| choice.theme.id() == theme.id())
-        .expect("the theme is listed")
+    themes.iter().position(|choice| choice.theme.id() == theme.id()).expect("the theme is listed")
 }

@@ -12,10 +12,7 @@ fn commands_list_every_action_item_including_submenus() {
             MenuItem::submenu(Menu {
                 name: "Window".into(),
                 disabled: false,
-                items: vec![
-                    MenuItem::action("Minimize", Minimize),
-                    MenuItem::action("Zoom", Zoom),
-                ],
+                items: vec![MenuItem::action("Minimize", Minimize), MenuItem::action("Zoom", Zoom)],
             }),
             MenuItem::action("Quit", Quit),
         ],

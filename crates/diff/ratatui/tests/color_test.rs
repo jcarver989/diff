@@ -5,10 +5,7 @@ use ratatui::style::Color;
 #[test]
 fn transparent_foreground_preserves_the_page_color() {
     let background = Rgba::new(20, 40, 60, 255);
-    assert_eq!(
-        composite_color(Rgba::new(255, 0, 0, 0), background),
-        Color::Rgb(20, 40, 60)
-    );
+    assert_eq!(composite_color(Rgba::new(255, 0, 0, 0), background), Color::Rgb(20, 40, 60));
     let theme = ReviewTheme::default();
     assert_eq!(
         page_color(&theme, theme.diff.foreground),
@@ -25,8 +22,5 @@ fn layered_alpha_is_composited_once_per_layer() {
     let opaque_background = background.over(opaque_canvas);
     let style = layered_style(foreground, background, canvas);
     assert_eq!(style.bg, Some(composite_color(background, canvas)));
-    assert_eq!(
-        style.fg,
-        Some(composite_color(foreground, opaque_background))
-    );
+    assert_eq!(style.fg, Some(composite_color(foreground, opaque_background)));
 }

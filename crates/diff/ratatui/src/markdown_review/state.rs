@@ -1,12 +1,10 @@
 use super::layout::MarkdownVisualLayout;
 use crate::{
-    KeyBinding, MarkdownReviewCommand, NavigationPane, ReviewOptions, ThemeChoice,
-    default_markdown_keybindings, theme_picker::ThemePicker,
+    KeyBinding, MarkdownReviewCommand, NavigationPane, ReviewOptions, ThemeChoice, default_markdown_keybindings,
+    theme_picker::ThemePicker,
 };
 use clankerdiff_core::ReviewCapabilities;
-use clankerdiff_markdown::{
-    MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId,
-};
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId};
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
 use ratatui::layout::{Position, Rect};
@@ -199,10 +197,7 @@ impl MarkdownReviewState {
     }
 
     pub fn set_options(&mut self, options: ReviewOptions) {
-        if matches!(
-            options.navigation,
-            NavigationPane::Hidden | NavigationPane::Width(0)
-        ) {
+        if matches!(options.navigation, NavigationPane::Hidden | NavigationPane::Width(0)) {
             self.focus = MarkdownFocusPane::Document;
         }
         self.options = options;
@@ -225,20 +220,11 @@ impl MarkdownReviewState {
 
     pub(crate) fn ensure_layout(&mut self, width: u16) -> Arc<MarkdownVisualLayout> {
         let key = self.layout_key(width);
-        if self
-            .layout
-            .as_ref()
-            .is_none_or(|cached| cached.key != key || cached.width != width)
-        {
+        if self.layout.as_ref().is_none_or(|cached| cached.key != key || cached.width != width) {
             self.layout = Some(CachedLayout {
                 key,
                 width,
-                layout: Arc::new(MarkdownVisualLayout::build(
-                    &self.session,
-                    width,
-                    &mut self.highlighter,
-                    &self.theme,
-                )),
+                layout: Arc::new(MarkdownVisualLayout::build(&self.session, width, &mut self.highlighter, &self.theme)),
             });
         }
         Arc::clone(&self.layout.as_ref().expect("layout inserted above").layout)

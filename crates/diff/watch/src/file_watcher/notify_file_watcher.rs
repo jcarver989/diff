@@ -70,10 +70,7 @@ impl NotifyFileWatcher {
         let (events_tx, events_rx) = broadcast::channel(MAX_EVENTS);
         let watches = Watches::new(walks, events_tx)?;
         let (tx, rx) = mpsc::channel(1);
-        Ok(Self {
-            rx,
-            task: spawn(process_events(tx, events_rx, watches, debounce, filter)),
-        })
+        Ok(Self { rx, task: spawn(process_events(tx, events_rx, watches, debounce, filter)) })
     }
 }
 
@@ -96,16 +93,9 @@ struct Watches {
 }
 
 impl Watches {
-    fn new(
-        walks: Vec<WalkBuilder>,
-        events_tx: broadcast::Sender<Event>,
-    ) -> Result<Self, FileWatchError> {
+    fn new(walks: Vec<WalkBuilder>, events_tx: broadcast::Sender<Event>) -> Result<Self, FileWatchError> {
         let watcher = watch_all(&walks, &events_tx)?;
-        Ok(Self {
-            walks,
-            events_tx,
-            watcher,
-        })
+        Ok(Self { walks, events_tx, watcher })
     }
 
     fn rebuild(mut self) -> Result<Self, FileWatchError> {
@@ -166,8 +156,7 @@ fn needs_rewatch(event: &Event) -> bool {
     !event.kind.is_modify()
         || matches!(event.kind, EventKind::Modify(ModifyKind::Name(_)))
         || event.paths.iter().any(|path| {
-            path.file_name()
-                .is_some_and(|name| name == ".gitignore" || name == "exclude" || name == "config")
+            path.file_name().is_some_and(|name| name == ".gitignore" || name == "exclude" || name == "config")
         })
 }
 
@@ -198,9 +187,7 @@ async fn process_events<T>(
                 _ => return,
             };
         }
-        if batch.rescan
-            || (!batch.paths.is_empty() && filter(batch.paths.into_iter().collect()).await)
-        {
+        if batch.rescan || (!batch.paths.is_empty() && filter(batch.paths.into_iter().collect()).await) {
             let _ = tx.try_send(());
         }
     }

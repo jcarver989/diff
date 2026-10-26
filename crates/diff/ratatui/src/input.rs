@@ -1,6 +1,6 @@
 use crate::{
-    DiffReviewCommand, DiffReviewState, FocusPane, InputOutcome, InteractionPhase, KeyCode,
-    KeyEvent, MouseEvent, MouseEventKind, ReviewCommand, ReviewInput,
+    DiffReviewCommand, DiffReviewState, FocusPane, InputOutcome, InteractionPhase, KeyCode, KeyEvent, MouseEvent,
+    MouseEventKind, ReviewCommand, ReviewInput,
     interaction::{self, ReviewWidget},
     state::{RepositoryOperationStatus, RepositoryPrompt},
 };
@@ -12,10 +12,7 @@ use std::convert::Infallible;
 
 #[cfg(feature = "crossterm-backend")]
 #[must_use]
-pub fn handle_crossterm_event(
-    state: &mut DiffReviewState,
-    event: Event,
-) -> InputOutcome<DiffReviewEvent> {
+pub fn handle_crossterm_event(state: &mut DiffReviewState, event: Event) -> InputOutcome<DiffReviewEvent> {
     let Ok(outcome) = crate::crossterm_adapter::handle_event(state, event);
     outcome
 }
@@ -52,10 +49,7 @@ impl ReviewWidget for DiffReviewState {
     fn phase(&self) -> InteractionPhase {
         self.interaction_phase()
     }
-    fn handle_review_command(
-        &mut self,
-        command: ReviewCommand,
-    ) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
+    fn handle_review_command(&mut self, command: ReviewCommand) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
         Ok(self.handle_command(command))
     }
     fn contains(&self, position: Position) -> bool {
@@ -75,36 +69,20 @@ impl ReviewWidget for DiffReviewState {
             message.push_str(text);
         }
     }
-    fn handle_browse_key(
-        &mut self,
-        key: KeyEvent,
-    ) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
-        Ok(self
-            .command_for_key(key)
-            .map_or(InputOutcome::Ignored, |command| {
-                self.handle_command(command)
-            }))
+    fn handle_browse_key(&mut self, key: KeyEvent) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
+        Ok(self.command_for_key(key).map_or(InputOutcome::Ignored, |command| self.handle_command(command)))
     }
     fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
         self.handle_mouse(mouse)
     }
     fn handle_draft_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
         if !matches!(mouse.kind, MouseEventKind::Down(_))
-            || !self
-                .hit_layout
-                .patch
-                .contains(Position::new(mouse.column, mouse.row))
-            || !self
-                .session
-                .draft()
-                .is_some_and(|draft| draft.body().is_empty())
+            || !self.hit_layout.patch.contains(Position::new(mouse.column, mouse.row))
+            || !self.session.draft().is_some_and(|draft| draft.body().is_empty())
         {
             return InputOutcome::Consumed;
         }
-        let clicked = self
-            .visible_rows
-            .iter()
-            .find_map(|(row, index)| (*row == mouse.row).then_some(*index));
+        let clicked = self.visible_rows.iter().find_map(|(row, index)| (*row == mouse.row).then_some(*index));
         if let Some(index) = clicked
             && self.session.presentation().gap_info(index).is_none()
             && self.session.select_row(index)
@@ -154,10 +132,7 @@ impl DiffReviewState {
                 _ => None,
             },
             RepositoryPrompt::Discard { path, status } => match key.code {
-                KeyCode::Char('y' | 'Y') => Some(RepositoryAction::Discard {
-                    path: path.clone(),
-                    status: *status,
-                }),
+                KeyCode::Char('y' | 'Y') => Some(RepositoryAction::Discard { path: path.clone(), status: *status }),
                 KeyCode::Char('n' | 'N') => {
                     self.repository_prompt = None;
                     None

@@ -28,23 +28,15 @@ impl MarkdownDesktopApp {
     ) -> Self {
         let theme = ThemeStore::user().theme(window_appearance(window));
         let reviewer = cx.new(|cx| {
-            let mut reviewer =
-                MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default());
+            let mut reviewer = MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default());
             reviewer.set_capabilities(
-                ReviewCapabilities {
-                    repository: false,
-                    refresh: false,
-                    scope: false,
-                    submit: true,
-                    clipboard: true,
-                },
+                ReviewCapabilities { repository: false, refresh: false, scope: false, submit: true, clipboard: true },
                 cx,
             );
             reviewer
         });
-        let subscription = cx.subscribe(
-            &reviewer,
-            move |_this, _reviewer, event: &MarkdownReviewEvent, cx| match event {
+        let subscription =
+            cx.subscribe(&reviewer, move |_this, _reviewer, event: &MarkdownReviewEvent, cx| match event {
                 MarkdownReviewEvent::Submit(submission) => {
                     let _ = outcome.send(Some(submission.clone()));
                     run_loop::stop(cx);
@@ -56,35 +48,22 @@ impl MarkdownDesktopApp {
                     let _ = outcome.send(None);
                     run_loop::stop(cx);
                 }
-            },
-        );
-        let theme_subscription = cx.subscribe_in(
-            &reviewer,
-            window,
-            |_, _, event: &ThemeChanged, window, _| {
-                let _ = ThemeStore::user().remember(window_appearance(window), &event.id);
-            },
-        );
+            });
+        let theme_subscription = cx.subscribe_in(&reviewer, window, |_, _, event: &ThemeChanged, window, _| {
+            let _ = ThemeStore::user().remember(window_appearance(window), &event.id);
+        });
         let appearance_subscription = cx.observe_window_appearance(window, |this, window, cx| {
             let theme = ThemeStore::user().theme(window_appearance(window));
-            this.reviewer
-                .update(cx, |reviewer, cx| reviewer.set_theme(theme, cx));
+            this.reviewer.update(cx, |reviewer, cx| reviewer.set_theme(theme, cx));
         });
-        Self {
-            reviewer,
-            _subscriptions: [subscription, theme_subscription, appearance_subscription],
-        }
+        Self { reviewer, _subscriptions: [subscription, theme_subscription, appearance_subscription] }
     }
 }
 
 impl Render for MarkdownDesktopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         InterfaceSize::apply(window, cx);
-        let content = div()
-            .size_full()
-            .font_family(UI_FONT)
-            .child(self.reviewer.clone())
-            .into_any_element();
+        let content = div().size_full().font_family(UI_FONT).child(self.reviewer.clone()).into_any_element();
         let theme = UiTheme::new(self.reviewer.read(cx).theme());
         window_chrome::decorate(content, WINDOW_TITLE, &theme, window, cx)
     }

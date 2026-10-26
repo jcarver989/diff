@@ -12,11 +12,7 @@ use tokio::{
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
-pub(crate) async fn run<T, U>(
-    cwd: &Path,
-    operation: &'static str,
-    args: T,
-) -> Result<Output, GitError>
+pub(crate) async fn run<T, U>(cwd: &Path, operation: &'static str, args: T) -> Result<Output, GitError>
 where
     T: IntoIterator<Item = U>,
     U: AsRef<OsStr>,
@@ -52,11 +48,7 @@ where
     let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
-        .stdin(if stdin.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
+        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
@@ -73,16 +65,12 @@ where
         Ok::<_, io::Error>(())
     };
 
-    let ((), output) = tokio::try_join!(write, child.wait_with_output())
-        .map_err(|source| GitError::Spawn { operation, source })?;
+    let ((), output) =
+        tokio::try_join!(write, child.wait_with_output()).map_err(|source| GitError::Spawn { operation, source })?;
     check_status(output, operation, accepted_statuses)
 }
 
-fn check_status(
-    output: Output,
-    operation: &'static str,
-    accepted_statuses: &[i32],
-) -> Result<Output, GitError> {
+fn check_status(output: Output, operation: &'static str, accepted_statuses: &[i32]) -> Result<Output, GitError> {
     let status = output.status.code();
     if status.is_some_and(|code| accepted_statuses.contains(&code)) {
         return Ok(output);
@@ -111,10 +99,7 @@ impl CatFileBatch {
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|source| GitError::Spawn {
-                operation: OPERATION,
-                source,
-            })?;
+            .map_err(|source| GitError::Spawn { operation: OPERATION, source })?;
 
         let stdin = child.stdin.take().ok_or_else(|| GitError::Spawn {
             operation: OPERATION,
@@ -126,18 +111,10 @@ impl CatFileBatch {
             source: std::io::Error::other("Git batch stdout was not piped"),
         })?;
 
-        Ok(Self {
-            _child: child,
-            stdin,
-            stdout: BufReader::new(stdout),
-        })
+        Ok(Self { _child: child, stdin, stdout: BufReader::new(stdout) })
     }
 
-    pub(crate) async fn read_blob(
-        &mut self,
-        oid: &str,
-        maximum: u64,
-    ) -> Result<Result<Vec<u8>, u64>, GitError> {
+    pub(crate) async fn read_blob(&mut self, oid: &str, maximum: u64) -> Result<Result<Vec<u8>, u64>, GitError> {
         const OPERATION: &str = "read source blobs";
         let size = self.request_header("info", oid).await?;
         if size > maximum {
@@ -148,28 +125,17 @@ impl CatFileBatch {
         if contents_size != size {
             return Err(invalid_batch_response("Git batch changed the blob size"));
         }
-        let length = usize::try_from(size)
-            .map_err(|_| invalid_batch_response("Git batch blob size does not fit in memory"))?;
+        let length =
+            usize::try_from(size).map_err(|_| invalid_batch_response("Git batch blob size does not fit in memory"))?;
         let mut bytes = vec![0; length];
-        self.stdout
-            .read_exact(&mut bytes)
-            .await
-            .map_err(|source| GitError::Spawn {
-                operation: OPERATION,
-                source,
-            })?;
+        self.stdout.read_exact(&mut bytes).await.map_err(|source| GitError::Spawn { operation: OPERATION, source })?;
         let mut delimiter = [0_u8; 1];
         self.stdout
             .read_exact(&mut delimiter)
             .await
-            .map_err(|source| GitError::Spawn {
-                operation: OPERATION,
-                source,
-            })?;
+            .map_err(|source| GitError::Spawn { operation: OPERATION, source })?;
         if delimiter != *b"\n" {
-            return Err(invalid_batch_response(
-                "Git batch omitted the blob delimiter",
-            ));
+            return Err(invalid_batch_response("Git batch omitted the blob delimiter"));
         }
         Ok(Ok(bytes))
     }
@@ -179,43 +145,21 @@ impl CatFileBatch {
         self.stdin
             .write_all(format!("{command} {oid}\n").as_bytes())
             .await
-            .map_err(|source| GitError::Spawn {
-                operation: OPERATION,
-                source,
-            })?;
-        self.stdin.flush().await.map_err(|source| GitError::Spawn {
-            operation: OPERATION,
-            source,
-        })?;
+            .map_err(|source| GitError::Spawn { operation: OPERATION, source })?;
+        self.stdin.flush().await.map_err(|source| GitError::Spawn { operation: OPERATION, source })?;
 
         let mut header = String::new();
-        self.stdout
-            .read_line(&mut header)
-            .await
-            .map_err(|source| GitError::Spawn {
-                operation: OPERATION,
-                source,
-            })?;
+        self.stdout.read_line(&mut header).await.map_err(|source| GitError::Spawn { operation: OPERATION, source })?;
         let mut fields = header.split_ascii_whitespace();
-        let (_resolved_oid, object_type, size, trailing) = (
-            fields.next(),
-            fields.next(),
-            fields.next().and_then(|size| size.parse::<u64>().ok()),
-            fields.next(),
-        );
+        let (_resolved_oid, object_type, size, trailing) =
+            (fields.next(), fields.next(), fields.next().and_then(|size| size.parse::<u64>().ok()), fields.next());
         match (object_type, size, trailing) {
             (Some("blob"), Some(size), None) => Ok(size),
-            _ => Err(invalid_batch_response(
-                "Git batch returned an invalid blob header",
-            )),
+            _ => Err(invalid_batch_response("Git batch returned an invalid blob header")),
         }
     }
 }
 
 fn invalid_batch_response(message: &str) -> GitError {
-    GitError::CommandFailed {
-        operation: "read source blobs",
-        status: None,
-        stderr: message.to_owned(),
-    }
+    GitError::CommandFailed { operation: "read source blobs", status: None, stderr: message.to_owned() }
 }

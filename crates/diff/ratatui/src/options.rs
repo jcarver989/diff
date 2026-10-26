@@ -26,10 +26,6 @@ pub struct ReviewOptions {
 
 impl Default for ReviewOptions {
     fn default() -> Self {
-        Self {
-            footer: true,
-            navigation: NavigationPane::Auto,
-            tab_width: 2,
-        }
+        Self { footer: true, navigation: NavigationPane::Auto, tab_width: 2 }
     }
 }

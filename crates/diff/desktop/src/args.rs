@@ -18,12 +18,7 @@ pub struct CliArgs {
 
 impl Default for CliArgs {
     fn default() -> Self {
-        Self {
-            repository: PathBuf::from("."),
-            scope: DiffScope::Both,
-            commits: false,
-            connect: None,
-        }
+        Self { repository: PathBuf::from("."), scope: DiffScope::Both, commits: false, connect: None }
     }
 }
 
@@ -80,10 +75,7 @@ impl CliArgs {
         if connect.is_some() && repository.is_some() {
             return Err(ArgsError::ConflictingSource);
         }
-        if connect
-            .as_ref()
-            .is_some_and(|url| !(url.starts_with("ws://") || url.starts_with("wss://")))
-        {
+        if connect.as_ref().is_some_and(|url| !(url.starts_with("ws://") || url.starts_with("wss://"))) {
             return Err(ArgsError::InvalidConnect);
         }
         let repository = match repository {
@@ -91,12 +83,7 @@ impl CliArgs {
             Some(repository) => repository,
             None => std::env::current_dir().map_err(ArgsError::CurrentDirectory)?,
         };
-        Ok(Self {
-            repository,
-            scope,
-            commits,
-            connect,
-        })
+        Ok(Self { repository, scope, commits, connect })
     }
 }
 
@@ -137,22 +124,20 @@ mod tests {
 
     #[test]
     fn supports_scope_shorthand() {
-        let args = CliArgs::parse_from(["--unstaged", "."].map(OsString::from))
-            .expect("arguments should parse");
+        let args = CliArgs::parse_from(["--unstaged", "."].map(OsString::from)).expect("arguments should parse");
         assert_eq!(args.scope, DiffScope::Unstaged);
     }
 
     #[test]
     fn rejects_disabling_watching() {
-        let error = CliArgs::parse_from(["--no-watch", "."].map(OsString::from))
-            .expect_err("watching is always enabled");
+        let error =
+            CliArgs::parse_from(["--no-watch", "."].map(OsString::from)).expect_err("watching is always enabled");
         assert!(matches!(error, ArgsError::UnknownOption(_)));
     }
 
     #[test]
     fn rejects_unknown_scope() {
-        let error = CliArgs::parse_from(["--scope=other"].map(OsString::from))
-            .expect_err("scope should be rejected");
+        let error = CliArgs::parse_from(["--scope=other"].map(OsString::from)).expect_err("scope should be rejected");
         assert!(matches!(error, ArgsError::InvalidScope(_)));
     }
 }

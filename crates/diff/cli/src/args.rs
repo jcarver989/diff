@@ -4,11 +4,7 @@ use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(
-    name = "clankerdiff",
-    version,
-    about = "Agent-driven code review for Git working tree changes"
-)]
+#[command(name = "clankerdiff", version, about = "Agent-driven code review for Git working tree changes")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -201,9 +197,7 @@ mod tests {
             "--format=json",
         ])
         .unwrap();
-        let Command::Markdown(args) = cli.command else {
-            panic!("markdown command")
-        };
+        let Command::Markdown(args) = cli.command else { panic!("markdown command") };
         assert_eq!(args.path, "plan.md");
         assert_eq!(args.title.as_deref(), Some("Plan"));
         assert_eq!(args.source_path, None);
@@ -211,9 +205,7 @@ mod tests {
         assert_eq!(args.format, OutputFormat::Json);
 
         let cli = Cli::try_parse_from(["clankerdiff", "markdown", "-"]).unwrap();
-        let Command::Markdown(args) = cli.command else {
-            panic!("markdown command")
-        };
+        let Command::Markdown(args) = cli.command else { panic!("markdown command") };
         assert_eq!(args.path, "-");
         assert_eq!(args.ui, Ui::Tui);
     }

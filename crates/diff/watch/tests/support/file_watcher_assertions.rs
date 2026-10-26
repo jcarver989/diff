@@ -16,24 +16,17 @@ pub async fn assert_watcher_closed(watcher: &mut impl FileWatcher) {
 }
 
 pub async fn wait_for_path(batches: &mut mpsc::UnboundedReceiver<Vec<PathBuf>>, path: &Path) {
-    wait_for(
-        &format!("filter batch containing {}", path.display()),
-        async {
-            loop {
-                let paths = batches.recv().await.expect("filter remains alive");
-                let mut unique = paths.clone();
-                unique.sort();
-                unique.dedup();
-                assert_eq!(
-                    paths.len(),
-                    unique.len(),
-                    "filter batches contain no duplicate paths"
-                );
-                if paths.iter().any(|candidate| candidate == path) {
-                    break;
-                }
+    wait_for(&format!("filter batch containing {}", path.display()), async {
+        loop {
+            let paths = batches.recv().await.expect("filter remains alive");
+            let mut unique = paths.clone();
+            unique.sort();
+            unique.dedup();
+            assert_eq!(paths.len(), unique.len(), "filter batches contain no duplicate paths");
+            if paths.iter().any(|candidate| candidate == path) {
+                break;
             }
-        },
-    )
+        }
+    })
     .await;
 }

@@ -7,13 +7,9 @@ const VIEW_MODE_FILE: &str = "terminal_view_mode.json";
 
 fn path(file: &str) -> Option<PathBuf> {
     let dir = if cfg!(target_os = "macos") {
-        env::var_os("HOME")
-            .map(PathBuf::from)
-            .map(|home| home.join("Library/Application Support/ClankerDiff"))
+        env::var_os("HOME").map(PathBuf::from).map(|home| home.join("Library/Application Support/ClankerDiff"))
     } else if cfg!(target_os = "windows") {
-        env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .map(|root| root.join("ClankerDiff"))
+        env::var_os("APPDATA").map(PathBuf::from).map(|root| root.join("ClankerDiff"))
     } else {
         env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
@@ -38,9 +34,7 @@ fn save(file: &str, contents: &str) -> io::Result<()> {
 }
 
 pub fn load_theme() -> ReviewTheme {
-    load(THEME_FILE)
-        .and_then(|id| ReviewTheme::builtin(id.trim()).ok())
-        .unwrap_or_default()
+    load(THEME_FILE).and_then(|id| ReviewTheme::builtin(id.trim()).ok()).unwrap_or_default()
 }
 
 pub fn save_theme(id: &str) -> io::Result<()> {
@@ -48,9 +42,7 @@ pub fn save_theme(id: &str) -> io::Result<()> {
 }
 
 pub fn load_view_mode() -> ViewMode {
-    load(VIEW_MODE_FILE)
-        .and_then(|mode| serde_json::from_str(&mode).ok())
-        .unwrap_or_default()
+    load(VIEW_MODE_FILE).and_then(|mode| serde_json::from_str(&mode).ok()).unwrap_or_default()
 }
 
 pub fn save_view_mode(mode: ViewMode) -> io::Result<()> {

@@ -2,8 +2,8 @@ use super::MarkdownReviewer;
 use crate::{
     shortcuts::{ShortcutHelp, Shortcuts},
     ui::prelude::{
-        Backdrop, Button, ButtonVariant, CODE_FONT, ControlSize, IconButton, IconName, PanelSide,
-        ResizablePanel, ThemePicker, TreeRow, Typography, TypographyExt, rem,
+        Backdrop, Button, ButtonVariant, CODE_FONT, ControlSize, IconButton, IconName, PanelSide, ResizablePanel,
+        ThemePicker, TreeRow, Typography, TypographyExt, rem,
     },
 };
 use clankerdiff_core::ReviewCommand;
@@ -33,11 +33,7 @@ const REVIEW: Shortcuts = &[
     ("t", "choose theme"),
     ("Esc", "cancel review"),
 ];
-const DRAFT: Shortcuts = &[
-    ("Enter", "save comment"),
-    ("Shift-Enter", "insert newline"),
-    ("Esc", "cancel comment"),
-];
+const DRAFT: Shortcuts = &[("Enter", "save comment"), ("Shift-Enter", "insert newline"), ("Esc", "cancel comment")];
 
 impl MarkdownReviewer {
     pub(super) fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -47,10 +43,7 @@ impl MarkdownReviewer {
         let (label, command) = if count == 0 {
             ("Approve".to_owned(), MarkdownReviewCommand::Approve)
         } else {
-            (
-                format!("Send feedback ({count})"),
-                MarkdownReviewCommand::RequestChanges,
-            )
+            (format!("Send feedback ({count})"), MarkdownReviewCommand::RequestChanges)
         };
         div()
             .debug_selector(|| "markdown-header".to_owned())
@@ -73,13 +66,8 @@ impl MarkdownReviewer {
             })
             .child(self.render_title())
             .child(
-                IconButton::new(
-                    "markdown-shortcuts",
-                    IconName::Info,
-                    "Keyboard shortcuts",
-                    theme,
-                )
-                .on_click(Self::dispatch(ReviewCommand::ShowHelp, cx)),
+                IconButton::new("markdown-shortcuts", IconName::Info, "Keyboard shortcuts", theme)
+                    .on_click(Self::dispatch(ReviewCommand::ShowHelp, cx)),
             )
             .when(self.options.themes, |header| {
                 header.child(
@@ -90,12 +78,11 @@ impl MarkdownReviewer {
                 )
             })
             .when(self.capabilities.clipboard && count > 0, |header| {
-                header.child(
-                    IconButton::new("markdown-copy", IconName::Copy, "Copy review", theme)
-                        .on_click(cx.listener(|reviewer, _, window, cx| {
-                            reviewer.copy_review(window, cx);
-                        })),
-                )
+                header.child(IconButton::new("markdown-copy", IconName::Copy, "Copy review", theme).on_click(
+                    cx.listener(|reviewer, _, window, cx| {
+                        reviewer.copy_review(window, cx);
+                    }),
+                ))
             })
             .child(
                 Button::new("markdown-submit", label, theme)
@@ -150,48 +137,41 @@ impl MarkdownReviewer {
         let rows = self.render_outline_rows(cx);
         let viewer = cx.entity().downgrade();
         let reset = viewer.clone();
-        ResizablePanel::new(
-            "markdown-outline",
-            PanelSide::Left,
-            self.outline_width,
-            theme,
-        )
-        .min_width(rem(MIN_OUTLINE_WIDTH))
-        .max_width(rem(MAX_OUTLINE_WIDTH))
-        .on_resize(move |width, _, cx| {
-            let _ = viewer.update(cx, |reviewer, cx| reviewer.set_outline_width(width, cx));
-        })
-        .on_reset(move |_, cx| {
-            let _ = reset.update(cx, |reviewer, cx| {
-                reviewer.set_outline_width(reviewer.options.outline_width, cx);
-            });
-        })
-        .bg(colors.surface)
-        .when(self.pane == MarkdownFocusPane::Outline, |panel| {
-            panel.border_color(colors.accent)
-        })
-        .child(
-            div()
-                .px_3()
-                .pt_4()
-                .pb_2()
-                .typography(Typography::Label)
-                .text_color(colors.text_muted)
-                .child("Contents"),
-        )
-        .child(
-            div()
-                .id("markdown-outline-rows")
-                .track_scroll(&self.outline_scroll)
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .px_1()
-                .pb_2()
-                .flex()
-                .flex_col()
-                .children(rows),
-        )
+        ResizablePanel::new("markdown-outline", PanelSide::Left, self.outline_width, theme)
+            .min_width(rem(MIN_OUTLINE_WIDTH))
+            .max_width(rem(MAX_OUTLINE_WIDTH))
+            .on_resize(move |width, _, cx| {
+                let _ = viewer.update(cx, |reviewer, cx| reviewer.set_outline_width(width, cx));
+            })
+            .on_reset(move |_, cx| {
+                let _ = reset.update(cx, |reviewer, cx| {
+                    reviewer.set_outline_width(reviewer.options.outline_width, cx);
+                });
+            })
+            .bg(colors.surface)
+            .when(self.pane == MarkdownFocusPane::Outline, |panel| panel.border_color(colors.accent))
+            .child(
+                div()
+                    .px_3()
+                    .pt_4()
+                    .pb_2()
+                    .typography(Typography::Label)
+                    .text_color(colors.text_muted)
+                    .child("Contents"),
+            )
+            .child(
+                div()
+                    .id("markdown-outline-rows")
+                    .track_scroll(&self.outline_scroll)
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px_1()
+                    .pb_2()
+                    .flex()
+                    .flex_col()
+                    .children(rows),
+            )
     }
 
     fn render_outline_rows(&self, cx: &mut Context<Self>) -> Vec<TreeRow> {
@@ -208,11 +188,7 @@ impl MarkdownReviewer {
                 TreeRow::new(("markdown-outline", index), heading.title.clone(), theme)
                     .depth(usize::from(heading.level.saturating_sub(1)))
                     .selected(active == Some(index))
-                    .label_color(if heading.level <= 1 {
-                        colors.text
-                    } else {
-                        colors.text_secondary
-                    })
+                    .label_color(if heading.level <= 1 { colors.text } else { colors.text_secondary })
                     .on_click(cx.listener(move |reviewer, _, window, cx| {
                         reviewer.select(target, MarkdownFocusPane::Outline, window, cx);
                     }))
@@ -238,9 +214,7 @@ impl MarkdownReviewer {
         let Some(heading) = outline.get(index) else {
             return 0;
         };
-        let end = outline
-            .get(index + 1)
-            .map_or(usize::MAX, |next| next.target_id.index());
+        let end = outline.get(index + 1).map_or(usize::MAX, |next| next.target_id.index());
         document
             .targets()
             .iter()

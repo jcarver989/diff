@@ -20,11 +20,7 @@ impl ConnectionHeader {
 
 impl fmt::Debug for ConnectionHeader {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ConnectionHeader")
-            .field("name", &self.name)
-            .field("value", &"<redacted>")
-            .finish()
+        formatter.debug_struct("ConnectionHeader").field("name", &self.name).field("value", &"<redacted>").finish()
     }
 }
 
@@ -32,20 +28,16 @@ impl FromStr for ConnectionHeader {
     type Err = ConnectionHeaderError;
 
     fn from_str(header: &str) -> Result<Self, Self::Err> {
-        let (name, value) = header
-            .split_once(':')
-            .ok_or(ConnectionHeaderError::MissingSeparator)?;
+        let (name, value) = header.split_once(':').ok_or(ConnectionHeaderError::MissingSeparator)?;
         let name = name.trim();
         if name.is_empty() {
             return Err(ConnectionHeaderError::EmptyName);
         }
-        let name = HeaderName::from_bytes(name.as_bytes())
-            .map_err(|_| ConnectionHeaderError::InvalidName)?;
+        let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| ConnectionHeaderError::InvalidName)?;
         if is_reserved(&name) {
             return Err(ConnectionHeaderError::ReservedName(name.to_string()));
         }
-        let mut value =
-            HeaderValue::from_str(value.trim()).map_err(|_| ConnectionHeaderError::InvalidValue)?;
+        let mut value = HeaderValue::from_str(value.trim()).map_err(|_| ConnectionHeaderError::InvalidValue)?;
         value.set_sensitive(true);
         Ok(Self { name, value })
     }

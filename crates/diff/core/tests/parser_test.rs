@@ -1,15 +1,12 @@
 use clankerdiff_core::{
-    DiffError, FileStatus, PatchLineKind, RepoPath, RepoPathError, git_patch_from_texts,
-    parse_git_diff, parse_git_diff_with_path_mapper,
+    DiffError, FileStatus, PatchLineKind, RepoPath, RepoPathError, git_patch_from_texts, parse_git_diff,
+    parse_git_diff_with_path_mapper,
 };
 
 #[test]
 fn absolute_patch_paths_are_decoded_before_mapping() -> Result<(), DiffError> {
     let paths = ["/workspace/a file.rs", "/workspace/quoted\"\\界\tfile.rs"];
-    let patch = paths
-        .iter()
-        .map(|path| changed_patch(path, Some("-- /old\n"), Some("++ /new\n")))
-        .collect::<String>();
+    let patch = paths.iter().map(|path| changed_patch(path, Some("-- /old\n"), Some("++ /new\n"))).collect::<String>();
     let mut decoded = Vec::new();
     let files = parse_git_diff_with_path_mapper(patch.as_bytes(), |path| {
         decoded.push(path.to_owned());
@@ -31,10 +28,7 @@ fn absolute_patch_paths_are_decoded_before_mapping() -> Result<(), DiffError> {
 #[test]
 fn mapping_is_explicit_and_keeps_repository_path_validation() {
     let patch = changed_patch("/workspace/file.rs", Some("old\n"), Some("new\n"));
-    assert!(matches!(
-        parse_git_diff(patch.as_bytes()),
-        Err(DiffError::InvalidPath(RepoPathError::Absolute))
-    ));
+    assert!(matches!(parse_git_diff(patch.as_bytes()), Err(DiffError::InvalidPath(RepoPathError::Absolute))));
     for (path, expected) in [
         ("/still/absolute", RepoPathError::Absolute),
         ("../escape", RepoPathError::Traversal),
@@ -51,7 +45,5 @@ fn workspace_path(path: &str) -> Result<RepoPath, RepoPathError> {
 }
 
 fn changed_patch(path: &str, old: Option<&str>, new: Option<&str>) -> String {
-    git_patch_from_texts(path, old, new)
-        .expect("valid patch fixture")
-        .expect("changed content")
+    git_patch_from_texts(path, old, new).expect("valid patch fixture").expect("changed content")
 }

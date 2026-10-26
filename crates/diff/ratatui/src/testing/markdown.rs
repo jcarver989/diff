@@ -1,6 +1,6 @@
 use crate::{
-    MarkdownCommitError, MarkdownLayout, MarkdownLayoutOptions, MarkdownRenderer, MarkdownRow,
-    MarkdownRowUpdate, MarkdownStreamError, StreamingMarkdownPolicy, StreamingMarkdownState,
+    MarkdownCommitError, MarkdownLayout, MarkdownLayoutOptions, MarkdownRenderer, MarkdownRow, MarkdownRowUpdate,
+    MarkdownStreamError, StreamingMarkdownPolicy, StreamingMarkdownState,
 };
 use clankerdiff_markdown::{MarkdownDocument, MarkdownStream};
 use clankerdiff_syntax::SyntaxHighlighter;
@@ -31,10 +31,7 @@ impl MarkdownStreamFixture {
 
     #[must_use]
     pub fn terminal() -> Self {
-        Self {
-            state: StreamingMarkdownState::new(StreamingMarkdownPolicy::Terminal),
-            ..Self::default()
-        }
+        Self { state: StreamingMarkdownState::new(StreamingMarkdownPolicy::Terminal), ..Self::default() }
     }
 
     /// Renders the current stream through the streaming cache.
@@ -83,13 +80,7 @@ impl MarkdownStreamFixture {
 
     pub fn render_lines(&mut self) -> Arc<[Line<'static>]> {
         MarkdownRenderer::new()
-            .render_stream_lines(
-                &mut self.state,
-                &self.stream,
-                self.options,
-                &self.theme,
-                &mut self.highlighter,
-            )
+            .render_stream_lines(&mut self.state, &self.stream, self.options, &self.theme, &mut self.highlighter)
             .expect("stream renders")
     }
 
@@ -120,10 +111,7 @@ impl MarkdownStreamFixture {
     pub fn apply_update(&mut self) -> MarkdownRowUpdate {
         self.layout();
         let update = self.state.update_since(self.revision);
-        assert!(
-            update.first_changed_row >= self.state.committed_rows(),
-            "update touched committed rows"
-        );
+        assert!(update.first_changed_row >= self.state.committed_rows(), "update touched committed rows");
         if update.reset {
             self.host.clear();
         }
@@ -139,20 +127,13 @@ impl MarkdownStreamFixture {
         let actual = self.layout();
         let expected = self.one_shot();
         assert_eq!(actual.row_count(), expected.row_count());
-        for (index, (actual, expected)) in
-            actual.rows().iter().zip(expected.rows().iter()).enumerate()
-        {
+        for (index, (actual, expected)) in actual.rows().iter().zip(expected.rows().iter()).enumerate() {
             assert_eq!(actual.line, expected.line, "row {index}");
             if index >= self.state.committed_rows() {
                 assert_eq!(actual, expected, "live row {index}");
             }
         }
-        assert!(
-            self.host
-                .iter()
-                .zip(actual.rows().iter())
-                .all(|(host, row)| Arc::ptr_eq(host, row))
-        );
+        assert!(self.host.iter().zip(actual.rows().iter()).all(|(host, row)| Arc::ptr_eq(host, row)));
     }
 
     /// Panics if the streamed snapshot, the host mirror, or a one-shot render
@@ -162,21 +143,9 @@ impl MarkdownStreamFixture {
         self.apply_update();
         let actual = self.layout();
         let expected = self.one_shot();
-        assert_eq!(
-            actual.row_count(),
-            expected.row_count(),
-            "source: {:?}",
-            self.stream.source()
-        );
-        for (index, (actual, expected)) in
-            actual.rows().iter().zip(expected.rows().iter()).enumerate()
-        {
-            assert_eq!(
-                actual,
-                expected,
-                "row {index}, source: {:?}",
-                self.stream.source()
-            );
+        assert_eq!(actual.row_count(), expected.row_count(), "source: {:?}", self.stream.source());
+        for (index, (actual, expected)) in actual.rows().iter().zip(expected.rows().iter()).enumerate() {
+            assert_eq!(actual, expected, "row {index}, source: {:?}", self.stream.source());
         }
         assert!(
             self.host.iter().eq(actual.rows().iter()),

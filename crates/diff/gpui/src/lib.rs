@@ -38,20 +38,17 @@ pub struct ViewModeChanged {
 }
 pub use markdown_viewer::{
     MarkdownAddComment, MarkdownApprove, MarkdownCancel, MarkdownCopyReview, MarkdownDeleteComment,
-    MarkdownEditComment, MarkdownFirstTarget, MarkdownLastTarget, MarkdownNextHeading,
-    MarkdownNextTarget, MarkdownOpenSelected, MarkdownPageDown, MarkdownPageUp,
-    MarkdownPreviousHeading, MarkdownPreviousTarget, MarkdownRequestChanges, MarkdownReviewer,
-    MarkdownReviewerOptions, MarkdownShowShortcuts, MarkdownShowThemePicker, MarkdownSubmitComment,
-    MarkdownToggleFocus, MarkdownToggleOutline, MarkdownUndoComment,
+    MarkdownEditComment, MarkdownFirstTarget, MarkdownLastTarget, MarkdownNextHeading, MarkdownNextTarget,
+    MarkdownOpenSelected, MarkdownPageDown, MarkdownPageUp, MarkdownPreviousHeading, MarkdownPreviousTarget,
+    MarkdownRequestChanges, MarkdownReviewer, MarkdownReviewerOptions, MarkdownShowShortcuts, MarkdownShowThemePicker,
+    MarkdownSubmitComment, MarkdownToggleFocus, MarkdownToggleOutline, MarkdownUndoComment,
 };
 pub use viewer::{
-    ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse,
-    CommitChanges, ConfirmDiscard, CopyReview, CycleScope, DeleteComment, DiffViewer,
-    DiffViewerOptions, DiscardChanges, EditComment, ExpandGap, ExpandGapAll, ExpandOrOpen,
-    FirstItem, FocusDiff, FocusFiles, HideShortcuts, LastItem, NextCommit, NextFile, NextHunk,
-    NextItem, PageDown, PageUp, PreviousCommit, PreviousFile, PreviousHunk, PreviousItem, Refresh,
-    SelectNewSide, SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment,
-    SubmitReview, ToggleAllFilesCollapsed, ToggleFileCollapsed, ToggleFullFile, ToggleLayout,
-    TogglePane, ToggleSidebar, ToggleSourceView, ToggleStage, UndoComment, UnstageAll,
-    UseAutoLayout, ViewerPane,
+    ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse, CommitChanges, ConfirmDiscard,
+    CopyReview, CycleScope, DeleteComment, DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap,
+    ExpandGapAll, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, LastItem, NextCommit, NextFile,
+    NextHunk, NextItem, PageDown, PageUp, PreviousCommit, PreviousFile, PreviousHunk, PreviousItem, Refresh,
+    SelectNewSide, SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment, SubmitReview,
+    ToggleAllFilesCollapsed, ToggleFileCollapsed, ToggleFullFile, ToggleLayout, TogglePane, ToggleSidebar,
+    ToggleSourceView, ToggleStage, UndoComment, UnstageAll, UseAutoLayout, ViewerPane,
 };

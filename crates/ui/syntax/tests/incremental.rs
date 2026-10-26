@@ -8,10 +8,7 @@ use support::{CacheBuilder, TestResult, line};
 #[test]
 fn growing_code_and_plain_text_have_linear_work() -> TestResult {
     for language in ["rust", "binary.zzz", ""] {
-        let mut fixture = CacheBuilder::default()
-            .language(language)
-            .entries(0)
-            .build();
+        let mut fixture = CacheBuilder::default().language(language).entries(0).build();
         let chunk = "let value = 123;\n".repeat(16);
         for _ in 0..96 {
             fixture.append(&chunk)?;
@@ -23,10 +20,7 @@ fn growing_code_and_plain_text_have_linear_work() -> TestResult {
         assert!(work.projected_bytes <= budget, "{language}: {work:?}");
         assert_eq!(fixture.highlighter.stats().bytes, work.parser_input_bytes);
         assert_eq!(work.full_parses, usize::from(language == "rust"));
-        assert_eq!(
-            work.incremental_parses,
-            if language == "rust" { 95 } else { 0 }
-        );
+        assert_eq!(work.incremental_parses, if language == "rust" { 95 } else { 0 });
         fixture.assert_equivalent()?;
     }
     Ok(())
@@ -37,10 +31,7 @@ fn aether_code_fixture_meets_the_parser_and_query_budget() -> TestResult {
     let mut source = String::new();
     let mut line = 0;
     while source.len() < 24 * 1024 {
-        writeln!(
-            source,
-            "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");"
-        )?;
+        writeln!(source, "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");")?;
         line += 1;
     }
     let mut fixture = CacheBuilder::default().build();
@@ -49,10 +40,7 @@ fn aether_code_fixture_meets_the_parser_and_query_budget() -> TestResult {
     }
     let work = fixture.stream.work_stats();
     let budget = 4 * source.len() + 64 * 1024;
-    assert!(
-        work.parser_input_bytes <= budget,
-        "{work:?}, budget {budget}"
-    );
+    assert!(work.parser_input_bytes <= budget, "{work:?}, budget {budget}");
     assert!(work.queried_bytes <= budget, "{work:?}, budget {budget}");
     assert!(work.projected_bytes <= budget, "{work:?}, budget {budget}");
     fixture.assert_equivalent()
@@ -65,10 +53,7 @@ fn aether_open_function_fixture_meets_the_parser_and_query_budget() -> TestResul
     let mut source = String::new();
     let mut line = 0;
     while source.len() < 24 * 1024 {
-        writeln!(
-            source,
-            "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");"
-        )?;
+        writeln!(source, "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");")?;
         line += 1;
     }
     for chunk in source.as_bytes().chunks(256) {
@@ -76,10 +61,7 @@ fn aether_open_function_fixture_meets_the_parser_and_query_budget() -> TestResul
     }
     let work = fixture.stream.work_stats();
     let budget = 4 * fixture.stream.source().len() + 64 * 1024;
-    assert!(
-        work.parser_input_bytes <= budget,
-        "{work:?}, budget {budget}"
-    );
+    assert!(work.parser_input_bytes <= budget, "{work:?}, budget {budget}");
     assert!(work.queried_bytes <= budget, "{work:?}, budget {budget}");
     assert!(work.projected_bytes <= budget, "{work:?}, budget {budget}");
     assert!(work.compared_nodes <= budget, "{work:?}, budget {budget}");
@@ -94,14 +76,8 @@ fn unchanged_line_projections_survive_an_append() -> TestResult {
         let mut fixture = CacheBuilder::default().language(language).build();
         let first = fixture.append("fn first() {}\n")?;
         let second = fixture.append("fn second() {}\n")?;
-        let before = first
-            .highlights
-            .line_shared(0)
-            .ok_or("missing first line")?;
-        let after = second
-            .highlights
-            .line_shared(0)
-            .ok_or("missing first line")?;
+        let before = first.highlights.line_shared(0).ok_or("missing first line")?;
+        let after = second.highlights.line_shared(0).ok_or("missing first line")?;
         assert!(Arc::ptr_eq(&before, &after));
         assert_eq!(second.changed_lines, 1..2);
     }
@@ -111,24 +87,12 @@ fn unchanged_line_projections_survive_an_append() -> TestResult {
 #[test]
 fn raw_chunks_and_injections_match_complete_documents() -> TestResult {
     for (language, source) in [
-        (
-            "rust",
-            "fn main() {\nlet café = r###\"open\nline\"###;\n}\n",
-        ),
-        (
-            "python",
-            "def run():\n    text = \"\"\"first\nsecond\"\"\"\n    return text\n",
-        ),
-        (
-            "html",
-            "<p>café</p><script>const x = 1;</script><style>b{color:red}</style>",
-        ),
+        ("rust", "fn main() {\nlet café = r###\"open\nline\"###;\n}\n"),
+        ("python", "def run():\n    text = \"\"\"first\nsecond\"\"\"\n    return text\n"),
+        ("html", "<p>café</p><script>const x = 1;</script><style>b{color:red}</style>"),
         ("rust", "/* open\n\nclose */\n"),
         ("markdown", "# Hello\n\n```rust\nfn main() {}\n```\n"),
-        (
-            "javascript",
-            "function run() {\n  return `hello ${name}`;\n}\n",
-        ),
+        ("javascript", "function run() {\n  return `hello ${name}`;\n}\n"),
         ("typescript", "const x: number = 1;\nconst y = false;\n"),
         ("binary.zzz", "café\r\n\nplain text\r\n"),
     ] {
@@ -152,14 +116,8 @@ fn raw_chunks_and_injections_match_complete_documents() -> TestResult {
 #[test]
 fn eof_predicates_and_container_edits_match_reference() -> TestResult {
     for (language, source) in [
-        (
-            "rust",
-            "fn main() { let VALUE = Some(123); println!(\"{VALUE}\"); }",
-        ),
-        (
-            "python",
-            "class Example:\n    def method(self):\n        return self.VALUE\n",
-        ),
+        ("rust", "fn main() { let VALUE = Some(123); println!(\"{VALUE}\"); }"),
+        ("python", "class Example:\n    def method(self):\n        return self.VALUE\n"),
         ("javascript", "const value = /foo/g;\nconsole.log(value);\n"),
         ("bash", "echo \"${VALUE:-$(printf '%s' hello)}\"\n"),
         ("html", "<script>const text = `hello ${name}`;</script>\n"),
@@ -200,24 +158,10 @@ fn nested_injections_obey_the_reference_depth_limit() -> TestResult {
 #[test]
 fn injection_boundaries_can_close_and_be_reinterpreted() -> TestResult {
     for (language, chunks) in [
-        (
-            "markdown",
-            vec![
-                "```html\n<script>const café = 1;</script>\n",
-                "```",
-                "x\n",
-                "```\n",
-            ],
-        ),
+        ("markdown", vec!["```html\n<script>const café = 1;</script>\n", "```", "x\n", "```\n"]),
         (
             "html",
-            vec![
-                "<script>const café = `hello ${",
-                "value}",
-                "`;</script",
-                ">tail<style>b{color:red}",
-                "</style>",
-            ],
+            vec!["<script>const café = `hello ${", "value}", "`;</script", ">tail<style>b{color:red}", "</style>"],
         ),
     ] {
         let mut fixture = CacheBuilder::default().language(language).build();
@@ -243,26 +187,14 @@ fn empty_updates_and_recoloring_do_not_parse() -> TestResult {
     assert_eq!(unchanged.base_revision, unchanged.revision);
     assert!(Arc::ptr_eq(&first.highlights, &unchanged.highlights));
     assert_eq!(fixture.stream.work_stats(), work);
-    assert_eq!(
-        fixture.highlighter.take_stats(),
-        HighlightStats {
-            calls: 1,
-            ..HighlightStats::default()
-        }
-    );
+    assert_eq!(fixture.highlighter.take_stats(), HighlightStats { calls: 1, ..HighlightStats::default() });
     fixture.theme = ReviewTheme::ayu()?.syntax;
     let recolored = fixture.append("")?;
     assert_eq!(recolored.revision, first.revision);
     assert_ne!(recolored.highlights.line(0), first.highlights.line(0));
     assert_eq!(fixture.highlighter.stats().bytes, 0);
-    assert_eq!(
-        fixture.stream.work_stats().parser_input_bytes,
-        work.parser_input_bytes
-    );
-    assert_eq!(
-        fixture.stream.work_stats().queried_bytes,
-        work.queried_bytes
-    );
+    assert_eq!(fixture.stream.work_stats().parser_input_bytes, work.parser_input_bytes);
+    assert_eq!(fixture.stream.work_stats().queried_bytes, work.queried_bytes);
     fixture.assert_equivalent()
 }
 
@@ -273,16 +205,10 @@ fn raw_input_limit_preserves_partial_line_and_work_state() -> TestResult {
     let work = fixture.stream.work_stats();
     let stats = fixture.highlighter.stats();
     for source in [" = 123;", "x\nthis line exceeds the budget"] {
-        assert!(matches!(
-            fixture.append(source),
-            Err(SyntaxError::InputLimit { limit: 12, .. })
-        ));
+        assert!(matches!(fixture.append(source), Err(SyntaxError::InputLimit { limit: 12, .. })));
         assert_eq!(fixture.stream.source(), "let café");
         assert_eq!(fixture.stream.revision(), accepted.revision);
-        assert!(Arc::ptr_eq(
-            fixture.stream.highlights(),
-            &accepted.highlights
-        ));
+        assert!(Arc::ptr_eq(fixture.stream.highlights(), &accepted.highlights));
         assert_eq!(fixture.stream.work_stats(), work);
         assert_eq!(fixture.highlighter.stats(), stats);
     }
@@ -309,10 +235,7 @@ fn cloned_streams_append_independently() -> TestResult {
     let mut fixture = CacheBuilder::default().build();
     fixture.append("/* stable\n")?;
     let mut speculative = fixture.stream.clone();
-    fixture
-        .highlighter
-        .with_theme(&fixture.theme)
-        .append(&mut speculative, "closed */\n")?;
+    fixture.highlighter.with_theme(&fixture.theme).append(&mut speculative, "closed */\n")?;
     fixture.append("still comment\n")?;
     assert!(!fixture.stream.source().contains("closed"));
     assert_eq!(speculative.source(), "/* stable\nclosed */\n");
@@ -349,26 +272,12 @@ fn split_shebangs_can_enable_syntax_after_plain_text() -> TestResult {
 fn line_boundaries_preserve_exact_text_and_projection_counts() -> TestResult {
     for language in ["rust", "binary.zzz"] {
         let mut fixture = CacheBuilder::default().language(language).build();
-        for chunk in [
-            "",
-            "\n",
-            "\n",
-            "/* café",
-            "\r",
-            "\n",
-            "still comment",
-            "\r\n",
-            "*/",
-            "\n",
-        ] {
+        for chunk in ["", "\n", "\n", "/* café", "\r", "\n", "still comment", "\r\n", "*/", "\n"] {
             fixture.append(chunk)?;
             fixture.assert_equivalent()?;
         }
         let document = fixture.highlight(fixture.stream.source().to_owned().as_str())?;
-        assert_eq!(
-            document.line_count(),
-            fixture.stream.highlights().line_count()
-        );
+        assert_eq!(document.line_count(), fixture.stream.highlights().line_count());
     }
     Ok(())
 }

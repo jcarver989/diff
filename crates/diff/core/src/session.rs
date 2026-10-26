@@ -1,8 +1,8 @@
 use crate::{
-    AgentFeedbackOptions, CommitStack, ContentProjection, DiffDocument, DiffPresentation,
-    DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, GapId, Layout, LineAnchor,
-    PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission,
-    ReviewTarget, RowId, RowKind, SourceLocation, ViewMode, presentation::retained_expansions,
+    AgentFeedbackOptions, CommitStack, ContentProjection, DiffDocument, DiffPresentation, DiffReviewCommand,
+    DiffReviewEvent, DiffScope, DiffSide, GapId, Layout, LineAnchor, PresentationOptions, PresentedCell, PresentedRow,
+    RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind, SourceLocation, ViewMode,
+    presentation::retained_expansions,
 };
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, sync::Arc};
@@ -27,13 +27,7 @@ pub struct CommentDraft {
 
 impl CommentDraft {
     fn new(anchor: LineAnchor, line_text: String, body: String, editing: Option<u64>) -> Self {
-        Self {
-            anchor,
-            line_text,
-            cursor: body.len(),
-            body,
-            editing,
-        }
+        Self { anchor, line_text, cursor: body.len(), body, editing }
     }
 
     #[must_use]
@@ -104,17 +98,11 @@ impl CommentDraft {
     }
 
     fn previous_boundary(&self) -> usize {
-        self.body[..self.cursor]
-            .char_indices()
-            .next_back()
-            .map_or(0, |(offset, _)| offset)
+        self.body[..self.cursor].char_indices().next_back().map_or(0, |(offset, _)| offset)
     }
 
     fn next_boundary(&self) -> usize {
-        self.body[self.cursor..]
-            .char_indices()
-            .nth(1)
-            .map_or(self.body.len(), |(offset, _)| self.cursor + offset)
+        self.body[self.cursor..].char_indices().nth(1).map_or(self.body.len(), |(offset, _)| self.cursor + offset)
     }
 }
 
@@ -172,12 +160,7 @@ impl ReviewSession {
             diff_return: None,
         };
         session.review.reconcile(&session.document);
-        session.selected_file = session
-            .presentation
-            .file_order()
-            .first()
-            .copied()
-            .unwrap_or(0);
+        session.selected_file = session.presentation.file_order().first().copied().unwrap_or(0);
         session.select_first_row();
         session
     }
@@ -218,8 +201,7 @@ impl ReviewSession {
 
     #[must_use]
     pub fn page_title(&self) -> Option<String> {
-        self.commits()
-            .map(|commits| self.target().title(Some(commits)))
+        self.commits().map(|commits| self.target().title(Some(commits)))
     }
 
     #[must_use]
@@ -227,9 +209,7 @@ impl ReviewSession {
         let commits = self.commits()?;
         let current = commits.page_index(self.target())?;
         let next = current.checked_add_signed(delta)?;
-        (next != current)
-            .then(|| commits.page(next, self.scope))
-            .flatten()
+        (next != current).then(|| commits.page(next, self.scope)).flatten()
     }
 
     #[must_use]
@@ -306,8 +286,7 @@ impl ReviewSession {
     #[must_use]
     pub fn selected_source_line(&self) -> Option<SourceLocation> {
         let row = self.selected_presented_row()?;
-        self.presentation
-            .source_location(row, row.preferred_cell(self.selected_side)?)
+        self.presentation.source_location(row, row.preferred_cell(self.selected_side)?)
     }
 
     #[must_use]
@@ -348,19 +327,10 @@ impl ReviewSession {
             .presentation
             .rows(self.selected_row..range.end)
             .iter()
-            .chain(
-                self.presentation
-                    .rows(range.start..self.selected_row)
-                    .iter()
-                    .rev(),
-            )
+            .chain(self.presentation.rows(range.start..self.selected_row).iter().rev())
             .find_map(|row| row.cell(side)?.line_number())
             .unwrap_or(1);
-        self.pending_source_restore = Some(SourceLocation {
-            path: path.clone(),
-            side,
-            line_number,
-        });
+        self.pending_source_restore = Some(SourceLocation { path: path.clone(), side, line_number });
         self.projection.set_source_view(Some(path));
         self.rebuild();
         true
@@ -379,33 +349,19 @@ impl ReviewSession {
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
         if let Some(file) = self
             .selected_presented_row()
-            .filter(|row| {
-                row.kind == RowKind::FileHeader && self.presentation.is_collapsed(row.file_index)
-            })
+            .filter(|row| row.kind == RowKind::FileHeader && self.presentation.is_collapsed(row.file_index))
             .map(|row| row.file_index)
         {
             return self.toggle_file_collapsed(file);
         }
-        let id = self
-            .presentation
-            .gap_info(self.selected_row)
-            .map(|info| info.id)
-            .or_else(|| {
-                let row = self.presentation.row(self.selected_row)?;
-                let source = row.preferred_cell(self.selected_side)?.patch_source?;
-                let hunk = self
-                    .document
-                    .files
-                    .get(row.file_index)?
-                    .hunks
-                    .get(source.hunk_index)?;
-                // Code rows reveal the nearest hunk edge when no gap row is selected.
-                let after = source.line_index.saturating_mul(2) >= hunk.lines.len();
-                Some(GapId {
-                    file_index: row.file_index,
-                    gap_index: source.hunk_index + usize::from(after),
-                })
-            });
+        let id = self.presentation.gap_info(self.selected_row).map(|info| info.id).or_else(|| {
+            let row = self.presentation.row(self.selected_row)?;
+            let source = row.preferred_cell(self.selected_side)?.patch_source?;
+            let hunk = self.document.files.get(row.file_index)?.hunks.get(source.hunk_index)?;
+            // Code rows reveal the nearest hunk edge when no gap row is selected.
+            let after = source.line_index.saturating_mul(2) >= hunk.lines.len();
+            Some(GapId { file_index: row.file_index, gap_index: source.hunk_index + usize::from(after) })
+        });
         let Some(id) = id else {
             return false;
         };
@@ -462,12 +418,7 @@ impl ReviewSession {
             return false;
         }
         let collapse = !self.presentation.is_collapsed(index);
-        if collapse
-            && self
-                .draft
-                .as_ref()
-                .is_some_and(|draft| draft.anchor.path == file.path)
-        {
+        if collapse && self.draft.as_ref().is_some_and(|draft| draft.anchor.path == file.path) {
             return false;
         }
         let header_selected = self.selected_on_header(index);
@@ -499,8 +450,7 @@ impl ReviewSession {
     }
 
     fn selected_on_header(&self, index: usize) -> bool {
-        self.selected_presented_row()
-            .is_some_and(|row| row.kind == RowKind::FileHeader && row.file_index == index)
+        self.selected_presented_row().is_some_and(|row| row.kind == RowKind::FileHeader && row.file_index == index)
     }
 
     /// Replaces the complete immutable document while preserving review and view
@@ -516,36 +466,20 @@ impl ReviewSession {
         if Arc::ptr_eq(&document, &self.document) || document == self.document {
             return;
         }
-        if self
-            .source_view()
-            .is_some_and(|path| document.file_index(path).is_none())
-        {
+        if self.source_view().is_some_and(|path| document.file_index(path).is_none()) {
             self.projection.set_source_view(None);
             self.diff_return = None;
         }
-        let expansions =
-            retained_expansions(&self.document, &self.projection.expansions, &document);
-        let selected_path = self
-            .document
-            .files
-            .get(self.selected_file)
-            .map(|file| file.path.clone());
+        let expansions = retained_expansions(&self.document, &self.projection.expansions, &document);
+        let selected_path = self.document.files.get(self.selected_file).map(|file| file.path.clone());
         self.selected_file = selected_path
             .and_then(|path| document.file_index(&path))
             .unwrap_or(0)
             .min(document.files.len().saturating_sub(1));
         self.projection.expansions = expansions;
-        self.projection
-            .full_files
-            .retain(|path| document.file_index(path).is_some());
-        self.projection
-            .collapsed_files
-            .retain(|path| document.file_index(path).is_some());
-        if self
-            .pending_source_restore
-            .as_ref()
-            .is_some_and(|location| document.file_index(&location.path).is_none())
-        {
+        self.projection.full_files.retain(|path| document.file_index(path).is_some());
+        self.projection.collapsed_files.retain(|path| document.file_index(path).is_some());
+        if self.pending_source_restore.as_ref().is_some_and(|location| document.file_index(&location.path).is_none()) {
             self.pending_source_restore = None;
         }
         self.document = document;
@@ -618,27 +552,17 @@ impl ReviewSession {
         let navigable = |row: &usize| self.presentation.is_navigable(*row);
         let steps = delta.unsigned_abs();
         let target = if delta.is_negative() {
-            (range.start..self.selected_row.min(range.end))
-                .rev()
-                .filter(navigable)
-                .take(steps)
-                .last()
+            (range.start..self.selected_row.min(range.end)).rev().filter(navigable).take(steps).last()
         } else {
-            (self.selected_row.saturating_add(1).max(range.start)..range.end)
-                .filter(navigable)
-                .take(steps)
-                .last()
+            (self.selected_row.saturating_add(1).max(range.start)..range.end).filter(navigable).take(steps).last()
         };
         target.is_some_and(|row| self.select_row(row))
     }
 
     pub fn select_boundary(&mut self, end: bool) -> bool {
         let range = self.visible_range();
-        let target = if end {
-            self.presentation.last_navigable(range)
-        } else {
-            self.presentation.first_navigable(range)
-        };
+        let target =
+            if end { self.presentation.last_navigable(range) } else { self.presentation.first_navigable(range) };
         target.is_some_and(|row| self.select_row(row))
     }
 
@@ -661,18 +585,10 @@ impl ReviewSession {
         if file.hunks.is_empty() {
             return None;
         }
-        let current = self
-            .presentation
-            .row(self.selected_row)
-            .and_then(|row| row.hunk_index)
-            .unwrap_or(0);
+        let current = self.presentation.row(self.selected_row).and_then(|row| row.hunk_index).unwrap_or(0);
         let target = offset(current, delta, file.hunks.len() - 1);
         let range = self.presentation.hunk_range(self.selected_file, target)?;
-        Some(
-            self.presentation
-                .first_navigable(range)
-                .unwrap_or(self.selected_row),
-        )
+        Some(self.presentation.first_navigable(range).unwrap_or(self.selected_row))
     }
 
     pub fn move_hunk(&mut self, delta: isize) -> bool {
@@ -704,24 +620,19 @@ impl ReviewSession {
 
     #[must_use]
     pub fn selected_cell(&self) -> Option<&PresentedCell> {
-        self.selected_presented_row()?
-            .preferred_cell(self.selected_side)
+        self.selected_presented_row()?.preferred_cell(self.selected_side)
     }
 
     #[must_use]
     pub fn selected_anchor(&self) -> Option<LineAnchor> {
         let row = self.selected_presented_row()?;
-        self.presentation
-            .cell_anchor(row, row.preferred_cell(self.selected_side)?)
+        self.presentation.cell_anchor(row, row.preferred_cell(self.selected_side)?)
     }
 
     #[must_use]
     pub fn comment_id_at_selection(&self) -> Option<u64> {
         let anchor = self.selected_anchor()?;
-        self.review
-            .comments_for_anchor(&anchor)
-            .next_back()
-            .map(|comment| comment.id)
+        self.review.comments_for_anchor(&anchor).next_back().map(|comment| comment.id)
     }
 
     #[must_use]
@@ -736,24 +647,19 @@ impl ReviewSession {
         let Some(anchor) = self.selected_anchor() else {
             return false;
         };
-        let line_text = self
-            .selected_cell()
-            .map_or_else(String::new, |cell| cell.text.to_string());
-        let body = editing
-            .and_then(|id| self.review.comment(id))
-            .map_or_else(String::new, |comment| comment.body.clone());
+        let line_text = self.selected_cell().map_or_else(String::new, |cell| cell.text.to_string());
+        let body =
+            editing.and_then(|id| self.review.comment(id)).map_or_else(String::new, |comment| comment.body.clone());
         self.draft = Some(CommentDraft::new(anchor, line_text, body, editing));
         true
     }
 
     pub fn edit_comment_at_selection(&mut self) -> bool {
-        self.comment_id_at_selection()
-            .is_some_and(|id| self.begin_draft(Some(id)))
+        self.comment_id_at_selection().is_some_and(|id| self.begin_draft(Some(id)))
     }
 
     pub fn undo_last_comment(&mut self) -> bool {
-        self.last_comment_id()
-            .is_some_and(|id| self.review.remove_comment(id).is_some())
+        self.last_comment_id().is_some_and(|id| self.review.remove_comment(id).is_some())
     }
 
     pub fn cancel_draft(&mut self) {
@@ -772,9 +678,7 @@ impl ReviewSession {
                 }
                 id
             }
-            None => self
-                .review
-                .add_comment_with_context(draft.anchor, draft.line_text, draft.body),
+            None => self.review.add_comment_with_context(draft.anchor, draft.line_text, draft.body),
         })
     }
 
@@ -788,9 +692,9 @@ impl ReviewSession {
     #[must_use]
     pub fn submission(&self) -> ReviewSubmission {
         match self.commits() {
-            Some(commits) if self.review.targets_commits() => self
-                .review
-                .submission_with(&AgentFeedbackOptions::for_commits(Arc::clone(commits))),
+            Some(commits) if self.review.targets_commits() => {
+                self.review.submission_with(&AgentFeedbackOptions::for_commits(Arc::clone(commits)))
+            }
             _ => self.review.submission(),
         }
     }
@@ -807,43 +711,29 @@ impl ReviewSession {
         };
         let pending = self.pending_source_restore.take();
         let bookmark = bookmark.or_else(|| self.capture_bookmark());
-        let mut source = bookmark
-            .as_ref()
-            .and_then(|bookmark| bookmark.source.clone());
+        let mut source = bookmark.as_ref().and_then(|bookmark| bookmark.source.clone());
         if mode != Restore::Returning {
             source = pending.or(source);
         }
         if let Some(bookmark) = &bookmark {
-            self.selected_file = self
-                .document
-                .file_index(&bookmark.path)
-                .unwrap_or(self.selected_file);
+            self.selected_file = self.document.file_index(&bookmark.path).unwrap_or(self.selected_file);
             self.selected_side = bookmark.side;
         }
         if mode == Restore::Source
             && let Some(location) = &mut source
-            && let Some(index) = self
-                .source_view()
-                .and_then(|path| self.document.file_index(path))
+            && let Some(index) = self.source_view().and_then(|path| self.document.file_index(path))
         {
             let file = &self.document.files[index];
             location.path = file.path.clone();
             location.side = file.source_side();
-            let count = file
-                .source_document(location.side)
-                .map_or(0, |source| source.line_count());
+            let count = file.source_document(location.side).map_or(0, |source| source.line_count());
             location.line_number = location.line_number.clamp(1, count.max(1));
         }
         let draft_anchor = self.draft.as_ref().map(|draft| draft.anchor.clone());
-        self.presentation = DiffPresentation::with_projection(
-            self.document.clone(),
-            self.presentation_options(),
-            &self.projection,
-        );
+        self.presentation =
+            DiffPresentation::with_projection(self.document.clone(), self.presentation_options(), &self.projection);
         self.projection_revision = self.projection_revision.wrapping_add(1);
-        let source_row = source
-            .as_ref()
-            .and_then(|location| self.presentation.row_showing_source(location));
+        let source_row = source.as_ref().and_then(|location| self.presentation.row_showing_source(location));
         if source_row.is_none() && mode == Restore::Refresh {
             self.pending_source_restore = source;
         }
@@ -852,12 +742,7 @@ impl ReviewSession {
             bookmark
                 .row
                 .and_then(|id| self.presentation.row_with_id(id))
-                .or_else(|| {
-                    bookmark
-                        .anchor
-                        .as_ref()
-                        .and_then(|anchor| self.presentation.row_showing_anchor(anchor))
-                })
+                .or_else(|| bookmark.anchor.as_ref().and_then(|anchor| self.presentation.row_showing_anchor(anchor)))
         };
         let restored = match mode {
             Restore::Source => source_row,
@@ -866,10 +751,7 @@ impl ReviewSession {
         };
         if let Some(row) = restored {
             self.selected_row = row;
-            self.selected_file = self
-                .presentation
-                .row(row)
-                .map_or(self.selected_file, |row| row.file_index);
+            self.selected_file = self.presentation.row(row).map_or(self.selected_file, |row| row.file_index);
         } else {
             self.select_first_row();
         }
@@ -880,8 +762,7 @@ impl ReviewSession {
                 .and_then(|row| {
                     row.cells()
                         .find(|cell| {
-                            cell.patch_source
-                                .is_some_and(|source| source.side == anchor.side)
+                            cell.patch_source.is_some_and(|source| source.side == anchor.side)
                                 && cell.line_number() == anchor.line_number()
                         })
                         .and_then(|cell| self.presentation.cell_anchor(row, cell))
@@ -915,9 +796,7 @@ impl ReviewSession {
         let Some(row) = self.presentation.row(self.selected_row) else {
             return;
         };
-        if row.cell(self.selected_side).is_none()
-            && row.cell(self.selected_side.opposite()).is_some()
-        {
+        if row.cell(self.selected_side).is_none() && row.cell(self.selected_side.opposite()).is_some() {
             self.selected_side = self.selected_side.opposite();
         }
     }
@@ -983,15 +862,9 @@ mod tests {
         session.set_view_mode(ViewMode::Split);
         assert_eq!(session.layout(), Layout::Split);
         assert!(session.set_selected_side(DiffSide::Old));
-        assert_eq!(
-            session.selected_anchor().map(|anchor| anchor.side),
-            Some(DiffSide::Old)
-        );
+        assert_eq!(session.selected_anchor().map(|anchor| anchor.side), Some(DiffSide::Old));
         assert!(session.set_selected_side(DiffSide::New));
-        assert_eq!(
-            session.selected_anchor().map(|anchor| anchor.side),
-            Some(DiffSide::New)
-        );
+        assert_eq!(session.selected_anchor().map(|anchor| anchor.side), Some(DiffSide::New));
     }
 
     #[test]
@@ -1068,15 +941,9 @@ mod tests {
 
     #[allow(clippy::format_collect)]
     fn full_file_session() -> ReviewSession {
-        let old = (1..=60)
-            .map(|line| format!("old {line}\n"))
-            .collect::<String>();
+        let old = (1..=60).map(|line| format!("old {line}\n")).collect::<String>();
         let new = old.replace("old 31\n", "new 31\n");
-        ReviewSession::new(
-            DocumentBuilder::new()
-                .changed_with_hunk_window("a.rs", &old, &new, 28..=34)
-                .build(),
-        )
+        ReviewSession::new(DocumentBuilder::new().changed_with_hunk_window("a.rs", &old, &new, 28..=34).build())
     }
 
     #[test]
@@ -1110,10 +977,7 @@ mod tests {
         let document = session.document().clone();
         session.set_document(document);
         assert_eq!(session.selected_anchor(), Some(anchor));
-        assert_eq!(
-            session.draft().map(CommentDraft::body),
-            Some("still editing")
-        );
+        assert_eq!(session.draft().map(CommentDraft::body), Some("still editing"));
     }
 
     #[test]
@@ -1123,9 +987,7 @@ mod tests {
         session.draft_mut().unwrap().insert("stale draft");
         let replacement = Arc::new(DiffDocument {
             repo_root: "/repo".into(),
-            files: vec![
-                FileDiff::from_texts("a.rs", "different\ntwo\n", "CHANGED\nTWO\n").unwrap(),
-            ],
+            files: vec![FileDiff::from_texts("a.rs", "different\ntwo\n", "CHANGED\nTWO\n").unwrap()],
             ..DiffDocument::default()
         });
         session.set_document(replacement);
@@ -1134,20 +996,16 @@ mod tests {
 
     #[allow(clippy::format_collect)]
     fn windowed_source(changed_lines: &[usize]) -> (String, String) {
-        let old = (1..=60)
-            .map(|line| format!("old {line}\n"))
-            .collect::<String>();
-        let new = changed_lines.iter().fold(old.clone(), |text, line| {
-            text.replace(&format!("old {line}\n"), &format!("new {line}\n"))
-        });
+        let old = (1..=60).map(|line| format!("old {line}\n")).collect::<String>();
+        let new = changed_lines
+            .iter()
+            .fold(old.clone(), |text, line| text.replace(&format!("old {line}\n"), &format!("new {line}\n")));
         (old, new)
     }
 
     fn windowed_fixture(new_text: &str) -> Arc<DiffDocument> {
         let (old, _) = windowed_source(&[]);
-        DocumentBuilder::new()
-            .changed_with_hunk_window("a.rs", &old, new_text, 28..=34)
-            .build()
+        DocumentBuilder::new().changed_with_hunk_window("a.rs", &old, new_text, 28..=34).build()
     }
 
     fn expanded_row_count(session: &ReviewSession) -> usize {
@@ -1164,12 +1022,7 @@ mod tests {
             .presentation()
             .file_range(0)
             .expect("a first file")
-            .find(|index| {
-                session
-                    .presentation()
-                    .row(*index)
-                    .is_some_and(|row| row.kind == crate::RowKind::Code)
-            })
+            .find(|index| session.presentation().row(*index).is_some_and(|row| row.kind == crate::RowKind::Code))
             .expect("a code row");
         assert!(session.select_row(code_row));
         assert!(session.reveal_selected_gap(RevealAmount::Step));
@@ -1194,14 +1047,8 @@ mod tests {
         let changed = &document.files[0];
         assert_eq!(changed.hunks.len(), 1);
         assert!(changed.hunks[0].lines.len() <= 8);
-        assert_eq!(
-            changed.source_document(DiffSide::Old).unwrap().line_count(),
-            80
-        );
-        assert_eq!(
-            document.files[1].source_unavailable(DiffSide::Old),
-            Some(&crate::SourceUnavailable::Absent)
-        );
+        assert_eq!(changed.source_document(DiffSide::Old).unwrap().line_count(), 80);
+        assert_eq!(document.files[1].source_unavailable(DiffSide::Old), Some(&crate::SourceUnavailable::Absent));
 
         let mut session = ReviewSession::new(Arc::new(document));
         reveal_from_first_code_row(&mut session);
@@ -1243,17 +1090,11 @@ mod tests {
             .position(|row| row.kind == crate::RowKind::ExpandedContext)
             .expect("expanded context exists");
         assert!(session.select_row(expanded));
-        let source = session
-            .selected_source_line()
-            .expect("expanded row has source location");
+        let source = session.selected_source_line().expect("expanded row has source location");
         session.set_document(windowed_fixture(&new));
         assert_eq!(session.selected_source_line(), Some(source));
         assert_eq!(
-            session
-                .presentation()
-                .row(session.selected_row().unwrap())
-                .unwrap()
-                .kind,
+            session.presentation().row(session.selected_row().unwrap()).unwrap().kind,
             crate::RowKind::ExpandedContext
         );
     }
@@ -1292,10 +1133,7 @@ mod tests {
             .build();
         session.set_document(replacement);
 
-        assert_eq!(
-            session.draft().map(CommentDraft::body),
-            Some("still editing")
-        );
+        assert_eq!(session.draft().map(CommentDraft::body), Some("still editing"));
     }
 
     #[test]

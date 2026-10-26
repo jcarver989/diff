@@ -1,13 +1,10 @@
 #![allow(missing_docs)]
 
 use clankerdiff_core::{
-    ContentProjection, DiffDocument, DiffPresentation, PresentationOptions,
-    testing::DocumentBuilder,
+    ContentProjection, DiffDocument, DiffPresentation, PresentationOptions, testing::DocumentBuilder,
 };
 use clankerdiff_ratatui::KeyCode;
-use clankerdiff_ratatui::{
-    DiffPreviewOptions, DiffPreviewState, DiffReviewState, render_diff_preview,
-};
+use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, DiffReviewState, render_diff_preview};
 use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_theme::ReviewTheme;
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
@@ -19,25 +16,15 @@ mod support;
 use support::{ReviewHarness, key};
 
 fn large_document(rows: usize) -> Arc<DiffDocument> {
-    DocumentBuilder::new()
-        .generated("src/large.rs", rows)
-        .build()
+    DocumentBuilder::new().generated("src/large.rs", rows).build()
 }
 
 fn long_line_document(bytes: usize) -> Arc<DiffDocument> {
-    DocumentBuilder::new()
-        .changed(
-            "src/long.rs",
-            "",
-            &format!("{}\n", "identifier_".repeat(bytes / 11)),
-        )
-        .build()
+    DocumentBuilder::new().changed("src/long.rs", "", &format!("{}\n", "identifier_".repeat(bytes / 11))).build()
 }
 
 fn many_file_document(files: usize, rows_per_file: usize) -> Arc<DiffDocument> {
-    DocumentBuilder::new()
-        .generated_files(files, rows_per_file)
-        .build()
+    DocumentBuilder::new().generated_files(files, rows_per_file).build()
 }
 
 const SCROLL_STEPS: u64 = 100;
@@ -52,18 +39,13 @@ fn presentation_creation(criterion: &mut Criterion) {
     for rows in [1_000, 10_000, 100_000] {
         let document = large_document(rows);
         group.bench_with_input(BenchmarkId::from_parameter(rows), &rows, |bencher, _| {
-            bencher
-                .iter(|| DiffReviewState::with_theme(black_box(document.clone()), theme.clone()));
+            bencher.iter(|| DiffReviewState::with_theme(black_box(document.clone()), theme.clone()));
         });
     }
 
-    let old = (1..=100_000)
-        .map(|line| format!("let value_{line} = {line};\n"))
-        .collect::<String>();
+    let old = (1..=100_000).map(|line| format!("let value_{line} = {line};\n")).collect::<String>();
     let new = old.replacen("let value_50000 = 50000;", "let value_50000 = 0;", 1);
-    let document = DocumentBuilder::new()
-        .changed_with_hunk_window("src/full.rs", &old, &new, 49_997..=50_003)
-        .build();
+    let document = DocumentBuilder::new().changed_with_hunk_window("src/full.rs", &old, &new, 49_997..=50_003).build();
     let mut projection = ContentProjection::default();
     projection.set_full_file(document.files[0].path.clone(), true);
     group.bench_function("full-file-100000", |bencher| {
@@ -229,15 +211,7 @@ fn preview_ownership(criterion: &mut Criterion) {
         bencher.iter(|| black_box(file.clone()));
     });
     group.bench_function("unchanged_owned_render", |bencher| {
-        bencher.iter(|| {
-            black_box(render_diff_preview(
-                file.clone(),
-                80,
-                &theme,
-                &mut highlighter,
-                options,
-            ))
-        });
+        bencher.iter(|| black_box(render_diff_preview(file.clone(), 80, &theme, &mut highlighter, options)));
     });
     let mut state = DiffPreviewState::new(file.clone());
     state.render(80, &theme, &mut highlighter, options);

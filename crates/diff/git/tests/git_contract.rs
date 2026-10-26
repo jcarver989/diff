@@ -1,8 +1,8 @@
 //! Contracts between `clankerdiff-git`, the real Git executable, and `clankerdiff-core`.
 
 use clankerdiff_core::{
-    CommitStack, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath,
-    RepositoryAction, ReviewTarget, SourceResult, SourceUnavailable, StageState,
+    CommitStack, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath, RepositoryAction,
+    ReviewTarget, SourceResult, SourceUnavailable, StageState,
 };
 use clankerdiff_git::{
     GitError, GitRepository, MAX_SOURCE_FILE_BYTES,
@@ -24,11 +24,7 @@ fn source_of<'a>(snapshot: &'a DiffDocument, name: &str, side: DiffSide) -> &'a 
 }
 
 fn paths(document: &DiffDocument) -> Vec<&str> {
-    document
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect()
+    document.files.iter().map(|file| file.path.as_str()).collect()
 }
 
 fn path(value: &str) -> RepoPath {
@@ -39,67 +35,45 @@ fn path(value: &str) -> RepoPath {
 async fn check_ignore_drains_output_while_sending_a_large_batch() {
     let repo = RepoFixtureBuilder::new().gitignore(&["target/"]).build();
     let repository = repo.repository().await;
-    let paths: Vec<_> = (0..20_000)
-        .map(|i| format!("target/artifact-{i:08}.bin"))
-        .collect();
-    let ignored = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        repository.ignored_paths(&paths),
-    )
-    .await
-    .expect("large batches must not deadlock")
-    .expect("check-ignore succeeds");
+    let paths: Vec<_> = (0..20_000).map(|i| format!("target/artifact-{i:08}.bin")).collect();
+    let ignored = tokio::time::timeout(std::time::Duration::from_secs(10), repository.ignored_paths(&paths))
+        .await
+        .expect("large batches must not deadlock")
+        .expect("check-ignore succeeds");
     assert_eq!(ignored.len(), paths.len());
     assert!(paths.iter().all(|path| ignored.contains(path)));
 }
 
 #[tokio::test]
 async fn snapshot_scope_is_captured_and_part_of_equality() -> Result<(), GitError> {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "original\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "original\n").committed().build();
     let repository = repo.repository().await;
     let both = repository.snapshot_with_sources(DiffScope::Both).await?;
     let staged = repository.snapshot_with_sources(DiffScope::Staged).await?;
-    let unstaged = repository
-        .snapshot_with_sources(DiffScope::Unstaged)
-        .await?;
+    let unstaged = repository.snapshot_with_sources(DiffScope::Unstaged).await?;
 
     assert_eq!(both.target, ReviewTarget::WorkingTree(DiffScope::Both));
     assert_eq!(staged.target, ReviewTarget::WorkingTree(DiffScope::Staged));
-    assert_eq!(
-        unstaged.target,
-        ReviewTarget::WorkingTree(DiffScope::Unstaged)
-    );
+    assert_eq!(unstaged.target, ReviewTarget::WorkingTree(DiffScope::Unstaged));
     assert_eq!(both.files, staged.files);
     assert_eq!(both.files, unstaged.files);
     assert_ne!(both, staged);
     assert_ne!(both, unstaged);
     assert_ne!(staged, unstaged);
-    assert_eq!(
-        both,
-        repository.snapshot_with_sources(DiffScope::Both).await?
-    );
+    assert_eq!(both, repository.snapshot_with_sources(DiffScope::Both).await?);
     Ok(())
 }
 
 #[tokio::test]
 async fn snapshot_reads_do_not_refresh_the_index_stat_cache() {
-    let repo = RepoFixtureBuilder::new()
-        .file("file.txt", "original\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file.txt", "original\n").committed().build();
     let repository = repo.repository().await;
     let index = repo.root().join(".git/index");
     let before = fs::read(&index).expect("read index");
     // Replacing the file changes its inode/stat data without changing content.
     repo.remove("file.txt");
     repo.write("file.txt", "original\n");
-    let snapshot = repository
-        .snapshot_with_sources(DiffScope::Both)
-        .await
-        .expect("load snapshot");
+    let snapshot = repository.snapshot_with_sources(DiffScope::Both).await.expect("load snapshot");
     assert_eq!(snapshot.files.len(), 0);
     assert_eq!(fs::read(index).expect("read index after load"), before);
 }
@@ -116,11 +90,7 @@ async fn check_ignore_classifies_ignored_and_tracked_paths() {
     let repository = repo.repository().await;
 
     let ignored = repository
-        .ignored_paths(&[
-            "target/debug/build.txt".to_owned(),
-            "run.log".to_owned(),
-            "src/lib.rs".to_owned(),
-        ])
+        .ignored_paths(&["target/debug/build.txt".to_owned(), "run.log".to_owned(), "src/lib.rs".to_owned()])
         .await
         .expect("check-ignore must classify paths");
 
@@ -131,10 +101,7 @@ async fn check_ignore_classifies_ignored_and_tracked_paths() {
 
 #[tokio::test]
 async fn check_ignore_reports_nothing_ignored_without_an_error() {
-    let repo = RepoFixtureBuilder::new()
-        .file("src/lib.rs", "fn main() {}\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("src/lib.rs", "fn main() {}\n").committed().build();
     let repository = repo.repository().await;
 
     assert!(
@@ -144,13 +111,7 @@ async fn check_ignore_reports_nothing_ignored_without_an_error() {
             .expect("exit status 1 means nothing was ignored")
             .is_empty()
     );
-    assert!(
-        repository
-            .ignored_paths(&[])
-            .await
-            .expect("an empty request never spawns Git")
-            .is_empty()
-    );
+    assert!(repository.ignored_paths(&[]).await.expect("an empty request never spawns Git").is_empty());
 }
 
 #[tokio::test]
@@ -163,10 +124,7 @@ async fn discovers_from_a_subdirectory_and_rejects_non_repositories() {
     assert_eq!(discovered.root(), repo.root());
 
     let outside = TempDir::new().expect("temporary directory");
-    assert!(matches!(
-        GitRepository::discover(outside.path()).await,
-        Err(GitError::NotRepository)
-    ));
+    assert!(matches!(GitRepository::discover(outside.path()).await, Err(GitError::NotRepository)));
 }
 
 #[tokio::test]
@@ -185,15 +143,9 @@ async fn snapshots_keep_staged_unstaged_and_partial_content_separate() {
     repo.git(&["add", "staged.txt"]);
 
     let repository = repo.repository().await;
-    let staged = repository
-        .snapshot(DiffScope::Staged)
-        .await
-        .expect("staged snapshot");
+    let staged = repository.snapshot(DiffScope::Staged).await.expect("staged snapshot");
     assert_eq!(paths(&staged), ["partial.txt", "staged.txt"]);
-    assert_eq!(
-        file(&staged, "partial.txt").staged,
-        StageState::PartiallyStaged
-    );
+    assert_eq!(file(&staged, "partial.txt").staged, StageState::PartiallyStaged);
     assert!(
         file(&staged, "partial.txt")
             .hunks
@@ -202,10 +154,7 @@ async fn snapshots_keep_staged_unstaged_and_partial_content_separate() {
             .any(|line| line.kind == PatchLineKind::Added && line.text.as_ref() == "index")
     );
 
-    let unstaged = repository
-        .snapshot(DiffScope::Unstaged)
-        .await
-        .expect("unstaged snapshot");
+    let unstaged = repository.snapshot(DiffScope::Unstaged).await.expect("unstaged snapshot");
     assert_eq!(paths(&unstaged), ["partial.txt", "unstaged.txt"]);
     assert!(
         file(&unstaged, "partial.txt")
@@ -215,15 +164,9 @@ async fn snapshots_keep_staged_unstaged_and_partial_content_separate() {
             .any(|line| line.kind == PatchLineKind::Added && line.text.as_ref() == "worktree")
     );
 
-    let both = repository
-        .snapshot(DiffScope::Both)
-        .await
-        .expect("combined snapshot");
+    let both = repository.snapshot(DiffScope::Both).await.expect("combined snapshot");
     assert_eq!(paths(&both), ["partial.txt", "staged.txt", "unstaged.txt"]);
-    assert_eq!(
-        file(&both, "partial.txt").staged,
-        StageState::PartiallyStaged
-    );
+    assert_eq!(file(&both, "partial.txt").staged, StageState::PartiallyStaged);
 }
 
 #[tokio::test]
@@ -235,32 +178,18 @@ async fn richer_snapshots_capture_exact_head_index_and_worktree_versions() {
     repo.git(&["add", "three.txt"]);
     repo.write("three.txt", "worktree\n");
     let repository = repo.repository().await;
-    let text = |snapshot: &DiffDocument, side| {
-        source_of(snapshot, "three.txt", side)
-            .as_ref()
-            .unwrap()
-            .text()
-            .to_owned()
-    };
+    let text =
+        |snapshot: &DiffDocument, side| source_of(snapshot, "three.txt", side).as_ref().unwrap().text().to_owned();
 
-    let staged = repository
-        .snapshot_with_sources(DiffScope::Staged)
-        .await
-        .unwrap();
+    let staged = repository.snapshot_with_sources(DiffScope::Staged).await.unwrap();
     assert_eq!(text(&staged, DiffSide::Old), "head\n");
     assert_eq!(text(&staged, DiffSide::New), "index\n");
 
-    let unstaged = repository
-        .snapshot_with_sources(DiffScope::Unstaged)
-        .await
-        .unwrap();
+    let unstaged = repository.snapshot_with_sources(DiffScope::Unstaged).await.unwrap();
     assert_eq!(text(&unstaged, DiffSide::Old), "index\n");
     assert_eq!(text(&unstaged, DiffSide::New), "worktree\n");
 
-    let both = repository
-        .snapshot_with_sources(DiffScope::Both)
-        .await
-        .unwrap();
+    let both = repository.snapshot_with_sources(DiffScope::Both).await.unwrap();
     assert_eq!(text(&both, DiffSide::Old), "head\n");
     assert_eq!(text(&both, DiffSide::New), "worktree\n");
 
@@ -276,10 +205,7 @@ async fn source_archives_preserve_crlf_and_final_newline_identity() {
     repo.commit_all();
     repo.write("lines.txt", b"new\r\nsecond");
     let repository = repo.repository().await;
-    let snapshot = repository
-        .snapshot_with_sources(DiffScope::Unstaged)
-        .await
-        .unwrap();
+    let snapshot = repository.snapshot_with_sources(DiffScope::Unstaged).await.unwrap();
     let source = |side| source_of(&snapshot, "lines.txt", side).as_ref().unwrap();
     assert_eq!(source(DiffSide::Old).text(), "old\r\nsecond\r\n");
     assert_eq!(source(DiffSide::New).text(), "new\r\nsecond");
@@ -303,18 +229,10 @@ async fn source_archive_budget_marks_later_versions_unavailable() {
         fs::set_permissions(path, permissions).unwrap();
     }
 
-    let snapshot = repo
-        .repository()
-        .await
-        .snapshot_with_sources(DiffScope::Unstaged)
-        .await
-        .unwrap();
+    let snapshot = repo.repository().await.snapshot_with_sources(DiffScope::Unstaged).await.unwrap();
     for side in [DiffSide::Old, DiffSide::New] {
         assert!(source_of(&snapshot, "large-3.txt", side).is_ok());
-        assert_eq!(
-            source_of(&snapshot, "large-4.txt", side),
-            &Err(SourceUnavailable::SnapshotBudgetExceeded)
-        );
+        assert_eq!(source_of(&snapshot, "large-4.txt", side), &Err(SourceUnavailable::SnapshotBudgetExceeded));
     }
 }
 
@@ -325,10 +243,7 @@ async fn oversized_blob_does_not_break_batch_framing() {
 
     let repo = RepoFixture::init();
     let oversized_bytes = MAX_SOURCE_FILE_BYTES.saturating_add(1);
-    repo.write(
-        "a-large.txt",
-        vec![b'x'; usize::try_from(oversized_bytes).unwrap()],
-    );
+    repo.write("a-large.txt", vec![b'x'; usize::try_from(oversized_bytes).unwrap()]);
     repo.write("z-small.txt", "small\n");
     repo.commit_all();
     for name in ["a-large.txt", "z-small.txt"] {
@@ -338,26 +253,13 @@ async fn oversized_blob_does_not_break_batch_framing() {
         fs::set_permissions(path, permissions).unwrap();
     }
 
-    let snapshot = repo
-        .repository()
-        .await
-        .snapshot_with_sources(DiffScope::Unstaged)
-        .await
-        .unwrap();
+    let snapshot = repo.repository().await.snapshot_with_sources(DiffScope::Unstaged).await.unwrap();
     for side in [DiffSide::Old, DiffSide::New] {
         assert_eq!(
             source_of(&snapshot, "a-large.txt", side),
-            &Err(SourceUnavailable::TooLarge {
-                bytes: oversized_bytes
-            })
+            &Err(SourceUnavailable::TooLarge { bytes: oversized_bytes })
         );
-        assert_eq!(
-            source_of(&snapshot, "z-small.txt", side)
-                .as_ref()
-                .unwrap()
-                .text(),
-            "small\n"
-        );
+        assert_eq!(source_of(&snapshot, "z-small.txt", side).as_ref().unwrap().text(), "small\n");
     }
 }
 
@@ -377,19 +279,8 @@ async fn discarded_binary_versions_do_not_consume_the_source_archive_budget() {
     }
     repo.write("z-text.txt", "after\n");
 
-    let snapshot = repo
-        .repository()
-        .await
-        .snapshot_with_sources(DiffScope::Unstaged)
-        .await
-        .unwrap();
-    assert_eq!(
-        source_of(&snapshot, "z-text.txt", DiffSide::New)
-            .as_ref()
-            .unwrap()
-            .text(),
-        "after\n"
-    );
+    let snapshot = repo.repository().await.snapshot_with_sources(DiffScope::Unstaged).await.unwrap();
+    assert_eq!(source_of(&snapshot, "z-text.txt", DiffSide::New).as_ref().unwrap().text(), "after\n");
 }
 
 #[tokio::test]
@@ -401,37 +292,18 @@ async fn unborn_repository_snapshots_and_unstaging_work() {
     repo.write("untracked.txt", "new\n");
     let repository = repo.repository().await;
 
-    let combined = repository
-        .snapshot(DiffScope::Both)
-        .await
-        .expect("combined unborn snapshot");
-    assert_eq!(
-        file(&combined, "staged.txt").staged,
-        StageState::PartiallyStaged
-    );
-    assert_eq!(
-        file(&combined, "untracked.txt").status,
-        FileStatus::Untracked
-    );
+    let combined = repository.snapshot(DiffScope::Both).await.expect("combined unborn snapshot");
+    assert_eq!(file(&combined, "staged.txt").staged, StageState::PartiallyStaged);
+    assert_eq!(file(&combined, "untracked.txt").status, FileStatus::Untracked);
 
-    repository
-        .apply(RepositoryAction::UnstageAll)
-        .await
-        .expect("unstage unborn index");
-    let staged = repository
-        .snapshot(DiffScope::Staged)
-        .await
-        .expect("empty staged snapshot");
+    repository.apply(RepositoryAction::UnstageAll).await.expect("unstage unborn index");
+    let staged = repository.snapshot(DiffScope::Staged).await.expect("empty staged snapshot");
     assert_eq!(staged.files.len(), 0);
-    assert!(
-        repo.root().join("staged.txt").exists(),
-        "unstaging must preserve worktree files"
-    );
+    assert!(repo.root().join("staged.txt").exists(), "unstaging must preserve worktree files");
 }
 
 #[tokio::test]
-async fn untracked_text_binary_and_utf8_paths_are_loaded_without_loss() -> Result<(), Box<dyn Error>>
-{
+async fn untracked_text_binary_and_utf8_paths_are_loaded_without_loss() -> Result<(), Box<dyn Error>> {
     let repo = RepoFixtureBuilder::new()
         .file("space and é.txt", "hello\n")
         .file("tab\tand\nnewline.txt", "odd path\n")
@@ -443,24 +315,11 @@ async fn untracked_text_binary_and_utf8_paths_are_loaded_without_loss() -> Resul
     assert!(!file(&document, "space and é.txt").binary);
     assert!(!file(&document, "tab\tand\nnewline.txt").binary);
     assert!(file(&document, "data.bin").binary);
-    let snapshot = repository
-        .snapshot_with_sources(DiffScope::Unstaged)
-        .await?;
-    for (name, expected) in [
-        ("space and é.txt", "hello\n"),
-        ("tab\tand\nnewline.txt", "odd path\n"),
-    ] {
-        assert_eq!(
-            source_of(&snapshot, name, DiffSide::New)
-                .as_ref()
-                .map(|source| source.text()),
-            Ok(expected)
-        );
+    let snapshot = repository.snapshot_with_sources(DiffScope::Unstaged).await?;
+    for (name, expected) in [("space and é.txt", "hello\n"), ("tab\tand\nnewline.txt", "odd path\n")] {
+        assert_eq!(source_of(&snapshot, name, DiffSide::New).as_ref().map(|source| source.text()), Ok(expected));
     }
-    assert_eq!(
-        source_of(&snapshot, "data.bin", DiffSide::New),
-        &Err(SourceUnavailable::Binary)
-    );
+    assert_eq!(source_of(&snapshot, "data.bin", DiffSide::New), &Err(SourceUnavailable::Binary));
     Ok(())
 }
 
@@ -470,12 +329,7 @@ async fn oversized_untracked_content_is_omitted_from_snapshots() {
     let large = fs::File::create(repo.root().join("large.bin")).expect("create large fixture");
     large.set_len(9 * 1024 * 1024).expect("size large fixture");
 
-    let document = repo
-        .repository()
-        .await
-        .snapshot(DiffScope::Unstaged)
-        .await
-        .expect("snapshot");
+    let document = repo.repository().await.snapshot(DiffScope::Unstaged).await.expect("snapshot");
     let large = file(&document, "large.bin");
     assert!(large.binary);
     assert_eq!(large.omitted_bytes, Some(9 * 1024 * 1024));
@@ -488,10 +342,7 @@ async fn snapshot_rejects_non_utf8_repository_paths() {
     use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
     let repo = RepoFixture::init();
-    let Ok(()) = fs::write(
-        repo.root().join(OsStr::from_bytes(b"invalid-\xff")),
-        "content\n",
-    ) else {
+    let Ok(()) = fs::write(repo.root().join(OsStr::from_bytes(b"invalid-\xff")), "content\n") else {
         // Some filesystems (including common macOS volumes) reject non-UTF-8
         // names before Git can observe them.
         return;
@@ -499,9 +350,7 @@ async fn snapshot_rejects_non_utf8_repository_paths() {
 
     assert!(matches!(
         repo.repository().await.snapshot(DiffScope::Unstaged).await,
-        Err(GitError::Diff(
-            clankerdiff_core::DiffError::UnsupportedPathEncoding(_)
-        ))
+        Err(GitError::Diff(clankerdiff_core::DiffError::UnsupportedPathEncoding(_)))
     ));
 }
 
@@ -514,69 +363,28 @@ async fn stage_unstage_commit_and_empty_message_contracts() {
     repo.write("new.txt", "new\n");
     let repository = repo.repository().await;
 
-    repository
-        .apply(RepositoryAction::StagePaths(vec![path("file.txt")]))
-        .await
-        .expect("stage selected");
+    repository.apply(RepositoryAction::StagePaths(vec![path("file.txt")])).await.expect("stage selected");
     assert_eq!(
-        file(
-            &repository
-                .snapshot(DiffScope::Both)
-                .await
-                .expect("snapshot"),
-            "file.txt"
-        )
-        .staged,
+        file(&repository.snapshot(DiffScope::Both).await.expect("snapshot"), "file.txt").staged,
         StageState::Staged
     );
-    repository
-        .apply(RepositoryAction::UnstagePaths(vec![path("file.txt")]))
-        .await
-        .expect("unstage selected");
+    repository.apply(RepositoryAction::UnstagePaths(vec![path("file.txt")])).await.expect("unstage selected");
     assert_eq!(
-        file(
-            &repository
-                .snapshot(DiffScope::Both)
-                .await
-                .expect("snapshot"),
-            "file.txt"
-        )
-        .staged,
+        file(&repository.snapshot(DiffScope::Both).await.expect("snapshot"), "file.txt").staged,
         StageState::Unstaged
     );
     assert!(matches!(
-        repository
-            .apply(RepositoryAction::Commit {
-                message: "  \n".to_owned(),
-            })
-            .await,
+        repository.apply(RepositoryAction::Commit { message: "  \n".to_owned() }).await,
         Err(GitError::EmptyCommitMessage)
     ));
 
-    repository
-        .apply(RepositoryAction::StageAll)
-        .await
-        .expect("stage all");
-    repository
-        .apply(RepositoryAction::Commit {
-            message: "update".to_owned(),
-        })
-        .await
-        .expect("commit");
-    assert_eq!(
-        repository
-            .snapshot(DiffScope::Both)
-            .await
-            .expect("clean snapshot")
-            .files
-            .len(),
-        0
-    );
+    repository.apply(RepositoryAction::StageAll).await.expect("stage all");
+    repository.apply(RepositoryAction::Commit { message: "update".to_owned() }).await.expect("commit");
+    assert_eq!(repository.snapshot(DiffScope::Both).await.expect("clean snapshot").files.len(), 0);
 }
 
 #[tokio::test]
-async fn staging_selected_paths_tolerates_staged_deletions_and_stale_files()
--> Result<(), Box<dyn Error>> {
+async fn staging_selected_paths_tolerates_staged_deletions_and_stale_files() -> Result<(), Box<dyn Error>> {
     let repo = RepoFixtureBuilder::new()
         .file("src/deleted.rs", "deleted\n")
         .file("src/edit.rs", "base\n")
@@ -596,21 +404,13 @@ async fn staging_selected_paths_tolerates_staged_deletions_and_stale_files()
         .await?;
     let staged = repository.snapshot(DiffScope::Staged).await?;
     assert_eq!(paths(&staged), ["src/deleted.rs", "src/edit.rs"]);
-    assert_eq!(
-        paths(&repository.snapshot(DiffScope::Unstaged).await?),
-        ["other.rs"]
-    );
-    repository
-        .apply(RepositoryAction::StagePaths(vec![RepoPath::new(
-            "src/deleted.rs",
-        )?]))
-        .await?;
+    assert_eq!(paths(&repository.snapshot(DiffScope::Unstaged).await?), ["other.rs"]);
+    repository.apply(RepositoryAction::StagePaths(vec![RepoPath::new("src/deleted.rs")?])).await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn staging_selected_paths_keeps_unstaged_deletions_and_recreated_files()
--> Result<(), Box<dyn Error>> {
+async fn staging_selected_paths_keeps_unstaged_deletions_and_recreated_files() -> Result<(), Box<dyn Error>> {
     let repo = RepoFixtureBuilder::new()
         .file("deleted.rs", "deleted\n")
         .file("recreated.rs", "original\n")
@@ -621,10 +421,7 @@ async fn staging_selected_paths_keeps_unstaged_deletions_and_recreated_files()
     repo.write("recreated.rs", "replacement\n");
     let repository = repo.repository().await;
     repository
-        .apply(RepositoryAction::StagePaths(vec![
-            RepoPath::new("deleted.rs")?,
-            RepoPath::new("recreated.rs")?,
-        ]))
+        .apply(RepositoryAction::StagePaths(vec![RepoPath::new("deleted.rs")?, RepoPath::new("recreated.rs")?]))
         .await?;
     let staged = repository.snapshot(DiffScope::Staged).await?;
     assert_eq!(file(&staged, "deleted.rs").status, FileStatus::Deleted);
@@ -634,8 +431,7 @@ async fn staging_selected_paths_keeps_unstaged_deletions_and_recreated_files()
 }
 
 #[tokio::test]
-async fn selected_renames_unstage_both_endpoints_and_can_be_restaged() -> Result<(), Box<dyn Error>>
-{
+async fn selected_renames_unstage_both_endpoints_and_can_be_restaged() -> Result<(), Box<dyn Error>> {
     for (selected, renames) in [("old/source.rs", "false"), ("new/destination.rs", "true")] {
         let repo = RepoFixtureBuilder::new()
             .file("old/source.rs", "unique rename content\n")
@@ -649,20 +445,10 @@ async fn selected_renames_unstage_both_endpoints_and_can_be_restaged() -> Result
         repo.git(&["add", "--", "unrelated.rs"]);
         repo.write("unrelated.rs", "worktree\n");
         let repository = repo.repository().await;
-        repository
-            .apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(
-                selected,
-            )?]))
-            .await?;
-        assert_eq!(
-            paths(&repository.snapshot(DiffScope::Staged).await?),
-            ["unrelated.rs"]
-        );
+        repository.apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(selected)?])).await?;
+        assert_eq!(paths(&repository.snapshot(DiffScope::Staged).await?), ["unrelated.rs"]);
         assert!(!repo.root().join("old/source.rs").exists());
-        assert_eq!(
-            fs::read_to_string(repo.root().join("new/destination.rs"))?,
-            "unique rename content\n"
-        );
+        assert_eq!(fs::read_to_string(repo.root().join("new/destination.rs"))?, "unique rename content\n");
         for _ in 0..2 {
             repository
                 .apply(RepositoryAction::StagePaths(vec![
@@ -671,19 +457,9 @@ async fn selected_renames_unstage_both_endpoints_and_can_be_restaged() -> Result
                 ]))
                 .await?;
             let staged = repository.snapshot(DiffScope::Staged).await?;
-            assert_eq!(
-                file(&staged, "new/destination.rs").status,
-                FileStatus::Renamed
-            );
-            repository
-                .apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(
-                    "new/destination.rs",
-                )?]))
-                .await?;
-            assert_eq!(
-                paths(&repository.snapshot(DiffScope::Staged).await?),
-                ["unrelated.rs"]
-            );
+            assert_eq!(file(&staged, "new/destination.rs").status, FileStatus::Renamed);
+            repository.apply(RepositoryAction::UnstagePaths(vec![RepoPath::new("new/destination.rs")?])).await?;
+            assert_eq!(paths(&repository.snapshot(DiffScope::Staged).await?), ["unrelated.rs"]);
         }
         assert_eq!(
             file(&repository.snapshot(DiffScope::Both).await?, "unrelated.rs").staged,
@@ -697,10 +473,7 @@ async fn selected_renames_unstage_both_endpoints_and_can_be_restaged() -> Result
 async fn selected_copies_do_not_unstage_their_source() -> Result<(), Box<dyn Error>> {
     let original = "unchanged source line\n".repeat(20);
     let updated = format!("{original}updated copy contents\n");
-    let repo = RepoFixtureBuilder::new()
-        .file("source.rs", original)
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("source.rs", original).committed().build();
     repo.git(&["config", "status.renames", "copies"]);
     repo.write("source.rs", &updated);
     repo.write("copy.rs", &updated);
@@ -708,39 +481,18 @@ async fn selected_copies_do_not_unstage_their_source() -> Result<(), Box<dyn Err
     let repository = repo.repository().await;
     let staged = repository.snapshot(DiffScope::Staged).await?;
     assert_eq!(file(&staged, "copy.rs").status, FileStatus::Copied);
-    repository
-        .apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(
-            "copy.rs",
-        )?]))
-        .await?;
-    assert_eq!(
-        paths(&repository.snapshot(DiffScope::Staged).await?),
-        ["source.rs"]
-    );
+    repository.apply(RepositoryAction::UnstagePaths(vec![RepoPath::new("copy.rs")?])).await?;
+    assert_eq!(paths(&repository.snapshot(DiffScope::Staged).await?), ["source.rs"]);
     Ok(())
 }
 
 #[tokio::test]
 async fn selected_paths_are_literal_and_work_without_head() -> Result<(), Box<dyn Error>> {
-    let repo = RepoFixtureBuilder::new()
-        .file("file[1].rs", "literal\n")
-        .file("file1.rs", "unrelated\n")
-        .build();
+    let repo = RepoFixtureBuilder::new().file("file[1].rs", "literal\n").file("file1.rs", "unrelated\n").build();
     let repository = repo.repository().await;
-    repository
-        .apply(RepositoryAction::StagePaths(vec![RepoPath::new(
-            "file[1].rs",
-        )?]))
-        .await?;
-    assert_eq!(
-        paths(&repository.snapshot(DiffScope::Staged).await?),
-        ["file[1].rs"]
-    );
-    repository
-        .apply(RepositoryAction::UnstagePaths(vec![RepoPath::new(
-            "file[1].rs",
-        )?]))
-        .await?;
+    repository.apply(RepositoryAction::StagePaths(vec![RepoPath::new("file[1].rs")?])).await?;
+    assert_eq!(paths(&repository.snapshot(DiffScope::Staged).await?), ["file[1].rs"]);
+    repository.apply(RepositoryAction::UnstagePaths(vec![RepoPath::new("file[1].rs")?])).await?;
     assert_eq!(repository.snapshot(DiffScope::Staged).await?.files, []);
     assert!(repo.root().join("file[1].rs").exists());
     Ok(())
@@ -764,19 +516,12 @@ async fn snapshots_cover_renames_copies_deletions_binary_and_mode_changes() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(repo.root().join("script.sh"))
-            .expect("metadata")
-            .permissions();
+        let mut permissions = fs::metadata(repo.root().join("script.sh")).expect("metadata").permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(repo.root().join("script.sh"), permissions).expect("chmod fixture");
     }
 
-    let document = repo
-        .repository()
-        .await
-        .snapshot(DiffScope::Both)
-        .await
-        .expect("snapshot");
+    let document = repo.repository().await.snapshot(DiffScope::Both).await.expect("snapshot");
     assert_eq!(file(&document, "new.rs").status, FileStatus::Renamed);
     assert_eq!(file(&document, "copy.txt").status, FileStatus::Copied);
     assert_eq!(file(&document, "delete.txt").status, FileStatus::Deleted);
@@ -801,54 +546,28 @@ async fn discard_restores_tracked_files_and_removes_untracked_files() {
     let repository = repo.repository().await;
 
     repository
-        .apply(RepositoryAction::Discard {
-            path: path("modified.txt"),
-            status: FileStatus::Modified,
-        })
+        .apply(RepositoryAction::Discard { path: path("modified.txt"), status: FileStatus::Modified })
         .await
         .expect("discard modification");
     repository
-        .apply(RepositoryAction::Discard {
-            path: path("deleted.txt"),
-            status: FileStatus::Deleted,
-        })
+        .apply(RepositoryAction::Discard { path: path("deleted.txt"), status: FileStatus::Deleted })
         .await
         .expect("discard deletion");
     repository
-        .apply(RepositoryAction::Discard {
-            path: path("untracked.txt"),
-            status: FileStatus::Untracked,
-        })
+        .apply(RepositoryAction::Discard { path: path("untracked.txt"), status: FileStatus::Untracked })
         .await
         .expect("discard untracked");
     repository
-        .apply(RepositoryAction::Discard {
-            path: path("renamed.txt"),
-            status: FileStatus::Renamed,
-        })
+        .apply(RepositoryAction::Discard { path: path("renamed.txt"), status: FileStatus::Renamed })
         .await
         .expect("discard rename");
 
-    assert_eq!(
-        fs::read(repo.root().join("modified.txt")).expect("read"),
-        b"original\n"
-    );
-    assert_eq!(
-        fs::read(repo.root().join("deleted.txt")).expect("read"),
-        b"restore\n"
-    );
+    assert_eq!(fs::read(repo.root().join("modified.txt")).expect("read"), b"original\n");
+    assert_eq!(fs::read(repo.root().join("deleted.txt")).expect("read"), b"restore\n");
     assert!(!repo.root().join("untracked.txt").exists());
     assert!(repo.root().join("rename-me.txt").exists());
     assert!(!repo.root().join("renamed.txt").exists());
-    assert_eq!(
-        repository
-            .snapshot(DiffScope::Both)
-            .await
-            .expect("clean snapshot")
-            .files
-            .len(),
-        0
-    );
+    assert_eq!(repository.snapshot(DiffScope::Both).await.expect("clean snapshot").files.len(), 0);
 }
 
 #[cfg(unix)]
@@ -861,26 +580,14 @@ async fn untracked_symlinks_use_the_link_target_for_patch_and_source() {
     repo.commit_all();
     symlink("target.txt", repo.root().join("link.txt")).expect("create symlink");
 
-    let snapshot = repo
-        .repository()
-        .await
-        .snapshot_with_sources(DiffScope::Both)
-        .await
-        .expect("capture symlink");
+    let snapshot = repo.repository().await.snapshot_with_sources(DiffScope::Both).await.expect("capture symlink");
     assert_eq!(file(&snapshot, "link.txt").status, FileStatus::Untracked);
-    assert_eq!(
-        source_of(&snapshot, "link.txt", DiffSide::New)
-            .as_ref()
-            .unwrap()
-            .text(),
-        "target.txt"
-    );
+    assert_eq!(source_of(&snapshot, "link.txt", DiffSide::New).as_ref().unwrap().text(), "target.txt");
 }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn snapshots_capture_external_symlink_targets_without_reading_them()
--> Result<(), Box<dyn Error>> {
+async fn snapshots_capture_external_symlink_targets_without_reading_them() -> Result<(), Box<dyn Error>> {
     use std::os::unix::fs::symlink;
 
     let repo = RepoFixtureBuilder::new().build();
@@ -889,15 +596,9 @@ async fn snapshots_capture_external_symlink_targets_without_reading_them()
     fs::write(&target, "secret\n")?;
     symlink(&target, repo.root().join("link"))?;
 
-    let snapshot = repo
-        .repository()
-        .await
-        .snapshot_with_sources(DiffScope::Both)
-        .await?;
+    let snapshot = repo.repository().await.snapshot_with_sources(DiffScope::Both).await?;
     assert_eq!(
-        source_of(&snapshot, "link", DiffSide::New)
-            .as_ref()
-            .map(|source| source.text()),
+        source_of(&snapshot, "link", DiffSide::New).as_ref().map(|source| source.text()),
         Ok(target.to_str().ok_or("non-UTF-8 fixture path")?)
     );
     Ok(())
@@ -905,47 +606,23 @@ async fn snapshots_capture_external_symlink_targets_without_reading_them()
 
 #[tokio::test]
 async fn commit_stacks_list_branch_commits_since_the_default_branch() -> Result<(), GitError> {
-    assert_eq!(
-        RepoFixture::init()
-            .repository()
-            .await
-            .commit_stack()
-            .await?,
-        None
-    );
-    let repo = RepoFixtureBuilder::new()
-        .file("a.txt", "one\n")
-        .committed()
-        .build();
+    assert_eq!(RepoFixture::init().repository().await.commit_stack().await?, None);
+    let repo = RepoFixtureBuilder::new().file("a.txt", "one\n").committed().build();
     repo.git(&["checkout", "-b", "feature"]);
     repo.write("a.txt", "two\n");
     let first = repo.commit("First change");
     repo.write("a.txt", "three\n");
     let second = repo.commit("Second change");
     let stack = || async { repo.repository().await.commit_stack().await };
-    let ids = |stack: &CommitStack| -> Vec<_> {
-        stack
-            .commits
-            .iter()
-            .map(|commit| commit.id.clone())
-            .collect()
-    };
+    let ids = |stack: &CommitStack| -> Vec<_> { stack.commits.iter().map(|commit| commit.id.clone()).collect() };
 
     let local = stack().await?.expect("a stack on top of main");
     assert_eq!(local.base_ref, "main");
     assert_eq!(ids(&local), [first.clone(), second.clone()]);
     assert_eq!(local.commits[0].subject, "First change");
 
-    repo.git(&[
-        "update-ref",
-        "refs/remotes/origin/trunk",
-        &first.to_string(),
-    ]);
-    repo.git(&[
-        "symbolic-ref",
-        "refs/remotes/origin/HEAD",
-        "refs/remotes/origin/trunk",
-    ]);
+    repo.git(&["update-ref", "refs/remotes/origin/trunk", &first.to_string()]);
+    repo.git(&["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"]);
     let remote = stack().await?.expect("a stack on top of origin/trunk");
     assert_eq!(remote.base_ref, "origin/trunk");
     assert_eq!(ids(&remote), [second]);
@@ -958,11 +635,7 @@ async fn commit_stacks_list_branch_commits_since_the_default_branch() -> Result<
 
 #[tokio::test]
 async fn commit_snapshots_capture_the_commit_and_ignore_the_working_tree() -> Result<(), GitError> {
-    let repo = RepoFixtureBuilder::new()
-        .file("a.txt", "one\nshared\n")
-        .file("gone.txt", "bye\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("a.txt", "one\nshared\n").file("gone.txt", "bye\n").committed().build();
     let root = repo.head();
     repo.write("a.txt", "two\nshared\n");
     repo.write("added.txt", "hello\n");
@@ -976,33 +649,15 @@ async fn commit_snapshots_capture_the_commit_and_ignore_the_working_tree() -> Re
     assert_eq!(snapshot.target, ReviewTarget::Commit(commit));
     assert_eq!(paths(&snapshot), ["a.txt", "added.txt", "gone.txt"]);
     let text = |document: &DiffDocument, name, side| {
-        source_of(document, name, side)
-            .as_ref()
-            .map(|source| source.text().to_owned())
-            .map_err(Clone::clone)
+        source_of(document, name, side).as_ref().map(|source| source.text().to_owned()).map_err(Clone::clone)
     };
-    assert_eq!(
-        text(&snapshot, "a.txt", DiffSide::Old),
-        Ok("one\nshared\n".to_owned())
-    );
-    assert_eq!(
-        text(&snapshot, "a.txt", DiffSide::New),
-        Ok("two\nshared\n".to_owned())
-    );
-    assert_eq!(
-        text(&snapshot, "added.txt", DiffSide::Old),
-        Err(SourceUnavailable::Absent)
-    );
-    assert_eq!(
-        text(&snapshot, "gone.txt", DiffSide::New),
-        Err(SourceUnavailable::Absent)
-    );
+    assert_eq!(text(&snapshot, "a.txt", DiffSide::Old), Ok("one\nshared\n".to_owned()));
+    assert_eq!(text(&snapshot, "a.txt", DiffSide::New), Ok("two\nshared\n".to_owned()));
+    assert_eq!(text(&snapshot, "added.txt", DiffSide::Old), Err(SourceUnavailable::Absent));
+    assert_eq!(text(&snapshot, "gone.txt", DiffSide::New), Err(SourceUnavailable::Absent));
 
     let root = repository.snapshot_with_sources(root).await?;
     assert_eq!(file(&root, "a.txt").status, FileStatus::Added);
-    assert_eq!(
-        text(&root, "a.txt", DiffSide::Old),
-        Err(SourceUnavailable::Absent)
-    );
+    assert_eq!(text(&root, "a.txt", DiffSide::Old), Err(SourceUnavailable::Absent));
     Ok(())
 }

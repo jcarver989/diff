@@ -20,10 +20,7 @@ fn the_stepper_titles_the_page_and_requests_neighbours(cx: &mut TestAppContext) 
         harness.click(cx, "scope-staged")?;
         assert_eq!(
             harness.events(cx),
-            vec![
-                DiffReviewEvent::SetTarget(commit_id(2).into()),
-                DiffReviewEvent::SetTarget(DiffScope::Staged.into()),
-            ]
+            vec![DiffReviewEvent::SetTarget(commit_id(2).into()), DiffReviewEvent::SetTarget(DiffScope::Staged.into()),]
         );
         Ok(())
     });
@@ -40,11 +37,7 @@ fn a_review_without_a_commit_stack_has_no_stepper(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn an_empty_page_keeps_navigation_and_the_keyboard(cx: &mut TestAppContext) {
-    let empty = DocumentBuilder::new()
-        .commit("Add parser")
-        .commit("Wire parser")
-        .target(commit_id(2))
-        .build();
+    let empty = DocumentBuilder::new().commit("Add parser").commit("Wire parser").target(commit_id(2)).build();
     paged(empty).run(cx, |harness, cx| {
         assert!(harness.bounds(cx, "changes-clean").is_some());
         assert!(harness.bounds(cx, "commit-page").is_some());
@@ -52,10 +45,7 @@ fn an_empty_page_keeps_navigation_and_the_keyboard(cx: &mut TestAppContext) {
         harness.click(cx, "commit-next")?;
         assert_eq!(
             harness.events(cx),
-            vec![
-                DiffReviewEvent::SetTarget(commit_id(1).into()),
-                DiffReviewEvent::SetTarget(DiffScope::Both.into()),
-            ]
+            vec![DiffReviewEvent::SetTarget(commit_id(1).into()), DiffReviewEvent::SetTarget(DiffScope::Both.into()),]
         );
         harness.show(cx, page(DiffScope::Both));
         assert!(harness.bounds(cx, "changes-clean").is_none());
@@ -90,8 +80,5 @@ fn page(target: impl Into<ReviewTarget>) -> Arc<DiffDocument> {
 }
 
 fn paged(document: Arc<DiffDocument>) -> DiffViewerHarnessBuilder {
-    DiffViewerHarnessBuilder {
-        document,
-        ..DiffViewerHarnessBuilder::default()
-    }
+    DiffViewerHarnessBuilder { document, ..DiffViewerHarnessBuilder::default() }
 }

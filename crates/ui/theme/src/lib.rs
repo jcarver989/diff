@@ -33,10 +33,7 @@ impl Rgba {
     /// Composites this color over an opaque background.
     #[must_use]
     pub const fn over(self, background: Self) -> Self {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "weighted u8 average fits in u8"
-        )]
+        #[expect(clippy::cast_possible_truncation, reason = "weighted u8 average fits in u8")]
         const fn channel(foreground: u8, background: u8, alpha: u8) -> u8 {
             let foreground = foreground as u32 * alpha as u32;
             let background = background as u32 * (u8::MAX - alpha) as u32;
@@ -81,11 +78,7 @@ pub struct FontStyle {
 impl FontStyle {
     #[must_use]
     pub const fn none() -> Self {
-        Self {
-            bold: false,
-            italic: false,
-            underline: false,
-        }
+        Self { bold: false, italic: false, underline: false }
     }
 
     #[must_use]
@@ -157,18 +150,11 @@ impl DiffPalette {
     #[must_use]
     pub const fn tone(&self, tone: DiffTone) -> ToneColors {
         match tone {
-            DiffTone::Added => ToneColors {
-                foreground: self.addition,
-                background: self.addition_background,
-            },
-            DiffTone::Removed => ToneColors {
-                foreground: self.deletion,
-                background: self.deletion_background,
-            },
-            DiffTone::Context | DiffTone::Meta => ToneColors {
-                foreground: self.foreground,
-                background: self.background,
-            },
+            DiffTone::Added => ToneColors { foreground: self.addition, background: self.addition_background },
+            DiffTone::Removed => ToneColors { foreground: self.deletion, background: self.deletion_background },
+            DiffTone::Context | DiffTone::Meta => {
+                ToneColors { foreground: self.foreground, background: self.background }
+            }
         }
     }
 
@@ -243,10 +229,7 @@ pub struct ControlState {
 impl ControlState {
     #[must_use]
     pub const fn new(interaction: InteractionState) -> Self {
-        Self {
-            interaction,
-            selected: false,
-        }
+        Self { interaction, selected: false }
     }
 
     #[must_use]
@@ -315,9 +298,7 @@ impl UiPalette {
         }
         let (foreground, background) = match (variant, state.interaction, state.selected) {
             (ButtonVariant::Primary, _, _) => (self.accent_foreground, Some(self.accent)),
-            (ButtonVariant::Destructive, _, _) => {
-                (self.destructive_foreground, Some(self.destructive))
-            }
+            (ButtonVariant::Destructive, _, _) => (self.destructive_foreground, Some(self.destructive)),
             (ButtonVariant::Ghost, _, true) => (self.accent, Some(self.surface_selected)),
             (ButtonVariant::Secondary | ButtonVariant::Ghost, InteractionState::Hovered, _) => {
                 (self.text, Some(self.surface_hover))
@@ -325,37 +306,25 @@ impl UiPalette {
             (ButtonVariant::Secondary, _, _) => (self.text, Some(self.surface)),
             (ButtonVariant::Ghost, _, false) => (self.text_muted, None),
         };
-        SemanticStyle {
-            foreground,
-            background,
-            emphasized: state.selected,
-        }
+        SemanticStyle { foreground, background, emphasized: state.selected }
     }
 
     /// Resolves selectable content consistently across renderers.
     #[must_use]
     pub const fn selection_style(self, state: SelectionState) -> SemanticStyle {
         match state {
-            SelectionState::None => SemanticStyle {
-                foreground: self.text,
-                background: Some(self.surface),
-                emphasized: false,
-            },
-            SelectionState::Selected => SemanticStyle {
-                foreground: self.accent,
-                background: Some(self.surface_selected),
-                emphasized: false,
-            },
-            SelectionState::Focused => SemanticStyle {
-                foreground: self.accent_foreground,
-                background: Some(self.accent),
-                emphasized: true,
-            },
-            SelectionState::Disabled => SemanticStyle {
-                foreground: self.text_muted,
-                background: Some(self.surface),
-                emphasized: false,
-            },
+            SelectionState::None => {
+                SemanticStyle { foreground: self.text, background: Some(self.surface), emphasized: false }
+            }
+            SelectionState::Selected => {
+                SemanticStyle { foreground: self.accent, background: Some(self.surface_selected), emphasized: false }
+            }
+            SelectionState::Focused => {
+                SemanticStyle { foreground: self.accent_foreground, background: Some(self.accent), emphasized: true }
+            }
+            SelectionState::Disabled => {
+                SemanticStyle { foreground: self.text_muted, background: Some(self.surface), emphasized: false }
+            }
         }
     }
 
@@ -490,13 +459,9 @@ impl ReviewTheme {
     /// Returns an error for malformed JSON or an unsupported schema version.
     pub fn from_bytes(id: ThemeId, bytes: &[u8]) -> Result<Self, ThemeError> {
         let document: ThemeDocument =
-            serde_json::from_slice(bytes).map_err(|source| ThemeError::Parse {
-                message: source.to_string(),
-            })?;
+            serde_json::from_slice(bytes).map_err(|source| ThemeError::Parse { message: source.to_string() })?;
         if document.version != THEME_VERSION {
-            return Err(ThemeError::UnsupportedVersion {
-                version: document.version,
-            });
+            return Err(ThemeError::UnsupportedVersion { version: document.version });
         }
         Ok(Self {
             id,
@@ -515,14 +480,8 @@ impl ReviewTheme {
     #[must_use]
     pub fn appearance(&self) -> Appearance {
         let canvas = self.ui.canvas;
-        let luminance = 0.2126 * f32::from(canvas.r)
-            + 0.7152 * f32::from(canvas.g)
-            + 0.0722 * f32::from(canvas.b);
-        if luminance < f32::from(u8::MAX) / 2.0 {
-            Appearance::Dark
-        } else {
-            Appearance::Light
-        }
+        let luminance = 0.2126 * f32::from(canvas.r) + 0.7152 * f32::from(canvas.g) + 0.0722 * f32::from(canvas.b);
+        if luminance < f32::from(u8::MAX) / 2.0 { Appearance::Dark } else { Appearance::Light }
     }
 
     #[must_use]
@@ -546,32 +505,22 @@ impl ReviewTheme {
             syntax: self.syntax.captures.clone(),
             markdown: self.markdown.clone(),
         })
-        .map_err(|error| ThemeError::Parse {
-            message: error.to_string(),
-        })
+        .map_err(|error| ThemeError::Parse { message: error.to_string() })
     }
 
     /// Returns all selectable built-in themes, with stable kebab-case identifiers.
     #[must_use]
     pub fn catalog() -> Vec<ThemeDescriptor> {
-        let mut themes = vec![ThemeDescriptor {
-            id: "sage".to_owned(),
-            name: "Sage".to_owned(),
-            is_dark: true,
-            source_url: None,
-        }];
+        let mut themes =
+            vec![ThemeDescriptor { id: "sage".to_owned(), name: "Sage".to_owned(), is_dark: true, source_url: None }];
         themes.extend(builtin::all().into_iter().map(|theme| ThemeDescriptor {
             id: theme_slug(&theme.name),
             name: theme.name,
             is_dark: theme.is_dark,
             source_url: theme.source_url,
         }));
-        themes.sort_by(|left, right| {
-            left.is_dark
-                .cmp(&right.is_dark)
-                .reverse()
-                .then_with(|| left.name.cmp(&right.name))
-        });
+        themes
+            .sort_by(|left, right| left.is_dark.cmp(&right.is_dark).reverse().then_with(|| left.name.cmp(&right.name)));
         themes
     }
 
@@ -593,9 +542,7 @@ impl ReviewTheme {
         let source = builtin::all()
             .into_iter()
             .find(|theme| theme_slug(&theme.name) == id)
-            .ok_or_else(|| ThemeError::UnknownTheme {
-                name: name.to_owned(),
-            })?;
+            .ok_or_else(|| ThemeError::UnknownTheme { name: name.to_owned() })?;
         let ui = ui::builtin(&id)?;
         Ok(Self::from_arborium(ThemeId::Builtin(id), &source, ui))
     }
@@ -622,13 +569,7 @@ impl ReviewTheme {
             .collect::<BTreeMap<_, _>>();
         let syntax = SyntaxTheme::new(syntax);
         let markdown = MarkdownPalette::from_syntax(&syntax, &palette);
-        Self {
-            id,
-            diff: palette,
-            ui,
-            syntax,
-            markdown,
-        }
+        Self { id, diff: palette, ui, syntax, markdown }
     }
 
     /// Loads the bundled Sage theme.
@@ -643,10 +584,7 @@ impl ReviewTheme {
     /// # Errors
     /// Returns an error if the checked-in theme JSON is invalid.
     pub fn ayu() -> Result<Self, ThemeError> {
-        Self::from_bytes(
-            ThemeId::Ayu,
-            include_bytes!("../assets/themes/ayu-dark.json"),
-        )
+        Self::from_bytes(ThemeId::Ayu, include_bytes!("../assets/themes/ayu-dark.json"))
     }
 }
 
@@ -667,44 +605,22 @@ const fn rgba(color: arborium_theme::Color) -> Rgba {
 fn palette_from_arborium(theme: &arborium_theme::Theme) -> DiffPalette {
     let background = theme.background.map_or_else(
         || {
-            if theme.is_dark {
-                Rgba::new(21, 29, 31, 255)
-            } else {
-                Rgba::new(250, 250, 250, 255)
-            }
+            if theme.is_dark { Rgba::new(21, 29, 31, 255) } else { Rgba::new(250, 250, 250, 255) }
         },
         rgba,
     );
     let foreground = theme.foreground.map_or_else(
         || {
-            if theme.is_dark {
-                Rgba::new(220, 220, 220, 255)
-            } else {
-                Rgba::new(35, 35, 35, 255)
-            }
+            if theme.is_dark { Rgba::new(220, 220, 220, 255) } else { Rgba::new(35, 35, 35, 255) }
         },
         rgba,
     );
-    let style_color = |slot| {
-        slot_to_highlight_index(slot)
-            .and_then(|index| theme.style(index))
-            .and_then(|style| style.fg)
-            .map(rgba)
-    };
-    let addition = style_color(ThemeSlot::DiffAdd).unwrap_or_else(|| {
-        if theme.is_dark {
-            Rgba::new(128, 190, 120, 255)
-        } else {
-            Rgba::new(40, 125, 55, 255)
-        }
-    });
-    let deletion = style_color(ThemeSlot::DiffDelete).unwrap_or_else(|| {
-        if theme.is_dark {
-            Rgba::new(225, 115, 115, 255)
-        } else {
-            Rgba::new(185, 45, 45, 255)
-        }
-    });
+    let style_color =
+        |slot| slot_to_highlight_index(slot).and_then(|index| theme.style(index)).and_then(|style| style.fg).map(rgba);
+    let addition = style_color(ThemeSlot::DiffAdd)
+        .unwrap_or_else(|| if theme.is_dark { Rgba::new(128, 190, 120, 255) } else { Rgba::new(40, 125, 55, 255) });
+    let deletion = style_color(ThemeSlot::DiffDelete)
+        .unwrap_or_else(|| if theme.is_dark { Rgba::new(225, 115, 115, 255) } else { Rgba::new(185, 45, 45, 255) });
     let accent = style_color(ThemeSlot::Link)
         .or_else(|| style_color(ThemeSlot::Function))
         .or_else(|| style_color(ThemeSlot::Keyword))
@@ -780,16 +696,8 @@ impl ReviewThemeBuilder {
     #[must_use]
     pub fn build(self) -> ReviewTheme {
         let syntax = SyntaxTheme::new(self.syntax);
-        let markdown = self
-            .markdown
-            .unwrap_or_else(|| MarkdownPalette::from_syntax(&syntax, &self.diff));
-        ReviewTheme {
-            id: self.id,
-            ui: self.ui,
-            diff: self.diff,
-            syntax,
-            markdown,
-        }
+        let markdown = self.markdown.unwrap_or_else(|| MarkdownPalette::from_syntax(&syntax, &self.diff));
+        ReviewTheme { id: self.id, ui: self.ui, diff: self.diff, syntax, markdown }
     }
 }
 
@@ -812,10 +720,7 @@ impl SyntaxTheme {
                 u8::from(style.font_style.underline),
             ]);
         }
-        Self {
-            captures,
-            revision: Fingerprint::of(fields),
-        }
+        Self { captures, revision: Fingerprint::of(fields) }
     }
 
     #[must_use]
@@ -857,11 +762,7 @@ pub struct MarkdownPalette {
 impl MarkdownPalette {
     #[must_use]
     pub fn from_syntax(syntax: &SyntaxTheme, palette: &DiffPalette) -> Self {
-        let capture = |name, fallback| {
-            syntax
-                .style(name)
-                .map_or(fallback, |style| style.foreground)
-        };
+        let capture = |name, fallback| syntax.style(name).map_or(fallback, |style| style.foreground);
         Self {
             heading: capture("markup.heading", palette.accent),
             link: capture("markup.link", palette.accent),

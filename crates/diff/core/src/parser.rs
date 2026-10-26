@@ -1,8 +1,8 @@
 //! Normalization adapters for Git patches and porcelain status output.
 
 use crate::{
-    CommitId, DiffDocument, DiffError, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange,
-    PatchLine, PatchLineKind, RepoPath, RepoPathError, ReviewTarget, StageState,
+    CommitId, DiffDocument, DiffError, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, ModeChange, PatchLine,
+    PatchLineKind, RepoPath, RepoPathError, ReviewTarget, StageState,
 };
 use diffy::{
     Line, Patch,
@@ -50,15 +50,10 @@ pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
 }
 
 pub fn parse_detached_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
-    parse_git_diff_with_path_mapper(bytes, |path| {
-        RepoPath::new(path.strip_prefix('/').unwrap_or(path))
-    })
+    parse_git_diff_with_path_mapper(bytes, |path| RepoPath::new(path.strip_prefix('/').unwrap_or(path)))
 }
 
-pub fn parse_git_diff_with_path_mapper<T>(
-    bytes: &[u8],
-    mut map_path: T,
-) -> Result<Vec<FileDiff>, DiffError>
+pub fn parse_git_diff_with_path_mapper<T>(bytes: &[u8], mut map_path: T) -> Result<Vec<FileDiff>, DiffError>
 where
     T: FnMut(&str) -> Result<RepoPath, RepoPathError>,
 {
@@ -66,12 +61,7 @@ where
         return Ok(Vec::new());
     }
     PatchSet::parse_bytes(bytes, ParseOptions::gitdiff())
-        .map(|patch| {
-            normalize_patch(
-                &patch.map_err(|source| DiffError::Parse { source })?,
-                &mut map_path,
-            )
-        })
+        .map(|patch| normalize_patch(&patch.map_err(|source| DiffError::Parse { source })?, &mut map_path))
         .collect()
 }
 
@@ -91,10 +81,7 @@ where
         }
         PatchKind::Binary(_) => (Vec::new(), None),
     };
-    let no_newline_at_end = hunks
-        .iter()
-        .flat_map(|hunk| &hunk.lines)
-        .any(|line| line.no_newline);
+    let no_newline_at_end = hunks.iter().flat_map(|hunk| &hunk.lines).any(|line| line.no_newline);
     Ok(FileDiff {
         old_path: previous,
         path: current,
@@ -111,18 +98,12 @@ where
 }
 
 fn text_patch_size(text: &Patch<'_, [u8]>) -> (usize, u64) {
-    text.hunks().iter().flat_map(diffy::Hunk::lines).fold(
-        (0_usize, 0_u64),
-        |(lines, bytes), line| {
-            let bytes_in_line = match line {
-                Line::Context(bytes) | Line::Delete(bytes) | Line::Insert(bytes) => bytes.len(),
-            };
-            (
-                lines.saturating_add(1),
-                bytes.saturating_add(u64::try_from(bytes_in_line).unwrap_or(u64::MAX)),
-            )
-        },
-    )
+    text.hunks().iter().flat_map(diffy::Hunk::lines).fold((0_usize, 0_u64), |(lines, bytes), line| {
+        let bytes_in_line = match line {
+            Line::Context(bytes) | Line::Delete(bytes) | Line::Insert(bytes) => bytes.len(),
+        };
+        (lines.saturating_add(1), bytes.saturating_add(u64::try_from(bytes_in_line).unwrap_or(u64::MAX)))
+    })
 }
 
 fn normalize_operation<T>(
@@ -132,8 +113,7 @@ fn normalize_operation<T>(
 where
     T: FnMut(&str) -> Result<RepoPath, RepoPathError>,
 {
-    let mut decode_path =
-        |bytes: &[u8], prefix: Option<&[u8]>| decode_path_with_mapper(bytes, prefix, map_path);
+    let mut decode_path = |bytes: &[u8], prefix: Option<&[u8]>| decode_path_with_mapper(bytes, prefix, map_path);
     Ok(match operation {
         FileOperation::Create(raw) => (None, decode_path(raw, Some(b"b/"))?, FileStatus::Added),
         FileOperation::Delete(raw) => {
@@ -143,23 +123,15 @@ where
         FileOperation::Modify { original, modified } => {
             let before = decode_path(original, Some(b"a/"))?;
             let after = decode_path(modified, Some(b"b/"))?;
-            let status = if before == after {
-                FileStatus::Modified
-            } else {
-                FileStatus::Renamed
-            };
+            let status = if before == after { FileStatus::Modified } else { FileStatus::Renamed };
             (Some(before), after, status)
         }
-        FileOperation::Rename { from, to } => (
-            Some(decode_path(from, None)?),
-            decode_path(to, None)?,
-            FileStatus::Renamed,
-        ),
-        FileOperation::Copy { from, to } => (
-            Some(decode_path(from, None)?),
-            decode_path(to, None)?,
-            FileStatus::Copied,
-        ),
+        FileOperation::Rename { from, to } => {
+            (Some(decode_path(from, None)?), decode_path(to, None)?, FileStatus::Renamed)
+        }
+        FileOperation::Copy { from, to } => {
+            (Some(decode_path(from, None)?), decode_path(to, None)?, FileStatus::Copied)
+        }
     })
 }
 
@@ -193,25 +165,16 @@ fn normalize_hunks(text: &Patch<'_, [u8]>) -> Result<Vec<Hunk>, DiffError> {
                     let no_newline = !bytes.ends_with(b"\n");
                     let text = bytes.strip_suffix(b"\n").unwrap_or(bytes);
                     let text = std::str::from_utf8(text.strip_suffix(b"\r").unwrap_or(text))?;
-                    Ok(PatchLine {
-                        kind,
-                        text: text.into(),
-                        old_line_no,
-                        new_line_no,
-                        no_newline,
-                    })
+                    Ok(PatchLine { kind, text: text.into(), old_line_no, new_line_no, no_newline })
                 })
                 .collect::<Result<Vec<_>, DiffError>>()?;
             let function_context = hunk
                 .function_context()
                 .map(|bytes| {
-                    std::str::from_utf8(bytes)
-                        .map(|context| context.trim_end_matches(['\r', '\n']).to_owned())
+                    std::str::from_utf8(bytes).map(|context| context.trim_end_matches(['\r', '\n']).to_owned())
                 })
                 .transpose()?;
-            let suffix = function_context
-                .as_deref()
-                .map_or_else(String::new, |context| format!(" {context}"));
+            let suffix = function_context.as_deref().map_or_else(String::new, |context| format!(" {context}"));
             Ok(Hunk {
                 header: format!("@@ -{old} +{new} @@{suffix}"),
                 function_context,
@@ -243,9 +206,7 @@ fn decode_path_with_mapper<T>(
 where
     T: FnMut(&str) -> Result<RepoPath, RepoPathError>,
 {
-    let bytes = expected_prefix
-        .and_then(|prefix| bytes.strip_prefix(prefix))
-        .unwrap_or(bytes);
+    let bytes = expected_prefix.and_then(|prefix| bytes.strip_prefix(prefix)).unwrap_or(bytes);
     let path = std::str::from_utf8(bytes).map_err(DiffError::UnsupportedPathEncoding)?;
     map_path(path).map_err(DiffError::InvalidPath)
 }
@@ -279,13 +240,9 @@ pub fn parse_porcelain_v1_z(bytes: &[u8]) -> Result<Vec<GitStatusEntry>, DiffErr
         let index_column = char::from(field[0]);
         let worktree_column = char::from(field[1]);
         let path = decode_path(&field[3..], None)?;
-        let old_path = if matches!(index_column, 'R' | 'C') || matches!(worktree_column, 'R' | 'C')
-        {
+        let old_path = if matches!(index_column, 'R' | 'C') || matches!(worktree_column, 'R' | 'C') {
             let previous = fields.next().filter(|field| !field.is_empty());
-            Some(decode_path(
-                previous.ok_or(DiffError::InvalidPorcelainEntry)?,
-                None,
-            )?)
+            Some(decode_path(previous.ok_or(DiffError::InvalidPorcelainEntry)?, None)?)
         } else {
             None
         };
@@ -298,19 +255,8 @@ pub fn parse_porcelain_v1_z(bytes: &[u8]) -> Result<Vec<GitStatusEntry>, DiffErr
         } else {
             StageState::Staged
         };
-        let relevant = if worktree_column == ' ' {
-            index_column
-        } else {
-            worktree_column
-        };
-        entries.push(GitStatusEntry {
-            path,
-            old_path,
-            status: file_status(relevant),
-            staged,
-            index,
-            worktree,
-        });
+        let relevant = if worktree_column == ' ' { index_column } else { worktree_column };
+        entries.push(GitStatusEntry { path, old_path, status: file_status(relevant), staged, index, worktree });
     }
     Ok(entries)
 }
@@ -362,9 +308,7 @@ impl DiffDocument {
         let mut files = parse_git_diff(diff)?;
         let mut statuses_by_path = HashMap::with_capacity(statuses.len().saturating_mul(2));
         for status in &statuses {
-            statuses_by_path
-                .entry(status.path.clone())
-                .or_insert(status);
+            statuses_by_path.entry(status.path.clone()).or_insert(status);
             if let Some(old_path) = &status.old_path {
                 statuses_by_path.entry(old_path.clone()).or_insert(status);
             }
@@ -374,11 +318,10 @@ impl DiffDocument {
             DiffScope::Unstaged | DiffScope::Both => StageState::Unstaged,
         };
         for file in &mut files {
-            let status = statuses_by_path.get(&file.path).copied().or_else(|| {
-                file.old_path
-                    .as_ref()
-                    .and_then(|path| statuses_by_path.get(path).copied())
-            });
+            let status = statuses_by_path
+                .get(&file.path)
+                .copied()
+                .or_else(|| file.old_path.as_ref().and_then(|path| statuses_by_path.get(path).copied()));
             match status {
                 Some(status) => {
                     file.staged = status.staged;
@@ -397,37 +340,21 @@ impl DiffDocument {
             files.push(untracked_diff(untracked_file)?);
         }
 
-        Ok(Self {
-            repo_root: repo_root.into(),
-            target: ReviewTarget::WorkingTree(scope),
-            files,
-            ..Self::default()
-        })
+        Ok(Self { repo_root: repo_root.into(), target: ReviewTarget::WorkingTree(scope), files, ..Self::default() })
     }
 
-    pub fn from_commit_diff(
-        repo_root: impl Into<String>,
-        commit: CommitId,
-        diff: &[u8],
-    ) -> Result<Self, DiffError> {
+    pub fn from_commit_diff(repo_root: impl Into<String>, commit: CommitId, diff: &[u8]) -> Result<Self, DiffError> {
         let mut files = parse_git_diff(diff)?;
         for file in &mut files {
             file.staged = StageState::Staged;
         }
-        Ok(Self {
-            repo_root: repo_root.into(),
-            target: ReviewTarget::Commit(commit),
-            files,
-            ..Self::default()
-        })
+        Ok(Self { repo_root: repo_root.into(), target: ReviewTarget::Commit(commit), files, ..Self::default() })
     }
 }
 
 fn untracked_diff(file: &UntrackedFile) -> Result<FileDiff, DiffError> {
     let mut diff = match (file.omitted_bytes, std::str::from_utf8(&file.contents)) {
-        (None, Ok(text)) if !text.contains('\0') => {
-            FileDiff::from_texts(file.path.clone(), "", text)?
-        }
+        (None, Ok(text)) if !text.contains('\0') => FileDiff::from_texts(file.path.clone(), "", text)?,
         _ => FileDiff {
             old_path: None,
             path: file.path.clone(),
@@ -457,16 +384,10 @@ mod tests {
         let files = parse_git_diff(patch).unwrap();
         assert_eq!(files[0].status, FileStatus::Renamed);
         assert_eq!(files[0].path.as_str(), "new.rs");
-        assert_eq!(
-            files[0].mode.as_ref().unwrap().new.as_deref(),
-            Some("100755")
-        );
+        assert_eq!(files[0].mode.as_ref().unwrap().new.as_deref(), Some("100755"));
         assert!(files[0].hunks[0].lines[1].no_newline);
         assert!(files[0].no_newline_at_end);
-        assert_eq!(
-            files[0].hunks[0].function_context.as_deref(),
-            Some("function")
-        );
+        assert_eq!(files[0].hunks[0].function_context.as_deref(), Some("function"));
         assert_eq!(files[0].hunks[0].header, "@@ -1 +1 @@ function");
     }
 
@@ -490,18 +411,9 @@ mod tests {
     fn numbers_lines_on_the_sides_they_belong_to() {
         let patch = b"diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n";
         let lines = &parse_git_diff(patch).unwrap()[0].hunks[0].lines;
-        assert_eq!(
-            (lines[0].old_line_no, lines[0].new_line_no),
-            (Some(1), Some(1))
-        );
-        assert_eq!(
-            (lines[1].old_line_no, lines[1].new_line_no),
-            (Some(2), None)
-        );
-        assert_eq!(
-            (lines[2].old_line_no, lines[2].new_line_no),
-            (None, Some(2))
-        );
+        assert_eq!((lines[0].old_line_no, lines[0].new_line_no), (Some(1), Some(1)));
+        assert_eq!((lines[1].old_line_no, lines[1].new_line_no), (Some(2), None));
+        assert_eq!((lines[2].old_line_no, lines[2].new_line_no), (None, Some(2)));
     }
 
     #[test]
@@ -525,10 +437,7 @@ mod tests {
         assert_eq!(files[0].old_path.as_ref().unwrap().as_str(), "original.rs");
         assert!(files[1].binary);
         assert_eq!(files[1].path.as_str(), "tab\tname.bin");
-        assert_eq!(
-            files[2].mode.as_ref().unwrap().old.as_deref(),
-            Some("100644")
-        );
+        assert_eq!(files[2].mode.as_ref().unwrap().old.as_deref(), Some("100644"));
     }
 
     #[test]
@@ -581,21 +490,12 @@ mod tests {
     #[test]
     fn rejects_non_utf8_path() {
         let patch = b"diff --git a/ok b/\xff\n--- a/ok\n+++ b/\xff\n@@ -1 +1 @@\n-a\n+b\n";
-        assert!(matches!(
-            parse_git_diff(patch),
-            Err(DiffError::UnsupportedPathEncoding(_))
-        ));
+        assert!(matches!(parse_git_diff(patch), Err(DiffError::UnsupportedPathEncoding(_))));
     }
 
     #[test]
     fn rejects_malformed_porcelain_records() {
-        assert!(matches!(
-            parse_porcelain_v1_z(b"XY\0"),
-            Err(DiffError::InvalidPorcelainEntry)
-        ));
-        assert!(matches!(
-            parse_porcelain_v1_z(b"R  renamed.rs\0"),
-            Err(DiffError::InvalidPorcelainEntry)
-        ));
+        assert!(matches!(parse_porcelain_v1_z(b"XY\0"), Err(DiffError::InvalidPorcelainEntry)));
+        assert!(matches!(parse_porcelain_v1_z(b"R  renamed.rs\0"), Err(DiffError::InvalidPorcelainEntry)));
     }
 }

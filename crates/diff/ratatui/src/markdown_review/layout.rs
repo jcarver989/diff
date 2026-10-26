@@ -15,11 +15,7 @@ use std::{
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum MarkdownVisualRow<'a> {
     Content(&'a Arc<MarkdownRow>),
-    Annotation {
-        annotation: &'a AnnotationBox,
-        line: usize,
-        target: Option<MarkdownTargetId>,
-    },
+    Annotation { annotation: &'a AnnotationBox, line: usize, target: Option<MarkdownTargetId> },
 }
 
 impl MarkdownVisualRow<'_> {
@@ -103,11 +99,7 @@ impl MarkdownVisualLayout {
     pub(crate) fn row(&self, visual: usize) -> Option<MarkdownVisualRow<'_>> {
         Some(match self.annotations.row(visual)? {
             AnnotationRow::Source(index) => MarkdownVisualRow::Content(self.content.get(index)?),
-            AnnotationRow::Annotation {
-                source,
-                annotation,
-                line,
-            } => MarkdownVisualRow::Annotation {
+            AnnotationRow::Annotation { source, annotation, line } => MarkdownVisualRow::Annotation {
                 annotation,
                 line,
                 target: self.content.get(source).and_then(|row| row.target),
@@ -116,11 +108,7 @@ impl MarkdownVisualLayout {
     }
 }
 
-fn annotation_boxes(
-    session: &MarkdownReviewSession,
-    target: MarkdownTargetId,
-    width: u16,
-) -> Vec<AnnotationBox> {
+fn annotation_boxes(session: &MarkdownReviewSession, target: MarkdownTargetId, width: u16) -> Vec<AnnotationBox> {
     let mut boxes = session
         .review()
         .comments_for_target(session.document(), target)
@@ -134,13 +122,7 @@ fn annotation_boxes(
         })
         .collect::<Vec<_>>();
     if let Some(draft) = session.draft().filter(|draft| draft.target() == target) {
-        boxes.push(AnnotationBox::new(
-            AnnotationKind::Draft,
-            "Draft",
-            draft.body(),
-            Some(draft.cursor()),
-            width,
-        ));
+        boxes.push(AnnotationBox::new(AnnotationKind::Draft, "Draft", draft.body(), Some(draft.cursor()), width));
     }
     boxes
 }

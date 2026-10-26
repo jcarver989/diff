@@ -35,11 +35,7 @@ const REVIEW: Shortcuts = &[
     ("t", "choose theme (↑ / ↓, Enter, Esc)"),
     ("Esc / Ctrl-G", "cancel review"),
 ];
-const DRAFT: Shortcuts = &[
-    ("Enter", "save comment"),
-    ("Shift-Enter", "insert newline"),
-    ("Esc", "cancel comment"),
-];
+const DRAFT: Shortcuts = &[("Enter", "save comment"), ("Shift-Enter", "insert newline"), ("Esc", "cancel comment")];
 
 pub(crate) type Shortcuts = &'static [(&'static str, &'static str)];
 
@@ -61,10 +57,7 @@ pub(crate) struct ShortcutHelp {
 
 impl ShortcutHelp {
     pub(crate) const fn new(theme: &UiTheme) -> Self {
-        Self {
-            theme: *theme,
-            sections: Vec::new(),
-        }
+        Self { theme: *theme, sections: Vec::new() }
     }
 
     pub(crate) fn section(mut self, title: &'static str, shortcuts: Shortcuts) -> Self {
@@ -82,13 +75,7 @@ impl RenderOnce for ShortcutHelp {
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(
-                    div()
-                        .mb_1()
-                        .typography(Typography::Label)
-                        .text_color(colors.accent)
-                        .child(title),
-                )
+                .child(div().mb_1().typography(Typography::Label).text_color(colors.accent).child(title))
                 .children(rows.iter().map(|(keys, description)| {
                     div()
                         .flex()

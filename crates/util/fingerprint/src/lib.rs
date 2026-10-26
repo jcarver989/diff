@@ -13,8 +13,7 @@ pub struct SourceSequenceId(Fingerprint);
 impl SourceSequenceId {
     #[must_use]
     pub fn from_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Self {
-        let fields =
-            std::iter::once(SOURCE_SEQUENCE_DOMAIN).chain(lines.into_iter().map(str::as_bytes));
+        let fields = std::iter::once(SOURCE_SEQUENCE_DOMAIN).chain(lines.into_iter().map(str::as_bytes));
         Self(Fingerprint::of(fields))
     }
 
@@ -80,9 +79,7 @@ impl Fingerprint {
 
     #[must_use]
     pub const fn to_u64(self) -> u64 {
-        u64::from_le_bytes([
-            self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5], self.0[6], self.0[7],
-        ])
+        u64::from_le_bytes([self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5], self.0[6], self.0[7]])
     }
 
     #[must_use]
@@ -173,18 +170,9 @@ mod tests {
     fn source_sequence_identity_preserves_order_and_line_boundaries() {
         let empty = SourceSequenceId::from_lines(std::iter::empty());
         assert_eq!(empty, SourceSequenceId::from_lines(std::iter::empty()));
-        assert_eq!(
-            SourceSequenceId::from_lines(["a", "b"]),
-            SourceSequenceId::from_lines(["a", "b"])
-        );
-        assert_ne!(
-            SourceSequenceId::from_lines(["a", "b"]),
-            SourceSequenceId::from_lines(["b", "a"])
-        );
-        assert_ne!(
-            SourceSequenceId::from_lines(["ab", "c"]),
-            SourceSequenceId::from_lines(["a", "bc"])
-        );
+        assert_eq!(SourceSequenceId::from_lines(["a", "b"]), SourceSequenceId::from_lines(["a", "b"]));
+        assert_ne!(SourceSequenceId::from_lines(["a", "b"]), SourceSequenceId::from_lines(["b", "a"]));
+        assert_ne!(SourceSequenceId::from_lines(["ab", "c"]), SourceSequenceId::from_lines(["a", "bc"]));
         assert_eq!(empty.fingerprint(), empty.0);
     }
 
@@ -193,9 +181,6 @@ mod tests {
         let fingerprint = Fingerprint::of(["value"]);
         let json = serde_json::to_string(&fingerprint).unwrap();
         assert_eq!(json, format!("\"{}\"", fingerprint.to_hex()));
-        assert_eq!(
-            serde_json::from_str::<Fingerprint>(&json).unwrap(),
-            fingerprint
-        );
+        assert_eq!(serde_json::from_str::<Fingerprint>(&json).unwrap(), fingerprint);
     }
 }

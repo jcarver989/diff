@@ -119,10 +119,7 @@ impl MarkdownRows {
     #[must_use]
     pub fn slice(&self, range: Range<usize>) -> Self {
         assert!(range.start <= range.end && range.end <= self.len());
-        Self {
-            store: Arc::clone(&self.store),
-            range: self.range.start + range.start..self.range.start + range.end,
-        }
+        Self { store: Arc::clone(&self.store), range: self.range.start + range.start..self.range.start + range.end }
     }
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Arc<MarkdownRow>> {
         self.range.clone().map(move |index| &self.store.rows[index])
@@ -138,14 +135,7 @@ pub struct MarkdownLayout {
 impl MarkdownLayout {
     pub(crate) fn new(store: RowStore, targets: TargetIndex) -> Self {
         let range = 0..store.len();
-        Self {
-            rows: MarkdownRows {
-                store: Arc::new(store),
-                range,
-            },
-            flat: Arc::default(),
-            targets,
-        }
+        Self { rows: MarkdownRows { store: Arc::new(store), range }, flat: Arc::default(), targets }
     }
     #[must_use]
     pub fn row_count(&self) -> usize {
@@ -162,23 +152,19 @@ impl MarkdownLayout {
     #[must_use]
     pub fn rows_for_source_line(&self, line: usize) -> Option<Range<usize>> {
         self.matching_rows(|row| {
-            row.source
-                .as_ref()
-                .is_some_and(|source| source.lines.start <= line && source.lines.end >= line)
+            row.source.as_ref().is_some_and(|source| source.lines.start <= line && source.lines.end >= line)
         })
     }
     #[must_use]
     pub fn rows_for_target(&self, target: MarkdownTargetId) -> Option<Range<usize>> {
-        self.matching_rows(|row| row.target == Some(target))
-            .or_else(|| {
-                let target = self.targets.get(&target)?;
-                self.matching_rows(|row| {
-                    row.source.as_ref().is_some_and(|source| {
-                        source.bytes.start >= target.bytes.start
-                            && source.bytes.end <= target.bytes.end
-                    })
+        self.matching_rows(|row| row.target == Some(target)).or_else(|| {
+            let target = self.targets.get(&target)?;
+            self.matching_rows(|row| {
+                row.source.as_ref().is_some_and(|source| {
+                    source.bytes.start >= target.bytes.start && source.bytes.end <= target.bytes.end
                 })
             })
+        })
     }
     fn matching_rows(&self, matches: impl Fn(&MarkdownRow) -> bool) -> Option<Range<usize>> {
         let mut matching = self.rows.iter().enumerate().filter(|(_, row)| matches(row));
@@ -188,10 +174,7 @@ impl MarkdownLayout {
     }
     #[must_use]
     pub fn materialize(&self) -> Arc<[Line<'static>]> {
-        Arc::clone(
-            self.flat
-                .get_or_init(|| self.rows.iter().map(|row| row.line.clone()).collect()),
-        )
+        Arc::clone(self.flat.get_or_init(|| self.rows.iter().map(|row| row.line.clone()).collect()))
     }
     pub(crate) fn is_materialized(&self) -> bool {
         self.flat.get().is_some()

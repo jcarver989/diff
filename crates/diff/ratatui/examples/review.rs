@@ -2,9 +2,7 @@
 
 use clankerdiff_core::{DiffDocument, DiffScope, ReviewCapabilities, ReviewSubmission};
 use clankerdiff_git::GitRepository;
-use clankerdiff_ratatui::{
-    DiffReviewEvent, DiffReviewState, DiffReviewWidget, ThemeChoice, handle_crossterm_event,
-};
+use clankerdiff_ratatui::{DiffReviewEvent, DiffReviewState, DiffReviewWidget, ThemeChoice, handle_crossterm_event};
 use crossterm::{
     event::{self, Event},
     execute,
@@ -145,17 +143,11 @@ fn run_tui(document: Arc<DiffDocument>) -> io::Result<Outcome> {
 
 fn apply_event(state: &mut DiffReviewState, event: Event) -> Option<Outcome> {
     match handle_crossterm_event(state, event).into_event() {
-        Some(
-            DiffReviewEvent::RepositoryAction(_)
-            | DiffReviewEvent::SetTarget(_)
-            | DiffReviewEvent::Refresh,
-        )
+        Some(DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetTarget(_) | DiffReviewEvent::Refresh)
         | None => None,
         Some(DiffReviewEvent::Cancel) => Some(Outcome::Cancelled),
         Some(DiffReviewEvent::SubmitReview(submission)) => Some(Outcome::Submitted(submission)),
-        Some(DiffReviewEvent::CopyFormattedReview(formatted)) => {
-            Some(Outcome::CopyRequested(formatted))
-        }
+        Some(DiffReviewEvent::CopyFormattedReview(formatted)) => Some(Outcome::CopyRequested(formatted)),
     }
 }
 
@@ -169,9 +161,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> io::Result<Options> 
         match argument.as_str() {
             "-h" | "--help" => help = true,
             "--scope" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| invalid_input(&"--scope needs a value"))?;
+                let value = args.next().ok_or_else(|| invalid_input(&"--scope needs a value"))?;
                 scope = value.parse().map_err(|error| invalid_input(&error))?;
             }
             value if value.starts_with('-') => {
@@ -182,11 +172,7 @@ fn parse_options(args: impl IntoIterator<Item = String>) -> io::Result<Options> 
         }
     }
 
-    Ok(Options {
-        path: path.unwrap_or_else(|| PathBuf::from(".")),
-        scope,
-        help,
-    })
+    Ok(Options { path: path.unwrap_or_else(|| PathBuf::from(".")), scope, help })
 }
 
 fn invalid_input(message: &impl ToString) -> io::Error {
@@ -203,12 +189,8 @@ mod tests {
         assert_eq!(defaults.path, PathBuf::from("."));
         assert_eq!(defaults.scope, DiffScope::Both);
 
-        let explicit = parse_options([
-            "/repo".to_owned(),
-            "--scope".to_owned(),
-            "staged".to_owned(),
-        ])
-        .expect("explicit options");
+        let explicit =
+            parse_options(["/repo".to_owned(), "--scope".to_owned(), "staged".to_owned()]).expect("explicit options");
         assert_eq!(explicit.path, PathBuf::from("/repo"));
         assert_eq!(explicit.scope, DiffScope::Staged);
     }

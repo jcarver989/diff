@@ -9,9 +9,7 @@ use std::{
     fmt,
     sync::Arc,
 };
-use tree_sitter::{
-    InputEdit, Language, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree,
-};
+use tree_sitter::{InputEdit, Language, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
 /// Bytes handed to Tree-sitter per input callback. `parser_input_bytes` counts
 /// these requests, so smaller chunks measure re-lexing more precisely.
@@ -52,10 +50,7 @@ pub(crate) struct IncrementalDocument {
 
 impl Grammars {
     /// Creates an empty document, or `None` when no grammar is bundled.
-    pub(crate) fn document(
-        &mut self,
-        language: &str,
-    ) -> Result<Option<IncrementalDocument>, SyntaxError> {
+    pub(crate) fn document(&mut self, language: &str) -> Result<Option<IncrementalDocument>, SyntaxError> {
         let grammar = if let Some(grammar) = self.0.get(language) {
             Arc::clone(grammar)
         } else {
@@ -71,24 +66,16 @@ impl Grammars {
                 Cow::Borrowed(highlights)
             };
             let compile = |source| {
-                Query::new(&language_fn, source).map_err(|source| SyntaxError::Query {
-                    language: language.to_owned(),
-                    source,
-                })
+                Query::new(&language_fn, source)
+                    .map_err(|source| SyntaxError::Query { language: language.to_owned(), source })
             };
             let query_source = format!("{highlights}\n{injections}");
             let highlights = compile(&highlights)?;
             let injections = compile(injections)?;
-            let non_local = [&highlights, &injections].into_iter().any(|query| {
-                (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index))
-            });
-            let grammar = Arc::new(Grammar {
-                highlights,
-                injections,
-                language: language_fn,
-                non_local,
-                query_source,
-            });
+            let non_local = [&highlights, &injections]
+                .into_iter()
+                .any(|query| (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index)));
+            let grammar = Arc::new(Grammar { highlights, injections, language: language_fn, non_local, query_source });
             self.0.insert(language.to_owned(), Arc::clone(&grammar));
             grammar
         };
@@ -118,16 +105,11 @@ impl IncrementalDocument {
             return Ok(source.len());
         }
         let tree = self.parse_tree(source, base, cx)?;
-        let mut start = if self.tree.is_none() || self.grammar.non_local {
-            0
-        } else {
-            self.length
-        };
+        let mut start = if self.tree.is_none() || self.grammar.non_local { 0 } else { self.length };
         if let Some(previous) = &self.tree {
             for change in previous.changed_ranges(&tree) {
                 let refined = if change.start_byte == 0 {
-                    self.grammar
-                        .error_prefix(previous.root_node(), tree.root_node(), cx.stats)
+                    self.grammar.error_prefix(previous.root_node(), tree.root_node(), cx.stats)
                 } else {
                     None
                 };
@@ -137,12 +119,7 @@ impl IncrementalDocument {
         // A capture ending exactly at the edit point may be an unterminated
         // token that the appended text extends, so widen to it as well.
         loop {
-            let earlier = self
-                .boundaries
-                .range(start..)
-                .map(|(_, &begin)| begin)
-                .min()
-                .unwrap_or(start);
+            let earlier = self.boundaries.range(start..).map(|(_, &begin)| begin).min().unwrap_or(start);
             if earlier >= start {
                 break;
             }
@@ -164,11 +141,11 @@ impl IncrementalDocument {
             }
         };
         self.boundaries.split_off(&start.saturating_add(1));
-        for (from, to) in spans.iter().map(|span| (span.start, span.end)).chain(
-            injections
-                .iter()
-                .map(|injection| (injection.start, injection.end)),
-        ) {
+        for (from, to) in spans
+            .iter()
+            .map(|span| (span.start, span.end))
+            .chain(injections.iter().map(|injection| (injection.start, injection.end)))
+        {
             self.boundaries
                 .entry(to as usize)
                 .and_modify(|begin| *begin = (*begin).min(from as usize))
@@ -176,10 +153,7 @@ impl IncrementalDocument {
         }
         self.spans.split_off(&start);
         for span in spans {
-            self.spans
-                .entry(span.start as usize)
-                .or_default()
-                .push(span);
+            self.spans.entry(span.start as usize).or_default().push(span);
         }
         self.update_injections(source, base, start, injections, depth, cx)?;
         self.tree = Some(tree);
@@ -187,12 +161,7 @@ impl IncrementalDocument {
         Ok(start)
     }
 
-    fn parse_tree(
-        &mut self,
-        source: &str,
-        base: usize,
-        cx: &mut AppendContext<'_>,
-    ) -> Result<Tree, SyntaxError> {
+    fn parse_tree(&mut self, source: &str, base: usize, cx: &mut AppendContext<'_>) -> Result<Tree, SyntaxError> {
         if self.parser.is_none() {
             let mut parser = Parser::new();
             parser.set_language(&self.grammar.language)?;
@@ -247,23 +216,17 @@ impl IncrementalDocument {
                 let Some(text) = source.get(from..to).filter(|text| !text.is_empty()) else {
                     continue;
                 };
-                let language = resolve_language(injection.language.as_str(), text)
-                    .unwrap_or(&injection.language);
+                let language = resolve_language(injection.language.as_str(), text).unwrap_or(&injection.language);
                 let previous = previous_injections.get_mut(&from).and_then(|entries| {
                     entries
                         .iter()
-                        .position(|entry| {
-                            entry.language == language && text.len() >= entry.document.length
-                        })
+                        .position(|entry| entry.language == language && text.len() >= entry.document.length)
                         .map(|index| entries.swap_remove(index))
                 });
                 let mut entry = match previous {
                     Some(entry) => entry,
                     None => match cx.grammars.document(language)? {
-                        Some(document) => InjectedDocument {
-                            language: language.to_owned(),
-                            document,
-                        },
+                        Some(document) => InjectedDocument { language: language.to_owned(), document },
                         None => continue,
                     },
                 };
@@ -275,11 +238,7 @@ impl IncrementalDocument {
     }
 
     pub(crate) fn spans_from(&self, start: usize) -> Vec<Span> {
-        let mut result: Vec<_> = self
-            .spans
-            .range(start..)
-            .flat_map(|(_, spans)| spans.iter().cloned())
-            .collect();
+        let mut result: Vec<_> = self.spans.range(start..).flat_map(|(_, spans)| spans.iter().cloned()).collect();
         for (&offset, injections) in self.injections.range(start..) {
             for injection in injections {
                 for mut span in injection.document.spans_from(0) {
@@ -309,9 +268,7 @@ impl Clone for IncrementalDocument {
 
 impl fmt::Debug for IncrementalDocument {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("IncrementalDocument")
-            .field("length", &self.length)
-            .finish_non_exhaustive()
+        f.debug_struct("IncrementalDocument").field("length", &self.length).finish_non_exhaustive()
     }
 }
 
@@ -330,12 +287,7 @@ struct Grammar {
 }
 
 impl Grammar {
-    fn error_prefix(
-        &self,
-        before: Node<'_>,
-        after: Node<'_>,
-        stats: &mut SyntaxWorkStats,
-    ) -> Option<usize> {
+    fn error_prefix(&self, before: Node<'_>, after: Node<'_>, stats: &mut SyntaxWorkStats) -> Option<usize> {
         if self.non_local
             || self.query_source.contains("ERROR")
             || self.query_source.contains("(_ ")
@@ -381,17 +333,12 @@ fn same_subtree(before: Node<'_>, after: Node<'_>, stats: &mut SyntaxWorkStats) 
     }
     let mut left = before.walk();
     let mut right = after.walk();
-    before
-        .children(&mut left)
-        .zip(after.children(&mut right))
-        .enumerate()
-        .all(|(index, (left, right))| {
-            let Ok(index) = u32::try_from(index) else {
-                return false;
-            };
-            before.field_name_for_child(index) == after.field_name_for_child(index)
-                && same_subtree(left, right, stats)
-        })
+    before.children(&mut left).zip(after.children(&mut right)).enumerate().all(|(index, (left, right))| {
+        let Ok(index) = u32::try_from(index) else {
+            return false;
+        };
+        before.field_name_for_child(index) == after.field_name_for_child(index) && same_subtree(left, right, stats)
+    })
 }
 
 /// Row and column of byte `len` within a document that starts at `base` in
@@ -399,9 +346,7 @@ fn same_subtree(before: Node<'_>, after: Node<'_>, stats: &mut SyntaxWorkStats) 
 fn end_point(line_starts: &[usize], base: usize, len: usize) -> Point {
     let first = line_starts.partition_point(|&start| start <= base);
     let last = line_starts.partition_point(|&start| start <= base + len);
-    let column = line_starts[first..last]
-        .last()
-        .map_or(len, |&start| base + len - start);
+    let column = line_starts[first..last].last().map_or(len, |&start| base + len - start);
     Point::new(last - first, column)
 }
 
@@ -446,11 +391,7 @@ fn query(
             match grammar.injections.capture_names()[capture.index as usize] {
                 "injection.content" => content = Some(capture.node),
                 "injection.language" if language.is_none() => {
-                    language = capture
-                        .node
-                        .utf8_text(source.as_bytes())
-                        .ok()
-                        .map(str::to_owned);
+                    language = capture.node.utf8_text(source.as_bytes()).ok().map(str::to_owned);
                 }
                 _ => {}
             }
@@ -470,11 +411,7 @@ fn grammar_spec(language: &str) -> Option<(Language, &'static str, &'static str)
     macro_rules! grammar {
         ($module:ident) => {{
             use $module as grammar;
-            (
-                grammar::language().into(),
-                &grammar::HIGHLIGHTS_QUERY,
-                &grammar::INJECTIONS_QUERY,
-            )
+            (grammar::language().into(), &grammar::HIGHLIGHTS_QUERY, &grammar::INJECTIONS_QUERY)
         }};
     }
     Some(match language {

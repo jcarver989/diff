@@ -1,27 +1,17 @@
 use crate::run_loop;
 use gpui::{
-    Action, App, KeyBinding, Menu, MenuItem, OsAction, PromptLevel, SharedString, SystemMenuType,
-    Window, actions,
+    Action, App, KeyBinding, Menu, MenuItem, OsAction, PromptLevel, SharedString, SystemMenuType, Window, actions,
 };
 use gpui_base::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 
-actions!(
-    app_menu,
-    [About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom]
-);
+actions!(app_menu, [About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom]);
 
 #[cfg(target_os = "macos")]
 const QUIT_KEYSTROKE: &str = "cmd-q";
 #[cfg(not(target_os = "macos"))]
 const QUIT_KEYSTROKE: &str = "ctrl-q";
 
-pub fn install(
-    cx: &mut App,
-    name: &'static str,
-    version: &'static str,
-    app_items: Vec<MenuItem>,
-    menus: Vec<Menu>,
-) {
+pub fn install(cx: &mut App, name: &'static str, version: &'static str, app_items: Vec<MenuItem>, menus: Vec<Menu>) {
     cx.on_action(move |_: &About, cx| {
         with_active_window(cx, |window, cx| {
             let version = format!("Version {version}");
@@ -56,11 +46,7 @@ pub fn build(name: &str, app_items: Vec<MenuItem>, menus: Vec<Menu>) -> Vec<Menu
         MenuItem::action(format!("Quit {name}"), Quit),
     ]);
     let mut all = vec![
-        Menu {
-            name: name.to_owned().into(),
-            disabled: false,
-            items: app,
-        },
+        Menu { name: name.to_owned().into(), disabled: false, items: app },
         Menu {
             name: "Edit".into(),
             disabled: false,
@@ -79,10 +65,7 @@ pub fn build(name: &str, app_items: Vec<MenuItem>, menus: Vec<Menu>) -> Vec<Menu
     all.push(Menu {
         name: "Window".into(),
         disabled: false,
-        items: vec![
-            MenuItem::action("Minimize", Minimize),
-            MenuItem::action("Zoom", Zoom),
-        ],
+        items: vec![MenuItem::action("Minimize", Minimize), MenuItem::action("Zoom", Zoom)],
     });
     all
 }

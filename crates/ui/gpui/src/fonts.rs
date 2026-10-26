@@ -24,6 +24,5 @@ const FACES: [&[u8]; 16] = [
 ];
 
 pub fn load_fonts(cx: &mut App) -> Result<()> {
-    cx.text_system()
-        .add_fonts(FACES.iter().map(|face| Cow::Borrowed(*face)).collect())
+    cx.text_system().add_fonts(FACES.iter().map(|face| Cow::Borrowed(*face)).collect())
 }

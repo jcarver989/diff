@@ -29,10 +29,7 @@ impl<'a> LanguageHint<'a> {
 }
 
 /// Resolves a language ID, alias, or repository path.
-pub fn resolve_language<'a>(
-    hint: impl Into<LanguageHint<'a>>,
-    source: &str,
-) -> Option<&'static str> {
+pub fn resolve_language<'a>(hint: impl Into<LanguageHint<'a>>, source: &str) -> Option<&'static str> {
     let hint = hint.into().as_str();
     let normalized = hint.trim().replace('\\', "/").to_ascii_lowercase();
     if normalized.is_empty() {

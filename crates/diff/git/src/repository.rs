@@ -2,9 +2,9 @@
 
 use crate::{GitError, command, command::CatFileBatch, path};
 use clankerdiff_core::{
-    CommitId, CommitStack, CommitSummary, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus,
-    Fingerprint, RepoPath, RepositoryAction, ReviewTarget, SourceDocument, SourceResult,
-    SourceUnavailable, UntrackedFile, parse_porcelain_v1_z,
+    CommitId, CommitStack, CommitSummary, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Fingerprint,
+    RepoPath, RepositoryAction, ReviewTarget, SourceDocument, SourceResult, SourceUnavailable, UntrackedFile,
+    parse_porcelain_v1_z,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -16,13 +16,7 @@ use std::{
 use tokio::time::sleep;
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-const STATUS_ARGS: [&str; 5] = [
-    "--no-optional-locks",
-    "status",
-    "--porcelain=v1",
-    "-z",
-    "--untracked-files=all",
-];
+const STATUS_ARGS: [&str; 5] = ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all"];
 pub use clankerdiff_core::MAX_SOURCE_FILE_BYTES;
 pub const MAX_SOURCE_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_UNTRACKED_SNAPSHOT_BYTES: u64 = MAX_SOURCE_ARCHIVE_BYTES;
@@ -96,24 +90,14 @@ impl GitRepository {
 
     pub async fn discover(path: impl AsRef<Path>) -> Result<Self, GitError> {
         let candidate = path.as_ref();
-        let output = match command::run(
-            candidate,
-            "discover repository",
-            ["rev-parse", "--show-toplevel"],
-        )
-        .await
-        {
+        let output = match command::run(candidate, "discover repository", ["rev-parse", "--show-toplevel"]).await {
             Ok(output) => output,
             Err(GitError::CommandFailed { .. }) => return Err(GitError::NotRepository),
             Err(error) => return Err(error),
         };
         let root = parse_root(&output.stdout)?;
-        let root = tokio::fs::canonicalize(&root)
-            .await
-            .map_err(|source| GitError::Io {
-                path: root.clone(),
-                source,
-            })?;
+        let root =
+            tokio::fs::canonicalize(&root).await.map_err(|source| GitError::Io { path: root.clone(), source })?;
         Ok(Self { root })
     }
 
@@ -133,9 +117,7 @@ impl GitRepository {
             )
             .await?;
             let path = parse_root(&output.stdout)?;
-            let directory = tokio::fs::canonicalize(&path)
-                .await
-                .map_err(|source| GitError::Io { path, source })?;
+            let directory = tokio::fs::canonicalize(&path).await.map_err(|source| GitError::Io { path, source })?;
             if !directories.contains(&directory) {
                 directories.push(directory);
             }
@@ -143,18 +125,12 @@ impl GitRepository {
         Ok(directories)
     }
 
-    pub async fn snapshot(
-        &self,
-        target: impl Into<ReviewTarget>,
-    ) -> Result<DiffDocument, GitError> {
+    pub async fn snapshot(&self, target: impl Into<ReviewTarget>) -> Result<DiffDocument, GitError> {
         let document = self.load_snapshot_input(&target.into()).await?.document;
         self.with_commits(document).await
     }
 
-    pub async fn snapshot_with_sources(
-        &self,
-        target: impl Into<ReviewTarget>,
-    ) -> Result<DiffDocument, GitError> {
+    pub async fn snapshot_with_sources(&self, target: impl Into<ReviewTarget>) -> Result<DiffDocument, GitError> {
         let target = target.into();
         let mut retries = 0;
         let mut delay = Duration::from_millis(250);
@@ -170,18 +146,12 @@ impl GitRepository {
         }
     }
 
-    pub async fn try_snapshot_with_sources(
-        &self,
-        target: impl Into<ReviewTarget>,
-    ) -> Result<DiffDocument, GitError> {
+    pub async fn try_snapshot_with_sources(&self, target: impl Into<ReviewTarget>) -> Result<DiffDocument, GitError> {
         let target = target.into();
         for _ in 0..2 {
             let initial = self.load_snapshot_input(&target).await?;
             let initial_locations = self.resolve_content_locations(&initial).await;
-            let captured = match self
-                .capture_sources(&initial.document, &initial_locations)
-                .await
-            {
+            let captured = match self.capture_sources(&initial.document, &initial_locations).await {
                 Ok(captured) => captured,
                 Err(GitError::UnstableSnapshot) => continue,
                 Err(error) => return Err(error),
@@ -221,23 +191,11 @@ impl GitRepository {
         let log = command::run(
             &self.root,
             "list branch commits",
-            [
-                "log",
-                "--reverse",
-                "--first-parent",
-                "-z",
-                "--format=%H%x1f%s",
-                "--max-count=200",
-                &range,
-                "--",
-            ],
+            ["log", "--reverse", "--first-parent", "-z", "--format=%H%x1f%s", "--max-count=200", &range, "--"],
         )
         .await;
         match log {
-            Ok(log) => Ok(Some(CommitStack {
-                base_ref,
-                commits: parse_commit_log(&log.stdout)?,
-            })),
+            Ok(log) => Ok(Some(CommitStack { base_ref, commits: parse_commit_log(&log.stdout)? })),
             Err(GitError::CommandFailed { .. }) => Ok(None),
             Err(error) => Err(error),
         }
@@ -245,21 +203,12 @@ impl GitRepository {
 
     async fn base_ref(&self) -> Result<Option<String>, GitError> {
         let format = "--format=%(refname)%09%(if)%(symref)%(then)%(symref:short)%(else)%(refname:short)%(end)";
-        let output = command::run(
-            &self.root,
-            "resolve base branch",
-            ["for-each-ref", format].into_iter().chain(BASE_REFS),
-        )
-        .await?;
+        let output =
+            command::run(&self.root, "resolve base branch", ["for-each-ref", format].into_iter().chain(BASE_REFS))
+                .await?;
         let output = String::from_utf8_lossy(&output.stdout);
-        let found = output
-            .lines()
-            .filter_map(|line| line.split_once('\t'))
-            .collect::<HashMap<_, _>>();
-        Ok(BASE_REFS
-            .iter()
-            .find_map(|candidate| found.get(candidate))
-            .map(|name| (*name).to_owned()))
+        let found = output.lines().filter_map(|line| line.split_once('\t')).collect::<HashMap<_, _>>();
+        Ok(BASE_REFS.iter().find_map(|candidate| found.get(candidate)).map(|name| (*name).to_owned()))
     }
 
     async fn with_commits(&self, mut document: DiffDocument) -> Result<DiffDocument, GitError> {
@@ -270,71 +219,41 @@ impl GitRepository {
     async fn sources(&self, target: &ReviewTarget) -> Result<[Source; 2], GitError> {
         Ok(match target {
             ReviewTarget::WorkingTree(DiffScope::Unstaged) => [Source::Index, Source::Worktree],
-            ReviewTarget::WorkingTree(DiffScope::Staged) => [
-                self.revision_or_empty("HEAD".to_owned()).await?,
-                Source::Index,
-            ],
-            ReviewTarget::WorkingTree(DiffScope::Both) => [
-                self.revision_or_empty("HEAD".to_owned()).await?,
-                Source::Worktree,
-            ],
-            ReviewTarget::Commit(id) => [
-                self.revision_or_empty(format!("{id}^1")).await?,
-                Source::Revision(id.to_string()),
-            ],
+            ReviewTarget::WorkingTree(DiffScope::Staged) => {
+                [self.revision_or_empty("HEAD".to_owned()).await?, Source::Index]
+            }
+            ReviewTarget::WorkingTree(DiffScope::Both) => {
+                [self.revision_or_empty("HEAD".to_owned()).await?, Source::Worktree]
+            }
+            ReviewTarget::Commit(id) => {
+                [self.revision_or_empty(format!("{id}^1")).await?, Source::Revision(id.to_string())]
+            }
         })
     }
 
     async fn revision_or_empty(&self, revision: String) -> Result<Source, GitError> {
-        Ok(if self.resolves(&revision).await? {
-            Source::Revision(revision)
-        } else {
-            Source::Empty
-        })
+        Ok(if self.resolves(&revision).await? { Source::Revision(revision) } else { Source::Empty })
     }
 
     async fn load_snapshot_input(&self, target: &ReviewTarget) -> Result<SnapshotInput, GitError> {
         let sources = self.sources(target).await?;
-        let diff = command::run(&self.root, "load diff", Self::diff_args(&sources))
-            .await?
-            .stdout;
-        let repo_root = self
-            .root
-            .to_str()
-            .ok_or(GitError::UnsupportedRepositoryPath)?;
+        let diff = command::run(&self.root, "load diff", Self::diff_args(&sources)).await?.stdout;
+        let repo_root = self.root.to_str().ok_or(GitError::UnsupportedRepositoryPath)?;
         let (status, document) = match target {
-            ReviewTarget::Commit(id) => (
-                Vec::new(),
-                DiffDocument::from_commit_diff(repo_root, id.clone(), &diff)?,
-            ),
+            ReviewTarget::Commit(id) => (Vec::new(), DiffDocument::from_commit_diff(repo_root, id.clone(), &diff)?),
             ReviewTarget::WorkingTree(scope) => {
-                let status = command::run(&self.root, "load status", STATUS_ARGS)
-                    .await?
-                    .stdout;
-                let untracked = if *scope == DiffScope::Staged {
-                    Vec::new()
-                } else {
-                    self.read_untracked().await?
-                };
-                let document = DiffDocument::from_git_outputs_with_untracked(
-                    repo_root, &diff, &status, *scope, &untracked,
-                )?;
+                let status = command::run(&self.root, "load status", STATUS_ARGS).await?.stdout;
+                let untracked = if *scope == DiffScope::Staged { Vec::new() } else { self.read_untracked().await? };
+                let document =
+                    DiffDocument::from_git_outputs_with_untracked(repo_root, &diff, &status, *scope, &untracked)?;
                 (status, document)
             }
         };
-        Ok(SnapshotInput {
-            sources,
-            diff,
-            status,
-            document,
-        })
+        Ok(SnapshotInput { sources, diff, status, document })
     }
 
     /// Resolves where each file's old and new versions live, in document order.
-    async fn resolve_content_locations(
-        &self,
-        input: &SnapshotInput,
-    ) -> Vec<[ResolvedContentLocation; 2]> {
+    async fn resolve_content_locations(&self, input: &SnapshotInput) -> Vec<[ResolvedContentLocation; 2]> {
         let document = &input.document;
         if document.files.is_empty() {
             return Vec::new();
@@ -377,39 +296,30 @@ impl GitRepository {
         let mut sides = Vec::with_capacity(document.files.len());
         let mut worktree_ids = HashMap::new();
         let mut loaded = 0_u64;
-        let mut blobs = if locations
-            .iter()
-            .flatten()
-            .any(|location| matches!(location, ResolvedContentLocation::Blob(_)))
-        {
-            Some(CatFileBatch::start(&self.root)?)
-        } else {
-            None
-        };
+        let mut blobs =
+            if locations.iter().flatten().any(|location| matches!(location, ResolvedContentLocation::Blob(_))) {
+                Some(CatFileBatch::start(&self.root)?)
+            } else {
+                None
+            };
         for (file, file_locations) in document.files.iter().zip(locations) {
             let mut results = Vec::with_capacity(2);
             for location in file_locations {
                 let (result, exact_id) = if file.binary {
                     (Err(SourceUnavailable::Binary), None)
                 } else {
-                    self.capture_location(location, &mut loaded, blobs.as_mut())
-                        .await
+                    self.capture_location(location, &mut loaded, blobs.as_mut()).await
                 };
-                if let (ResolvedContentLocation::Worktree(path), Some(exact_id)) =
-                    (location, exact_id)
-                {
+                if let (ResolvedContentLocation::Worktree(path), Some(exact_id)) = (location, exact_id) {
                     worktree_ids.insert(path.clone(), exact_id);
                 }
                 results.push(result);
             }
-            let [old, new] = <[SourceResult; 2]>::try_from(results)
-                .unwrap_or_else(|_| unreachable!("two sides per file"));
+            let [old, new] =
+                <[SourceResult; 2]>::try_from(results).unwrap_or_else(|_| unreachable!("two sides per file"));
             sides.push([old, new]);
         }
-        Ok(CapturedSources {
-            sides,
-            worktree_ids,
-        })
+        Ok(CapturedSources { sides, worktree_ids })
     }
 
     async fn capture_location(
@@ -423,12 +333,7 @@ impl GitRepository {
             ResolvedContentLocation::Unavailable(reason) => return (Err(reason.clone()), None),
             ResolvedContentLocation::Blob(oid) => {
                 let Some(blobs) = blobs else {
-                    return (
-                        Err(SourceUnavailable::Error(
-                            "source blob reader was not initialized".to_owned(),
-                        )),
-                        None,
-                    );
+                    return (Err(SourceUnavailable::Error("source blob reader was not initialized".to_owned())), None);
                 };
                 match blobs.read_blob(oid, MAX_SOURCE_FILE_BYTES).await {
                     Ok(Ok(bytes)) => bytes,
@@ -438,14 +343,13 @@ impl GitRepository {
                     Err(error) => return (Err(source_error(error)), None),
                 }
             }
-            ResolvedContentLocation::Worktree(path) => match self.read_bounded_worktree(path).await
-            {
+            ResolvedContentLocation::Worktree(path) => match self.read_bounded_worktree(path).await {
                 Ok(bytes) => bytes,
                 Err(error) => return (Err(source_error(error)), None),
             },
         };
-        let exact_id = matches!(location, ResolvedContentLocation::Worktree(_))
-            .then(|| Fingerprint::of([bytes.as_slice()]));
+        let exact_id =
+            matches!(location, ResolvedContentLocation::Worktree(_)).then(|| Fingerprint::of([bytes.as_slice()]));
         let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         if size > MAX_SOURCE_FILE_BYTES {
             return (Err(SourceUnavailable::TooLarge { bytes: size }), exact_id);
@@ -487,35 +391,20 @@ impl GitRepository {
         let mut paths = document
             .files
             .iter()
-            .flat_map(|file| {
-                [
-                    file.path.as_str(),
-                    file.path_for_side(DiffSide::Old).as_str(),
-                ]
-            })
+            .flat_map(|file| [file.path.as_str(), file.path_for_side(DiffSide::Old).as_str()])
             .map(str::to_owned)
             .collect::<Vec<_>>();
         paths.sort_unstable();
         paths.dedup();
-        let mut args = vec![
-            "ls-tree".to_owned(),
-            "-r".to_owned(),
-            "-z".to_owned(),
-            revision.to_owned(),
-            "--".to_owned(),
-        ];
+        let mut args =
+            vec!["ls-tree".to_owned(), "-r".to_owned(), "-z".to_owned(), revision.to_owned(), "--".to_owned()];
         args.extend(paths);
         let output = command::run(&self.root, "resolve tree sources", args).await?;
         Ok(parse_blob_records(&output.stdout, BlobRecordKind::Tree))
     }
 
     async fn resolve_index_blobs(&self) -> Result<HashMap<RepoPath, String>, GitError> {
-        let output = command::run(
-            &self.root,
-            "resolve index sources",
-            ["ls-files", "--stage", "-z"],
-        )
-        .await?;
+        let output = command::run(&self.root, "resolve index sources", ["ls-files", "--stage", "-z"]).await?;
         Ok(parse_blob_records(&output.stdout, BlobRecordKind::Index))
     }
 
@@ -530,17 +419,9 @@ impl GitRepository {
         let joined = path::lexical_path(&self.root, path)?;
         let metadata = tokio::fs::symlink_metadata(&joined)
             .await
-            .map_err(|source| GitError::Io {
-                path: joined.clone(),
-                source,
-            })?;
+            .map_err(|source| GitError::Io { path: joined.clone(), source })?;
         if metadata.file_type().is_symlink() {
-            let target = tokio::fs::read_link(&joined)
-                .await
-                .map_err(|source| GitError::Io {
-                    path: joined,
-                    source,
-                })?;
+            let target = tokio::fs::read_link(&joined).await.map_err(|source| GitError::Io { path: joined, source })?;
             return target
                 .to_str()
                 .map(|target| BoundedWorktree::Content(target.as_bytes().to_vec()))
@@ -549,10 +430,7 @@ impl GitRepository {
         let host_path = path::readable_path(&self.root, path).await?;
         let size = tokio::fs::metadata(&host_path)
             .await
-            .map_err(|source| GitError::Io {
-                path: host_path.clone(),
-                source,
-            })?
+            .map_err(|source| GitError::Io { path: host_path.clone(), source })?
             .len();
         if size > MAX_SOURCE_FILE_BYTES {
             return Ok(BoundedWorktree::TooLarge(size));
@@ -560,10 +438,7 @@ impl GitRepository {
         tokio::fs::read(&host_path)
             .await
             .map(BoundedWorktree::Content)
-            .map_err(|source| GitError::Io {
-                path: host_path,
-                source,
-            })
+            .map_err(|source| GitError::Io { path: host_path, source })
     }
 
     pub async fn ignored_paths(&self, relative: &[String]) -> Result<HashSet<String>, GitError> {
@@ -605,11 +480,7 @@ impl GitRepository {
         args.extend(paths.iter().map(RepoPath::as_str));
         let output = command::run(&self.root, "resolve staged paths", args).await?;
         let mut tracked = HashSet::new();
-        for entry in output
-            .stdout
-            .split(|byte| *byte == 0)
-            .filter(|entry| !entry.is_empty())
-        {
+        for entry in output.stdout.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
             tracked.insert(entry);
             for (index, byte) in entry.iter().enumerate() {
                 if *byte == b'/' {
@@ -628,10 +499,7 @@ impl GitRepository {
                 Ok(_) => actionable.push(path),
                 Err(error) if error.kind() == ErrorKind::NotFound => {}
                 Err(source) => {
-                    return Err(GitError::Io {
-                        path: joined,
-                        source,
-                    });
+                    return Err(GitError::Io { path: joined, source });
                 }
             }
         }
@@ -650,15 +518,9 @@ impl GitRepository {
         }
         let paths = self.mutation_paths(paths).await?;
         if self.has_head().await? {
-            self.run_paths("unstage paths", &["reset", "--quiet", "HEAD"], &paths)
-                .await
+            self.run_paths("unstage paths", &["reset", "--quiet", "HEAD"], &paths).await
         } else {
-            self.run_paths(
-                "unstage paths",
-                &["rm", "--cached", "-f", "--quiet", "--ignore-unmatch"],
-                &paths,
-            )
-            .await
+            self.run_paths("unstage paths", &["rm", "--cached", "-f", "--quiet", "--ignore-unmatch"], &paths).await
         }
     }
 
@@ -668,9 +530,7 @@ impl GitRepository {
     ///
     /// Returns an error when Git cannot update the index.
     async fn stage_all(&self) -> Result<(), GitError> {
-        command::run(&self.root, "stage all", ["add", "-A", "--"])
-            .await
-            .map(drop)
+        command::run(&self.root, "stage all", ["add", "-A", "--"]).await.map(drop)
     }
 
     /// Unstages the complete index while preserving worktree contents.
@@ -682,20 +542,9 @@ impl GitRepository {
         let args: &[&str] = if self.has_head().await? {
             &["reset", "--quiet", "HEAD", "--"]
         } else {
-            &[
-                "rm",
-                "--cached",
-                "-r",
-                "-f",
-                "--quiet",
-                "--ignore-unmatch",
-                "--",
-                ".",
-            ]
+            &["rm", "--cached", "-r", "-f", "--quiet", "--ignore-unmatch", "--", "."]
         };
-        command::run(&self.root, "unstage all", args)
-            .await
-            .map(drop)
+        command::run(&self.root, "unstage all", args).await.map(drop)
     }
 
     /// Commits the current index with the supplied non-empty message.
@@ -708,9 +557,7 @@ impl GitRepository {
         if message.trim().is_empty() {
             return Err(GitError::EmptyCommitMessage);
         }
-        command::run(&self.root, "commit", ["commit", "-m", message])
-            .await
-            .map(drop)
+        command::run(&self.root, "commit", ["commit", "-m", message]).await.map(drop)
     }
 
     /// Discards all staged and unstaged changes for one path.
@@ -726,13 +573,7 @@ impl GitRepository {
     async fn discard(&self, path: &RepoPath, status: FileStatus) -> Result<(), GitError> {
         path::lexical_path(&self.root, path)?;
         if status == FileStatus::Untracked {
-            return self
-                .run_paths(
-                    "discard untracked path",
-                    &["clean", "-f"],
-                    std::slice::from_ref(path),
-                )
-                .await;
+            return self.run_paths("discard untracked path", &["clean", "-f"], std::slice::from_ref(path)).await;
         }
         if !self.has_head().await? {
             if status != FileStatus::Added {
@@ -748,13 +589,7 @@ impl GitRepository {
                 std::slice::from_ref(path),
             )
             .await?;
-            return self
-                .run_paths(
-                    "discard added path",
-                    &["clean", "-f"],
-                    std::slice::from_ref(path),
-                )
-                .await;
+            return self.run_paths("discard added path", &["clean", "-f"], std::slice::from_ref(path)).await;
         }
         let mut restore_paths = vec![path.clone()];
         if status == FileStatus::Renamed {
@@ -767,12 +602,7 @@ impl GitRepository {
                 restore_paths.push(old_path);
             }
         }
-        self.run_paths(
-            "discard path",
-            &["restore", "--source=HEAD", "--staged", "--worktree"],
-            &restore_paths,
-        )
-        .await
+        self.run_paths("discard path", &["restore", "--source=HEAD", "--staged", "--worktree"], &restore_paths).await
     }
 
     async fn read_untracked(&self) -> Result<Vec<UntrackedFile>, GitError> {
@@ -784,13 +614,8 @@ impl GitRepository {
         .await?;
         let mut files = Vec::new();
         let mut loaded_bytes = 0_u64;
-        for raw_path in output
-            .stdout
-            .split(|byte| *byte == 0)
-            .filter(|path| !path.is_empty())
-        {
-            let text = std::str::from_utf8(raw_path)
-                .map_err(clankerdiff_core::DiffError::UnsupportedPathEncoding)?;
+        for raw_path in output.stdout.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+            let text = std::str::from_utf8(raw_path).map_err(clankerdiff_core::DiffError::UnsupportedPathEncoding)?;
             let path = RepoPath::new(text)?;
             let captured = self.read_worktree_bytes(&path).await?;
             let (contents, size) = match captured {
@@ -806,11 +631,7 @@ impl GitRepository {
                 BoundedWorktree::TooLarge(size) => (Vec::new(), size),
             };
             let omitted = contents.is_empty() && size != 0;
-            files.push(UntrackedFile {
-                path,
-                contents,
-                omitted_bytes: omitted.then_some(size),
-            });
+            files.push(UntrackedFile { path, contents, omitted_bytes: omitted.then_some(size) });
         }
         Ok(files)
     }
@@ -820,17 +641,9 @@ impl GitRepository {
     }
 
     async fn resolves(&self, revision: &str) -> Result<bool, GitError> {
-        match command::run(
-            &self.root,
-            "resolve revision",
-            ["rev-parse", "--verify", "--quiet", revision],
-        )
-        .await
-        {
+        match command::run(&self.root, "resolve revision", ["rev-parse", "--verify", "--quiet", revision]).await {
             Ok(_) => Ok(true),
-            Err(GitError::CommandFailed {
-                status: Some(1), ..
-            }) => Ok(false),
+            Err(GitError::CommandFailed { status: Some(1), .. }) => Ok(false),
             Err(error) => Err(error),
         }
     }
@@ -865,9 +678,7 @@ impl GitRepository {
         for path in paths {
             path::lexical_path(&self.root, path)?;
         }
-        let args = STATUS_ARGS
-            .into_iter()
-            .chain(["--renames", "--untracked-files=no"]);
+        let args = STATUS_ARGS.into_iter().chain(["--renames", "--untracked-files=no"]);
         let output = command::run(&self.root, "resolve selected paths", args).await?;
         let selected = paths.iter().collect::<HashSet<_>>();
         let mut seen = HashSet::new();
@@ -931,10 +742,7 @@ fn parse_commit_log(output: &[u8]) -> Result<Vec<CommitSummary>, GitError> {
             let record = String::from_utf8_lossy(record);
             let record = record.trim_start_matches('\n');
             let (id, subject) = record.split_once('\u{1f}').unwrap_or((record, ""));
-            Ok(CommitSummary {
-                id: CommitId::new(id)?,
-                subject: subject.to_owned(),
-            })
+            Ok(CommitSummary { id: CommitId::new(id)?, subject: subject.to_owned() })
         })
         .collect()
 }
@@ -944,10 +752,7 @@ fn resolve_blob(
     path: &RepoPath,
 ) -> ResolvedContentLocation {
     match blobs {
-        Ok(blobs) => blobs.get(path).cloned().map_or(
-            ResolvedContentLocation::Absent,
-            ResolvedContentLocation::Blob,
-        ),
+        Ok(blobs) => blobs.get(path).cloned().map_or(ResolvedContentLocation::Absent, ResolvedContentLocation::Blob),
         Err(reason) => ResolvedContentLocation::Unavailable(reason.clone()),
     }
 }
@@ -979,9 +784,8 @@ fn source_error(error: GitError) -> SourceUnavailable {
 }
 
 fn parse_root(stdout: &[u8]) -> Result<PathBuf, GitError> {
-    let root = std::str::from_utf8(stdout)
-        .map_err(|_| GitError::UnsupportedRepositoryPath)?
-        .trim_end_matches(['\r', '\n']);
+    let root =
+        std::str::from_utf8(stdout).map_err(|_| GitError::UnsupportedRepositoryPath)?.trim_end_matches(['\r', '\n']);
     if root.is_empty() {
         return Err(GitError::NotRepository);
     }

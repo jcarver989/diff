@@ -10,10 +10,7 @@ pub struct ThemeChoice {
 impl ThemeChoice {
     #[must_use]
     pub fn new(name: impl Into<String>, theme: ReviewTheme) -> Self {
-        Self {
-            name: name.into(),
-            theme,
-        }
+        Self { name: name.into(), theme }
     }
 
     #[must_use]
@@ -21,20 +18,14 @@ impl ThemeChoice {
         ReviewTheme::catalog()
             .into_iter()
             .filter_map(|descriptor| {
-                ReviewTheme::builtin(&descriptor.id)
-                    .ok()
-                    .map(|theme| Self::new(descriptor.name, theme))
+                ReviewTheme::builtin(&descriptor.id).ok().map(|theme| Self::new(descriptor.name, theme))
             })
             .collect()
     }
 
     #[must_use]
     pub fn catalog_for(appearance: Appearance) -> Arc<[Self]> {
-        Self::catalog()
-            .iter()
-            .filter(|choice| choice.theme.appearance() == appearance)
-            .cloned()
-            .collect()
+        Self::catalog().iter().filter(|choice| choice.theme.appearance() == appearance).cloned().collect()
     }
 }
 
@@ -51,15 +42,8 @@ impl ThemeSelection {
         if themes.is_empty() {
             return None;
         }
-        let selected = themes
-            .iter()
-            .position(|choice| choice.theme.id() == current.id())
-            .unwrap_or(0);
-        Some(Self {
-            themes,
-            selected,
-            original: current.clone(),
-        })
+        let selected = themes.iter().position(|choice| choice.theme.id() == current.id()).unwrap_or(0);
+        Some(Self { themes, selected, original: current.clone() })
     }
 
     #[must_use]
@@ -69,9 +53,7 @@ impl ThemeSelection {
 
     #[must_use]
     pub fn position(&self, id: &str) -> Option<usize> {
-        self.themes
-            .iter()
-            .position(|choice| choice.theme.id().to_string() == id)
+        self.themes.iter().position(|choice| choice.theme.id().to_string() == id)
     }
 
     #[must_use]
@@ -95,10 +77,7 @@ impl ThemeSelection {
     }
 
     pub fn select_relative(&mut self, delta: isize) -> ReviewTheme {
-        self.selected = self
-            .selected
-            .saturating_add_signed(delta)
-            .min(self.themes.len() - 1);
+        self.selected = self.selected.saturating_add_signed(delta).min(self.themes.len() - 1);
         self.selected_theme()
     }
 

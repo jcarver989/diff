@@ -1,7 +1,7 @@
 use crate::tokens::{ICON_SIZE, rem};
 use gpui::{
-    Animation, AnimationExt, App, Hsla, IntoElement, RenderOnce, SharedString, Styled,
-    Subscription, Transformation, Window, prelude::*, radians, svg,
+    Animation, AnimationExt, App, Hsla, IntoElement, RenderOnce, SharedString, Styled, Subscription, Transformation,
+    Window, prelude::*, radians, svg,
 };
 use std::f32::consts::TAU;
 use std::time::Duration;
@@ -161,13 +161,7 @@ pub struct Icon {
 impl Icon {
     #[must_use]
     pub fn new(name: IconName, color: Hsla) -> Self {
-        Self {
-            name,
-            size: ICON_SIZE,
-            color: Some(color),
-            hover: None,
-            spin: None,
-        }
+        Self { name, size: ICON_SIZE, color: Some(color), hover: None, spin: None }
     }
 
     #[must_use]
@@ -204,13 +198,9 @@ impl RenderOnce for Icon {
             .flex_none()
             .size(rem(self.size))
             .text_color(self.color.unwrap_or_else(|| window.text_style().color))
-            .when_some(self.hover, |icon, (group, color)| {
-                icon.group_hover(group, move |icon| icon.text_color(color))
-            });
+            .when_some(self.hover, |icon, (group, color)| icon.group_hover(group, move |icon| icon.text_color(color)));
         if let Some(id) = self.spin.filter(|_| window.is_visible()) {
-            let spin = Animation::new(SPIN_PERIOD)
-                .repeat_synced()
-                .with_max_fps(SPIN_MAX_FPS);
+            let spin = Animation::new(SPIN_PERIOD).repeat_synced().with_max_fps(SPIN_MAX_FPS);
             icon.with_animation(id, spin, |icon, delta| {
                 icon.with_transformation(Transformation::rotate(radians(delta * TAU)))
             })

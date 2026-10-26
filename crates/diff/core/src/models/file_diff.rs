@@ -1,7 +1,5 @@
 use super::{DiffSide, Hunk, PatchLine, RepoPath, patch_derivation::derive_patch};
-use crate::{
-    DiffError, Fingerprint, RepoPathError, SourceDocument, SourceResult, SourceUnavailable,
-};
+use crate::{DiffError, Fingerprint, RepoPathError, SourceDocument, SourceResult, SourceUnavailable};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, ffi::OsStr, path::Path, sync::Arc};
 
@@ -98,9 +96,7 @@ impl FileDiff {
         T: TryInto<RepoPath>,
         T::Error: Into<RepoPathError>,
     {
-        let path = path
-            .try_into()
-            .map_err(|error| DiffError::InvalidPath(error.into()))?;
+        let path = path.try_into().map_err(|error| DiffError::InvalidPath(error.into()))?;
         let status = match (old.is_empty(), new.is_empty()) {
             (true, false) => FileStatus::Added,
             (false, true) => FileStatus::Deleted,
@@ -108,11 +104,7 @@ impl FileDiff {
         };
         let (hunks, no_newline_at_end) = derive_patch(old, new);
         let side = |text: &str, absent: bool| {
-            if absent {
-                Err(SourceUnavailable::Absent)
-            } else {
-                SourceDocument::new(text).map(Arc::new)
-            }
+            if absent { Err(SourceUnavailable::Absent) } else { SourceDocument::new(text).map(Arc::new) }
         };
         Ok(Self {
             old_path: (status != FileStatus::Added).then(|| path.clone()),
@@ -139,9 +131,7 @@ impl FileDiff {
         if !self.can_derive_patch() {
             return self;
         }
-        if let (Some(old), Some(new)) =
-            (self.side_text(DiffSide::Old), self.side_text(DiffSide::New))
-        {
+        if let (Some(old), Some(new)) = (self.side_text(DiffSide::Old), self.side_text(DiffSide::New)) {
             let (hunks, no_newline_at_end) = derive_patch(old, new);
             self.hunks = hunks;
             self.no_newline_at_end = no_newline_at_end;
@@ -150,9 +140,7 @@ impl FileDiff {
     }
 
     fn can_derive_patch(&self) -> bool {
-        !self.binary
-            && self.side_text(DiffSide::Old).is_some()
-            && self.side_text(DiffSide::New).is_some()
+        !self.binary && self.side_text(DiffSide::Old).is_some() && self.side_text(DiffSide::New).is_some()
     }
 
     /// The source result recorded for a side of a file whose complete versions
@@ -173,8 +161,7 @@ impl FileDiff {
     const fn side_is_absent(status: FileStatus, side: DiffSide) -> bool {
         matches!(
             (status, side),
-            (FileStatus::Added | FileStatus::Untracked, DiffSide::Old)
-                | (FileStatus::Deleted, DiffSide::New)
+            (FileStatus::Added | FileStatus::Untracked, DiffSide::Old) | (FileStatus::Deleted, DiffSide::New)
         )
     }
 
@@ -188,11 +175,7 @@ impl FileDiff {
     }
 
     pub(crate) const fn source_side(&self) -> DiffSide {
-        if matches!(self.status, FileStatus::Deleted) {
-            DiffSide::Old
-        } else {
-            DiffSide::New
-        }
+        if matches!(self.status, FileStatus::Deleted) { DiffSide::Old } else { DiffSide::New }
     }
 
     /// Returns the complete source document for one side when it is available.
@@ -227,10 +210,7 @@ impl FileDiff {
     pub fn content_id(&self) -> Fingerprint {
         let mut fields: Vec<Cow<'_, [u8]>> = vec![
             Cow::Borrowed(FILE_CONTENT_DOMAIN),
-            Cow::Owned(vec![
-                u8::try_from(self.status.code()).unwrap_or(b'?'),
-                u8::from(self.binary),
-            ]),
+            Cow::Owned(vec![u8::try_from(self.status.code()).unwrap_or(b'?'), u8::from(self.binary)]),
         ];
         let mut complete = true;
         for side in [DiffSide::Old, DiffSide::New] {
@@ -281,10 +261,7 @@ impl FileDiff {
     /// Lowercase file extension, without a dot.
     #[must_use]
     pub fn language(&self) -> &str {
-        Path::new(self.path.as_str())
-            .extension()
-            .and_then(OsStr::to_str)
-            .unwrap_or_default()
+        Path::new(self.path.as_str()).extension().and_then(OsStr::to_str).unwrap_or_default()
     }
 
     #[must_use]

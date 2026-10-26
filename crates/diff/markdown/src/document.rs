@@ -180,10 +180,7 @@ impl MarkdownCodeBlock {
 
     #[must_use]
     pub fn highlight_hint(&self) -> &str {
-        self.info
-            .as_deref()
-            .or(self.language.as_deref())
-            .unwrap_or_default()
+        self.info.as_deref().or(self.language.as_deref()).unwrap_or_default()
     }
 }
 
@@ -319,11 +316,7 @@ impl MarkdownDocument {
 
     /// Parses Markdown while retaining optional host-provided metadata.
     #[must_use]
-    pub fn parse_with_metadata(
-        source_path: Option<String>,
-        title: Option<String>,
-        source: impl Into<String>,
-    ) -> Self {
+    pub fn parse_with_metadata(source_path: Option<String>, title: Option<String>, source: impl Into<String>) -> Self {
         let source: String = source.into();
         let line_starts = LineIndex::new(&source);
         let events = Parser::new_ext(&source, parser_options())
@@ -333,22 +326,12 @@ impl MarkdownDocument {
         let roots = event_tree(&events);
         let mut source_styles = Vec::new();
         collect_source_styles(&roots, &line_starts, &mut source_styles);
-        let mut blocks = roots
-            .iter()
-            .filter_map(|node| parse_block(node, 0, &source, &line_starts))
-            .collect::<Vec<_>>();
+        let mut blocks =
+            roots.iter().filter_map(|node| parse_block(node, 0, &source, &line_starts)).collect::<Vec<_>>();
         let mut targets = Vec::new();
         let mut outline = Vec::new();
         assign_targets(&mut blocks, &mut targets, &mut outline);
-        Self {
-            source_path,
-            title,
-            source,
-            blocks,
-            outline,
-            targets,
-            source_styles,
-        }
+        Self { source_path, title, source, blocks, outline, targets, source_styles }
     }
 
     #[must_use]
@@ -432,18 +415,12 @@ pub(crate) fn parser_options() -> Options {
 }
 
 pub(crate) fn event_tree(events: &[(Event<'static>, Range<usize>)]) -> Vec<Node> {
-    let mut stack = vec![Node {
-        event: None,
-        range: 0..0,
-        children: Vec::new(),
-    }];
+    let mut stack = vec![Node { event: None, range: 0..0, children: Vec::new() }];
     for (event, range) in events {
         match event {
-            Event::Start(_) => stack.push(Node {
-                event: Some(event.clone()),
-                range: range.clone(),
-                children: Vec::new(),
-            }),
+            Event::Start(_) => {
+                stack.push(Node { event: Some(event.clone()), range: range.clone(), children: Vec::new() })
+            }
             Event::End(_) => {
                 if stack.len() > 1
                     && let Some(mut node) = stack.pop()
@@ -477,11 +454,7 @@ pub(crate) fn event_tree(events: &[(Event<'static>, Range<usize>)]) -> Vec<Node>
     stack.pop().map_or_else(Vec::new, |root| root.children)
 }
 
-pub(crate) fn collect_source_styles(
-    nodes: &[Node],
-    index: &LineIndex,
-    output: &mut Vec<MarkdownSourceStyle>,
-) {
+pub(crate) fn collect_source_styles(nodes: &[Node], index: &LineIndex, output: &mut Vec<MarkdownSourceStyle>) {
     for node in nodes {
         let role = match node.event.as_ref() {
             Some(Event::Start(Tag::Heading { .. })) => Some(MarkdownSourceRole::Heading),
@@ -494,78 +467,43 @@ pub(crate) fn collect_source_styles(
             _ => None,
         };
         if let Some(role) = role {
-            output.push(MarkdownSourceStyle {
-                source: source_range(node.range.clone(), index),
-                role,
-            });
+            output.push(MarkdownSourceStyle { source: source_range(node.range.clone(), index), role });
         }
         collect_source_styles(&node.children, index, output);
     }
 }
 
 pub(crate) fn source_range(range: Range<usize>, index: &LineIndex) -> SourceRange {
-    SourceRange {
-        lines: index.range(range.clone()),
-        bytes: range,
-    }
+    SourceRange { lines: index.range(range.clone()), bytes: range }
 }
 
-pub(crate) fn parse_block(
-    node: &Node,
-    depth: usize,
-    source: &str,
-    line_index: &LineIndex,
-) -> Option<MarkdownBlock> {
+pub(crate) fn parse_block(node: &Node, depth: usize, source: &str, line_index: &LineIndex) -> Option<MarkdownBlock> {
     let event = node.event.as_ref()?;
     let kind = match event {
-        Event::Start(Tag::Heading { level, .. }) => MarkdownBlockKind::Heading {
-            level: heading_level(*level),
-            content: inline_children(&node.children),
-        },
-        Event::Start(Tag::Paragraph) => MarkdownBlockKind::Paragraph {
-            content: inline_children(&node.children),
-        },
+        Event::Start(Tag::Heading { level, .. }) => {
+            MarkdownBlockKind::Heading { level: heading_level(*level), content: inline_children(&node.children) }
+        }
+        Event::Start(Tag::Paragraph) => MarkdownBlockKind::Paragraph { content: inline_children(&node.children) },
         Event::Start(Tag::BlockQuote(_)) => MarkdownBlockKind::BlockQuote {
-            blocks: node
-                .children
-                .iter()
-                .filter_map(|child| parse_block(child, depth, source, line_index))
-                .collect(),
+            blocks: node.children.iter().filter_map(|child| parse_block(child, depth, source, line_index)).collect(),
         },
         Event::Start(Tag::List(start)) => MarkdownBlockKind::List {
             ordered: start.is_some(),
             start: *start,
-            items: node
-                .children
-                .iter()
-                .filter_map(|child| parse_item(child, depth, source, line_index))
-                .collect(),
+            items: node.children.iter().filter_map(|child| parse_item(child, depth, source, line_index)).collect(),
         },
         Event::Start(Tag::CodeBlock(kind)) => {
             MarkdownBlockKind::CodeBlock(parse_code_block(node, kind, source, line_index))
         }
-        Event::Start(Tag::Table(alignments)) => {
-            MarkdownBlockKind::Table(parse_table(node, alignments, line_index))
-        }
+        Event::Start(Tag::Table(alignments)) => MarkdownBlockKind::Table(parse_table(node, alignments, line_index)),
         Event::Rule => MarkdownBlockKind::Rule,
-        Event::Start(Tag::HtmlBlock) => MarkdownBlockKind::HtmlFallback {
-            content: html_fallback(&node.children),
-        },
+        Event::Start(Tag::HtmlBlock) => MarkdownBlockKind::HtmlFallback { content: html_fallback(&node.children) },
         _ => return None,
     };
-    Some(MarkdownBlock {
-        source: source_range(node.range.clone(), line_index),
-        kind,
-        target_id: None,
-    })
+    Some(MarkdownBlock { source: source_range(node.range.clone(), line_index), kind, target_id: None })
 }
 
-fn parse_item(
-    node: &Node,
-    depth: usize,
-    source: &str,
-    line_index: &LineIndex,
-) -> Option<MarkdownListItem> {
+fn parse_item(node: &Node, depth: usize, source: &str, line_index: &LineIndex) -> Option<MarkdownListItem> {
     if !matches!(node.event, Some(Event::Start(Tag::Item))) {
         return None;
     }
@@ -621,11 +559,7 @@ fn parse_code_block(
     let lines = if fenced && source.get(content_bytes.clone()).is_some() {
         fenced_code_lines(content_bytes.clone(), source, line_index)
     } else {
-        let code = if fenced {
-            text.as_str()
-        } else {
-            text.strip_suffix('\n').unwrap_or(&text)
-        };
+        let code = if fenced { text.as_str() } else { text.strip_suffix('\n').unwrap_or(&text) };
         let first_source_line = line_index.line_for_offset(node.range.start);
         code.is_empty().then(Vec::new).unwrap_or_else(|| {
             code.split('\n')
@@ -653,11 +587,7 @@ fn parse_code_block(
     }
 }
 
-pub(crate) fn fenced_code_lines(
-    content: Range<usize>,
-    source: &str,
-    line_index: &LineIndex,
-) -> Vec<MarkdownCodeLine> {
+pub(crate) fn fenced_code_lines(content: Range<usize>, source: &str, line_index: &LineIndex) -> Vec<MarkdownCodeLine> {
     let code = &source[content.clone()];
     if code.is_empty() {
         return Vec::new();
@@ -673,12 +603,7 @@ pub(crate) fn fenced_code_lines(
         .collect()
 }
 
-pub(crate) fn fenced_code_line(
-    index: usize,
-    offset: usize,
-    line: &str,
-    line_index: &LineIndex,
-) -> MarkdownCodeLine {
+pub(crate) fn fenced_code_line(index: usize, offset: usize, line: &str, line_index: &LineIndex) -> MarkdownCodeLine {
     MarkdownCodeLine {
         index,
         source: source_range(offset..offset + line.len(), line_index),
@@ -688,11 +613,7 @@ pub(crate) fn fenced_code_line(
     }
 }
 
-fn code_content_range(
-    block: Range<usize>,
-    kind: &CodeBlockKind<'static>,
-    source: &str,
-) -> Range<usize> {
+fn code_content_range(block: Range<usize>, kind: &CodeBlockKind<'static>, source: &str) -> Range<usize> {
     if !matches!(kind, CodeBlockKind::Fenced(_)) {
         return block;
     }
@@ -702,18 +623,13 @@ fn code_content_range(
 pub(crate) fn fenced_content_range(block: Range<usize>, source: &str) -> Range<usize> {
     let start = block.start.min(source.len());
     let end = block.end.min(source.len());
-    let opening_end = source[start..end]
-        .find('\n')
-        .map_or(end, |offset| start + offset + 1);
+    let opening_end = source[start..end].find('\n').map_or(end, |offset| start + offset + 1);
     if opening_end >= end {
         return opening_end..opening_end;
     }
     let (marker, count) = fence_marker(&source[start..opening_end]);
-    let last_line = source[opening_end..end]
-        .rfind('\n')
-        .map_or(opening_end, |offset| opening_end + offset + 1);
-    let closing_start =
-        closing_fence(&source.as_bytes()[last_line..end], marker, count).then_some(last_line);
+    let last_line = source[opening_end..end].rfind('\n').map_or(opening_end, |offset| opening_end + offset + 1);
+    let closing_start = closing_fence(&source.as_bytes()[last_line..end], marker, count).then_some(last_line);
     fenced_content_bounds(opening_end, closing_start, end, source)
 }
 
@@ -754,10 +670,7 @@ pub(crate) fn closing_fence(line: &[u8], marker: u8, count: usize) -> bool {
         }
         cursor += 1;
     }
-    let run = line[cursor..]
-        .iter()
-        .take_while(|byte| **byte == marker)
-        .count();
+    let run = line[cursor..].iter().take_while(|byte| **byte == marker).count();
     if run == 0 || run < count {
         return false;
     }
@@ -782,17 +695,11 @@ fn parse_table(node: &Node, alignments: &[Alignment], line_index: &LineIndex) ->
             table_row(section, header, line_index)
         })
         .collect();
-    MarkdownTable {
-        alignments: alignments.iter().copied().map(table_alignment).collect(),
-        rows,
-    }
+    MarkdownTable { alignments: alignments.iter().copied().map(table_alignment).collect(), rows }
 }
 
 fn table_row(node: &Node, header: bool, line_index: &LineIndex) -> Option<MarkdownTableRow> {
-    if !matches!(
-        node.event,
-        Some(Event::Start(Tag::TableRow | Tag::TableHead))
-    ) {
+    if !matches!(node.event, Some(Event::Start(Tag::TableRow | Tag::TableHead))) {
         return None;
     }
     let cells = node
@@ -808,12 +715,7 @@ fn table_row(node: &Node, header: bool, line_index: &LineIndex) -> Option<Markdo
             })
         })
         .collect();
-    Some(MarkdownTableRow {
-        header,
-        source: source_range(node.range.clone(), line_index),
-        cells,
-        target_id: None,
-    })
+    Some(MarkdownTableRow { header, source: source_range(node.range.clone(), line_index), cells, target_id: None })
 }
 
 fn table_alignment(alignment: Alignment) -> MarkdownTableAlignment {
@@ -836,27 +738,19 @@ fn inline_node(node: &Node) -> Option<MarkdownInline> {
         Event::Code(text) => MarkdownInline::Code(text.to_string()),
         Event::Start(Tag::Strong) => MarkdownInline::Strong(inline_children(&node.children)),
         Event::Start(Tag::Emphasis) => MarkdownInline::Emphasis(inline_children(&node.children)),
-        Event::Start(Tag::Strikethrough) => {
-            MarkdownInline::Strikethrough(inline_children(&node.children))
-        }
-        Event::Start(Tag::Link {
-            dest_url, title, ..
-        }) => MarkdownInline::Link {
+        Event::Start(Tag::Strikethrough) => MarkdownInline::Strikethrough(inline_children(&node.children)),
+        Event::Start(Tag::Link { dest_url, title, .. }) => MarkdownInline::Link {
             destination: dest_url.to_string(),
             title: (!title.is_empty()).then(|| title.to_string()),
             content: inline_children(&node.children),
         },
-        Event::Start(Tag::Image { .. }) => {
-            MarkdownInline::ImageAlt(rendered_text(&inline_children(&node.children)))
-        }
+        Event::Start(Tag::Image { .. }) => MarkdownInline::ImageAlt(rendered_text(&inline_children(&node.children))),
         Event::SoftBreak => MarkdownInline::SoftBreak,
         Event::HardBreak => MarkdownInline::HardBreak,
         Event::InlineHtml(html) | Event::Html(html) => MarkdownInline::Text(html.to_string()),
-        Event::TaskListMarker(checked) => MarkdownInline::Text(if *checked {
-            "☑".to_owned()
-        } else {
-            "☐".to_owned()
-        }),
+        Event::TaskListMarker(checked) => {
+            MarkdownInline::Text(if *checked { "☑".to_owned() } else { "☐".to_owned() })
+        }
         // Math, footnotes, and metadata are not enabled by this parser. Keep a
         // useful textual fallback if a future option starts producing them.
         Event::InlineMath(text) | Event::DisplayMath(text) | Event::FootnoteReference(text) => {
@@ -870,9 +764,7 @@ fn html_fallback(children: &[Node]) -> Vec<MarkdownInline> {
     children
         .iter()
         .filter_map(|child| match child.event.as_ref()? {
-            Event::Html(text) | Event::InlineHtml(text) => {
-                Some(MarkdownInline::Text(text.to_string()))
-            }
+            Event::Html(text) | Event::InlineHtml(text) => Some(MarkdownInline::Text(text.to_string())),
             _ => None,
         })
         .collect()
@@ -888,19 +780,9 @@ pub(crate) fn assign_targets(
         match &mut block.kind {
             MarkdownBlockKind::Heading { level, content } => {
                 let title = rendered_text(content);
-                let id = push_target(
-                    MarkdownTargetKind::Heading,
-                    block.source.clone(),
-                    title.clone(),
-                    targets,
-                );
+                let id = push_target(MarkdownTargetKind::Heading, block.source.clone(), title.clone(), targets);
                 block_target = Some(id);
-                outline.push(MarkdownHeading {
-                    level: *level,
-                    title,
-                    source: block.source.clone(),
-                    target_id: id,
-                });
+                outline.push(MarkdownHeading { level: *level, title, source: block.source.clone(), target_id: id });
             }
             MarkdownBlockKind::Paragraph { content } => {
                 block_target = Some(push_target(
@@ -995,12 +877,7 @@ fn push_target(
     targets: &mut Vec<MarkdownTarget>,
 ) -> MarkdownTargetId {
     let id = MarkdownTargetId(targets.len());
-    targets.push(MarkdownTarget {
-        id,
-        kind,
-        source,
-        display_label,
-    });
+    targets.push(MarkdownTarget { id, kind, source, display_label });
     id
 }
 
@@ -1011,24 +888,14 @@ fn block_text(blocks: &[MarkdownBlock]) -> String {
             MarkdownBlockKind::Heading { content, .. }
             | MarkdownBlockKind::Paragraph { content }
             | MarkdownBlockKind::HtmlFallback { content } => rendered_text(content),
-            MarkdownBlockKind::List { items, .. } => items
-                .iter()
-                .map(|item| rendered_text(&item.content))
-                .collect::<Vec<_>>()
-                .join(" "),
+            MarkdownBlockKind::List { items, .. } => {
+                items.iter().map(|item| rendered_text(&item.content)).collect::<Vec<_>>().join(" ")
+            }
             MarkdownBlockKind::BlockQuote { blocks } => block_text(blocks),
-            MarkdownBlockKind::CodeBlock(code) => code
-                .lines
-                .iter()
-                .map(|line| line.text.as_str())
-                .collect::<Vec<_>>()
-                .join("\n"),
-            MarkdownBlockKind::Table(table) => table
-                .rows
-                .iter()
-                .map(row_text)
-                .collect::<Vec<_>>()
-                .join(" "),
+            MarkdownBlockKind::CodeBlock(code) => {
+                code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n")
+            }
+            MarkdownBlockKind::Table(table) => table.rows.iter().map(row_text).collect::<Vec<_>>().join(" "),
             MarkdownBlockKind::Rule => String::new(),
         })
         .collect::<Vec<_>>()
@@ -1036,11 +903,7 @@ fn block_text(blocks: &[MarkdownBlock]) -> String {
 }
 
 fn row_text(row: &MarkdownTableRow) -> String {
-    row.cells
-        .iter()
-        .map(|cell| rendered_text(&cell.content))
-        .collect::<Vec<_>>()
-        .join(" | ")
+    row.cells.iter().map(|cell| rendered_text(&cell.content)).collect::<Vec<_>>().join(" | ")
 }
 
 fn heading_level(level: HeadingLevel) -> u8 {
@@ -1069,11 +932,7 @@ impl Default for LineIndex {
 
 impl LineIndex {
     pub(crate) fn new(source: &str) -> Self {
-        let mut index = Self {
-            starts: vec![0],
-            content_ends: vec![0],
-            source_len: 0,
-        };
+        let mut index = Self { starts: vec![0], content_ends: vec![0], source_len: 0 };
         index.extend(source, 0);
         index
     }
@@ -1084,9 +943,7 @@ impl LineIndex {
         for (offset, byte) in bytes[from..].iter().enumerate() {
             let index = from + offset;
             if *byte == b'\n' {
-                self.content_ends.push(
-                    index.saturating_sub(usize::from(index > 0 && bytes[index - 1] == b'\r')),
-                );
+                self.content_ends.push(index.saturating_sub(usize::from(index > 0 && bytes[index - 1] == b'\r')));
                 self.starts.push(index + 1);
             }
         }
@@ -1120,24 +977,9 @@ impl LineIndex {
     }
 
     fn source_line_range(&self, line: usize) -> SourceRange {
-        let start = self
-            .starts
-            .get(line.saturating_sub(1))
-            .copied()
-            .unwrap_or(0);
-        let end = self
-            .content_ends
-            .get(line.saturating_sub(1))
-            .copied()
-            .unwrap_or(self.source_len)
-            .max(start);
-        SourceRange {
-            bytes: start..end,
-            lines: MarkdownLineRange {
-                start: line,
-                end: line,
-            },
-        }
+        let start = self.starts.get(line.saturating_sub(1)).copied().unwrap_or(0);
+        let end = self.content_ends.get(line.saturating_sub(1)).copied().unwrap_or(self.source_len).max(start);
+        SourceRange { bytes: start..end, lines: MarkdownLineRange { start: line, end: line } }
     }
 }
 
@@ -1161,16 +1003,8 @@ mod tests {
         let source = "# Héading\r\n\r\n```\r\none\r\ntwo\r\n```\r\n";
         let document = MarkdownDocument::parse(source);
         assert_eq!(document.source(), source);
-        let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[1].kind else {
-            panic!("expected code block")
-        };
-        assert_eq!(
-            code.lines
-                .iter()
-                .map(|line| line.source_line)
-                .collect::<Vec<_>>(),
-            vec![Some(4), Some(5)]
-        );
+        let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[1].kind else { panic!("expected code block") };
+        assert_eq!(code.lines.iter().map(|line| line.source_line).collect::<Vec<_>>(), vec![Some(4), Some(5)]);
         assert_eq!(code.lines[0].text, "one");
     }
 
@@ -1179,30 +1013,16 @@ mod tests {
         let document = MarkdownDocument::parse(
             "**bold _em_** and ~~gone~~ [link](url) ![alt](image)\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n",
         );
-        assert!(matches!(
-            document.blocks()[0].kind,
-            MarkdownBlockKind::Paragraph { .. }
-        ));
-        let MarkdownBlockKind::Table(table) = &document.blocks()[1].kind else {
-            panic!("expected table")
-        };
+        assert!(matches!(document.blocks()[0].kind, MarkdownBlockKind::Paragraph { .. }));
+        let MarkdownBlockKind::Table(table) = &document.blocks()[1].kind else { panic!("expected table") };
         assert_eq!(table.rows.len(), 2);
-        assert_eq!(
-            document
-                .targets()
-                .iter()
-                .filter(|target| target.kind == MarkdownTargetKind::TableRow)
-                .count(),
-            2
-        );
+        assert_eq!(document.targets().iter().filter(|target| target.kind == MarkdownTargetKind::TableRow).count(), 2);
     }
 
     #[test]
     fn longer_outer_fence_does_not_close_on_shorter_run() {
         let document = MarkdownDocument::parse("````\n```\nstill code\n````\n");
-        let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else {
-            panic!("expected code block")
-        };
+        let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else { panic!("expected code block") };
         assert_eq!(code.lines.len(), 2);
         assert_eq!(code.lines[0].text, "```");
     }
@@ -1217,11 +1037,7 @@ mod tests {
     #[test]
     fn nested_list_items_are_targets_without_overlapping_paragraph_targets() {
         let document = MarkdownDocument::parse("1. outer\n   - inner\n   - second\n2. last\n");
-        let kinds = document
-            .targets()
-            .iter()
-            .map(|target| target.kind)
-            .collect::<Vec<_>>();
+        let kinds = document.targets().iter().map(|target| target.kind).collect::<Vec<_>>();
         assert_eq!(
             kinds,
             vec![
@@ -1231,9 +1047,7 @@ mod tests {
                 MarkdownTargetKind::ListItem,
             ]
         );
-        let MarkdownBlockKind::List { items, .. } = &document.blocks()[0].kind else {
-            panic!("expected list")
-        };
+        let MarkdownBlockKind::List { items, .. } = &document.blocks()[0].kind else { panic!("expected list") };
         assert_eq!(items[0].depth, 0);
         assert_eq!(items[0].blocks.len(), 1);
     }
@@ -1241,16 +1055,8 @@ mod tests {
     #[test]
     fn indented_code_strips_parser_indentation() {
         let document = MarkdownDocument::parse("    first\n    second\n");
-        let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else {
-            panic!("expected code block")
-        };
-        assert_eq!(
-            code.lines
-                .iter()
-                .map(|line| line.text.as_str())
-                .collect::<Vec<_>>(),
-            ["first", "second"]
-        );
+        let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else { panic!("expected code block") };
+        assert_eq!(code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), ["first", "second"]);
         assert_eq!(code.lines[0].source_line, Some(1));
         assert_eq!(code.lines[1].source.bytes, 10..20);
     }
@@ -1258,32 +1064,15 @@ mod tests {
     #[test]
     fn indented_code_preserves_blank_content_lines() {
         let document = MarkdownDocument::parse("    one\n\n    two\n");
-        let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else {
-            panic!("expected code block")
-        };
-        assert_eq!(
-            code.lines
-                .iter()
-                .map(|line| line.text.as_str())
-                .collect::<Vec<_>>(),
-            ["one", "", "two"]
-        );
-        assert_eq!(
-            code.lines
-                .iter()
-                .map(|line| line.source_line)
-                .collect::<Vec<_>>(),
-            [Some(1), Some(2), Some(3)]
-        );
+        let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else { panic!("expected code block") };
+        assert_eq!(code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), ["one", "", "two"]);
+        assert_eq!(code.lines.iter().map(|line| line.source_line).collect::<Vec<_>>(), [Some(1), Some(2), Some(3)]);
     }
 
     #[test]
     fn raw_html_is_plain_fallback_without_a_target() {
         let document = MarkdownDocument::parse("<div>not executed</div>\n");
-        assert!(matches!(
-            document.blocks()[0].kind,
-            MarkdownBlockKind::HtmlFallback { .. }
-        ));
+        assert!(matches!(document.blocks()[0].kind, MarkdownBlockKind::HtmlFallback { .. }));
         assert_eq!(document.targets(), []);
     }
 

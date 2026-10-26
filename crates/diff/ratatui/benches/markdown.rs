@@ -23,15 +23,10 @@ const OPERATIONS: [(&str, Operation); 4] = [
 ];
 
 fn markdown(criterion: &mut Criterion) {
-    let chat = "# Agent reply\n\n**Updated** the [`run`](https://example.com) command.\n\n```sh\necho \"$HOME\"\n```\n".to_owned();
-    let long_fence = format!(
-        "# Long context\n\n```rust\n/* open\n{}",
-        "still comment\n".repeat(1_100)
-    );
-    for (name, source, tail) in [
-        ("chat", chat, "\nDone."),
-        ("long_fence", long_fence, "closed */\n```\n\nDone."),
-    ] {
+    let chat = "# Agent reply\n\n**Updated** the [`run`](https://example.com) command.\n\n```sh\necho \"$HOME\"\n```\n"
+        .to_owned();
+    let long_fence = format!("# Long context\n\n```rust\n/* open\n{}", "still comment\n".repeat(1_100));
+    for (name, source, tail) in [("chat", chat, "\nDone."), ("long_fence", long_fence, "closed */\n```\n\nDone.")] {
         let mut group = criterion.benchmark_group(format!("markdown/{name}"));
         group.bench_function("parse", |bencher| {
             bencher.iter(|| black_box(MarkdownDocument::parse(black_box(&source))));
@@ -76,19 +71,15 @@ fn layout_work(criterion: &mut Criterion, name: &str, source: &str, tail: &str) 
     let theme = ReviewTheme::default();
     let options = MarkdownLayoutOptions::default();
     let renderer = MarkdownRenderer::new();
-    for (mode, presentation) in [
-        ("rendered", MarkdownPresentation::Rendered),
-        ("source_lines", MarkdownPresentation::SourceLines),
-    ] {
+    for (mode, presentation) in
+        [("rendered", MarkdownPresentation::Rendered), ("source_lines", MarkdownPresentation::SourceLines)]
+    {
         group.bench_function(mode, |bencher| {
             let mut highlighter = SyntaxHighlighter::default();
             bencher.iter(|| {
                 black_box(renderer.render_layout(
                     &document,
-                    MarkdownLayoutOptions {
-                        presentation,
-                        ..options
-                    },
+                    MarkdownLayoutOptions { presentation, ..options },
                     &theme,
                     &mut highlighter,
                 ))
@@ -127,10 +118,7 @@ fn layout_work(criterion: &mut Criterion, name: &str, source: &str, tail: &str) 
     group.bench_function("missed_revision_update", |bencher| {
         bencher.iter(|| black_box(fixture.state.update_since(u64::MAX)));
     });
-    let source_options = MarkdownLayoutOptions {
-        presentation: MarkdownPresentation::SourceLines,
-        ..options
-    };
+    let source_options = MarkdownLayoutOptions { presentation: MarkdownPresentation::SourceLines, ..options };
     group.bench_function("source_line_append", |bencher| {
         bencher.iter_batched(
             || {

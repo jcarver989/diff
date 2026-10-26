@@ -1,7 +1,7 @@
 use super::{MarkdownFocusPane, MarkdownReviewEvent, MarkdownReviewState};
 use crate::{
-    InputOutcome, InteractionPhase, KeyBinding, KeyEvent, MarkdownReviewCommand, MouseEvent,
-    MouseEventKind, NavigationPane, ReviewCommand, ReviewInput,
+    InputOutcome, InteractionPhase, KeyBinding, KeyEvent, MarkdownReviewCommand, MouseEvent, MouseEventKind,
+    NavigationPane, ReviewCommand, ReviewInput,
     interaction::{self, ReviewWidget},
     keybindings,
     theme_picker::ThemePicker,
@@ -47,25 +47,15 @@ impl MarkdownReviewState {
         if self.interaction_phase() != InteractionPhase::Browse {
             return None;
         }
-        keybindings::binding_for_key(
-            &self.keybindings,
-            key,
-            self.focus == MarkdownFocusPane::Document,
-            false,
-        )
-        .map(|binding| binding.command)
+        keybindings::binding_for_key(&self.keybindings, key, self.focus == MarkdownFocusPane::Document, false)
+            .map(|binding| binding.command)
     }
 
     pub(crate) fn help_bindings(&self) -> impl Iterator<Item = &KeyBinding<MarkdownReviewCommand>> {
-        let context = CommandContext {
-            phase: InteractionPhase::Browse,
-            ..self.command_context()
-        };
-        keybindings::help_bindings(
-            &self.keybindings,
-            context.navigation_available,
-            move |command| command.enabled(&context),
-        )
+        let context = CommandContext { phase: InteractionPhase::Browse, ..self.command_context() };
+        keybindings::help_bindings(&self.keybindings, context.navigation_available, move |command| {
+            command.enabled(&context)
+        })
     }
 
     pub(crate) fn footer_hint(&self, width: usize) -> String {
@@ -84,10 +74,7 @@ impl MarkdownReviewState {
         CommandContext {
             phase: self.interaction_phase(),
             capabilities: self.capabilities,
-            navigation_available: !matches!(
-                self.options.navigation,
-                NavigationPane::Hidden | NavigationPane::Width(0)
-            ),
+            navigation_available: !matches!(self.options.navigation, NavigationPane::Hidden | NavigationPane::Width(0)),
             themes_available: !self.theme_choices.is_empty(),
             ..CommandContext::default()
         }
@@ -103,10 +90,7 @@ impl MarkdownReviewState {
         command.enabled(&self.command_context())
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "Exhaustive command dispatch keeps routing in one place"
-    )]
+    #[expect(clippy::too_many_lines, reason = "Exhaustive command dispatch keeps routing in one place")]
     pub fn handle_command(
         &mut self,
         command: impl Into<MarkdownReviewCommand>,
@@ -128,17 +112,11 @@ impl MarkdownReviewState {
             }
             C::MoveSelection(delta) => self.move_selection(delta),
             C::Page(delta) => self
-                .move_selection(delta.saturating_mul(
-                    isize::try_from(self.last_height.max(1)).unwrap_or(isize::MAX),
-                )),
+                .move_selection(delta.saturating_mul(isize::try_from(self.last_height.max(1)).unwrap_or(isize::MAX))),
             C::First | C::Last => {
                 let last = command == C::Last;
                 if self.focus == MarkdownFocusPane::Outline {
-                    self.select_heading(if last {
-                        self.document().outline().len().saturating_sub(1)
-                    } else {
-                        0
-                    });
+                    self.select_heading(if last { self.document().outline().len().saturating_sub(1) } else { 0 });
                 } else {
                     self.session.select_boundary(last);
                 }
@@ -239,10 +217,8 @@ impl MarkdownReviewState {
                 self.mark_dirty();
             }
             C::Review(R::ScrollHelp(lines)) => {
-                self.help_scroll = self
-                    .help_scroll
-                    .saturating_add_signed(lines)
-                    .min(self.help_bindings().count().saturating_sub(1));
+                self.help_scroll =
+                    self.help_scroll.saturating_add_signed(lines).min(self.help_bindings().count().saturating_sub(1));
                 self.mark_dirty();
             }
             C::Review(R::OpenThemePicker) => {
@@ -250,11 +226,7 @@ impl MarkdownReviewState {
                 self.mark_dirty();
             }
             C::Review(R::SelectTheme(index)) => {
-                let Some(theme) = self
-                    .theme_picker
-                    .as_mut()
-                    .and_then(|picker| picker.select(index))
-                else {
+                let Some(theme) = self.theme_picker.as_mut().and_then(|picker| picker.select(index)) else {
                     return Ok(InputOutcome::Ignored);
                 };
                 self.apply_theme(theme);
@@ -305,11 +277,8 @@ impl MarkdownReviewState {
 
     fn sync_outline_selection(&mut self) {
         if let Some(selected) = self.selected_target()
-            && let Some(index) = self
-                .document()
-                .outline()
-                .iter()
-                .rposition(|heading| heading.target_id.index() <= selected.index())
+            && let Some(index) =
+                self.document().outline().iter().rposition(|heading| heading.target_id.index() <= selected.index())
         {
             self.outline_selected = index;
         }
@@ -319,26 +288,13 @@ impl MarkdownReviewState {
         let position = Position::new(mouse.column, mouse.row);
         match mouse.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
-                self.session
-                    .move_target(if mouse.kind == MouseEventKind::ScrollUp {
-                        -1
-                    } else {
-                        1
-                    });
+                self.session.move_target(if mouse.kind == MouseEventKind::ScrollUp { -1 } else { 1 });
             }
             MouseEventKind::Down(_) => {
-                if let Some(region) = self
-                    .hit_regions
-                    .iter()
-                    .rev()
-                    .find(|region| region.area.contains(position))
-                    .copied()
+                if let Some(region) =
+                    self.hit_regions.iter().rev().find(|region| region.area.contains(position)).copied()
                 {
-                    self.focus = if region.outline {
-                        MarkdownFocusPane::Outline
-                    } else {
-                        MarkdownFocusPane::Document
-                    };
+                    self.focus = if region.outline { MarkdownFocusPane::Outline } else { MarkdownFocusPane::Document };
                     if let Some(target) = region.target
                         && self.session.select_target(target)
                         && !region.outline
@@ -384,10 +340,7 @@ impl ReviewWidget for MarkdownReviewState {
     fn draft_changed(&mut self) {
         self.request_follow();
     }
-    fn handle_browse_key(
-        &mut self,
-        key: KeyEvent,
-    ) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
+    fn handle_browse_key(&mut self, key: KeyEvent) -> Result<InputOutcome<MarkdownReviewEvent>, MarkdownReviewError> {
         match self.command_for_key(key) {
             Some(command) => self.handle_command(command),
             None => Ok(InputOutcome::Ignored),
@@ -399,10 +352,7 @@ impl ReviewWidget for MarkdownReviewState {
     fn handle_draft_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<MarkdownReviewEvent> {
         let position = Position::new(mouse.column, mouse.row);
         if matches!(mouse.kind, MouseEventKind::Down(_))
-            && self
-                .session
-                .draft()
-                .is_some_and(|draft| draft.body().is_empty())
+            && self.session.draft().is_some_and(|draft| draft.body().is_empty())
             && self
                 .hit_regions
                 .iter()

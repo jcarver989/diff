@@ -2,8 +2,8 @@ use crate::ui::prelude::{CODE_FONT, UiTheme, color};
 use clankerdiff_markdown::MarkdownInline;
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    AnyElement, ElementId, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveText,
-    IntoElement, SharedString, StrikethroughStyle, StyledText, UnderlineStyle, px,
+    AnyElement, ElementId, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveText, IntoElement, SharedString,
+    StrikethroughStyle, StyledText, UnderlineStyle, px,
 };
 use std::ops::Range;
 
@@ -27,27 +27,13 @@ impl InlineColors {
     }
 }
 
-pub(super) fn inline_text(
-    id: impl Into<ElementId>,
-    content: &[MarkdownInline],
-    colors: InlineColors,
-) -> AnyElement {
-    let mut builder = Builder {
-        colors,
-        text: String::new(),
-        highlights: Vec::new(),
-        code: Vec::new(),
-        links: Vec::new(),
-    };
+pub(super) fn inline_text(id: impl Into<ElementId>, content: &[MarkdownInline], colors: InlineColors) -> AnyElement {
+    let mut builder =
+        Builder { colors, text: String::new(), highlights: Vec::new(), code: Vec::new(), links: Vec::new() };
     builder.children(content, Marks::NONE);
     let text = StyledText::new(SharedString::from(builder.text))
         .with_highlights(builder.highlights)
-        .with_font_family_overrides(
-            builder
-                .code
-                .into_iter()
-                .map(|range| (range, SharedString::new_static(CODE_FONT))),
-        );
+        .with_font_family_overrides(builder.code.into_iter().map(|range| (range, SharedString::new_static(CODE_FONT))));
     if builder.links.is_empty() {
         return text.into_any_element();
     }
@@ -97,18 +83,16 @@ impl Marks {
         Some(HighlightStyle {
             color,
             font_weight: self.has(Self::STRONG).then_some(FontWeight::SEMIBOLD),
-            font_style: (self.has(Self::EMPHASIS) || self.has(Self::IMAGE))
-                .then_some(FontStyle::Italic),
+            font_style: (self.has(Self::EMPHASIS) || self.has(Self::IMAGE)).then_some(FontStyle::Italic),
             background_color: self.has(Self::CODE).then_some(colors.code_background),
             underline: self.has(Self::LINK).then_some(UnderlineStyle {
                 thickness: px(1.0),
                 color: Some(colors.link),
                 wavy: false,
             }),
-            strikethrough: self.has(Self::STRIKETHROUGH).then_some(StrikethroughStyle {
-                thickness: px(1.0),
-                color: None,
-            }),
+            strikethrough: self
+                .has(Self::STRIKETHROUGH)
+                .then_some(StrikethroughStyle { thickness: px(1.0), color: None }),
             ..HighlightStyle::default()
         })
     }
@@ -137,16 +121,11 @@ impl Builder {
             MarkdownInline::Strikethrough(children) => {
                 self.children(children, marks.with(Marks::STRIKETHROUGH));
             }
-            MarkdownInline::Link {
-                destination,
-                content,
-                ..
-            } => {
+            MarkdownInline::Link { destination, content, .. } => {
                 let start = self.text.len();
                 self.children(content, marks.with(Marks::LINK));
                 if self.text.len() > start {
-                    self.links
-                        .push((start..self.text.len(), destination.clone()));
+                    self.links.push((start..self.text.len(), destination.clone()));
                 }
             }
         }

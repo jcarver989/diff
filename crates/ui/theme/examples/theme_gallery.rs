@@ -1,6 +1,4 @@
-use clankerdiff_theme::{
-    ButtonVariant, ControlState, InteractionState, ReviewTheme, Rgba, SelectionState, ThemeError,
-};
+use clankerdiff_theme::{ButtonVariant, ControlState, InteractionState, ReviewTheme, Rgba, SelectionState, ThemeError};
 
 fn main() -> Result<(), ThemeError> {
     println!(
@@ -30,10 +28,7 @@ fn main() -> Result<(), ThemeError> {
             css(ui.surface),
             css(ui.border)
         );
-        println!(
-            "<p style=\"background:{}\">Hovered surface</p>",
-            css(ui.surface_hover)
-        );
+        println!("<p style=\"background:{}\">Hovered surface</p>", css(ui.surface_hover));
         for state in [SelectionState::Selected, SelectionState::Focused] {
             let style = ui.selection_style(state);
             println!(
@@ -42,11 +37,7 @@ fn main() -> Result<(), ThemeError> {
                 css(style.foreground)
             );
         }
-        for variant in [
-            ButtonVariant::Primary,
-            ButtonVariant::Secondary,
-            ButtonVariant::Destructive,
-        ] {
+        for variant in [ButtonVariant::Primary, ButtonVariant::Secondary, ButtonVariant::Destructive] {
             let style = ui.control_style(variant, ControlState::new(InteractionState::Rest));
             println!(
                 "<button style=\"background:{};color:{}\">{variant:?}</button>",
@@ -60,8 +51,5 @@ fn main() -> Result<(), ThemeError> {
 }
 
 fn css(color: Rgba) -> String {
-    format!(
-        "#{:02x}{:02x}{:02x}{:02x}",
-        color.r, color.g, color.b, color.a
-    )
+    format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)
 }

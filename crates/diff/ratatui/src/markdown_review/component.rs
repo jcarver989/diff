@@ -1,7 +1,7 @@
 use super::{MarkdownReviewEvent, MarkdownReviewState, MarkdownReviewWidget};
 use crate::{
-    InputOutcome, KeyBinding, KeyEvent, MarkdownReviewCommand, NavigationPane, ReviewInput,
-    ReviewOptions, ThemeChoice, default_markdown_keybindings, keybindings::markdown_command_label,
+    InputOutcome, KeyBinding, KeyEvent, MarkdownReviewCommand, NavigationPane, ReviewInput, ReviewOptions, ThemeChoice,
+    default_markdown_keybindings, keybindings::markdown_command_label,
 };
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewError};
@@ -112,10 +112,7 @@ impl<T> MarkdownReviewBuilder<T> {
     }
 
     #[must_use]
-    pub fn document(
-        self,
-        document: impl Into<Arc<MarkdownDocument>>,
-    ) -> MarkdownReviewBuilder<Arc<MarkdownDocument>> {
+    pub fn document(self, document: impl Into<Arc<MarkdownDocument>>) -> MarkdownReviewBuilder<Arc<MarkdownDocument>> {
         MarkdownReviewBuilder {
             document: document.into(),
             theme: self.theme,
@@ -129,9 +126,7 @@ impl<T> MarkdownReviewBuilder<T> {
 
     #[must_use]
     pub fn embedded(self) -> Self {
-        self.borders(false)
-            .footer(false)
-            .navigation(NavigationPane::Hidden)
+        self.borders(false).footer(false).navigation(NavigationPane::Hidden)
     }
 
     #[must_use]
@@ -185,11 +180,7 @@ impl<T> MarkdownReviewBuilder<T> {
     #[must_use]
     pub fn bind(self, key: impl Into<KeyEvent>, command: impl Into<MarkdownReviewCommand>) -> Self {
         let command = command.into();
-        self.binding(KeyBinding::new(
-            key.into(),
-            command,
-            markdown_command_label(command),
-        ))
+        self.binding(KeyBinding::new(key.into(), command, markdown_command_label(command)))
     }
 
     #[must_use]
@@ -199,10 +190,7 @@ impl<T> MarkdownReviewBuilder<T> {
     }
 
     #[must_use]
-    pub fn keybindings(
-        mut self,
-        bindings: impl Into<Vec<KeyBinding<MarkdownReviewCommand>>>,
-    ) -> Self {
+    pub fn keybindings(mut self, bindings: impl Into<Vec<KeyBinding<MarkdownReviewCommand>>>) -> Self {
         self.keybindings = bindings.into();
         self
     }
@@ -216,9 +204,6 @@ impl MarkdownReviewBuilder<Arc<MarkdownDocument>> {
         state.set_capabilities(self.capabilities);
         state.set_keybindings(self.keybindings);
         state.set_theme_choices(self.theme_choices);
-        MarkdownReview {
-            state,
-            widget: self.widget,
-        }
+        MarkdownReview { state, widget: self.widget }
     }
 }

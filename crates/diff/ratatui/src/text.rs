@@ -31,33 +31,20 @@ pub(crate) struct FitCursor<'a> {
 impl<'a> FitCursor<'a> {
     pub(crate) fn new(mut options: FitOptions<'a>, from: FitPosition) -> Self {
         options.tab_width = options.tab_width.max(1);
-        Self {
-            options,
-            position: from,
-            resume: from != FitPosition::default(),
-            prefix_width: None,
-            exhausted: false,
-        }
+        Self { options, position: from, resume: from != FitPosition::default(), prefix_width: None, exhausted: false }
     }
 
     pub(crate) const fn position(&self) -> FitPosition {
         self.position
     }
 
-    pub(crate) fn next_row(
-        &mut self,
-        text: &str,
-        mut emit: impl FnMut(usize, &str),
-    ) -> Option<FitPosition> {
+    pub(crate) fn next_row(&mut self, text: &str, mut emit: impl FnMut(usize, &str)) -> Option<FitPosition> {
         if self.exhausted {
             return None;
         }
         debug_assert!(text.is_char_boundary(self.position.byte));
         if self.options.width == 0 {
-            self.position = FitPosition {
-                byte: text.len(),
-                tab_remaining: 0,
-            };
+            self.position = FitPosition { byte: text.len(), tab_remaining: 0 };
             self.exhausted = true;
             return Some(self.position);
         }
@@ -66,10 +53,7 @@ impl<'a> FitCursor<'a> {
         let start = self.position.byte;
         for (relative, grapheme) in text[start..].grapheme_indices(true) {
             let offset = start + relative;
-            let next = FitPosition {
-                byte: offset + grapheme.len(),
-                tab_remaining: 0,
-            };
+            let next = FitPosition { byte: offset + grapheme.len(), tab_remaining: 0 };
             if self.resume {
                 let next_width = self.prefix_width.take().unwrap_or_else(|| grapheme.width());
                 used = emit_continuation(self.options, next_width, |piece| emit(offset, piece));
@@ -102,10 +86,7 @@ impl<'a> FitCursor<'a> {
                         break;
                     }
                     if used > 0 {
-                        self.position = FitPosition {
-                            byte: offset,
-                            tab_remaining: if is_tab { remaining } else { 0 },
-                        };
+                        self.position = FitPosition { byte: offset, tab_remaining: if is_tab { remaining } else { 0 } };
                         self.resume = true;
                         self.prefix_width = Some(width);
                         return Some(self.position);
@@ -142,20 +123,14 @@ pub(crate) fn fit_spans_from<'a>(
         let mut spans = Vec::new();
         let end = cursor.next_row(&text, |offset, piece| {
             let index = boundaries.partition_point(|(end, _)| *end <= offset);
-            let style = boundaries
-                .get(index)
-                .map_or(Style::default(), |(_, style)| *style);
+            let style = boundaries.get(index).map_or(Style::default(), |(_, style)| *style);
             push_span(&mut spans, piece, style);
         })?;
         Some((Line::from(spans), end))
     })
 }
 
-fn emit_continuation(
-    options: FitOptions<'_>,
-    next_width: usize,
-    mut emit: impl FnMut(&str),
-) -> usize {
+fn emit_continuation(options: FitOptions<'_>, next_width: usize, mut emit: impl FnMut(&str)) -> usize {
     let mut used = 0;
     for prefix in options.continuation.graphemes(true) {
         let width = prefix.width();

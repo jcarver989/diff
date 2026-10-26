@@ -33,18 +33,13 @@ impl WebSocketTransport {
 
         let mut request = url.into_client_request().map_err(transport)?;
         for header in headers {
-            request
-                .headers_mut()
-                .append(header.name().clone(), header.value().clone());
+            request.headers_mut().append(header.name().clone(), header.value().clone());
         }
 
-        let (socket, _) = timeout(
-            CONNECT_TIMEOUT,
-            connect_async_with_config(request, Some(config), false),
-        )
-        .await
-        .map_err(transport)?
-        .map_err(transport)?;
+        let (socket, _) = timeout(CONNECT_TIMEOUT, connect_async_with_config(request, Some(config), false))
+            .await
+            .map_err(transport)?
+            .map_err(transport)?;
 
         Ok(Self { socket })
     }
@@ -53,21 +48,13 @@ impl WebSocketTransport {
 impl ClientMessageTransport for WebSocketTransport {
     async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
         let message = Message::text(command.encode()?);
-        timeout(WRITE_TIMEOUT, self.socket.send(message))
-            .await
-            .map_err(transport)?
-            .map_err(transport)?;
+        timeout(WRITE_TIMEOUT, self.socket.send(message)).await.map_err(transport)?.map_err(transport)?;
         Ok(())
     }
 
     async fn recv(&mut self) -> Result<ServerMessage, ClientError> {
         loop {
-            let message = self
-                .socket
-                .next()
-                .await
-                .ok_or(ClientError::Disconnected)?
-                .map_err(transport)?;
+            let message = self.socket.next().await.ok_or(ClientError::Disconnected)?.map_err(transport)?;
 
             match message {
                 Message::Close(_) => return Err(ClientError::Disconnected),

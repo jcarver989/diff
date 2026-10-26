@@ -49,10 +49,7 @@ impl DiffReviewWidget {
     /// Creates a bordered widget titled “Diff Review”.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            title: "Diff Review".to_owned(),
-            borders: true,
-        }
+        Self { title: "Diff Review".to_owned(), borders: true }
     }
 
     /// Sets the outer title.
@@ -102,13 +99,10 @@ impl StatefulWidget for DiffReviewWidget {
 fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
     let notice = match &state.status {
         DiffReviewStatus::Loading => Some(("Loading diff…".to_owned(), NoticeTone::Info)),
-        DiffReviewStatus::Error(message) => {
-            Some((format!("Diff unavailable: {message}"), NoticeTone::Error))
+        DiffReviewStatus::Error(message) => Some((format!("Diff unavailable: {message}"), NoticeTone::Error)),
+        DiffReviewStatus::Ready if state.document().files.is_empty() => {
+            Some((format!("No changes ({})", state.target()), NoticeTone::Neutral))
         }
-        DiffReviewStatus::Ready if state.document().files.is_empty() => Some((
-            format!("No changes ({})", state.target()),
-            NoticeTone::Neutral,
-        )),
         DiffReviewStatus::Ready => None,
     };
     match notice {
@@ -117,24 +111,16 @@ fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, the
     }
 }
 
-fn render_document(
-    area: Rect,
-    buffer: &mut Buffer,
-    state: &mut DiffReviewState,
-    theme: &RatatuiTheme,
-) {
+fn render_document(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
     let drawer_width = state.options.navigation.width(
         area.width,
         DRAWER_BREAKPOINT,
         (area.width / 3).clamp(DRAWER_MIN_WIDTH, DRAWER_MAX_WIDTH),
     );
     let (drawer, patch) = if drawer_width > 0 {
-        let [drawer, separator, patch] = Layout::horizontal([
-            Constraint::Length(drawer_width),
-            Constraint::Length(1),
-            Constraint::Min(1),
-        ])
-        .areas(area);
+        let [drawer, separator, patch] =
+            Layout::horizontal([Constraint::Length(drawer_width), Constraint::Length(1), Constraint::Min(1)])
+                .areas(area);
         render_separator(separator, buffer, theme);
         (drawer, patch)
     } else {
@@ -161,22 +147,12 @@ fn render_separator(area: Rect, buffer: &mut Buffer, theme: &RatatuiTheme) {
     }
 }
 
-fn render_drawer(
-    area: Rect,
-    buffer: &mut Buffer,
-    state: &mut DiffReviewState,
-    theme: &RatatuiTheme,
-) -> Rect {
+fn render_drawer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) -> Rect {
     let (rows, track) = rows_and_track(area, true);
-    state.hit_layout.drawer_stage_column = rows
-        .width
-        .checked_sub(1)
-        .map(|offset| rows.x.saturating_add(offset));
+    state.hit_layout.drawer_stage_column = rows.width.checked_sub(1).map(|offset| rows.x.saturating_add(offset));
     state.drawer_height = usize::from(rows.height).max(1);
     let entry_count = state.drawer.entries().len();
-    state.drawer_scroll = state
-        .drawer_scroll
-        .min(entry_count.saturating_sub(state.drawer_height));
+    state.drawer_scroll = state.drawer_scroll.min(entry_count.saturating_sub(state.drawer_height));
     let selected = state.drawer.selected_position();
     if state.take_drawer_follow_request()
         && let Some(selected) = selected
@@ -187,30 +163,15 @@ fn render_drawer(
             state.drawer_scroll = selected.saturating_sub(state.drawer_height.saturating_sub(1));
         }
     }
-    for (offset, entry) in state
-        .drawer
-        .entries()
-        .iter()
-        .skip(state.drawer_scroll)
-        .take(state.drawer_height)
-        .enumerate()
+    for (offset, entry) in state.drawer.entries().iter().skip(state.drawer_scroll).take(state.drawer_height).enumerate()
     {
-        let y = rows
-            .y
-            .saturating_add(u16::try_from(offset).unwrap_or(u16::MAX));
+        let y = rows.y.saturating_add(u16::try_from(offset).unwrap_or(u16::MAX));
         let index = state.drawer_scroll.saturating_add(offset);
         let row = Rect::new(rows.x, y, rows.width, 1);
         let [content, stage_area] =
-            Layout::horizontal([Constraint::Min(0), Constraint::Length(2_u16.min(row.width))])
-                .areas(row);
-        let checkbox = Rect::new(
-            stage_area
-                .x
-                .saturating_add(stage_area.width.saturating_sub(1)),
-            y,
-            stage_area.width.min(1),
-            1,
-        );
+            Layout::horizontal([Constraint::Min(0), Constraint::Length(2_u16.min(row.width))]).areas(row);
+        let checkbox =
+            Rect::new(stage_area.x.saturating_add(stage_area.width.saturating_sub(1)), y, stage_area.width.min(1), 1);
         let indent = "  ".repeat(entry.depth);
         let entry_stage = match entry.file {
             None => {
@@ -250,22 +211,12 @@ fn render_drawer(
                 Style::new()
                     .fg(theme.ui.accent_foreground)
                     .bg(theme.ui.accent)
-                    .add_modifier(if state.focus == FocusPane::Files {
-                        Modifier::BOLD
-                    } else {
-                        Modifier::default()
-                    }),
+                    .add_modifier(if state.focus == FocusPane::Files { Modifier::BOLD } else { Modifier::default() }),
             );
         }
     }
 
-    render_vertical_scrollbar(
-        track,
-        buffer,
-        entry_count,
-        usize::from(rows.height),
-        state.drawer_scroll,
-    );
+    render_vertical_scrollbar(track, buffer, entry_count, usize::from(rows.height), state.drawer_scroll);
     rows
 }
 
@@ -277,17 +228,8 @@ const fn stage_marker(state: clankerdiff_core::StageState) -> &'static str {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "visible-row rendering is kept together"
-)]
-fn render_patch(
-    area: Rect,
-    track: Rect,
-    buffer: &mut Buffer,
-    state: &mut DiffReviewState,
-    theme: &RatatuiTheme,
-) {
+#[expect(clippy::too_many_lines, reason = "visible-row rendering is kept together")]
+fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
     if area.is_empty() {
         return;
     }
@@ -296,9 +238,7 @@ fn render_patch(
     let Some(visual_layout) = state.patch_visual_layout() else {
         return;
     };
-    state.scroll = state
-        .scroll
-        .min(visual_layout.len().saturating_sub(state.last_height));
+    state.scroll = state.scroll.min(visual_layout.len().saturating_sub(state.last_height));
     let active_file = state.active_file();
 
     let DiffReviewState {
@@ -331,8 +271,7 @@ fn render_patch(
                 let Some(range) = visual_layout.content().content_range_for_source(index) else {
                     break;
                 };
-                height = u16::try_from((range.len() - segment).min(usize::from(area.bottom() - y)))
-                    .unwrap_or(u16::MAX);
+                height = u16::try_from((range.len() - segment).min(usize::from(area.bottom() - y))).unwrap_or(u16::MAX);
                 let mut context = CellContext {
                     theme,
                     diff_theme,
@@ -349,29 +288,16 @@ fn render_patch(
                     Rect::new(area.x, y, area.width, height),
                     buffer,
                     &mut context,
-                    &RowStyle {
-                        selected,
-                        selected_side,
-                        layout,
-                        source_label,
-                    },
+                    &RowStyle { selected, selected_side, layout, source_label },
                 );
                 visible_rows.extend((y..y + height).map(|screen_y| (screen_y, index)));
             }
-            Some(PatchVisualRow::Annotation {
-                source,
-                annotation,
-                line,
-            }) => {
+            Some(PatchVisualRow::Annotation { source, annotation, line }) => {
                 render_annotation_line(row_area, buffer, theme, annotation, line);
                 visible_rows.push((y, source));
                 if let Some(column) = annotation.cursor_column(line) {
-                    *cursor_position = Some(Position::new(
-                        area.x
-                            .saturating_add(column)
-                            .min(area.right().saturating_sub(1)),
-                        y,
-                    ));
+                    *cursor_position =
+                        Some(Position::new(area.x.saturating_add(column).min(area.right().saturating_sub(1)), y));
                 }
             }
             None => break,
@@ -398,50 +324,26 @@ fn render_patch(
         visible_rows.retain(|(screen_y, _)| *screen_y != area.y);
         visible_rows.push((area.y, header));
     }
-    render_vertical_scrollbar(
-        track,
-        buffer,
-        visual_layout.len(),
-        usize::from(area.height),
-        *scroll,
-    );
+    render_vertical_scrollbar(track, buffer, visual_layout.len(), usize::from(area.height), *scroll);
 }
 
 fn render_gap_row(area: Rect, buffer: &mut Buffer, context: &CellContext<'_>, selected: bool) {
     let theme = context.theme;
     let info = context.presentation.gap_info(context.source);
-    let rule = Style::new().fg(if selected {
-        theme.ui.accent
-    } else {
-        theme.ui.border
-    });
+    let rule = Style::new().fg(if selected { theme.ui.accent } else { theme.ui.border });
     let mut spans = vec![Span::styled(
-        if info.is_some_and(GapInfo::is_expandable) {
-            " ↕ "
-        } else {
-            "   "
-        },
+        if info.is_some_and(GapInfo::is_expandable) { " ↕ " } else { "   " },
         Style::new().fg(theme.ui.accent),
     )];
     if selected && let Some(info) = info {
         spans.push(Span::styled("── ", rule));
-        spans.push(Span::styled(
-            info.hint(),
-            Style::new().fg(theme.ui.text_muted),
-        ));
+        spans.push(Span::styled(info.hint(), Style::new().fg(theme.ui.text_muted)));
         spans.push(Span::raw(" "));
     }
     let used = spans.iter().map(Span::width).sum::<usize>();
-    spans.push(Span::styled(
-        "─".repeat(usize::from(area.width).saturating_sub(used)),
-        rule,
-    ));
+    spans.push(Span::styled("─".repeat(usize::from(area.width).saturating_sub(used)), rule));
     Paragraph::new(Line::from(spans))
-        .style(Style::new().bg(if selected {
-            theme.ui.surface_selected
-        } else {
-            theme.ui.canvas
-        }))
+        .style(Style::new().bg(if selected { theme.ui.surface_selected } else { theme.ui.canvas }))
         .render(area, buffer);
 }
 
@@ -460,14 +362,7 @@ fn render_file_divider(
     state: FileDividerState,
 ) {
     Clear.render(area, buffer);
-    buffer.set_style(
-        area,
-        Style::new().bg(if state.selected {
-            theme.ui.surface_selected
-        } else {
-            theme.ui.surface
-        }),
-    );
+    buffer.set_style(area, Style::new().bg(if state.selected { theme.ui.surface_selected } else { theme.ui.surface }));
     let chevron = match (source_label, state.collapsed) {
         (Some(_), _) => "",
         (None, true) => " ▸",
@@ -475,48 +370,27 @@ fn render_file_divider(
     };
     let mut left = vec![
         Span::styled(chevron, Style::new().fg(theme.ui.text_muted)),
-        Span::styled(
-            format!(" {} ", file.status.code()),
-            Style::new().fg(file_status_color(file.status, theme)),
-        ),
-        Span::styled(
-            file.path.file_name().to_owned(),
-            Style::new().fg(theme.ui.text).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(format!(" {} ", file.status.code()), Style::new().fg(file_status_color(file.status, theme))),
+        Span::styled(file.path.file_name().to_owned(), Style::new().fg(theme.ui.text).add_modifier(Modifier::BOLD)),
     ];
     if let Some(directory) = file.path.directory() {
-        left.push(Span::styled(
-            format!(" {directory}/"),
-            Style::new().fg(theme.ui.text_muted),
-        ));
+        left.push(Span::styled(format!(" {directory}/"), Style::new().fg(theme.ui.text_muted)));
     }
     if let Some(old) = file.renamed_from() {
-        left.push(Span::styled(
-            format!(" ← {old}"),
-            Style::new().fg(theme.ui.text_muted),
-        ));
+        left.push(Span::styled(format!(" ← {old}"), Style::new().fg(theme.ui.text_muted)));
     }
     let right = source_label.map_or_else(
         || {
             Line::from(vec![
-                Span::styled(
-                    format!("+{}", file.additions()),
-                    Style::new().fg(theme.addition),
-                ),
+                Span::styled(format!("+{}", file.additions()), Style::new().fg(theme.addition)),
                 Span::raw(" "),
-                Span::styled(
-                    format!("-{} ", file.deletions()),
-                    Style::new().fg(theme.deletion),
-                ),
+                Span::styled(format!("-{} ", file.deletions()), Style::new().fg(theme.deletion)),
             ])
         },
         |label| Line::styled(format!("{label} "), Style::new().fg(theme.ui.text_muted)),
     );
-    let right_width = u16::try_from(right.width())
-        .unwrap_or(u16::MAX)
-        .min(area.width);
-    let [left_area, right_area] =
-        Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(area);
+    let right_width = u16::try_from(right.width()).unwrap_or(u16::MAX).min(area.width);
+    let [left_area, right_area] = Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(area);
     Paragraph::new(Line::from(left)).render(left_area, buffer);
     Paragraph::new(right).render(right_area, buffer);
 }
@@ -549,18 +423,11 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
             context.theme,
             &context.presentation.document().files[row.file_index],
             style.source_label,
-            FileDividerState {
-                collapsed: context.presentation.is_collapsed(row.file_index),
-                selected: style.selected,
-            },
+            FileDividerState { collapsed: context.presentation.is_collapsed(row.file_index), selected: style.selected },
         ),
         RowKind::Meta => {
             Paragraph::new(row.primary_cell().map_or("", |cell| cell.text.as_ref()))
-                .style(
-                    Style::new()
-                        .fg(context.theme.ui.text_muted)
-                        .bg(context.theme.ui.canvas),
-                )
+                .style(Style::new().fg(context.theme.ui.text_muted).bg(context.theme.ui.canvas))
                 .render(area, buffer);
         }
         RowKind::ExpandGap => render_gap_row(area, buffer, context, style.selected),
@@ -574,33 +441,12 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
             ])
             .areas(area);
             let focused = |side| style.selected && style.selected_side == side;
-            render_cell(
-                left,
-                buffer,
-                context,
-                row.left.as_ref(),
-                focused(DiffSide::Old),
-                DiffSide::Old,
-            );
+            render_cell(left, buffer, context, row.left.as_ref(), focused(DiffSide::Old), DiffSide::Old);
             render_separator(separator, buffer, context.theme);
-            render_cell(
-                right,
-                buffer,
-                context,
-                row.right.as_ref(),
-                focused(DiffSide::New),
-                DiffSide::New,
-            );
+            render_cell(right, buffer, context, row.right.as_ref(), focused(DiffSide::New), DiffSide::New);
         }
         RowKind::Code | RowKind::ExpandedContext => {
-            render_cell(
-                area,
-                buffer,
-                context,
-                row.primary_cell(),
-                style.selected,
-                DiffSide::New,
-            );
+            render_cell(area, buffer, context, row.primary_cell(), style.selected, DiffSide::New);
         }
     }
 }
@@ -615,28 +461,17 @@ fn render_cell(
 ) {
     let tone = cell.map_or(DiffTone::Context, |cell| cell.tone);
     let (foreground, tone_background) = context.theme.tone(tone);
-    let background = if selected {
-        page_color(context.diff_theme, context.diff_theme.diff.selection)
-    } else {
-        tone_background
-    };
+    let background =
+        if selected { page_color(context.diff_theme, context.diff_theme.diff.selection) } else { tone_background };
     buffer.set_style(area, Style::new().fg(foreground).bg(background));
     let Some(cell) = cell else {
         return;
     };
     for y in area.top()..area.bottom() {
-        Paragraph::new(Line::from(diff_indicator(
-            tone,
-            context.diff_theme,
-            Style::new().bg(background),
-        )))
-        .render(Rect::new(area.x, y, area.width.min(1), 1), buffer);
+        Paragraph::new(Line::from(diff_indicator(tone, context.diff_theme, Style::new().bg(background))))
+            .render(Rect::new(area.x, y, area.width.min(1), 1), buffer);
     }
-    let Some(checkpoint) =
-        context
-            .patch_layout
-            .checkpoint(context.source, side, context.first_segment)
-    else {
+    let Some(checkpoint) = context.patch_layout.checkpoint(context.source, side, context.first_segment) else {
         return;
     };
     let geometry = match side {
@@ -665,37 +500,25 @@ fn render_cell(
         let segment = context.first_segment + local_row;
         let y = area.y + u16::try_from(local_row).unwrap_or(u16::MAX);
         let number = if segment == 0 {
-            cell.line_number()
-                .map_or_else(String::new, |number| number.to_string())
+            cell.line_number().map_or_else(String::new, |number| number.to_string())
         } else {
             "↪".to_owned()
         };
-        let gutter = format!(
-            "{number:>width$} ",
-            width = usize::from(geometry.gutter_width).saturating_sub(2),
-        );
+        let gutter = format!("{number:>width$} ", width = usize::from(geometry.gutter_width).saturating_sub(2),);
         let gutter_foreground = match tone {
             DiffTone::Added => context.theme.addition,
             DiffTone::Removed => context.theme.deletion,
             DiffTone::Context | DiffTone::Meta => context.theme.gutter,
         };
-        let gutter_foreground = if segment == 0 {
-            gutter_foreground
-        } else {
-            context.theme.ui.text_muted
-        };
+        let gutter_foreground = if segment == 0 { gutter_foreground } else { context.theme.ui.text_muted };
         let gutter_area = Rect::new(area.x, y, geometry.gutter_width.min(area.width), 1);
         Paragraph::new(Line::from(vec![
             diff_indicator(tone, context.diff_theme, Style::new().bg(background)),
             Span::styled(gutter, Style::new().fg(gutter_foreground).bg(background)),
         ]))
         .render(gutter_area, buffer);
-        let source_area = Rect::new(
-            area.x.saturating_add(gutter_area.width),
-            y,
-            area.width.saturating_sub(gutter_area.width),
-            1,
-        );
+        let source_area =
+            Rect::new(area.x.saturating_add(gutter_area.width), y, area.width.saturating_sub(gutter_area.width), 1);
         Paragraph::new(line).render(source_area, buffer);
     }
 }
@@ -731,12 +554,7 @@ fn highlighted_spans<'a>(
     spans
 }
 
-fn render_footer(
-    area: Rect,
-    buffer: &mut Buffer,
-    state: &mut DiffReviewState,
-    theme: &RatatuiTheme,
-) {
+fn render_footer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
     if area.is_empty() {
         return;
     }
@@ -744,9 +562,7 @@ fn render_footer(
         match prompt {
             RepositoryPrompt::Commit { message } => {
                 let prefix = "commit › ";
-                Paragraph::new(format!("{prefix}{message}"))
-                    .style(Style::new().fg(theme.ui.text))
-                    .render(area, buffer);
+                Paragraph::new(format!("{prefix}{message}")).style(Style::new().fg(theme.ui.text)).render(area, buffer);
                 let x = area
                     .x
                     .saturating_add(u16::try_from(prefix.len() + message.len()).unwrap_or(u16::MAX))
@@ -754,11 +570,9 @@ fn render_footer(
                 state.cursor_position = Some(Position::new(x, area.y));
             }
             RepositoryPrompt::Discard { path, status } => {
-                Paragraph::new(format!(
-                    "Discard all staged and unstaged changes to {path} ({status:?})? [y/N]"
-                ))
-                .style(Style::new().fg(theme.deletion))
-                .render(area, buffer);
+                Paragraph::new(format!("Discard all staged and unstaged changes to {path} ({status:?})? [y/N]"))
+                    .style(Style::new().fg(theme.deletion))
+                    .render(area, buffer);
             }
         }
         return;
@@ -781,11 +595,7 @@ fn render_footer(
         "  {layout}{} comment{}{}",
         review.len(),
         if review.len() == 1 { "" } else { "s" },
-        if outdated == 0 {
-            String::new()
-        } else {
-            format!(" ({outdated} outdated)")
-        }
+        if outdated == 0 { String::new() } else { format!(" ({outdated} outdated)") }
     );
     let hint = if matches!(state.repository_status, RepositoryOperationStatus::Pending) {
         "Git operation in progress…".to_owned()

@@ -21,10 +21,7 @@ pub enum InteractionPhase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "Capabilities are independent flags"
-)]
+#[expect(clippy::struct_excessive_bools, reason = "Capabilities are independent flags")]
 pub struct ReviewCapabilities {
     pub repository: bool,
     pub refresh: bool,
@@ -35,21 +32,12 @@ pub struct ReviewCapabilities {
 
 impl Default for ReviewCapabilities {
     fn default() -> Self {
-        Self {
-            repository: true,
-            refresh: true,
-            scope: true,
-            submit: true,
-            clipboard: true,
-        }
+        Self { repository: true, refresh: true, scope: true, submit: true, clipboard: true }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "Command conditions are independent flags"
-)]
+#[expect(clippy::struct_excessive_bools, reason = "Command conditions are independent flags")]
 pub struct CommandContext {
     pub phase: InteractionPhase,
     pub capabilities: ReviewCapabilities,
@@ -100,9 +88,7 @@ impl ReviewCommand {
             Self::ShowHelp => phase == InteractionPhase::Browse,
             Self::ScrollHelp(_) => phase == InteractionPhase::Help,
             Self::OpenThemePicker => phase == InteractionPhase::Browse && context.themes_available,
-            Self::SelectTheme(_) | Self::MoveTheme(_) | Self::CommitTheme => {
-                phase == InteractionPhase::ThemePicker
-            }
+            Self::SelectTheme(_) | Self::MoveTheme(_) | Self::CommitTheme => phase == InteractionPhase::ThemePicker,
             Self::SubmitComment => phase == InteractionPhase::Draft && context.document_ready,
             Self::BeginComment | Self::EditComment | Self::DeleteComment | Self::UndoComment => {
                 phase == InteractionPhase::Browse && context.document_ready
@@ -193,9 +179,7 @@ impl DiffReviewCommand {
             | Self::UnstageAll
             | Self::BeginCommit
             | Self::BeginDiscard
-            | Self::RepositoryAction(_) => {
-                context.capabilities.repository && !context.repository_pending
-            }
+            | Self::RepositoryAction(_) => context.capabilities.repository && !context.repository_pending,
             Self::SubmitReview => context.capabilities.submit,
             Self::CopyReview => context.capabilities.clipboard,
             Self::Focus(FocusPane::Files) | Self::ToggleFocus => context.navigation_available,
@@ -203,9 +187,6 @@ impl DiffReviewCommand {
         };
         capability
             && (context.document_ready
-                || matches!(
-                    self,
-                    Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) | Self::Refresh
-                ))
+                || matches!(self, Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) | Self::Refresh))
     }
 }

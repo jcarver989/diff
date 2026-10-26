@@ -7,9 +7,8 @@ use crate::{
 };
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout,
-    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget,
-    RowKind, ViewMode, ViewportAnchor,
+    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, RepositoryAction, RevealAmount,
+    Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, ViewMode, ViewportAnchor,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -51,13 +50,8 @@ enum DrawerFollow {
 
 #[derive(Debug)]
 pub(crate) enum RepositoryPrompt {
-    Commit {
-        message: String,
-    },
-    Discard {
-        path: clankerdiff_core::RepoPath,
-        status: FileStatus,
-    },
+    Commit { message: String },
+    Discard { path: clankerdiff_core::RepoPath, status: FileStatus },
 }
 
 /// Status of the most recent repository mutation requested by the UI.
@@ -340,9 +334,7 @@ impl DiffReviewState {
     }
 
     fn install_document(&mut self, document: Arc<DiffDocument>) {
-        let bookmark = matches!(self.status, DiffReviewStatus::Ready)
-            .then(|| self.viewport_bookmark())
-            .flatten();
+        let bookmark = matches!(self.status, DiffReviewStatus::Ready).then(|| self.viewport_bookmark()).flatten();
         self.session.set_document(document);
         self.status = DiffReviewStatus::Ready;
         self.cursor_position = None;
@@ -350,8 +342,7 @@ impl DiffReviewState {
         let document = self.document().clone();
         self.drawer.rebuild(&document);
         if self.drawer.selected().is_none() {
-            self.drawer
-                .reveal_file(self.session.selected_file().unwrap_or(0));
+            self.drawer.reveal_file(self.session.selected_file().unwrap_or(0));
         }
         self.follow_drawer_selection();
         match bookmark {
@@ -406,19 +397,12 @@ impl DiffReviewState {
         }
     }
 
-    pub fn apply_client_state(
-        &mut self,
-        client: &ClientState,
-        installed: &mut Option<Arc<DiffDocument>>,
-    ) {
+    pub fn apply_client_state(&mut self, client: &ClientState, installed: &mut Option<Arc<DiffDocument>>) {
         if let Some(snapshot) = client.snapshot_if_changed(installed) {
             self.set_document(Arc::clone(snapshot));
         }
         match client.status() {
-            Some(error)
-                if client.snapshot.is_none()
-                    && matches!(client.connection, ConnectionState::Failed(_)) =>
-            {
+            Some(error) if client.snapshot.is_none() && matches!(client.connection, ConnectionState::Failed(_)) => {
                 self.set_error(error);
             }
             status => self.set_background_error(status),
@@ -447,22 +431,14 @@ impl DiffReviewState {
     }
 
     pub(crate) fn begin_commit(&mut self) {
-        self.repository_prompt = Some(RepositoryPrompt::Commit {
-            message: String::new(),
-        });
+        self.repository_prompt = Some(RepositoryPrompt::Commit { message: String::new() });
     }
 
     pub(crate) fn begin_discard(&mut self) {
-        let Some(file) = self
-            .selected_file()
-            .and_then(|index| self.document().files.get(index))
-        else {
+        let Some(file) = self.selected_file().and_then(|index| self.document().files.get(index)) else {
             return;
         };
-        self.repository_prompt = Some(RepositoryPrompt::Discard {
-            path: file.path.clone(),
-            status: file.status,
-        });
+        self.repository_prompt = Some(RepositoryPrompt::Discard { path: file.path.clone(), status: file.status });
     }
 
     pub fn set_theme(&mut self, theme: ReviewTheme) {
@@ -492,10 +468,7 @@ impl DiffReviewState {
     }
 
     pub fn set_options(&mut self, options: ReviewOptions) {
-        if matches!(
-            options.navigation,
-            NavigationPane::Hidden | NavigationPane::Width(0)
-        ) {
+        if matches!(options.navigation, NavigationPane::Hidden | NavigationPane::Width(0)) {
             self.focus = FocusPane::Diff;
         }
         self.options = options;
@@ -527,18 +500,10 @@ impl DiffReviewState {
     }
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
-        let previous = (
-            self.session.selected_file_range(),
-            self.session.selected_row(),
-            self.session.selected_side(),
-        );
+        let previous = (self.session.selected_file_range(), self.session.selected_row(), self.session.selected_side());
         self.session.reveal_selected_gap(amount);
-        let changed = previous
-            != (
-                self.session.selected_file_range(),
-                self.session.selected_row(),
-                self.session.selected_side(),
-            );
+        let changed =
+            previous != (self.session.selected_file_range(), self.session.selected_row(), self.session.selected_side());
         if changed {
             self.request_follow();
         }
@@ -567,9 +532,7 @@ impl DiffReviewState {
         Some(DiffViewportBookmark {
             scroll: self.scroll,
             anchor: ViewportAnchor::capture(self.presentation(), index)?,
-            segment: layout
-                .focused_visual_row(index, false)
-                .map_or(0, |first| self.scroll.saturating_sub(first)),
+            segment: layout.focused_visual_row(index, false).map_or(0, |first| self.scroll.saturating_sub(first)),
         })
     }
 
@@ -584,9 +547,7 @@ impl DiffReviewState {
             .resolve(self.presentation(), self.session.visible_range())
             .and_then(|row| layout.focused_visual_row(row, false))
             .map(|first| first.saturating_add(bookmark.segment));
-        self.scroll = target
-            .unwrap_or(bookmark.scroll)
-            .min(layout.len().saturating_sub(self.last_height));
+        self.scroll = target.unwrap_or(bookmark.scroll).min(layout.len().saturating_sub(self.last_height));
     }
 
     pub(crate) fn change_layout(&mut self, change: impl FnOnce(&mut Self) -> bool) -> bool {
@@ -643,10 +604,7 @@ impl DiffReviewState {
     }
 
     pub(crate) fn move_drawer_entry(&mut self, delta: isize) {
-        let file = self
-            .drawer
-            .move_selection(delta)
-            .and_then(|entry| entry.file);
+        let file = self.drawer.move_selection(delta).and_then(|entry| entry.file);
         self.open_drawer_file(file);
     }
 
@@ -719,10 +677,7 @@ impl DiffReviewState {
     }
 
     pub(crate) fn take_drawer_follow_request(&mut self) -> bool {
-        matches!(
-            std::mem::replace(&mut self.drawer_follow, DrawerFollow::Settled),
-            DrawerFollow::Pending
-        )
+        matches!(std::mem::replace(&mut self.drawer_follow, DrawerFollow::Settled), DrawerFollow::Pending)
     }
 
     pub(crate) fn move_row(&mut self, delta: isize) {
@@ -760,11 +715,7 @@ impl DiffReviewState {
 
     /// Scrolls the file drawer without moving the selected file.
     pub(crate) fn scroll_drawer(&mut self, delta: isize) {
-        let last = self
-            .drawer
-            .entries()
-            .len()
-            .saturating_sub(self.drawer_height);
+        let last = self.drawer.entries().len().saturating_sub(self.drawer_height);
         let target = if delta.is_negative() {
             self.drawer_scroll.saturating_sub(delta.unsigned_abs())
         } else {
@@ -844,11 +795,7 @@ impl DiffReviewState {
     pub(crate) fn patch_visual_layout(&mut self) -> Option<Arc<PatchVisualLayout>> {
         self.session.selected_file()?;
         let content_key = self.patch_content_key();
-        if self
-            .patch_content
-            .as_ref()
-            .is_none_or(|cached| cached.key != content_key)
-        {
+        if self.patch_content.as_ref().is_none_or(|cached| cached.key != content_key) {
             self.patch_content = Some(CachedPatchContent {
                 key: content_key,
                 layout: Arc::new(PatchContentLayout::new(
@@ -861,23 +808,13 @@ impl DiffReviewState {
         }
         let content = self.patch_content.as_ref()?.layout.clone();
         let key = self.patch_annotation_key(content_key);
-        if self
-            .patch_layout
-            .as_ref()
-            .is_none_or(|cached| cached.key != key)
-        {
+        if self.patch_layout.as_ref().is_none_or(|cached| cached.key != key) {
             self.patch_layout = Some(CachedPatchLayout {
                 key,
-                layout: Arc::new(PatchVisualLayout::new(
-                    &self.session,
-                    content,
-                    self.presentation_width,
-                )),
+                layout: Arc::new(PatchVisualLayout::new(&self.session, content, self.presentation_width)),
             });
         }
-        self.patch_layout
-            .as_ref()
-            .map(|cached| cached.layout.clone())
+        self.patch_layout.as_ref().map(|cached| cached.layout.clone())
     }
 
     fn patch_content_key(&self) -> u64 {
@@ -909,14 +846,10 @@ impl DiffReviewState {
     }
 
     pub(crate) fn select_clicked_row(&mut self, position: Position) -> bool {
-        let clicked = self
-            .visible_rows
-            .iter()
-            .find(|(screen_row, _)| *screen_row == position.y)
-            .map(|(_, index)| *index);
-        if let Some(row) = clicked
-            .and_then(|index| self.presentation().row(index))
-            .filter(|row| row.kind == RowKind::FileHeader)
+        let clicked =
+            self.visible_rows.iter().find(|(screen_row, _)| *screen_row == position.y).map(|(_, index)| *index);
+        if let Some(row) =
+            clicked.and_then(|index| self.presentation().row(index)).filter(|row| row.kind == RowKind::FileHeader)
         {
             let file = row.file_index;
             if position.x < self.hit_layout.patch.x.saturating_add(FILE_CHEVRON_WIDTH)

@@ -1,7 +1,7 @@
 use clankerdiff_markdown::MarkdownStream;
 use clankerdiff_ratatui::{
-    MarkdownCommitError, MarkdownLayoutOptions, MarkdownRenderer, MarkdownRow,
-    StreamingMarkdownPolicy, StreamingMarkdownState,
+    MarkdownCommitError, MarkdownLayoutOptions, MarkdownRenderer, MarkdownRow, StreamingMarkdownPolicy,
+    StreamingMarkdownState,
 };
 use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_theme::{ReviewTheme, Rgba};
@@ -19,26 +19,19 @@ impl NativeHistory {
         if std::mem::take(&mut self.fail_next_write) {
             return Err("terminal write failed".to_owned());
         }
-        self.rows
-            .extend(rows.iter().map(|row| row.line.to_string()));
+        self.rows.extend(rows.iter().map(|row| row.line.to_string()));
         Ok(())
     }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let renderer = MarkdownRenderer::new();
-    let options = MarkdownLayoutOptions {
-        width: 40,
-        ..MarkdownLayoutOptions::default()
-    };
+    let options = MarkdownLayoutOptions { width: 40, ..MarkdownLayoutOptions::default() };
     let mut theme = ReviewTheme::default();
     let mut highlighter = SyntaxHighlighter::default();
     let mut stream = MarkdownStream::new();
     let mut state = StreamingMarkdownState::new(StreamingMarkdownPolicy::Terminal);
-    let mut history = NativeHistory {
-        rows: Vec::new(),
-        fail_next_write: false,
-    };
+    let mut history = NativeHistory { rows: Vec::new(), fail_next_write: false };
     let mut live: Vec<Arc<MarkdownRow>> = Vec::new();
     let mut revision = 0;
 
@@ -73,11 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Err(error) => println!("kept {pending} rows live: {error}"),
             }
         }
-        println!(
-            "revision {revision}: {} committed, {} live",
-            state.committed_rows(),
-            live.len()
-        );
+        println!("revision {revision}: {} committed, {} live", state.committed_rows(), live.len());
     }
 
     stream.finish();

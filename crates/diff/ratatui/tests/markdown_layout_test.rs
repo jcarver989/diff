@@ -1,68 +1,40 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_markdown::MarkdownStream;
-use clankerdiff_ratatui::{
-    MarkdownLayoutOptions, MarkdownPresentation, testing::MarkdownStreamFixture,
-};
+use clankerdiff_ratatui::{MarkdownLayoutOptions, MarkdownPresentation, testing::MarkdownStreamFixture};
 use ratatui::style::Modifier;
 use std::{error::Error, sync::Arc};
 
 #[test]
 fn source_lines_preserve_identity_and_graphemes() -> Result<(), Box<dyn Error>> {
     let source = "# e\u{301}界\r\n\r\n```rust\r\nlet x = 1;\r\n```\r\n";
-    let mut fixture =
-        MarkdownStreamFixture::from_source(source).with_options(MarkdownLayoutOptions {
-            presentation: MarkdownPresentation::SourceLines,
-            wrap: false,
-            ..MarkdownLayoutOptions::default()
-        });
+    let mut fixture = MarkdownStreamFixture::from_source(source).with_options(MarkdownLayoutOptions {
+        presentation: MarkdownPresentation::SourceLines,
+        wrap: false,
+        ..MarkdownLayoutOptions::default()
+    });
     let layout = fixture.layout();
     assert_eq!(layout.row_count(), 6);
     for index in 0..6 {
+        assert_eq!(layout.rows_for_source_line(index + 1), Some(index..index + 1));
         assert_eq!(
-            layout.rows_for_source_line(index + 1),
-            Some(index..index + 1)
-        );
-        assert_eq!(
-            layout
-                .row(index)
-                .ok_or("missing row")?
-                .source
-                .as_ref()
-                .ok_or("missing mapping")?
-                .lines
-                .start,
+            layout.row(index).ok_or("missing row")?.source.as_ref().ok_or("missing mapping")?.lines.start,
             index + 1
         );
     }
-    assert_eq!(
-        layout.row(0).ok_or("missing row")?.line.to_string(),
-        "# e\u{301}界"
-    );
+    assert_eq!(layout.row(0).ok_or("missing row")?.line.to_string(), "# e\u{301}界");
     fixture.options.width = 3;
     fixture.options.wrap = true;
     let wrapped = fixture.layout();
     assert!(wrapped.rows().iter().all(|row| row.line.width() <= 3));
-    assert!(
-        wrapped
-            .rows_for_source_line(1)
-            .ok_or("missing wrapped range")?
-            .len()
-            > 1
-    );
-    assert!(
-        wrapped
-            .rows()
-            .iter()
-            .any(|row| row.line.to_string().contains("e\u{301}"))
-    );
+    assert!(wrapped.rows_for_source_line(1).ok_or("missing wrapped range")?.len() > 1);
+    assert!(wrapped.rows().iter().any(|row| row.line.to_string().contains("e\u{301}")));
     Ok(())
 }
 
 #[test]
 fn chunk_slices_share_rows_and_materialization() -> Result<(), Box<dyn Error>> {
-    let mut fixture =
-        MarkdownStreamFixture::from_source("# One\n\nA paragraph\n\n## Two\n\nMore text");
+    let mut fixture = MarkdownStreamFixture::from_source("# One\n\nA paragraph\n\n## Two\n\nMore text");
     let layout = fixture.layout();
     for start in 0..=layout.row_count() {
         for end in start..=layout.row_count() {
@@ -70,14 +42,8 @@ fn chunk_slices_share_rows_and_materialization() -> Result<(), Box<dyn Error>> {
             assert_eq!(slice.len(), end - start);
             assert_eq!(slice.iter().count(), end - start);
             for (index, row) in slice.iter().enumerate() {
-                assert!(Arc::ptr_eq(
-                    row,
-                    layout.row(start + index).ok_or("missing row")?
-                ));
-                assert!(Arc::ptr_eq(
-                    row,
-                    slice.get(index).ok_or("missing slice row")?
-                ));
+                assert!(Arc::ptr_eq(row, layout.row(start + index).ok_or("missing row")?));
+                assert!(Arc::ptr_eq(row, slice.get(index).ok_or("missing slice row")?));
             }
             assert!(slice.get(slice.len()).is_none());
             assert!(
@@ -92,15 +58,9 @@ fn chunk_slices_share_rows_and_materialization() -> Result<(), Box<dyn Error>> {
             );
         }
     }
-    assert!(Arc::ptr_eq(
-        &layout.materialize(),
-        &layout.clone().materialize()
-    ));
+    assert!(Arc::ptr_eq(&layout.materialize(), &layout.clone().materialize()));
     let unchanged = fixture.layout();
-    assert!(Arc::ptr_eq(
-        layout.row(0).ok_or("missing row")?,
-        unchanged.row(0).ok_or("missing row")?
-    ));
+    assert!(Arc::ptr_eq(layout.row(0).ok_or("missing row")?, unchanged.row(0).ok_or("missing row")?));
     Ok(())
 }
 
@@ -188,24 +148,15 @@ fn source_fitting_preserves_text_within_the_requested_width() {
         ("abcdef\nxyz", 2, false, vec!["ab", "xy"]),
         ("a\tb", 2, true, vec!["a ", "  ", "b"]),
     ] {
-        let mut fixture =
-            MarkdownStreamFixture::from_source(source).with_options(MarkdownLayoutOptions {
-                width,
-                wrap,
-                presentation: MarkdownPresentation::SourceLines,
-                tab_width: 4,
-                ..Default::default()
-            });
-        let actual: Vec<_> = fixture
-            .layout()
-            .rows()
-            .iter()
-            .map(|row| row.line.to_string())
-            .collect();
-        assert_eq!(
-            actual, expected,
-            "source {source:?}, width {width}, wrap {wrap}"
-        );
+        let mut fixture = MarkdownStreamFixture::from_source(source).with_options(MarkdownLayoutOptions {
+            width,
+            wrap,
+            presentation: MarkdownPresentation::SourceLines,
+            tab_width: 4,
+            ..Default::default()
+        });
+        let actual: Vec<_> = fixture.layout().rows().iter().map(|row| row.line.to_string()).collect();
+        assert_eq!(actual, expected, "source {source:?}, width {width}, wrap {wrap}");
     }
 }
 
@@ -214,20 +165,8 @@ fn graphemes_crossing_style_boundaries_remain_intact() -> Result<(), Box<dyn Err
     let mut fixture = MarkdownStreamFixture::from_source("**e**\u{301}xy");
     fixture.options.width = 1;
     let layout = fixture.layout();
-    assert_eq!(
-        layout
-            .row(0)
-            .ok_or("missing combined row")?
-            .line
-            .to_string(),
-        "e\u{301}"
-    );
-    assert!(
-        layout.row(0).ok_or("missing combined row")?.line.spans[0]
-            .style
-            .add_modifier
-            .contains(Modifier::BOLD)
-    );
+    assert_eq!(layout.row(0).ok_or("missing combined row")?.line.to_string(), "e\u{301}");
+    assert!(layout.row(0).ok_or("missing combined row")?.line.spans[0].style.add_modifier.contains(Modifier::BOLD));
     Ok(())
 }
 
@@ -242,12 +181,7 @@ fn continuation_prefixes_leave_room_for_source_text() {
     ] {
         let mut fixture = MarkdownStreamFixture::from_source(source);
         fixture.options.width = width;
-        let rows: Vec<_> = fixture
-            .layout()
-            .rows()
-            .iter()
-            .map(|row| row.line.to_string())
-            .collect();
+        let rows: Vec<_> = fixture.layout().rows().iter().map(|row| row.line.to_string()).collect();
         assert_eq!(rows, expected, "{source}");
     }
 }

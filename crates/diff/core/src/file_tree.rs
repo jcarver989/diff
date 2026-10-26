@@ -22,9 +22,7 @@ pub struct FileTree {
 pub fn tree_order(document: &DiffDocument) -> Vec<usize> {
     let mut order = (0..document.files.len()).collect::<Vec<_>>();
     order.sort_by(|&left, &right| {
-        tree_key(&document.files[left].path)
-            .cmp(tree_key(&document.files[right].path))
-            .then(left.cmp(&right))
+        tree_key(&document.files[left].path).cmp(tree_key(&document.files[right].path)).then(left.cmp(&right))
     });
     order
 }
@@ -50,14 +48,8 @@ impl FileTree {
         let mut open: Vec<&str> = Vec::new();
         for index in tree_order(document) {
             let path = &document.files[index].path;
-            let directories = path
-                .directory()
-                .map_or_else(Vec::new, |directory| directory.split('/').collect());
-            let shared = open
-                .iter()
-                .zip(&directories)
-                .take_while(|(left, right)| left == right)
-                .count();
+            let directories = path.directory().map_or_else(Vec::new, |directory| directory.split('/').collect());
+            let shared = open.iter().zip(&directories).take_while(|(left, right)| left == right).count();
             for depth in shared..directories.len() {
                 self.all.push(FileTreeEntry {
                     path: directories[..=depth].join("/"),
@@ -91,9 +83,7 @@ impl FileTree {
     #[must_use]
     pub fn selected_position(&self) -> Option<usize> {
         let selected = self.selected.as_ref()?;
-        self.visible
-            .iter()
-            .position(|entry| entry.path == *selected)
+        self.visible.iter().position(|entry| entry.path == *selected)
     }
 
     #[must_use]
@@ -112,27 +102,17 @@ impl FileTree {
         let target = if delta.is_negative() {
             current.saturating_sub(delta.unsigned_abs())
         } else {
-            current
-                .saturating_add(delta.unsigned_abs())
-                .min(self.visible.len().saturating_sub(1))
+            current.saturating_add(delta.unsigned_abs()).min(self.visible.len().saturating_sub(1))
         };
         self.select(target)
     }
 
     pub fn select_boundary(&mut self, end: bool) -> Option<&FileTreeEntry> {
-        self.select(if end {
-            self.visible.len().saturating_sub(1)
-        } else {
-            0
-        })
+        self.select(if end { self.visible.len().saturating_sub(1) } else { 0 })
     }
 
     pub fn set_expanded(&mut self, path: &str, expanded: bool) {
-        let changed = if expanded {
-            self.collapsed.remove(path)
-        } else {
-            self.collapsed.insert(path.to_owned())
-        };
+        let changed = if expanded { self.collapsed.remove(path) } else { self.collapsed.insert(path.to_owned()) };
         if changed {
             self.refresh();
         }
@@ -170,9 +150,7 @@ impl FileTree {
 
     #[must_use]
     pub fn paths_for(document: &DiffDocument, path: &str) -> Vec<RepoPath> {
-        files_under(document, path)
-            .map(|file| file.path.clone())
-            .collect()
+        files_under(document, path).map(|file| file.path.clone()).collect()
     }
 
     #[must_use]
@@ -184,10 +162,7 @@ impl FileTree {
             if !unstage && file.staged == StageState::Staged {
                 continue;
             }
-            let old_path = file
-                .old_path
-                .as_ref()
-                .filter(|_| file.status == FileStatus::Renamed);
+            let old_path = file.old_path.as_ref().filter(|_| file.status == FileStatus::Renamed);
             for path in std::iter::once(&file.path).chain(old_path) {
                 if seen.insert(path.clone()) {
                     paths.push(path.clone());
@@ -217,10 +192,7 @@ impl FileTree {
     }
 
     fn file_path(&self, file: usize) -> Option<String> {
-        self.all
-            .iter()
-            .find(|entry| entry.file == Some(file))
-            .map(|entry| entry.path.clone())
+        self.all.iter().find(|entry| entry.file == Some(file)).map(|entry| entry.path.clone())
     }
 
     fn refresh(&mut self) {
@@ -235,22 +207,13 @@ impl FileTree {
                 hidden_below = self.collapsed.contains(&entry.path).then_some(entry.depth);
                 true
             })
-            .map(|entry| FileTreeEntry {
-                expanded: !self.collapsed.contains(&entry.path),
-                ..entry.clone()
-            })
+            .map(|entry| FileTreeEntry { expanded: !self.collapsed.contains(&entry.path), ..entry.clone() })
             .collect();
     }
 }
 
-fn files_under<'a>(
-    document: &'a DiffDocument,
-    path: &'a str,
-) -> impl Iterator<Item = &'a FileDiff> {
+fn files_under<'a>(document: &'a DiffDocument, path: &'a str) -> impl Iterator<Item = &'a FileDiff> {
     document.files.iter().filter(move |file| {
-        file.path
-            .as_str()
-            .strip_prefix(path)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        file.path.as_str().strip_prefix(path).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     })
 }

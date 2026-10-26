@@ -8,13 +8,11 @@ use super::{
     typography::{Typography, TypographyExt},
 };
 pub use clankerdiff_theme::{
-    ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone,
-    SelectionState,
+    ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone, SelectionState,
 };
 use gpui::{
-    AnyElement, AnyView, App, ClickEvent, Context, Div, ElementId, Hsla, IntoElement,
-    ParentElement, Refineable, Rems, Render, RenderOnce, Role, SharedString, Stateful,
-    StyleRefinement, Window, div, prelude::*,
+    AnyElement, AnyView, App, ClickEvent, Context, Div, ElementId, Hsla, IntoElement, ParentElement, Refineable, Rems,
+    Render, RenderOnce, Role, SharedString, Stateful, StyleRefinement, Window, div, prelude::*,
 };
 use gpui_base::Selectable;
 
@@ -33,25 +31,16 @@ fn interactive(
     element
         .text_color(style.foreground)
         .when_some(style.background, gpui::Styled::bg)
-        .when(style.emphasized, |element| {
-            element.font_weight(gpui::FontWeight::SEMIBOLD)
-        })
+        .when(style.emphasized, |element| element.font_weight(gpui::FontWeight::SEMIBOLD))
         .when(!disabled, |element| {
             element.cursor_pointer().when(hover != style, |element| {
                 element.hover(move |element| {
                     let element = element.text_color(hover.foreground);
-                    if let Some(background) = hover.background {
-                        element.bg(background)
-                    } else {
-                        element
-                    }
+                    if let Some(background) = hover.background { element.bg(background) } else { element }
                 })
             })
         })
-        .when_some(
-            (!disabled).then_some(on_click).flatten(),
-            |element, handler| element.on_click(handler),
-        )
+        .when_some((!disabled).then_some(on_click).flatten(), |element, handler| element.on_click(handler))
 }
 
 /// A consistent interactive action component.
@@ -128,11 +117,7 @@ impl Button {
 
     #[must_use]
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.state.interaction = if disabled {
-            InteractionState::Disabled
-        } else {
-            InteractionState::Rest
-        };
+        self.state.interaction = if disabled { InteractionState::Disabled } else { InteractionState::Rest };
         self
     }
 
@@ -150,10 +135,7 @@ impl Button {
     }
 
     #[must_use]
-    pub fn on_click(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(handler));
         self
     }
@@ -175,22 +157,11 @@ impl RenderOnce for Button {
         let style = self.theme.control_style(self.variant, self.state);
         let hover = self.theme.control_style(
             self.variant,
-            ControlState {
-                interaction: InteractionState::Hovered,
-                selected: self.state.selected,
-            },
+            ControlState { interaction: InteractionState::Hovered, selected: self.state.selected },
         );
         let (padding, height, typography) = match self.size {
-            ControlSize::Small => (
-                tokens::CONTROL_PADDING_X_SMALL,
-                tokens::ICON_BUTTON_SIZE,
-                Typography::Small,
-            ),
-            ControlSize::Medium => (
-                tokens::CONTROL_PADDING_X_MEDIUM,
-                tokens::ROW_HEIGHT,
-                Typography::Body,
-            ),
+            ControlSize::Small => (tokens::CONTROL_PADDING_X_SMALL, tokens::ICON_BUTTON_SIZE, Typography::Small),
+            ControlSize::Medium => (tokens::CONTROL_PADDING_X_MEDIUM, tokens::ROW_HEIGHT, Typography::Body),
         };
         let selector = self.id.to_string();
         let icon_selector = format!("{selector}-icon");
@@ -206,32 +177,16 @@ impl RenderOnce for Button {
                 .flex()
                 .items_center()
                 .gap_1()
-                .map(|element| {
-                    if self.full_width {
-                        element.w_full()
-                    } else {
-                        element.justify_center()
-                    }
-                })
+                .map(|element| if self.full_width { element.w_full() } else { element.justify_center() })
                 .rounded(rem(tokens::RADIUS_CONTROL))
                 .typography(typography)
                 .when(self.keyboard_focusable && !disabled, |element| {
-                    element
-                        .focusable()
-                        .tab_stop(true)
-                        .focus_visible(move |style| {
-                            style
-                                .bg(hover.background.unwrap_or(theme.colors.surface_selected))
-                                .text_color(hover.foreground)
-                        })
+                    element.focusable().tab_stop(true).focus_visible(move |style| {
+                        style.bg(hover.background.unwrap_or(theme.colors.surface_selected)).text_color(hover.foreground)
+                    })
                 })
-                .when_some(self.tooltip, |element, label| {
-                    element.tooltip(Tooltip::text(label, theme))
-                })
-                .when_some(
-                    self.aria_label,
-                    gpui::StatefulInteractiveElement::aria_label,
-                ),
+                .when_some(self.tooltip, |element, label| element.tooltip(Tooltip::text(label, theme)))
+                .when_some(self.aria_label, gpui::StatefulInteractiveElement::aria_label),
             style,
             hover,
             disabled,
@@ -260,12 +215,7 @@ pub struct IconButton {
 
 impl IconButton {
     #[must_use]
-    pub fn new(
-        id: impl Into<ElementId>,
-        icon: IconName,
-        label: impl Into<SharedString>,
-        theme: UiTheme,
-    ) -> Self {
+    pub fn new(id: impl Into<ElementId>, icon: IconName, label: impl Into<SharedString>, theme: UiTheme) -> Self {
         Self {
             id: id.into(),
             icon,
@@ -290,10 +240,7 @@ impl IconButton {
     }
 
     #[must_use]
-    pub fn on_click(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(handler));
         self
     }
@@ -316,11 +263,7 @@ impl RenderOnce for IconButton {
         let group: SharedString = format!("{selector}-hover").into();
         let label = self.label.clone();
         let theme = self.theme;
-        let color = if self.selected {
-            colors.text
-        } else {
-            colors.text_muted
-        };
+        let color = if self.selected { colors.text } else { colors.text_muted };
         div()
             .id(self.id)
             .group(group.clone())
@@ -337,10 +280,7 @@ impl RenderOnce for IconButton {
             .when(self.selected, |button| button.bg(colors.surface_selected))
             .hover(move |button| button.bg(colors.surface_hover))
             .when(self.keyboard_focusable, |button| {
-                button
-                    .focusable()
-                    .tab_stop(true)
-                    .focus_visible(move |style| style.bg(colors.surface_selected))
+                button.focusable().tab_stop(true).focus_visible(move |style| style.bg(colors.surface_selected))
             })
             .tooltip(Tooltip::text(label, theme))
             .when_some(self.on_click, |button, handler| {
@@ -359,18 +299,9 @@ pub struct Tooltip {
 }
 
 impl Tooltip {
-    pub fn text(
-        label: impl Into<SharedString>,
-        theme: UiTheme,
-    ) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    pub fn text(label: impl Into<SharedString>, theme: UiTheme) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
         let label = label.into();
-        move |_, cx| {
-            cx.new(|_| Tooltip {
-                label: label.clone(),
-                theme,
-            })
-            .into()
-        }
+        move |_, cx| cx.new(|_| Tooltip { label: label.clone(), theme }).into()
     }
 }
 
@@ -415,10 +346,7 @@ impl Disclosure {
     }
 
     #[must_use]
-    pub fn on_toggle(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_toggle(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_toggle = Some(Box::new(handler));
         self
     }
@@ -440,11 +368,7 @@ impl RenderOnce for Disclosure {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let colors = self.theme.colors;
         let selector = self.id.to_string();
-        let chevron = if self.expanded {
-            IconName::ChevronDown
-        } else {
-            IconName::ChevronRight
-        };
+        let chevron = if self.expanded { IconName::ChevronDown } else { IconName::ChevronRight };
         let mut row = div()
             .id(self.id)
             .group(ListRow::hover_group(&selector))
@@ -481,18 +405,8 @@ pub struct Badge {
 
 impl Badge {
     #[must_use]
-    pub fn new(
-        id: impl Into<SharedString>,
-        label: impl Into<SharedString>,
-        theme: UiTheme,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            label: label.into(),
-            tone: NoticeTone::Neutral,
-            icon: None,
-            theme,
-        }
+    pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>, theme: UiTheme) -> Self {
+        Self { id: id.into(), label: label.into(), tone: NoticeTone::Neutral, icon: None, theme }
     }
 
     #[must_use]
@@ -530,10 +444,7 @@ impl RenderOnce for Badge {
             .text_color(foreground)
             .typography(Typography::Caption)
             .font_weight(gpui::FontWeight::MEDIUM)
-            .children(
-                self.icon
-                    .map(|icon| Icon::new(icon, foreground).size(tokens::ICON_SIZE_SMALL)),
-            )
+            .children(self.icon.map(|icon| Icon::new(icon, foreground).size(tokens::ICON_SIZE_SMALL)))
             .child(self.label)
     }
 }
@@ -554,12 +465,7 @@ pub struct SectionHeader {
 
 impl SectionHeader {
     #[must_use]
-    pub fn new(
-        id: impl Into<SharedString>,
-        title: impl Into<SharedString>,
-        expanded: bool,
-        theme: UiTheme,
-    ) -> Self {
+    pub fn new(id: impl Into<SharedString>, title: impl Into<SharedString>, expanded: bool, theme: UiTheme) -> Self {
         Self {
             id: id.into(),
             title: title.into(),
@@ -605,10 +511,7 @@ impl SectionHeader {
     }
 
     #[must_use]
-    pub fn on_toggle(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_toggle(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_toggle = Some(Box::new(handler));
         self
     }
@@ -629,32 +532,29 @@ impl RenderOnce for SectionHeader {
                 })
                 .child(badge)
         });
-        let mut disclosure = Disclosure::new(
-            SharedString::from(format!("{}-toggle", self.id)),
-            self.expanded,
-            self.theme,
-        )
-        .size_full()
-        .gap_1p5()
-        .children(self.icon.map(|(icon, color)| Icon::new(icon, color)))
-        .child(
-            div()
-                .flex_none()
-                .debug_selector(move || title_selector)
-                .typography(Typography::Label)
-                .text_color(colors.text)
-                .child(self.title),
-        )
-        .children(self.detail.map(|detail| {
-            div()
-                .min_w_0()
-                .truncate()
-                .typography(Typography::Caption)
-                .text_color(colors.text_muted)
-                .child(detail)
-        }))
-        .child(div().flex_1())
-        .children(badge);
+        let mut disclosure =
+            Disclosure::new(SharedString::from(format!("{}-toggle", self.id)), self.expanded, self.theme)
+                .size_full()
+                .gap_1p5()
+                .children(self.icon.map(|(icon, color)| Icon::new(icon, color)))
+                .child(
+                    div()
+                        .flex_none()
+                        .debug_selector(move || title_selector)
+                        .typography(Typography::Label)
+                        .text_color(colors.text)
+                        .child(self.title),
+                )
+                .children(self.detail.map(|detail| {
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .typography(Typography::Caption)
+                        .text_color(colors.text_muted)
+                        .child(detail)
+                }))
+                .child(div().flex_1())
+                .children(badge);
         if let Some(handler) = self.on_toggle {
             disclosure = disclosure.on_toggle(handler);
         }
@@ -665,16 +565,9 @@ impl RenderOnce for SectionHeader {
             .relative()
             .h(rem(tokens::ROW_HEIGHT))
             .min_w_0()
-            .when(self.actions_always_visible, |header| {
-                header.flex().items_center()
-            })
+            .when(self.actions_always_visible, |header| header.flex().items_center())
             .child(if self.actions_always_visible {
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .child(disclosure)
-                    .into_any_element()
+                div().flex_1().min_w_0().h_full().child(disclosure).into_any_element()
             } else {
                 disclosure.into_any_element()
             })
@@ -729,13 +622,7 @@ pub struct Surface {
 impl Surface {
     #[must_use]
     pub fn new(theme: UiTheme) -> Self {
-        Self {
-            theme,
-            padded: true,
-            raised: false,
-            selected: false,
-            children: Vec::new(),
-        }
+        Self { theme, padded: true, raised: false, selected: false, children: Vec::new() }
     }
 
     #[must_use]
@@ -766,9 +653,7 @@ impl RenderOnce for Surface {
         div()
             .w_full()
             .surface(self.theme)
-            .when(self.selected, |surface| {
-                surface.bg(self.theme.colors.surface_selected)
-            })
+            .when(self.selected, |surface| surface.bg(self.theme.colors.surface_selected))
             .when(self.padded, gpui::Styled::p_3)
             .when(self.raised, gpui::Styled::shadow_lg)
             .children(self.children)
@@ -793,14 +678,7 @@ pub struct ListRow {
 impl ListRow {
     #[must_use]
     pub fn new(id: impl Into<ElementId>, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            theme,
-            state: SelectionState::None,
-            depth: 0,
-            children: Vec::new(),
-            on_click: None,
-        }
+        Self { id: id.into(), theme, state: SelectionState::None, depth: 0, children: Vec::new(), on_click: None }
     }
     /// The hover group of the row with `id`.
     #[must_use]
@@ -822,25 +700,14 @@ impl ListRow {
     }
     #[must_use]
     pub const fn selected(self, selected: bool) -> Self {
-        self.state(if selected {
-            SelectionState::Selected
-        } else {
-            SelectionState::None
-        })
+        self.state(if selected { SelectionState::Selected } else { SelectionState::None })
     }
     #[must_use]
     pub const fn disabled(self, disabled: bool) -> Self {
-        self.state(if disabled {
-            SelectionState::Disabled
-        } else {
-            SelectionState::None
-        })
+        self.state(if disabled { SelectionState::Disabled } else { SelectionState::None })
     }
     #[must_use]
-    pub fn on_click(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(handler));
         self
     }
@@ -866,10 +733,7 @@ impl RenderOnce for ListRow {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let style = self.theme.selection_style(self.state);
         let hover = if self.state == SelectionState::None {
-            self.theme.control_style(
-                ButtonVariant::Ghost,
-                ControlState::new(InteractionState::Hovered),
-            )
+            self.theme.control_style(ButtonVariant::Ghost, ControlState::new(InteractionState::Hovered))
         } else {
             style
         };
@@ -906,10 +770,7 @@ pub struct ActionBar {
 impl ActionBar {
     #[must_use]
     pub fn new(theme: UiTheme) -> Self {
-        Self {
-            theme,
-            children: Vec::new(),
-        }
+        Self { theme, children: Vec::new() }
     }
 }
 impl ParentElement for ActionBar {
@@ -945,13 +806,7 @@ pub struct Backdrop {
 impl Backdrop {
     #[must_use]
     pub fn new(id: impl Into<SharedString>, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            theme,
-            align_top: false,
-            on_dismiss: None,
-            children: Vec::new(),
-        }
+        Self { id: id.into(), theme, align_top: false, on_dismiss: None, children: Vec::new() }
     }
     #[must_use]
     pub fn align_top(mut self) -> Self {
@@ -980,9 +835,7 @@ impl RenderOnce for Backdrop {
             .absolute()
             .inset_0()
             .p(margin)
-            .when(self.align_top, |backdrop| {
-                backdrop.pt(rem(tokens::MODAL_TOP_OFFSET))
-            })
+            .when(self.align_top, |backdrop| backdrop.pt(rem(tokens::MODAL_TOP_OFFSET)))
             .flex()
             .flex_col()
             .items_center()
@@ -1015,11 +868,7 @@ pub struct Modal {
 }
 impl Modal {
     #[must_use]
-    pub fn new(
-        id: impl Into<SharedString>,
-        title: impl Into<SharedString>,
-        theme: UiTheme,
-    ) -> Self {
+    pub fn new(id: impl Into<SharedString>, title: impl Into<SharedString>, theme: UiTheme) -> Self {
         Self {
             id: id.into(),
             title: title.into(),
@@ -1106,12 +955,11 @@ impl RenderOnce for Modal {
                         .items_center()
                         .justify_between()
                         .child(div().typography(Typography::Title).child(self.title))
-                        .children(self.hint.map(|hint| {
-                            div()
-                                .typography(Typography::Small)
-                                .text_color(colors.text_muted)
-                                .child(hint)
-                        })),
+                        .children(
+                            self.hint.map(|hint| {
+                                div().typography(Typography::Small).text_color(colors.text_muted).child(hint)
+                            }),
+                        ),
                 )
                 .children(self.children),
         )
@@ -1128,18 +976,13 @@ pub struct MutedText {
 impl MutedText {
     #[must_use]
     pub fn new(text: impl Into<SharedString>, theme: UiTheme) -> Self {
-        Self {
-            text: text.into(),
-            theme,
-        }
+        Self { text: text.into(), theme }
     }
 }
 
 impl RenderOnce for MutedText {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        div()
-            .text_color(self.theme.colors.text_muted)
-            .child(self.text)
+        div().text_color(self.theme.colors.text_muted).child(self.text)
     }
 }
 
@@ -1160,12 +1003,7 @@ impl EmptyState {
         tone: NoticeTone,
         theme: UiTheme,
     ) -> Self {
-        Self {
-            title: title.into(),
-            detail: detail.into(),
-            tone,
-            theme,
-        }
+        Self { title: title.into(), detail: detail.into(), tone, theme }
     }
 }
 impl RenderOnce for EmptyState {
@@ -1182,12 +1020,7 @@ impl RenderOnce for EmptyState {
             .text_center()
             .text_color(style.foreground)
             .child(div().typography(Typography::Heading).child(self.title))
-            .child(
-                div()
-                    .typography(Typography::Body)
-                    .text_color(self.theme.colors.text_muted)
-                    .child(self.detail),
-            )
+            .child(div().typography(Typography::Body).text_color(self.theme.colors.text_muted).child(self.detail))
     }
 }
 
@@ -1201,11 +1034,7 @@ pub struct Notification {
 impl Notification {
     #[must_use]
     pub fn new(message: impl Into<SharedString>, tone: NoticeTone, theme: UiTheme) -> Self {
-        Self {
-            message: message.into(),
-            tone,
-            theme,
-        }
+        Self { message: message.into(), tone, theme }
     }
 
     #[must_use]
@@ -1225,9 +1054,7 @@ impl RenderOnce for Notification {
             .bg(self.theme.colors.surface)
             .text_color(style.foreground)
             .typography(Typography::Body)
-            .when(style.emphasized, |notification| {
-                notification.font_weight(gpui::FontWeight::SEMIBOLD)
-            })
+            .when(style.emphasized, |notification| notification.font_weight(gpui::FontWeight::SEMIBOLD))
             .child(self.message)
     }
 }

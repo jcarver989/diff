@@ -19,9 +19,7 @@ pub struct WatchOptions {
 
 impl Default for WatchOptions {
     fn default() -> Self {
-        Self {
-            debounce: Duration::from_millis(150),
-        }
+        Self { debounce: Duration::from_millis(150) }
     }
 }
 
@@ -102,34 +100,19 @@ impl RepositoryHandle {
     ) -> Result<watch::Receiver<RepositoryState>, RepositoryHandleError> {
         let (result_tx, result_rx) = oneshot::channel();
         self.request_tx
-            .send(RepositoryRequest::Subscribe {
-                target: target.into(),
-                result_tx,
-            })
+            .send(RepositoryRequest::Subscribe { target: target.into(), result_tx })
             .await
             .map_err(|_| RepositoryHandleError::Stopped)?;
-        result_rx
-            .await
-            .map_err(|_| RepositoryHandleError::Stopped)?
-            .map_err(RepositoryHandleError::Git)
+        result_rx.await.map_err(|_| RepositoryHandleError::Stopped)?.map_err(RepositoryHandleError::Git)
     }
 
-    pub async fn refresh(
-        &self,
-        target: impl Into<ReviewTarget>,
-    ) -> Result<(), RepositoryHandleError> {
+    pub async fn refresh(&self, target: impl Into<ReviewTarget>) -> Result<(), RepositoryHandleError> {
         let (result_tx, result_rx) = oneshot::channel();
         self.request_tx
-            .send(RepositoryRequest::RefreshTarget {
-                target: target.into(),
-                result_tx,
-            })
+            .send(RepositoryRequest::RefreshTarget { target: target.into(), result_tx })
             .await
             .map_err(|_| RepositoryHandleError::Stopped)?;
-        result_rx
-            .await
-            .map_err(|_| RepositoryHandleError::Stopped)?
-            .map_err(RepositoryHandleError::Git)
+        result_rx.await.map_err(|_| RepositoryHandleError::Stopped)?.map_err(RepositoryHandleError::Git)
     }
 }
 
@@ -150,37 +133,19 @@ impl RepositoryWatcher {
         let watcher = Self::create_file_watcher(&repository, options.debounce).await?;
         let snapshot = repository.snapshot_with_sources(target.clone()).await?;
         let (request_tx, request_rx) = mpsc::channel(64);
-        let (state_tx, state_rx) = watch::channel(RepositoryState {
-            snapshot: Arc::new(snapshot),
-            error: None,
-        });
-        let actor = RepositoryActor {
-            repository,
-            watcher,
-            target,
-            request_rx,
-            state_tx,
-            subscriptions: HashMap::new(),
-        };
-        Ok(Self {
-            request_tx,
-            state_rx,
-            task: tokio::spawn(actor.run()),
-        })
+        let (state_tx, state_rx) = watch::channel(RepositoryState { snapshot: Arc::new(snapshot), error: None });
+        let actor =
+            RepositoryActor { repository, watcher, target, request_rx, state_tx, subscriptions: HashMap::new() };
+        Ok(Self { request_tx, state_rx, task: tokio::spawn(actor.run()) })
     }
 
     #[must_use]
     pub fn handle(&self) -> RepositoryHandle {
-        RepositoryHandle {
-            request_tx: self.request_tx.clone(),
-        }
+        RepositoryHandle { request_tx: self.request_tx.clone() }
     }
 
     pub async fn shutdown(mut self) -> Result<(), WatchError> {
-        self.request_tx
-            .send(RepositoryRequest::Shutdown)
-            .await
-            .map_err(|_| WatchError::Stopped)?;
+        self.request_tx.send(RepositoryRequest::Shutdown).await.map_err(|_| WatchError::Stopped)?;
         (&mut self.task).await.map_err(|_| WatchError::Stopped)
     }
 
@@ -261,32 +226,21 @@ impl RepositoryActor {
         }
     }
 
-    async fn subscribe(
-        &mut self,
-        target: ReviewTarget,
-    ) -> Result<watch::Receiver<RepositoryState>, Arc<GitError>> {
+    async fn subscribe(&mut self, target: ReviewTarget) -> Result<watch::Receiver<RepositoryState>, Arc<GitError>> {
         if target == self.target {
             return Ok(self.state_tx.subscribe());
         }
         if let Some(state) = self.subscriptions.get(&target) {
             return Ok(state.subscribe());
         }
-        let snapshot = self
-            .repository
-            .snapshot_with_sources(target.clone())
-            .await
-            .map_err(Arc::new)?;
-        let (state, receiver) = watch::channel(RepositoryState {
-            snapshot: Arc::new(snapshot),
-            error: None,
-        });
+        let snapshot = self.repository.snapshot_with_sources(target.clone()).await.map_err(Arc::new)?;
+        let (state, receiver) = watch::channel(RepositoryState { snapshot: Arc::new(snapshot), error: None });
         self.subscriptions.insert(target, state);
         Ok(receiver)
     }
 
     async fn refresh_active(&mut self) {
-        self.subscriptions
-            .retain(|_, state| state.receiver_count() > 0);
+        self.subscriptions.retain(|_, state| state.receiver_count() > 0);
         let targets = self
             .subscriptions
             .keys()
@@ -300,19 +254,11 @@ impl RepositoryActor {
         }
     }
 
-    async fn refresh_target(
-        &mut self,
-        target: &ReviewTarget,
-        retry: bool,
-    ) -> Result<(), Arc<GitError>> {
+    async fn refresh_target(&mut self, target: &ReviewTarget, retry: bool) -> Result<(), Arc<GitError>> {
         let result = if retry {
             self.repository.snapshot_with_sources(target.clone()).await
         } else {
-            match self
-                .repository
-                .try_snapshot_with_sources(target.clone())
-                .await
-            {
+            match self.repository.try_snapshot_with_sources(target.clone()).await {
                 Err(GitError::UnstableSnapshot) => self.repository.snapshot(target.clone()).await,
                 result => result,
             }
@@ -320,8 +266,7 @@ impl RepositoryActor {
         .map_err(Arc::new);
         let outcome = result.as_ref().map(|_| ()).map_err(Arc::clone);
         if *target == self.target {
-            self.state_tx
-                .send_if_modified(|state| state.apply(clone_result(&result)));
+            self.state_tx.send_if_modified(|state| state.apply(clone_result(&result)));
         }
         if let Some(state) = self.subscriptions.get(target) {
             state.send_if_modified(|current| current.apply(clone_result(&result)));
@@ -330,8 +275,6 @@ impl RepositoryActor {
     }
 }
 
-fn clone_result(
-    result: &Result<DiffDocument, Arc<GitError>>,
-) -> Result<DiffDocument, Arc<GitError>> {
+fn clone_result(result: &Result<DiffDocument, Arc<GitError>>) -> Result<DiffDocument, Arc<GitError>> {
     result.clone()
 }

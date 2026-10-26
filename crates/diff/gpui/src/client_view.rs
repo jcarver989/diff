@@ -5,9 +5,7 @@ use crate::{
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{DiffDocument, DiffReviewCommand, DiffReviewEvent, ReviewSubmission};
 use clankerdiff_theme::ReviewTheme;
-use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, EventEmitter, Subscription, Window, div, prelude::*,
-};
+use gpui::{AnyElement, ClipboardItem, Context, Entity, EventEmitter, Subscription, Window, div, prelude::*};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -35,15 +33,7 @@ impl DiffClientView {
 
     #[must_use]
     pub const fn with_options(theme: ReviewTheme, options: DiffViewerOptions) -> Self {
-        Self {
-            theme,
-            options,
-            state: None,
-            installed: None,
-            viewer: None,
-            pending: false,
-            subscriptions: Vec::new(),
-        }
+        Self { theme, options, state: None, installed: None, viewer: None, pending: false, subscriptions: Vec::new() }
     }
 
     #[must_use]
@@ -90,15 +80,10 @@ impl DiffClientView {
         }
     }
 
-    pub fn handle_command(
-        &mut self,
-        command: DiffReviewCommand,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        self.viewer.as_ref().is_some_and(|viewer| {
-            viewer.update(cx, |viewer, cx| viewer.handle_command(command, window, cx))
-        })
+    pub fn handle_command(&mut self, command: DiffReviewCommand, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.viewer
+            .as_ref()
+            .is_some_and(|viewer| viewer.update(cx, |viewer, cx| viewer.handle_command(command, window, cx)))
     }
 
     fn install(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
@@ -153,12 +138,7 @@ impl DiffClientView {
         div()
             .debug_selector(|| "changes-status".to_owned())
             .size_full()
-            .child(EmptyState::new(
-                title,
-                detail,
-                tone,
-                UiTheme::new(&self.theme),
-            ))
+            .child(EmptyState::new(title, detail, tone, UiTheme::new(&self.theme)))
             .into_any_element()
     }
 }

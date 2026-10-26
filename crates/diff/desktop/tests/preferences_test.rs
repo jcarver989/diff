@@ -7,10 +7,7 @@ use std::{error::Error, fs};
 fn a_missing_or_unreadable_file_offers_the_default_pair() -> Result<(), Box<dyn Error>> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("theme.json");
-    assert_eq!(
-        ThemeStore::new(Some(file.clone())).pair(),
-        ThemePair::default()
-    );
+    assert_eq!(ThemeStore::new(Some(file.clone())).pair(), ThemePair::default());
     fs::write(&file, "not json")?;
     assert_eq!(ThemeStore::new(Some(file)).pair(), ThemePair::default());
     assert_eq!(ThemeStore::new(None).pair(), ThemePair::default());
@@ -23,17 +20,8 @@ fn remembering_a_theme_keeps_the_other_appearances_theme() -> Result<(), Box<dyn
     let store = ThemeStore::new(Some(dir.path().join("nested/theme.json")));
     store.remember(Appearance::Dark, "nord")?;
     store.remember(Appearance::Light, "alabaster")?;
-    assert_eq!(
-        store.pair(),
-        ThemePair {
-            light: "alabaster".to_owned(),
-            dark: "nord".to_owned(),
-        }
-    );
-    assert_eq!(
-        store.theme(Appearance::Dark).id(),
-        &ThemeId::Builtin("nord".to_owned())
-    );
+    assert_eq!(store.pair(), ThemePair { light: "alabaster".to_owned(), dark: "nord".to_owned() });
+    assert_eq!(store.theme(Appearance::Dark).id(), &ThemeId::Builtin("nord".to_owned()));
     Ok(())
 }
 
@@ -42,10 +30,7 @@ fn an_unknown_theme_id_resolves_to_the_default_theme() -> Result<(), Box<dyn Err
     let dir = tempfile::tempdir()?;
     let store = ThemeStore::new(Some(dir.path().join("theme.json")));
     store.remember(Appearance::Light, "no-such-theme")?;
-    assert_eq!(
-        store.theme(Appearance::Light).id(),
-        clankerdiff_theme::ReviewTheme::default().id()
-    );
+    assert_eq!(store.theme(Appearance::Light).id(), clankerdiff_theme::ReviewTheme::default().id());
     Ok(())
 }
 
@@ -61,10 +46,7 @@ fn a_store_without_a_file_saves_nothing() -> Result<(), Box<dyn Error>> {
 fn a_missing_or_unreadable_view_mode_file_offers_auto() -> Result<(), Box<dyn Error>> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("view_mode.json");
-    assert_eq!(
-        ViewModeStore::new(Some(file.clone())).view_mode(),
-        ViewMode::Auto
-    );
+    assert_eq!(ViewModeStore::new(Some(file.clone())).view_mode(), ViewMode::Auto);
     fs::write(&file, "not json")?;
     assert_eq!(ViewModeStore::new(Some(file)).view_mode(), ViewMode::Auto);
     Ok(())

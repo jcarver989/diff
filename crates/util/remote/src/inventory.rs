@@ -53,23 +53,12 @@ impl Inventory {
     pub fn set_remotes(&mut self, remotes: Vec<RemoteSpec>) {
         self.listed.retain(|name, _| {
             let kept = |remote: &&RemoteSpec| remote.name == *name;
-            remotes
-                .iter()
-                .find(kept)
-                .zip(self.remotes.iter().find(kept))
-                .is_some_and(|(new, old)| {
-                    !new.is_static()
-                        && new.list == old.list
-                        && new.dir == old.dir
-                        && new.vars == old.vars
-                })
+            remotes.iter().find(kept).zip(self.remotes.iter().find(kept)).is_some_and(|(new, old)| {
+                !new.is_static() && new.list == old.list && new.dir == old.dir && new.vars == old.vars
+            })
         });
         for remote in remotes.iter().filter(|remote| remote.is_static()) {
-            let instance = Instance {
-                id: remote.name.clone(),
-                state: InstanceState::Running,
-                expires_at: None,
-            };
+            let instance = Instance { id: remote.name.clone(), state: InstanceState::Running, expires_at: None };
             self.listed.insert(remote.name.clone(), Ok(vec![instance]));
         }
         self.remotes = remotes;
@@ -77,30 +66,22 @@ impl Inventory {
 
     #[must_use]
     pub fn has_listed(&self) -> bool {
-        self.remotes
-            .iter()
-            .all(|remote| self.listed.contains_key(&remote.name))
+        self.remotes.iter().all(|remote| self.listed.contains_key(&remote.name))
     }
 
     #[must_use]
     pub fn instances(&self, remote: &str) -> &[Instance] {
-        self.listing(remote)
-            .and_then(Result::ok)
-            .unwrap_or_default()
+        self.listing(remote).and_then(Result::ok).unwrap_or_default()
     }
 
     #[must_use]
     pub fn listing(&self, remote: &str) -> Option<Result<&[Instance], &str>> {
-        self.listed
-            .get(remote)
-            .map(|listed| listed.as_deref().map_err(String::as_str))
+        self.listed.get(remote).map(|listed| listed.as_deref().map_err(String::as_str))
     }
 
     #[must_use]
     pub fn instance(&self, remote: &str, id: &str) -> Option<&Instance> {
-        self.instances(remote)
-            .iter()
-            .find(|instance| instance.id == id)
+        self.instances(remote).iter().find(|instance| instance.id == id)
     }
 
     #[must_use]
@@ -116,20 +97,12 @@ impl Inventory {
         if self.changing > 0 {
             return None;
         }
-        let remotes: Vec<RemoteSpec> = self
-            .remotes
-            .iter()
-            .filter(|remote| !remote.is_static())
-            .cloned()
-            .collect();
+        let remotes: Vec<RemoteSpec> = self.remotes.iter().filter(|remote| !remote.is_static()).cloned().collect();
         if remotes.is_empty() {
             return None;
         }
         self.refreshing = true;
-        Some(Listing {
-            changes: self.changes,
-            remotes,
-        })
+        Some(Listing { changes: self.changes, remotes })
     }
 
     pub fn finish_listing(&mut self, listed: Listed) -> bool {
@@ -137,8 +110,7 @@ impl Inventory {
         if listed.changes == self.changes {
             for (name, result) in listed.results {
                 if self.remote(&name).is_some_and(|remote| !remote.is_static()) {
-                    self.listed
-                        .insert(name, result.map_err(|error| error.to_string()));
+                    self.listed.insert(name, result.map_err(|error| error.to_string()));
                 }
             }
         } else {
@@ -167,11 +139,7 @@ impl Inventory {
     }
 
     pub fn launched(&mut self, remote: &str, id: &str) {
-        let instance = Instance {
-            id: id.to_owned(),
-            state: InstanceState::Starting,
-            expires_at: None,
-        };
+        let instance = Instance { id: id.to_owned(), state: InstanceState::Starting, expires_at: None };
         match self.listed.get_mut(remote) {
             Some(Ok(instances)) if instances.iter().any(|listed| listed.id == id) => {}
             Some(Ok(instances)) => instances.push(instance),
@@ -191,24 +159,13 @@ impl Inventory {
 
     #[must_use]
     pub fn poll_interval(&self) -> Duration {
-        if self.is_settling() {
-            POLL_SETTLING
-        } else {
-            POLL
-        }
+        if self.is_settling() { POLL_SETTLING } else { POLL }
     }
 }
 
 impl Listing {
     pub fn run(self, remotes: &dyn Remotes) -> Listed {
-        let results = self
-            .remotes
-            .iter()
-            .map(|remote| (remote.name.clone(), remotes.list(remote)))
-            .collect();
-        Listed {
-            changes: self.changes,
-            results,
-        }
+        let results = self.remotes.iter().map(|remote| (remote.name.clone(), remotes.list(remote))).collect();
+        Listed { changes: self.changes, results }
     }
 }

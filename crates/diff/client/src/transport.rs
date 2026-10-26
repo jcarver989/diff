@@ -26,19 +26,13 @@ pub trait MaybeSend {}
 impl<T> MaybeSend for T {}
 
 pub trait ClientMessageTransport: MaybeSend + 'static {
-    fn send(
-        &mut self,
-        command: ClientCommand,
-    ) -> impl Future<Output = Result<(), ClientError>> + MaybeSend;
+    fn send(&mut self, command: ClientCommand) -> impl Future<Output = Result<(), ClientError>> + MaybeSend;
     fn recv(&mut self) -> impl Future<Output = Result<ServerMessage, ClientError>> + MaybeSend;
     fn close(&mut self) -> impl Future<Output = ()> + MaybeSend;
 }
 
 pub(crate) trait Transport: MaybeSend + 'static {
-    fn send(
-        &mut self,
-        command: ClientCommand,
-    ) -> impl Future<Output = Result<(), ClientError>> + MaybeSend;
+    fn send(&mut self, command: ClientCommand) -> impl Future<Output = Result<(), ClientError>> + MaybeSend;
     fn recv(&mut self) -> impl Future<Output = Result<ServerEvent, ClientError>> + MaybeSend;
     fn close(&mut self) -> impl Future<Output = ()> + MaybeSend;
 
@@ -53,15 +47,11 @@ pub(crate) trait Transport: MaybeSend + 'static {
 
 impl Transport for LocalClientTransport {
     async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
-        LocalEnd::send(self, command)
-            .await
-            .map_err(|_| ClientError::Disconnected)
+        LocalEnd::send(self, command).await.map_err(|_| ClientError::Disconnected)
     }
 
     async fn recv(&mut self) -> Result<ServerEvent, ClientError> {
-        LocalEnd::recv(self)
-            .await
-            .map_err(|_| ClientError::Disconnected)
+        LocalEnd::recv(self).await.map_err(|_| ClientError::Disconnected)
     }
 
     async fn close(&mut self) {
@@ -71,15 +61,11 @@ impl Transport for LocalClientTransport {
 
 impl ClientMessageTransport for LocalEnd<ClientCommand, ServerMessage> {
     async fn send(&mut self, command: ClientCommand) -> Result<(), ClientError> {
-        LocalEnd::send(self, command)
-            .await
-            .map_err(|_| ClientError::Disconnected)
+        LocalEnd::send(self, command).await.map_err(|_| ClientError::Disconnected)
     }
 
     async fn recv(&mut self) -> Result<ServerMessage, ClientError> {
-        LocalEnd::recv(self)
-            .await
-            .map_err(|_| ClientError::Disconnected)
+        LocalEnd::recv(self).await.map_err(|_| ClientError::Disconnected)
     }
 
     async fn close(&mut self) {
@@ -94,10 +80,7 @@ pub(crate) struct Decoded<T> {
 
 impl<T> Decoded<T> {
     pub(crate) fn new(transport: T) -> Self {
-        Self {
-            transport,
-            cache: DocumentCache::default(),
-        }
+        Self { transport, cache: DocumentCache::default() }
     }
 }
 
@@ -125,16 +108,9 @@ pub(crate) struct Reconnecting {
 
 #[cfg(feature = "websocket")]
 impl Reconnecting {
-    pub(crate) async fn connect(
-        url: &str,
-        headers: Vec<ConnectionHeader>,
-    ) -> Result<Self, ClientError> {
+    pub(crate) async fn connect(url: &str, headers: Vec<ConnectionHeader>) -> Result<Self, ClientError> {
         let socket = ws::WebSocketTransport::try_connect(url, &headers).await?;
-        Ok(Self {
-            url: url.to_owned(),
-            headers,
-            socket: Decoded::new(socket),
-        })
+        Ok(Self { url: url.to_owned(), headers, socket: Decoded::new(socket) })
     }
 }
 

@@ -2,20 +2,10 @@ use clankerdiff_theme::{Appearance, ReviewTheme, ThemePair};
 use std::error::Error;
 
 #[test]
-fn every_built_in_theme_reports_the_appearance_its_catalog_entry_declares()
--> Result<(), Box<dyn Error>> {
+fn every_built_in_theme_reports_the_appearance_its_catalog_entry_declares() -> Result<(), Box<dyn Error>> {
     for descriptor in ReviewTheme::catalog() {
-        let expected = if descriptor.is_dark {
-            Appearance::Dark
-        } else {
-            Appearance::Light
-        };
-        assert_eq!(
-            ReviewTheme::builtin(&descriptor.id)?.appearance(),
-            expected,
-            "{}",
-            descriptor.id
-        );
+        let expected = if descriptor.is_dark { Appearance::Dark } else { Appearance::Light };
+        assert_eq!(ReviewTheme::builtin(&descriptor.id)?.appearance(), expected, "{}", descriptor.id);
     }
     Ok(())
 }
@@ -30,10 +20,7 @@ fn a_pair_sets_and_reads_back_the_theme_for_each_appearance() {
 
 #[test]
 fn a_pair_round_trips_through_json() -> Result<(), Box<dyn Error>> {
-    let pair = ThemePair {
-        light: "alabaster".to_owned(),
-        dark: "nord".to_owned(),
-    };
+    let pair = ThemePair { light: "alabaster".to_owned(), dark: "nord".to_owned() };
     let json = serde_json::to_string(&pair)?;
     assert_eq!(json, r#"{"light":"alabaster","dark":"nord"}"#);
     assert_eq!(serde_json::from_str::<ThemePair>(&json)?, pair);

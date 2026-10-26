@@ -7,8 +7,8 @@ use crate::{
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_gpui::{
-    DiffClientEvent, DiffClientView, DiffViewerOptions, NextCommit, PreviousCommit, StageAll,
-    ThemeChanged, UnstageAll, ViewModeChanged,
+    DiffClientEvent, DiffClientView, DiffViewerOptions, NextCommit, PreviousCommit, StageAll, ThemeChanged, UnstageAll,
+    ViewModeChanged,
     ui::{
         InterfaceSize,
         prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme, window_appearance},
@@ -17,10 +17,7 @@ use clankerdiff_gpui::{
 };
 use clankerdiff_gpui_shell::{run_loop, runtime};
 use clankerdiff_server::{DiffServer, ServerOptions};
-use gpui::{
-    AnyElement, App, AppContext, Context, Entity, KeyBinding, Subscription, Task, Window, div,
-    prelude::*,
-};
+use gpui::{AnyElement, App, AppContext, Context, Entity, KeyBinding, Subscription, Task, Window, div, prelude::*};
 use std::{path::PathBuf, sync::mpsc::Sender};
 
 pub(crate) struct DesktopApp {
@@ -47,10 +44,8 @@ impl DesktopApp {
         cx: &mut Context<Self>,
     ) -> Self {
         let theme = ThemeStore::user().theme(window_appearance(window));
-        let options = DiffViewerOptions {
-            view_mode: ViewModeStore::user().view_mode(),
-            ..DiffViewerOptions::default()
-        };
+        let options =
+            DiffViewerOptions { view_mode: ViewModeStore::user().view_mode(), ..DiffViewerOptions::default() };
         let view = cx.new(|_| DiffClientView::with_options(theme, options));
         let subscriptions = [
             cx.subscribe(&view, |this, _, event: &DiffClientEvent, cx| {
@@ -105,14 +100,11 @@ impl DesktopApp {
         let path = self.repository_path.clone();
         let (scope, commits) = (self.scope, self.commits);
         let operation = runtime::spawn(cx, async move {
-            let server = DiffServer::open(path, ServerOptions::default())
-                .await
-                .map_err(|error| error.to_string())?;
+            let server = DiffServer::open(path, ServerOptions::default()).await.map_err(|error| error.to_string())?;
             let transport = server.connect().map_err(|error| error.to_string())?;
             let target = server.initial_target(scope, commits);
-            let client = DiffClient::from_transport(transport, target.into())
-                .await
-                .map_err(|error| error.to_string())?;
+            let client =
+                DiffClient::from_transport(transport, target.into()).await.map_err(|error| error.to_string())?;
             Ok::<_, String>((server, client))
         });
         self.load_task = Some(cx.spawn(async move |this, cx| {
@@ -140,10 +132,7 @@ impl DesktopApp {
         let view = self.view.downgrade();
         self.watch_task = cx.spawn(async move |_, cx| {
             while let Ok(state) = updates.changed().await {
-                if view
-                    .update(cx, |view, cx| view.set_state(&state, cx))
-                    .is_err()
-                {
+                if view.update(cx, |view, cx| view.set_state(&state, cx)).is_err() {
                     return;
                 }
             }
@@ -175,12 +164,8 @@ impl DesktopApp {
         let Some(client) = self.client.clone() else {
             return;
         };
-        let operation = runtime::spawn(cx, async move {
-            client
-                .handle(event)
-                .await
-                .map_err(|error| error.to_string())
-        });
+        let operation =
+            runtime::spawn(cx, async move { client.handle(event).await.map_err(|error| error.to_string()) });
         self.command_task = Some(cx.spawn(async move |this, cx| {
             let result = match operation.await {
                 Ok(result) => result,
@@ -188,20 +173,13 @@ impl DesktopApp {
             };
             let _ = this.update(cx, |this, cx| {
                 this.command_task = None;
-                this.view
-                    .update(cx, |view, cx| view.command_finished(result, cx));
+                this.view.update(cx, |view, cx| view.command_finished(result, cx));
             });
         }));
     }
 
-    fn dispatch_command(
-        &mut self,
-        command: DiffReviewCommand,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.view
-            .update(cx, |view, cx| view.handle_command(command, window, cx));
+    fn dispatch_command(&mut self, command: DiffReviewCommand, window: &mut Window, cx: &mut Context<Self>) {
+        self.view.update(cx, |view, cx| view.handle_command(command, window, cx));
     }
 
     fn stage_all(&mut self, _: &StageAll, window: &mut Window, cx: &mut Context<Self>) {
@@ -242,12 +220,7 @@ impl Render for DesktopApp {
                 cx,
             )
         } else if self.client.is_none() {
-            self.status_panel(
-                "Loading diff…".to_owned(),
-                "Git is reading the repository",
-                NoticeTone::Info,
-                cx,
-            )
+            self.status_panel("Loading diff…".to_owned(), "Git is reading the repository", NoticeTone::Info, cx)
         } else {
             self.view.clone().into_any_element()
         };

@@ -1,8 +1,8 @@
 use clankerdiff_core::ViewMode;
 use clankerdiff_gpui::testing::{DiffViewerHarness, DiffViewerHarnessBuilder};
 use gpui::{
-    Bounds, ClipboardItem, InputHandler, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, TestAppContext, UTF16Selection, point, px,
+    Bounds, ClipboardItem, InputHandler, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    Point, TestAppContext, UTF16Selection, point, px,
 };
 use std::{error::Error, ops::Range};
 
@@ -40,9 +40,7 @@ fn clicking_uses_text_geometry_in_both_diff_layouts(cx: &mut TestAppContext) {
             harness.simulate_input(cx, "abcdef");
             let position = range_bounds(&harness, cx, 2..2)?.origin;
             let index = harness
-                .with_comment_input(cx, |input, window, cx| {
-                    input.character_index_for_point(position, window, cx)
-                })?
+                .with_comment_input(cx, |input, window, cx| input.character_index_for_point(position, window, cx))?
                 .ok_or("point has no character")?;
             assert_eq!(index, 2);
             click(&harness, cx, position, Modifiers::default());
@@ -108,10 +106,7 @@ fn vertical_navigation_preserves_horizontal_position_across_short_lines(cx: &mut
         set_body(&harness, cx, "abcdefghij\nx\nabcdefghij\n")?;
         harness.simulate_keystrokes(
             cx,
-            &format!(
-                "{} right right right right right right right right",
-                KEYS.document_start
-            ),
+            &format!("{} right right right right right right right right", KEYS.document_start),
         );
         let first = caret(&harness, cx)?;
         harness.simulate_keystrokes(cx, "down");
@@ -142,9 +137,7 @@ fn caret_and_selection_preserve_wrapping_and_vertical_navigation(cx: &mut TestAp
         let harness = open_editor(cx);
         let text = "wrapping text ".repeat(20);
         set_body(&harness, cx, &text)?;
-        let bounds = harness
-            .comment_text_bounds(cx)
-            .ok_or("text layout missing")?;
+        let bounds = harness.comment_text_bounds(cx).ok_or("text layout missing")?;
         let end = caret(&harness, cx)?;
         harness.simulate_keystrokes(cx, KEYS.document_start);
         let first = caret(&harness, cx)?;
@@ -165,10 +158,7 @@ fn caret_and_selection_preserve_wrapping_and_vertical_navigation(cx: &mut TestAp
         click(&harness, cx, row_start.origin, Modifiers::default());
         assert_eq!(selection(&harness, cx)?.range, start..start);
         harness.simulate_input(cx, "X");
-        assert_eq!(
-            body(&harness, cx)?,
-            format!("{}X{}", &text[..start], &text[start..])
-        );
+        assert_eq!(body(&harness, cx)?, format!("{}X{}", &text[..start], &text[start..]));
         Ok(())
     })();
     if let Err(error) = result {
@@ -185,49 +175,17 @@ fn dragging_and_shift_click_extend_selection(cx: &mut TestAppContext) {
         let end = range_bounds(&harness, cx, 4..4)?.origin;
         harness.simulate_event(
             cx,
-            MouseDownEvent {
-                position: start,
-                button: MouseButton::Left,
-                click_count: 1,
-                ..Default::default()
-            },
+            MouseDownEvent { position: start, button: MouseButton::Left, click_count: 1, ..Default::default() },
         );
         harness.simulate_event(
             cx,
-            MouseMoveEvent {
-                position: end,
-                pressed_button: Some(MouseButton::Left),
-                ..Default::default()
-            },
+            MouseMoveEvent { position: end, pressed_button: Some(MouseButton::Left), ..Default::default() },
         );
-        harness.simulate_event(
-            cx,
-            MouseUpEvent {
-                position: end,
-                button: MouseButton::Left,
-                ..Default::default()
-            },
-        );
+        harness.simulate_event(cx, MouseUpEvent { position: end, button: MouseButton::Left, ..Default::default() });
         assert_eq!(selection(&harness, cx)?.range, 1..4);
-        click(
-            &harness,
-            cx,
-            start,
-            Modifiers {
-                shift: true,
-                ..Default::default()
-            },
-        );
+        click(&harness, cx, start, Modifiers { shift: true, ..Default::default() });
         assert_eq!(selection(&harness, cx)?.range, 1..1);
-        click(
-            &harness,
-            cx,
-            end,
-            Modifiers {
-                shift: true,
-                ..Default::default()
-            },
-        );
+        click(&harness, cx, end, Modifiers { shift: true, ..Default::default() });
         harness.simulate_input(cx, "X");
         assert_eq!(body(&harness, cx)?, "aXef");
         Ok(())
@@ -242,17 +200,9 @@ fn clipboard_and_word_navigation_respect_selection(cx: &mut TestAppContext) {
     let result = (|| -> Result<(), Box<dyn Error>> {
         let harness = open_editor(cx);
         harness.simulate_input(cx, "one two three");
-        harness.simulate_keystrokes(
-            cx,
-            &format!("{} {} {}", KEYS.word_left, KEYS.select_word_left, KEYS.copy),
-        );
+        harness.simulate_keystrokes(cx, &format!("{} {} {}", KEYS.word_left, KEYS.select_word_left, KEYS.copy));
         assert_eq!(selection(&harness, cx)?.range, 4..8);
-        assert_eq!(
-            cx.read_from_clipboard()
-                .and_then(|item| item.text())
-                .as_deref(),
-            Some("two ")
-        );
+        assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()).as_deref(), Some("two "));
         harness.simulate_keystrokes(cx, KEYS.cut);
         assert_eq!(body(&harness, cx)?, "one three");
         cx.write_to_clipboard(ClipboardItem::new_string("TWO ".into()));
@@ -289,11 +239,7 @@ fn platform_selection_and_ime_ranges_use_utf16_and_precise_geometry(cx: &mut Tes
         assert!(at_two.size.height > px(0.0));
         assert_eq!(
             harness.with_comment_input(cx, |input, window, cx| {
-                input.character_index_for_point(
-                    at_four.origin + point(px(1.0), px(1.0)),
-                    window,
-                    cx,
-                )
+                input.character_index_for_point(at_four.origin + point(px(1.0), px(1.0)), window, cx)
             })?,
             Some(4)
         );
@@ -302,10 +248,7 @@ fn platform_selection_and_ime_ranges_use_utf16_and_precise_geometry(cx: &mut Tes
         })?;
         assert_eq!(body(&harness, cx)?, "a語b");
         assert_eq!(selection(&harness, cx)?.range, 2..2);
-        assert_eq!(
-            harness.with_comment_input(cx, InputHandler::marked_text_range)?,
-            None
-        );
+        assert_eq!(harness.with_comment_input(cx, InputHandler::marked_text_range)?, None);
         harness.with_comment_state(cx, |input, _, cx| {
             input.set_selected_range(0..usize::MAX, cx);
         })?;
@@ -343,34 +286,20 @@ fn open_editor(cx: &mut TestAppContext) -> DiffViewerHarness {
 
 fn body(harness: &DiffViewerHarness, cx: &TestAppContext) -> Result<String, Box<dyn Error>> {
     harness
-        .read(cx, |viewer, _| {
-            viewer
-                .session()
-                .draft()
-                .map(|draft| draft.body().to_owned())
-        })
+        .read(cx, |viewer, _| viewer.session().draft().map(|draft| draft.body().to_owned()))
         .ok_or_else(|| "draft missing".into())
 }
 
-fn set_body(
-    harness: &DiffViewerHarness,
-    cx: &mut TestAppContext,
-    text: &str,
-) -> Result<(), Box<dyn Error>> {
+fn set_body(harness: &DiffViewerHarness, cx: &mut TestAppContext, text: &str) -> Result<(), Box<dyn Error>> {
     let end = body(harness, cx)?.encode_utf16().count();
     harness.with_comment_input(cx, |input, window, cx| {
         input.replace_text_in_range(Some(0..end), text, window, cx);
     })
 }
 
-fn selection(
-    harness: &DiffViewerHarness,
-    cx: &mut TestAppContext,
-) -> Result<UTF16Selection, Box<dyn Error>> {
+fn selection(harness: &DiffViewerHarness, cx: &mut TestAppContext) -> Result<UTF16Selection, Box<dyn Error>> {
     harness
-        .with_comment_input(cx, |input, window, cx| {
-            input.selected_text_range(false, window, cx)
-        })?
+        .with_comment_input(cx, |input, window, cx| input.selected_text_range(false, window, cx))?
         .ok_or_else(|| "selection missing".into())
 }
 
@@ -380,49 +309,23 @@ fn range_bounds(
     range: Range<usize>,
 ) -> Result<Bounds<Pixels>, Box<dyn Error>> {
     harness
-        .with_comment_input(cx, |input, window, cx| {
-            input.bounds_for_range(range, window, cx)
-        })?
+        .with_comment_input(cx, |input, window, cx| input.bounds_for_range(range, window, cx))?
         .ok_or_else(|| "range bounds missing".into())
 }
 
-fn caret(
-    harness: &DiffViewerHarness,
-    cx: &mut TestAppContext,
-) -> Result<Bounds<Pixels>, Box<dyn Error>> {
+fn caret(harness: &DiffViewerHarness, cx: &mut TestAppContext) -> Result<Bounds<Pixels>, Box<dyn Error>> {
     harness
-        .with_comment_state(cx, |input, _, _| {
-            input.cursor_layout().map(|(bounds, _)| bounds)
-        })?
+        .with_comment_state(cx, |input, _, _| input.cursor_layout().map(|(bounds, _)| bounds))?
         .ok_or_else(|| "caret layout missing".into())
 }
 
-fn click(
-    harness: &DiffViewerHarness,
-    cx: &mut TestAppContext,
-    position: Point<Pixels>,
-    modifiers: Modifiers,
-) {
+fn click(harness: &DiffViewerHarness, cx: &mut TestAppContext, position: Point<Pixels>, modifiers: Modifiers) {
     let position = point(position.x, position.y + px(1.0));
     harness.simulate_event(
         cx,
-        MouseDownEvent {
-            position,
-            modifiers,
-            button: MouseButton::Left,
-            click_count: 1,
-            ..Default::default()
-        },
+        MouseDownEvent { position, modifiers, button: MouseButton::Left, click_count: 1, ..Default::default() },
     );
-    harness.simulate_event(
-        cx,
-        MouseUpEvent {
-            position,
-            modifiers,
-            button: MouseButton::Left,
-            ..Default::default()
-        },
-    );
+    harness.simulate_event(cx, MouseUpEvent { position, modifiers, button: MouseButton::Left, ..Default::default() });
 }
 
 struct PlatformKeys {

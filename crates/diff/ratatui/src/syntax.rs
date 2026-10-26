@@ -2,10 +2,9 @@
 
 use crate::color::native_color;
 pub use clankerdiff_syntax::{
-    CacheConfig, CacheKey, CacheUsage, DocumentHighlights, Fingerprint, FontStyle, HighlightSpan,
-    HighlightStats, LanguageHint, Rgba, SyntaxError, SyntaxHighlighter, SyntaxStream,
-    SyntaxStreamUpdate, SyntaxStyle, SyntaxTheme, SyntaxWorkStats, ThemedHighlighter, empty_spans,
-    resolve_language,
+    CacheConfig, CacheKey, CacheUsage, DocumentHighlights, Fingerprint, FontStyle, HighlightSpan, HighlightStats,
+    LanguageHint, Rgba, SyntaxError, SyntaxHighlighter, SyntaxStream, SyntaxStreamUpdate, SyntaxStyle, SyntaxTheme,
+    SyntaxWorkStats, ThemedHighlighter, empty_spans, resolve_language,
 };
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -23,11 +22,7 @@ pub fn highlighted_line(source: &str, spans: &[HighlightSpan], base: Style) -> L
     for span in spans {
         let start = span.range.start.max(cursor);
         let end = span.range.end;
-        if start >= end
-            || end > source.len()
-            || !source.is_char_boundary(start)
-            || !source.is_char_boundary(end)
-        {
+        if start >= end || end > source.len() || !source.is_char_boundary(start) || !source.is_char_boundary(end) {
             continue;
         }
         if cursor < start {
@@ -37,16 +32,9 @@ pub fn highlighted_line(source: &str, spans: &[HighlightSpan], base: Style) -> L
         modifiers.set(Modifier::BOLD, span.font_style.bold);
         modifiers.set(Modifier::ITALIC, span.font_style.italic);
         modifiers.set(Modifier::UNDERLINED, span.font_style.underline);
-        let syntax = Style::new()
-            .fg(native_color(
-                span.foreground,
-                base.bg.unwrap_or(Color::Black),
-            ))
-            .add_modifier(modifiers);
-        output.push(Span::styled(
-            source[start..end].to_owned(),
-            base.patch(syntax),
-        ));
+        let syntax =
+            Style::new().fg(native_color(span.foreground, base.bg.unwrap_or(Color::Black))).add_modifier(modifiers);
+        output.push(Span::styled(source[start..end].to_owned(), base.patch(syntax)));
         cursor = end;
     }
     if cursor < source.len() {
@@ -71,11 +59,7 @@ mod tests {
             &[HighlightSpan {
                 range: 1..3,
                 foreground: Rgba::new(1, 2, 3, 255),
-                font_style: FontStyle {
-                    bold: true,
-                    italic: false,
-                    underline: false,
-                },
+                font_style: FontStyle { bold: true, italic: false, underline: false },
             }],
             base,
         );

@@ -21,12 +21,10 @@ fn main() {
 
     let runtime = tokio::runtime::Runtime::new().expect("failed to start the async runtime");
     let client = args.connect.as_deref().map(|url| {
-        runtime
-            .block_on(DiffClient::connect(url, args.scope.into()))
-            .unwrap_or_else(|error| {
-                eprintln!("error: {error}");
-                std::process::exit(1);
-            })
+        runtime.block_on(DiffClient::connect(url, args.scope.into())).unwrap_or_else(|error| {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        })
     });
     if let Some(client) = client {
         let submission = run_client_review(client.clone());

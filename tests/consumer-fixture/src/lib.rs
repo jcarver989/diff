@@ -5,13 +5,11 @@ mod tests {
     #[cfg(feature = "git")]
     use clankerdiff_ratatui::diff::DiffScope;
     use clankerdiff_ratatui::{
-        DiffPreviewOptions, DiffPreviewState, DiffReviewState, DiffReviewWidget,
-        MarkdownLayoutOptions, MarkdownRenderer, MarkdownReviewState, MarkdownReviewWidget,
-        StreamingMarkdownPolicy, StreamingMarkdownState,
+        DiffPreviewOptions, DiffPreviewState, DiffReviewState, DiffReviewWidget, MarkdownLayoutOptions,
+        MarkdownRenderer, MarkdownReviewState, MarkdownReviewWidget, StreamingMarkdownPolicy, StreamingMarkdownState,
         diff::{DiffDocument, FileDiff, ViewMode},
         markdown::{
-            MarkdownDocument, MarkdownReviewCommand, MarkdownReviewDecision, MarkdownReviewEvent,
-            MarkdownStream,
+            MarkdownDocument, MarkdownReviewCommand, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownStream,
         },
         syntax::{LanguageHint, SyntaxHighlighter, resolve_language},
         theme::{ReviewTheme, Rgba, ThemeChoice, ThemeId},
@@ -29,8 +27,7 @@ mod tests {
     fn themes_and_review_widgets_embed_without_a_terminal_loop() -> TestResult {
         let mut theme = ReviewTheme::builtin("sage")?;
         theme.ui.info = Rgba::new(30, 140, 230, 128);
-        let restored =
-            ReviewTheme::from_bytes(ThemeId::Custom("consumer".into()), &theme.to_bytes()?)?;
+        let restored = ReviewTheme::from_bytes(ThemeId::Custom("consumer".into()), &theme.to_bytes()?)?;
         assert_eq!(restored.ui, theme.ui);
         assert_eq!(restored.revision(), theme.revision());
         let file = FileDiff::from_texts("src/lib.rs", "let old = 1;\n", "let new = 2;\n")?;
@@ -46,14 +43,10 @@ mod tests {
         markdown.set_theme(restored);
         let area = Rect::new(3, 2, 80, 24);
         let mut buffer = Buffer::empty(area);
-        DiffReviewWidget::new()
-            .title("Diff")
-            .render(area, &mut buffer, &mut diff);
+        DiffReviewWidget::new().title("Diff").render(area, &mut buffer, &mut diff);
         assert!(buffer.content().iter().any(|cell| cell.symbol() != " "));
         buffer.reset();
-        MarkdownReviewWidget::new()
-            .title("Plan")
-            .render(area, &mut buffer, &mut markdown);
+        MarkdownReviewWidget::new().title("Plan").render(area, &mut buffer, &mut markdown);
         assert!(buffer.content().iter().any(|cell| cell.symbol() != " "));
         let _ = (diff.cursor_position(), markdown.cursor_position());
         Ok(())
@@ -64,27 +57,18 @@ mod tests {
         let theme = ReviewTheme::builtin("sage")?;
         let choice = ThemeChoice::new("Consumer", theme.clone());
         let mut highlighter = SyntaxHighlighter::default();
-        assert_eq!(
-            resolve_language(LanguageHint::Path("file.rs"), ""),
-            Some("rust")
-        );
+        assert_eq!(resolve_language(LanguageHint::Path("file.rs"), ""), Some("rust"));
         let mut preview = DiffPreviewState::new(FileDiff::from_texts("file.rs", "old\n", "new\n")?);
         let lines = preview.render(
             80,
             &theme,
             &mut highlighter,
-            DiffPreviewOptions {
-                view_mode: ViewMode::Unified,
-                ..DiffPreviewOptions::default()
-            },
+            DiffPreviewOptions { view_mode: ViewMode::Unified, ..DiffPreviewOptions::default() },
         );
         assert!(!lines.is_empty());
-        let mut review =
-            MarkdownReviewState::new(Arc::new(MarkdownDocument::parse("# Plan\n\nShip it.\n")));
+        let mut review = MarkdownReviewState::new(Arc::new(MarkdownDocument::parse("# Plan\n\nShip it.\n")));
         review.set_theme_choices(vec![choice]);
-        let event = review
-            .handle_command(MarkdownReviewCommand::Approve)?
-            .into_event();
+        let event = review.handle_command(MarkdownReviewCommand::Approve)?.into_event();
         let Some(MarkdownReviewEvent::Submit(submission)) = event else {
             return Err("expected a review submission".into());
         };
@@ -95,35 +79,20 @@ mod tests {
     #[test]
     fn published_stream_contract_preserves_history_and_work_budgets() -> TestResult {
         for (source, code) in [
-            (
-                "Ordinary words in a bounded paragraph.\n\n".repeat(440),
-                false,
-            ),
-            (
-                format!("```rust\n{}\n```\n", "let value = 123;\n".repeat(1600)),
-                true,
-            ),
+            ("Ordinary words in a bounded paragraph.\n\n".repeat(440), false),
+            (format!("```rust\n{}\n```\n", "let value = 123;\n".repeat(1600)), true),
         ] {
             let renderer = MarkdownRenderer::new();
             let mut highlighter = SyntaxHighlighter::default();
             let mut stream = MarkdownStream::new();
             let mut state = StreamingMarkdownState::new(StreamingMarkdownPolicy::Terminal);
             let theme = ReviewTheme::default();
-            let options = MarkdownLayoutOptions {
-                width: 120,
-                ..MarkdownLayoutOptions::default()
-            };
+            let options = MarkdownLayoutOptions { width: 120, ..MarkdownLayoutOptions::default() };
             let mut host = Vec::new();
             let mut revision = 0;
             for chunk in source.as_bytes().chunks(256) {
                 stream.push(str::from_utf8(chunk)?);
-                renderer.render_stream_layout(
-                    &mut state,
-                    &stream,
-                    options,
-                    &theme,
-                    &mut highlighter,
-                )?;
+                renderer.render_stream_layout(&mut state, &stream, options, &theme, &mut highlighter)?;
                 let delta = state.update_since(revision);
                 assert!(delta.first_changed_row >= state.committed_rows());
                 host.truncate(delta.first_changed_row);
@@ -131,21 +100,12 @@ mod tests {
                 revision = delta.revision;
                 if host.len() - state.committed_rows() > 12 {
                     state.commit_rows(revision, host.len() - 1)?;
-                    assert!(
-                        state.update_since(delta.base_revision).first_changed_row
-                            >= state.committed_rows()
-                    );
+                    assert!(state.update_since(delta.base_revision).first_changed_row >= state.committed_rows());
                 }
                 assert!(host.len() - state.committed_rows() <= 24);
             }
             stream.finish();
-            let layout = renderer.render_stream_layout(
-                &mut state,
-                &stream,
-                options,
-                &theme,
-                &mut highlighter,
-            )?;
+            let layout = renderer.render_stream_layout(&mut state, &stream, options, &theme, &mut highlighter)?;
             let expected = renderer.render_layout(
                 &MarkdownDocument::parse(&source),
                 options,
@@ -153,13 +113,7 @@ mod tests {
                 &mut SyntaxHighlighter::default(),
             );
             assert_eq!(layout.row_count(), expected.row_count());
-            assert!(
-                layout
-                    .rows()
-                    .iter()
-                    .zip(expected.rows().iter())
-                    .all(|(a, b)| a.line == b.line)
-            );
+            assert!(layout.rows().iter().zip(expected.rows().iter()).all(|(a, b)| a.line == b.line));
             let work = state.take_stats();
             let budget = 4 * source.len() + 64 * 1024;
             assert!(work.parsed_bytes <= budget, "{work:?}");
@@ -168,13 +122,7 @@ mod tests {
             assert!(work.blocks_visited <= budget, "{work:?}");
             assert!(work.targets_visited <= budget, "{work:?}");
             assert!(work.row_store_updates <= budget, "{work:?}");
-            renderer.render_stream_layout(
-                &mut state,
-                &stream,
-                options,
-                &theme,
-                &mut highlighter,
-            )?;
+            renderer.render_stream_layout(&mut state, &stream, options, &theme, &mut highlighter)?;
             let settled = state.take_stats();
             assert_eq!(
                 settled.parsed_bytes
@@ -211,8 +159,7 @@ mod tests {
 
         let directory = RepositoryBuilder.build()?;
         let repository = GitRepository::discover(directory.path()).await?;
-        let mut watcher =
-            RepositoryWatcher::spawn(repository, DiffScope::Both, WatchOptions::default()).await?;
+        let mut watcher = RepositoryWatcher::spawn(repository, DiffScope::Both, WatchOptions::default()).await?;
         let initial = watcher.state_rx.borrow_and_update().snapshot.clone();
         let mut state = DiffReviewState::new(Arc::clone(&initial));
         let area = Rect::new(0, 0, 80, 24);
@@ -234,16 +181,8 @@ mod tests {
         .await??;
 
         let (result_tx, result_rx) = oneshot::channel();
-        watcher
-            .request_tx
-            .send(RepositoryRequest::SetTarget {
-                target: DiffScope::Staged.into(),
-                result_tx,
-            })
-            .await?;
-        timeout(Duration::from_secs(10), result_rx)
-            .await??
-            .map_err(|error| error.to_string())?;
+        watcher.request_tx.send(RepositoryRequest::SetTarget { target: DiffScope::Staged.into(), result_tx }).await?;
+        timeout(Duration::from_secs(10), result_rx).await??.map_err(|error| error.to_string())?;
         let staged = watcher.state_rx.borrow().snapshot.clone();
         assert_eq!(staged.target.scope(), Some(DiffScope::Staged));
         assert!(staged.files.is_empty());
@@ -267,17 +206,7 @@ mod tests {
             }
             fs::write(directory.path().join("file.rs"), "let old = 1;\n")?;
             run_git(&directory, &["add", "file.rs"])?;
-            run_git(
-                &directory,
-                &[
-                    "-c",
-                    "commit.gpgsign=false",
-                    "commit",
-                    "--quiet",
-                    "-m",
-                    "initial",
-                ],
-            )?;
+            run_git(&directory, &["-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "initial"])?;
             fs::write(directory.path().join("file.rs"), "let new = 2;\n")?;
             Ok(directory)
         }
@@ -285,10 +214,7 @@ mod tests {
 
     #[cfg(feature = "git")]
     fn run_git(directory: &TempDir, arguments: &[&str]) -> TestResult {
-        let output = Command::new("git")
-            .args(arguments)
-            .current_dir(directory.path())
-            .output()?;
+        let output = Command::new("git").args(arguments).current_dir(directory.path()).output()?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).into_owned().into());
         }

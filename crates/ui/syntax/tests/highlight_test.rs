@@ -20,9 +20,7 @@ fn shares_upstream_runtime_with_ast_grep() -> TestResult {
     let ast = AstGrep::doc(document);
     let pattern = Pattern::try_new(source, Rust)?;
     let root = ast.root();
-    let found = root
-        .find(&pattern)
-        .ok_or("ast-grep did not match Rust function")?;
+    let found = root.find(&pattern).ok_or("ast-grep did not match Rust function")?;
     assert_eq!(found.text(), source);
     Ok(())
 }
@@ -174,21 +172,13 @@ fn complete_document_is_parsed_once_then_reused_without_loading_source() -> Test
         assert!(highlights.line(index).is_some());
     }
     assert_eq!(fixture.highlighter.stats(), HighlightStats::default());
-    let cached = fixture
-        .highlighter
-        .with_theme(&fixture.theme)
-        .highlight_document(Fingerprint::of([text.as_str()]), "rust", || -> &str {
-            panic!("cached source must not be loaded")
-        })?;
+    let cached = fixture.highlighter.with_theme(&fixture.theme).highlight_document(
+        Fingerprint::of([text.as_str()]),
+        "rust",
+        || -> &str { panic!("cached source must not be loaded") },
+    )?;
     assert!(Arc::ptr_eq(&highlights, &cached));
-    assert_eq!(
-        fixture.highlighter.stats(),
-        HighlightStats {
-            calls: 1,
-            hits: 1,
-            ..HighlightStats::default()
-        }
-    );
+    assert_eq!(fixture.highlighter.stats(), HighlightStats { calls: 1, hits: 1, ..HighlightStats::default() });
     Ok(())
 }
 
@@ -200,21 +190,13 @@ fn cached_documents_recolor_without_parsing_or_loading_source() -> TestResult {
     let first = html.highlight(source)?;
     html.highlighter.take_stats();
     html.theme = ReviewTheme::ayu()?.syntax;
-    let recolored = html
-        .highlighter
-        .with_theme(&html.theme)
-        .highlight_document(Fingerprint::of([source]), "html", || -> &str {
-            panic!("recoloring must use retained source")
-        })?;
+    let recolored = html.highlighter.with_theme(&html.theme).highlight_document(
+        Fingerprint::of([source]),
+        "html",
+        || -> &str { panic!("recoloring must use retained source") },
+    )?;
     assert_ne!(first.line(0), recolored.line(0));
-    assert_eq!(
-        html.highlighter.stats(),
-        HighlightStats {
-            calls: 1,
-            hits: 1,
-            ..HighlightStats::default()
-        }
-    );
+    assert_eq!(html.highlighter.stats(), HighlightStats { calls: 1, hits: 1, ..HighlightStats::default() });
     html.append(source)?;
     assert_eq!(recolored.line(0), html.stream.highlights().line(0));
     html.assert_equivalent()?;
@@ -236,14 +218,7 @@ fn stream_updates_do_not_evict_cached_documents() -> TestResult {
     }
     fixture.highlighter.take_stats();
     fixture.highlight(text)?;
-    assert_eq!(
-        fixture.highlighter.take_stats(),
-        HighlightStats {
-            calls: 1,
-            hits: 1,
-            ..HighlightStats::default()
-        }
-    );
+    assert_eq!(fixture.highlighter.take_stats(), HighlightStats { calls: 1, hits: 1, ..HighlightStats::default() });
     Ok(())
 }
 
@@ -256,13 +231,13 @@ fn aliases_and_utf8_ranges_share_a_cache_entry() -> TestResult {
     assert!(
         line(&highlights, 0)?
             .iter()
-            .all(|span| source.is_char_boundary(span.range.start)
-                && source.is_char_boundary(span.range.end))
+            .all(|span| source.is_char_boundary(span.range.start) && source.is_char_boundary(span.range.end))
     );
-    let cached = fixture
-        .highlighter
-        .with_theme(&fixture.theme)
-        .highlight_document(Fingerprint::of([source]), "RUST", || source)?;
+    let cached =
+        fixture
+            .highlighter
+            .with_theme(&fixture.theme)
+            .highlight_document(Fingerprint::of([source]), "RUST", || source)?;
     assert!(Arc::ptr_eq(&highlights, &cached));
     assert_eq!(fixture.highlighter.stats().hits, 1);
     Ok(())
@@ -272,25 +247,19 @@ fn aliases_and_utf8_ranges_share_a_cache_entry() -> TestResult {
 fn paths_and_shebangs_resolve_before_the_first_parse() -> TestResult {
     let mut fixture = CacheBuilder::default().build();
     for (hint, source) in [
-        (
-            LanguageHint::Path("src/lib.rs"),
-            "/* alpha\r\nbeta */\nlet café = 1;\n",
-        ),
+        (LanguageHint::Path("src/lib.rs"), "/* alpha\r\nbeta */\nlet café = 1;\n"),
         (LanguageHint::Auto, "#!/usr/bin/env python3\nprint('hi')\n"),
         (LanguageHint::InfoString("python linenums"), "print('hi')\n"),
     ] {
-        let highlights = fixture
-            .highlighter
-            .with_theme(&fixture.theme)
-            .highlight_document(Fingerprint::of([source]), hint, || source)?;
+        let highlights = fixture.highlighter.with_theme(&fixture.theme).highlight_document(
+            Fingerprint::of([source]),
+            hint,
+            || source,
+        )?;
         assert_eq!(highlights.line_count(), source.lines().count());
         for (index, text) in source.lines().enumerate() {
             assert_ne!(line(&highlights, index)?, []);
-            assert!(
-                line(&highlights, index)?
-                    .iter()
-                    .all(|span| span.range.end <= text.len())
-            );
+            assert!(line(&highlights, index)?.iter().all(|span| span.range.end <= text.len()));
         }
     }
     Ok(())
@@ -316,10 +285,7 @@ fn complete_input_limits_leave_cache_and_counters_unchanged() -> TestResult {
     let accepted = fixture.highlight("let café=1;")?;
     let stats = fixture.highlighter.stats();
     let usage = fixture.highlighter.cache_usage();
-    assert!(matches!(
-        fixture.highlight("let café = 123;"),
-        Err(SyntaxError::InputLimit { limit: 12, .. })
-    ));
+    assert!(matches!(fixture.highlight("let café = 123;"), Err(SyntaxError::InputLimit { limit: 12, .. })));
     assert_eq!(fixture.highlighter.stats(), stats);
     assert_eq!(fixture.highlighter.cache_usage(), usage);
     assert!(Arc::ptr_eq(&accepted, &fixture.highlight("let café=1;")?));
@@ -350,10 +316,7 @@ fn supported_languages_use_the_same_document_engine() -> TestResult {
     ] {
         let mut fixture = CacheBuilder::default().language(language).build();
         fixture.append(source)?;
-        assert!(
-            !line(fixture.stream.highlights(), 0)?.is_empty(),
-            "{language}"
-        );
+        assert!(!line(fixture.stream.highlights(), 0)?.is_empty(), "{language}");
         fixture.assert_equivalent()?;
     }
     Ok(())
@@ -362,11 +325,7 @@ fn supported_languages_use_the_same_document_engine() -> TestResult {
 #[test]
 fn injections_highlight_embedded_languages() -> TestResult {
     for (language, source, index) in [
-        (
-            "html",
-            "<p>café</p><script>const π = 3.14;</script><style>b{color:red}</style>",
-            0,
-        ),
+        ("html", "<p>café</p><script>const π = 3.14;</script><style>b{color:red}</style>", 0),
         ("markdown", "# Title\n\n```rust\nfn main() {}\n```\n", 3),
     ] {
         let mut fixture = CacheBuilder::default().language(language).build();
@@ -386,9 +345,7 @@ impl Language for Rust {
     }
 
     fn field_to_id(&self, field: &str) -> Option<u16> {
-        self.get_ts_language()
-            .field_id_for_name(field)
-            .map(NonZeroU16::get)
+        self.get_ts_language().field_id_for_name(field).map(NonZeroU16::get)
     }
 
     fn build_pattern(&self, builder: &PatternBuilder) -> Result<Pattern, PatternError> {

@@ -75,18 +75,14 @@ impl ReviewTheme {
             cursor: solid(ui.accent),
             cursor_text: background,
             selection: solid(self.diff.selection),
-            ansi: CURATED
-                .get(self.id().to_string().as_str())
-                .copied()
-                .unwrap_or_else(|| derived_ansi(self)),
+            ansi: CURATED.get(self.id().to_string().as_str()).copied().unwrap_or_else(|| derived_ansi(self)),
         }
     }
 }
 
 static CURATED: LazyLock<HashMap<String, [Rgba; 16]>> = LazyLock::new(|| {
     let palettes: HashMap<String, [String; 16]> =
-        serde_json::from_str(include_str!("../assets/terminal.json"))
-            .expect("the bundled terminal palettes are valid");
+        serde_json::from_str(include_str!("../assets/terminal.json")).expect("the bundled terminal palettes are valid");
     palettes
         .into_iter()
         .map(|(id, colors)| {
@@ -100,10 +96,7 @@ fn derived_ansi(theme: &ReviewTheme) -> [Rgba; 16] {
     let ui = &theme.ui;
     let dark = theme.appearance() == Appearance::Dark;
     let syntax = |names: &[&str], fallback: Rgba| {
-        names
-            .iter()
-            .find_map(|name| theme.syntax.style(name))
-            .map_or(solid(fallback), |style| solid(style.foreground))
+        names.iter().find_map(|name| theme.syntax.style(name)).map_or(solid(fallback), |style| solid(style.foreground))
     };
     let canvas = solid(ui.canvas);
     let text = solid(ui.text);
@@ -112,31 +105,14 @@ fn derived_ansi(theme: &ReviewTheme) -> [Rgba; 16] {
     let yellow = solid(ui.warning);
     let blue = solid(ui.info);
     let magenta = syntax(&["keyword", "keyword.function", "constant"], ui.accent);
-    let cyan = syntax(
-        &["property", "string.special", "type", "constructor"],
-        ui.info,
-    );
+    let cyan = syntax(&["property", "string.special", "type", "constructor"], ui.info);
     let (black, white, bright_black, bright_white) = if dark {
-        (
-            text.mix(canvas, 46),
-            solid(ui.text_secondary),
-            solid(ui.text_muted),
-            text,
-        )
+        (text.mix(canvas, 46), solid(ui.text_secondary), solid(ui.text_muted), text)
     } else {
-        (
-            text,
-            text.mix(canvas, 64),
-            solid(ui.text_muted),
-            text.mix(canvas, 26),
-        )
+        (text, text.mix(canvas, 64), solid(ui.text_muted), text.mix(canvas, 26))
     };
     let brighten = |color: Rgba| {
-        if dark {
-            opaque(255, 255, 255).mix(color, 46)
-        } else {
-            opaque(0, 0, 0).mix(color, 38)
-        }
+        if dark { opaque(255, 255, 255).mix(color, 46) } else { opaque(0, 0, 0).mix(color, 38) }
     };
     [
         black,

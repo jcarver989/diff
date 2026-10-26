@@ -15,25 +15,13 @@ fn reference_renders_reparse_without_touching_streaming_highlights() {
 
     let second = fixture.one_shot();
     assert!(first.rows().iter().eq(second.rows().iter()));
-    assert_eq!(
-        fixture.reference_highlighter.stats().misses,
-        2 * first_stats.misses
-    );
-    assert_eq!(
-        fixture.reference_highlighter.stats().bytes,
-        2 * first_stats.bytes
-    );
+    assert_eq!(fixture.reference_highlighter.stats().misses, 2 * first_stats.misses);
+    assert_eq!(fixture.reference_highlighter.stats().bytes, 2 * first_stats.bytes);
 
     let lines = fixture.one_shot_lines();
     assert_eq!(lines, first.materialize());
-    assert_eq!(
-        fixture.reference_highlighter.stats().misses,
-        3 * first_stats.misses
-    );
-    assert_eq!(
-        fixture.reference_highlighter.stats().bytes,
-        3 * first_stats.bytes
-    );
+    assert_eq!(fixture.reference_highlighter.stats().misses, 3 * first_stats.misses);
+    assert_eq!(fixture.reference_highlighter.stats().bytes, 3 * first_stats.bytes);
     assert_eq!(fixture.reference_highlighter.stats().hits, 0);
     assert_eq!(fixture.highlighter.stats(), streaming_stats);
 }

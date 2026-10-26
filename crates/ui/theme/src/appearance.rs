@@ -35,10 +35,7 @@ impl ThemePair {
 
 impl Default for ThemePair {
     fn default() -> Self {
-        Self {
-            light: "github-light".to_owned(),
-            dark: "github-dark".to_owned(),
-        }
+        Self { light: "github-light".to_owned(), dark: "github-dark".to_owned() }
     }
 }
 

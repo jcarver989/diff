@@ -3,9 +3,7 @@ use clankerdiff_gpui_ui::{
     testing::ComponentHarnessBuilder,
 };
 use clankerdiff_theme::ReviewTheme;
-use gpui::{
-    AnyElement, ListAlignment, ListState, TestAppContext, div, list, point, prelude::*, px,
-};
+use gpui::{AnyElement, ListAlignment, ListState, TestAppContext, div, list, point, prelude::*, px};
 
 #[gpui::test]
 fn a_list_that_fits_its_viewport_has_no_scrollbar(cx: &mut TestAppContext) {
@@ -27,12 +25,8 @@ fn a_long_list_shows_a_scrollbar_at_its_top(cx: &mut TestAppContext) {
         cx,
         move |_, _| layout(std::slice::from_ref(&rows)),
         |harness, cx| {
-            let track = harness
-                .bounds(cx, "scrollbar-0")
-                .ok_or("missing scrollbar")?;
-            let thumb = harness
-                .bounds(cx, "scrollbar-0-thumb")
-                .ok_or("missing thumb")?;
+            let track = harness.bounds(cx, "scrollbar-0").ok_or("missing scrollbar")?;
+            let thumb = harness.bounds(cx, "scrollbar-0-thumb").ok_or("missing thumb")?;
             assert_eq!(track.size.height, px(600.0));
             assert_eq!(thumb.top(), track.top());
             Ok(())
@@ -48,22 +42,11 @@ fn dragging_the_thumb_to_the_bottom_scrolls_to_the_end(cx: &mut TestAppContext) 
         cx,
         move |_, _| layout(std::slice::from_ref(&rendered)),
         |harness, cx| {
-            let track = harness
-                .bounds(cx, "scrollbar-0")
-                .ok_or("missing scrollbar")?;
-            harness.drag(
-                cx,
-                "scrollbar-0-thumb",
-                point(track.center().x, track.bottom()),
-            )?;
+            let track = harness.bounds(cx, "scrollbar-0").ok_or("missing scrollbar")?;
+            harness.drag(cx, "scrollbar-0-thumb", point(track.center().x, track.bottom()))?;
             assert_eq!(offset(&rows), rows.max_offset_for_scrollbar().y);
-            assert!(
-                !rows.is_scrollbar_dragging(),
-                "releasing the thumb ends the drag"
-            );
-            let thumb = harness
-                .bounds(cx, "scrollbar-0-thumb")
-                .ok_or("missing thumb")?;
+            assert!(!rows.is_scrollbar_dragging(), "releasing the thumb ends the drag");
+            let thumb = harness.bounds(cx, "scrollbar-0-thumb").ok_or("missing thumb")?;
             assert_eq!(thumb.bottom(), track.bottom());
             Ok(())
         },
@@ -80,10 +63,7 @@ fn clicking_the_track_jumps_there(cx: &mut TestAppContext) {
         |harness, cx| {
             harness.click(cx, "scrollbar-0")?;
             let fraction = offset(&rows) / rows.max_offset_for_scrollbar().y;
-            assert!(
-                (fraction - 0.5).abs() < 0.01,
-                "expected halfway, got {fraction}"
-            );
+            assert!((fraction - 0.5).abs() < 0.01, "expected halfway, got {fraction}");
             Ok(())
         },
     );
@@ -98,14 +78,8 @@ fn dragging_one_scrollbar_leaves_another_list_alone(cx: &mut TestAppContext) {
         cx,
         move |_, _| layout(&rendered),
         |harness, cx| {
-            let track = harness
-                .bounds(cx, "scrollbar-1")
-                .ok_or("missing scrollbar")?;
-            harness.drag(
-                cx,
-                "scrollbar-1-thumb",
-                point(track.center().x, track.bottom()),
-            )?;
+            let track = harness.bounds(cx, "scrollbar-1").ok_or("missing scrollbar")?;
+            harness.drag(cx, "scrollbar-1-thumb", point(track.center().x, track.bottom()))?;
             assert_eq!(offset(&first), px(0.0));
             assert_eq!(offset(&second), second.max_offset_for_scrollbar().y);
             Ok(())
@@ -123,11 +97,7 @@ fn layout(lists: &[ListState]) -> AnyElement {
                 .flex_1()
                 .h_full()
                 .flex()
-                .child(
-                    list(rows.clone(), |_, _, _| div().h(px(40.0)).into_any_element())
-                        .flex_1()
-                        .h_full(),
-                )
+                .child(list(rows.clone(), |_, _, _| div().h(px(40.0)).into_any_element()).flex_1().h_full())
                 .child(ListScrollbar::new(
                     gpui::ElementId::Name(format!("scrollbar-{index}").into()),
                     rows.clone(),

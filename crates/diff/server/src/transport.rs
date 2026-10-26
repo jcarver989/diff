@@ -1,19 +1,14 @@
 use crate::server::stopped;
 use clankerdiff_protocol::{
     client::ClientCommand,
-    server::{
-        LocalServerMessageTransport, LocalServerTransport, SentDocument, ServerEvent, ServerMessage,
-    },
+    server::{LocalServerMessageTransport, LocalServerTransport, SentDocument, ServerEvent, ServerMessage},
     shared::{LocalEnd, RemoteError},
 };
 use std::future::Future;
 
 pub trait ServerMessageTransport: Send + 'static {
     fn recv(&mut self) -> impl Future<Output = Result<ClientCommand, RemoteError>> + Send;
-    fn send(
-        &mut self,
-        message: ServerMessage,
-    ) -> impl Future<Output = Result<(), RemoteError>> + Send;
+    fn send(&mut self, message: ServerMessage) -> impl Future<Output = Result<(), RemoteError>> + Send;
     fn close(&mut self) -> impl Future<Output = ()> + Send;
 }
 
@@ -58,10 +53,7 @@ pub(crate) struct Encoded<T> {
 
 impl<T> Encoded<T> {
     pub(crate) fn new(transport: T) -> Self {
-        Self {
-            transport,
-            sent: SentDocument::default(),
-        }
+        Self { transport, sent: SentDocument::default() }
     }
 }
 

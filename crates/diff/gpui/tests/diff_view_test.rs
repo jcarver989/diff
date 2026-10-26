@@ -1,8 +1,7 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffReviewCommand, DiffSide, FocusPane, ReviewCommand, SourceLocation, ViewMode,
-    testing::DocumentBuilder,
+    DiffReviewCommand, DiffSide, FocusPane, ReviewCommand, SourceLocation, ViewMode, testing::DocumentBuilder,
 };
 use clankerdiff_gpui::{
     ViewModeChanged,
@@ -14,11 +13,7 @@ use std::{cell::RefCell, rc::Rc};
 #[gpui::test]
 fn a_wheel_notch_scrolls_six_code_rows_at_any_interface_size(cx: &mut TestAppContext) {
     for interface_size in [16.0, 20.0] {
-        DiffViewerHarnessBuilder {
-            interface_size,
-            ..multi_file_builder()
-        }
-        .run(cx, |harness, cx| {
+        DiffViewerHarnessBuilder { interface_size, ..multi_file_builder() }.run(cx, |harness, cx| {
             let top = harness.diff_scroll_top(cx);
             harness.scroll(cx, "diff-pane", ScrollDelta::Lines(point(0.0, -3.0)))?;
             let scrolled = harness.diff_scroll_top(cx);
@@ -37,34 +32,18 @@ fn wheel_scrolling_crosses_files_without_changing_selection_or_draft(cx: &mut Te
         harness.simulate_input(cx, "unfinished comment");
         let body = harness.draft_body(cx);
         for _ in 0..5 {
-            harness.scroll(
-                cx,
-                "diff-pane",
-                ScrollDelta::Pixels(point(px(0.0), px(-600.0))),
-            )?;
+            harness.scroll(cx, "diff-pane", ScrollDelta::Pixels(point(px(0.0), px(-600.0))))?;
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         assert!(harness.bounds(cx, "diff-active-file:1").is_some());
         assert_eq!(harness.selected_row(cx), selected);
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.selected_file()),
-            Some(0)
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(0));
         assert_eq!(harness.draft_body(cx), body);
         assert!(harness.comment_focused(cx)?);
         harness.simulate_input(cx, " still editing");
-        assert!(
-            harness
-                .draft_body(cx)
-                .ok_or("draft")?
-                .contains("still editing")
-        );
+        assert!(harness.draft_body(cx).ok_or("draft")?.contains("still editing"));
         for _ in 0..8 {
-            harness.scroll(
-                cx,
-                "diff-pane",
-                ScrollDelta::Pixels(point(px(0.0), px(600.0))),
-            )?;
+            harness.scroll(cx, "diff-pane", ScrollDelta::Pixels(point(px(0.0), px(600.0))))?;
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(0));
         assert_eq!(harness.selected_row(cx), selected);
@@ -86,13 +65,8 @@ fn selecting_and_commenting_on_another_visible_file_uses_its_anchor(cx: &mut Tes
         assert!(harness.dispatch_command(cx, ReviewCommand::BeginComment)?);
         harness.simulate_input(cx, "second file comment");
         assert!(harness.dispatch_command(cx, ReviewCommand::SubmitComment)?);
-        let path = harness.read(cx, |viewer, _| {
-            viewer
-                .review()
-                .comments()
-                .next()
-                .map(|comment| comment.anchor.path.to_string())
-        });
+        let path = harness
+            .read(cx, |viewer, _| viewer.review().comments().next().map(|comment| comment.anchor.path.to_string()));
         assert_eq!(path.as_deref(), Some("b.rs"));
         Ok(())
     });
@@ -102,20 +76,12 @@ fn selecting_and_commenting_on_another_visible_file_uses_its_anchor(cx: &mut Tes
 fn refreshes_and_layout_changes_preserve_the_top_visible_source_line(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
         assert!(harness.dispatch_command(cx, DiffReviewCommand::SelectFile(1))?);
-        assert!(harness.dispatch_command(
-            cx,
-            DiffReviewCommand::Scroll {
-                pane: FocusPane::Diff,
-                lines: 25
-            }
-        )?);
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::Scroll { pane: FocusPane::Diff, lines: 25 })?);
         let top = top_source(harness, cx).ok_or("top source")?;
         assert!(harness.dispatch_command(cx, DiffReviewCommand::SetViewMode(ViewMode::Unified))?);
         assert_eq!(top_source(harness, cx).as_ref(), Some(&top));
         for builder in [
-            DocumentBuilder::new()
-                .generated("a.rs", 150)
-                .generated("b.rs", 100),
+            DocumentBuilder::new().generated("a.rs", 150).generated("b.rs", 100),
             DocumentBuilder::new().generated("b.rs", 100),
         ] {
             harness.update(cx, |viewer, cx| viewer.set_document(builder.build(), cx));
@@ -130,11 +96,7 @@ fn refreshes_and_layout_changes_preserve_the_top_visible_source_line(cx: &mut Te
 fn source_round_trip_restores_the_independent_multi_file_viewport(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
         for _ in 0..5 {
-            harness.scroll(
-                cx,
-                "diff-pane",
-                ScrollDelta::Pixels(point(px(0.0), px(-600.0))),
-            )?;
+            harness.scroll(cx, "diff-pane", ScrollDelta::Pixels(point(px(0.0), px(-600.0))))?;
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         let selected = harness.selected_row(cx);
@@ -144,10 +106,7 @@ fn source_round_trip_restores_the_independent_multi_file_viewport(cx: &mut TestA
         assert!(harness.dispatch_command(cx, DiffReviewCommand::Last)?);
         assert!(harness.dispatch_command(cx, DiffReviewCommand::ToggleSourceView)?);
         assert_eq!(harness.diff_scroll_top(cx).item_ix, offset.item_ix);
-        assert_eq!(
-            harness.diff_scroll_top(cx).offset_in_item,
-            offset.offset_in_item
-        );
+        assert_eq!(harness.diff_scroll_top(cx).offset_in_item, offset.offset_in_item);
         assert_eq!(harness.selected_row(cx), selected);
         Ok(())
     });
@@ -174,9 +133,7 @@ fn whole_diff_scrollbar_and_highlighting_remain_virtualized(cx: &mut TestAppCont
 }
 
 #[gpui::test]
-fn removing_the_visible_file_falls_back_safely_and_empty_diffs_remain_usable(
-    cx: &mut TestAppContext,
-) {
+fn removing_the_visible_file_falls_back_safely_and_empty_diffs_remain_usable(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
         assert!(harness.dispatch_command(cx, DiffReviewCommand::SelectFile(1))?);
         harness.update(cx, |viewer, cx| {
@@ -185,11 +142,7 @@ fn removing_the_visible_file_falls_back_safely_and_empty_diffs_remain_usable(
         harness.draw(cx);
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(0));
         assert!(harness.bounds(cx, "diff-file-header:0").is_some());
-        for command in [
-            DiffReviewCommand::First,
-            DiffReviewCommand::Last,
-            DiffReviewCommand::MoveSelection(1),
-        ] {
+        for command in [DiffReviewCommand::First, DiffReviewCommand::Last, DiffReviewCommand::MoveSelection(1)] {
             assert!(harness.dispatch_command(cx, command)?);
         }
         harness.update(cx, |viewer, cx| {
@@ -203,9 +156,7 @@ fn removing_the_visible_file_falls_back_safely_and_empty_diffs_remain_usable(
 }
 
 #[gpui::test]
-fn the_sidebar_follows_the_top_file_without_expanding_collapsed_directories(
-    cx: &mut TestAppContext,
-) {
+fn the_sidebar_follows_the_top_file_without_expanding_collapsed_directories(cx: &mut TestAppContext) {
     DiffViewerHarnessBuilder {
         document: DocumentBuilder::new()
             .generated("src/a.rs", 80)
@@ -220,18 +171,11 @@ fn the_sidebar_follows_the_top_file_without_expanding_collapsed_directories(
         assert!(harness.dispatch_command(cx, DiffReviewCommand::First)?);
         assert!(harness.dispatch_command(cx, DiffReviewCommand::CollapseSelected)?);
         for _ in 0..4 {
-            harness.scroll(
-                cx,
-                "diff-pane",
-                ScrollDelta::Pixels(point(px(0.0), px(-600.0))),
-            )?;
+            harness.scroll(cx, "diff-pane", ScrollDelta::Pixels(point(px(0.0), px(-600.0))))?;
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         assert!(harness.dispatch_command(cx, DiffReviewCommand::MoveSelection(1))?);
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.selected_file()),
-            Some(2)
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(2));
         Ok(())
     });
 }
@@ -240,21 +184,12 @@ fn the_sidebar_follows_the_top_file_without_expanding_collapsed_directories(
 fn the_next_file_divider_pushes_the_sticky_divider_out_of_view(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
         assert!(harness.dispatch_command(cx, DiffReviewCommand::SelectFile(1))?);
-        let pane_top = harness
-            .bounds(cx, "diff-file-header:1")
-            .ok_or("header")?
-            .top();
+        let pane_top = harness.bounds(cx, "diff-file-header:1").ok_or("header")?.top();
         assert!(harness.bounds(cx, "diff-active-file:1").is_some());
-        harness.scroll(
-            cx,
-            "diff-pane",
-            ScrollDelta::Pixels(point(px(0.0), px(20.0))),
-        )?;
+        harness.scroll(cx, "diff-pane", ScrollDelta::Pixels(point(px(0.0), px(20.0))))?;
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(0));
         let sticky = harness.bounds(cx, "diff-active-file:0").ok_or("sticky")?;
-        let next = harness
-            .bounds(cx, "diff-file-header:1")
-            .ok_or("next header")?;
+        let next = harness.bounds(cx, "diff-file-header:1").ok_or("next header")?;
         assert_eq!(next.top(), pane_top + px(20.0));
         assert_eq!(sticky.bottom(), next.top());
         assert!(sticky.top() < pane_top);
@@ -267,21 +202,12 @@ fn revealing_a_row_keeps_it_below_the_sticky_divider(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
         assert!(harness.dispatch_command(cx, DiffReviewCommand::SelectFile(1))?);
         assert!(harness.dispatch_command(cx, DiffReviewCommand::MoveSelection(3))?);
-        assert!(harness.dispatch_command(
-            cx,
-            DiffReviewCommand::Scroll {
-                pane: FocusPane::Diff,
-                lines: 30,
-            }
-        )?);
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::Scroll { pane: FocusPane::Diff, lines: 30 })?);
         assert!(harness.dispatch_command(cx, DiffReviewCommand::MoveSelection(-1))?);
         let selected = harness
             .read(cx, |viewer, _| {
                 let first = viewer.presentation().file_range(0)?;
-                Some(
-                    first.len() + harness.selected_row(cx)?
-                        - viewer.presentation().file_range(1)?.start,
-                )
+                Some(first.len() + harness.selected_row(cx)? - viewer.presentation().file_range(1)?.start)
             })
             .ok_or("selected item")?;
         let top = harness.diff_scroll_top(cx);
@@ -302,10 +228,7 @@ fn clicking_a_file_divider_selects_that_file(cx: &mut TestAppContext) {
     }
     .run(cx, |harness, cx| {
         harness.click(cx, "diff-file-header:1")?;
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.selected_file()),
-            Some(1)
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
         Ok(())
     });
 }
@@ -313,12 +236,8 @@ fn clicking_a_file_divider_selects_that_file(cx: &mut TestAppContext) {
 #[gpui::test]
 #[allow(clippy::format_collect)]
 fn gaps_expand_from_their_gutter_button_and_only_select_from_the_rule(cx: &mut TestAppContext) {
-    let old = (1..=60)
-        .map(|line| format!("line {line}\n"))
-        .collect::<String>();
-    let new = old
-        .replace("line 10\n", "changed 10\n")
-        .replace("line 50\n", "changed 50\n");
+    let old = (1..=60).map(|line| format!("line {line}\n")).collect::<String>();
+    let new = old.replace("line 10\n", "changed 10\n").replace("line 50\n", "changed 50\n");
     DiffViewerHarnessBuilder {
         document: DocumentBuilder::new().changed("a.rs", &old, &new).build(),
         ..Default::default()
@@ -336,12 +255,8 @@ fn gaps_expand_from_their_gutter_button_and_only_select_from_the_rule(cx: &mut T
         };
         let gap = harness
             .read(cx, |viewer, _| {
-                (0..viewer.presentation().row_count()).find(|&row| {
-                    viewer
-                        .presentation()
-                        .gap_info(row)
-                        .is_some_and(|info| info.id.gap_index == 1)
-                })
+                (0..viewer.presentation().row_count())
+                    .find(|&row| viewer.presentation().gap_info(row).is_some_and(|info| info.id.gap_index == 1))
             })
             .ok_or("gap between hunks")?;
         let before = hidden(harness, cx);
@@ -359,12 +274,8 @@ fn gaps_expand_from_their_gutter_button_and_only_select_from_the_rule(cx: &mut T
 
 fn top_source(harness: &DiffViewerHarness, cx: &TestAppContext) -> Option<SourceLocation> {
     harness.read(cx, |viewer, _| {
-        let row = viewer
-            .presentation()
-            .row(viewer.diff_scroll_top().item_ix)?;
-        viewer
-            .presentation()
-            .source_location(row, row.primary_cell()?)
+        let row = viewer.presentation().row(viewer.diff_scroll_top().item_ix)?;
+        viewer.presentation().source_location(row, row.primary_cell()?)
     })
 }
 
@@ -377,10 +288,7 @@ fn file_header_chevrons_collapse_and_expand_a_file(cx: &mut TestAppContext) {
         assert!(harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
         assert_eq!(file_rows(harness, cx, 0), 1);
         assert!(harness.bounds(cx, "diff-file-header:1").is_some());
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.selected_file()),
-            Some(0)
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(0));
         harness.click(cx, "diff-file-collapse:0")?;
         assert!(!harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
         assert_eq!(file_rows(harness, cx, 0), expanded);
@@ -395,9 +303,7 @@ fn selecting_a_collapsed_file_scrolls_to_its_header_without_expanding(cx: &mut T
         harness.click(cx, "diff-file-collapse:1")?;
         assert!(harness.dispatch_command(cx, DiffReviewCommand::SelectFile(1))?);
         assert!(harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(1)));
-        let header = harness.read(cx, |viewer, _| {
-            viewer.presentation().file_range(1).map(|range| range.start)
-        });
+        let header = harness.read(cx, |viewer, _| viewer.presentation().file_range(1).map(|range| range.start));
         assert_eq!(harness.selected_row(cx), header);
         assert!(harness.bounds(cx, "diff-file-header:1").is_some());
         Ok(())
@@ -420,44 +326,30 @@ fn toolbar_icon_collapses_and_expands_every_file(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn toolbar_icons_pick_the_layout_mode_and_report_each_choice(cx: &mut TestAppContext) {
-    DiffViewerHarnessBuilder::default()
-        .with_window_size(1200.0, 600.0)
-        .run(cx, |harness, cx| {
-            let picked = Rc::new(RefCell::new(Vec::new()));
-            let _subscription = cx.update(|cx| {
-                let picked = picked.clone();
-                cx.subscribe(&harness.viewer(), move |_, event: &ViewModeChanged, _| {
-                    picked.borrow_mut().push(event.mode);
-                })
-            });
-
-            harness.click(cx, "view-mode-split")?;
-            assert_eq!(
-                harness.read(cx, |viewer, _| viewer.view_mode()),
-                ViewMode::Split
-            );
-            assert!(harness.read(cx, |viewer, _| viewer.session().layout().is_split()));
-
-            harness.click(cx, "view-mode-unified")?;
-            assert_eq!(
-                harness.read(cx, |viewer, _| viewer.view_mode()),
-                ViewMode::Unified
-            );
-            assert!(!harness.read(cx, |viewer, _| viewer.session().layout().is_split()));
-
-            harness.click(cx, "view-mode-auto")?;
-            harness.click(cx, "view-mode-auto")?;
-            assert_eq!(
-                harness.read(cx, |viewer, _| viewer.view_mode()),
-                ViewMode::Auto
-            );
-
-            assert_eq!(
-                *picked.borrow(),
-                [ViewMode::Split, ViewMode::Unified, ViewMode::Auto]
-            );
-            Ok(())
+    DiffViewerHarnessBuilder::default().with_window_size(1200.0, 600.0).run(cx, |harness, cx| {
+        let picked = Rc::new(RefCell::new(Vec::new()));
+        let _subscription = cx.update(|cx| {
+            let picked = picked.clone();
+            cx.subscribe(&harness.viewer(), move |_, event: &ViewModeChanged, _| {
+                picked.borrow_mut().push(event.mode);
+            })
         });
+
+        harness.click(cx, "view-mode-split")?;
+        assert_eq!(harness.read(cx, |viewer, _| viewer.view_mode()), ViewMode::Split);
+        assert!(harness.read(cx, |viewer, _| viewer.session().layout().is_split()));
+
+        harness.click(cx, "view-mode-unified")?;
+        assert_eq!(harness.read(cx, |viewer, _| viewer.view_mode()), ViewMode::Unified);
+        assert!(!harness.read(cx, |viewer, _| viewer.session().layout().is_split()));
+
+        harness.click(cx, "view-mode-auto")?;
+        harness.click(cx, "view-mode-auto")?;
+        assert_eq!(harness.read(cx, |viewer, _| viewer.view_mode()), ViewMode::Auto);
+
+        assert_eq!(*picked.borrow(), [ViewMode::Split, ViewMode::Unified, ViewMode::Auto]);
+        Ok(())
+    });
 }
 
 #[gpui::test]
@@ -502,10 +394,7 @@ fn collapsed_headers_show_their_comment_count(cx: &mut TestAppContext) {
 
 fn multi_file_builder() -> DiffViewerHarnessBuilder {
     DiffViewerHarnessBuilder {
-        document: DocumentBuilder::new()
-            .generated("a.rs", 100)
-            .generated("b.rs", 100)
-            .build(),
+        document: DocumentBuilder::new().generated("a.rs", 100).generated("b.rs", 100).build(),
         ..Default::default()
     }
     .with_view_mode(ViewMode::Split)
@@ -513,10 +402,5 @@ fn multi_file_builder() -> DiffViewerHarnessBuilder {
 }
 
 fn file_rows(harness: &DiffViewerHarness, cx: &TestAppContext, file: usize) -> usize {
-    harness.read(cx, |viewer, _| {
-        viewer
-            .presentation()
-            .file_range(file)
-            .map_or(0, |range| range.len())
-    })
+    harness.read(cx, |viewer, _| viewer.presentation().file_range(file).map_or(0, |range| range.len()))
 }

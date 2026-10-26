@@ -1,6 +1,6 @@
 use crate::{
-    DiffReviewCommand, FocusPane, KeyCode, KeyEvent, KeyModifiers, MarkdownFocusPane,
-    MarkdownReviewCommand, ReviewCommand,
+    DiffReviewCommand, FocusPane, KeyCode, KeyEvent, KeyModifiers, MarkdownFocusPane, MarkdownReviewCommand,
+    ReviewCommand,
 };
 use clankerdiff_core::{DiffSide, RevealAmount, ViewMode};
 use std::{fmt::Write, ptr};
@@ -36,12 +36,7 @@ pub struct KeyBinding<T> {
 
 impl<T> KeyBinding<T> {
     pub fn new(key: KeyEvent, command: T, label: impl Into<String>) -> Self {
-        Self {
-            key,
-            command,
-            label: label.into(),
-            scope: BindingScope::Any,
-        }
+        Self { key, command, label: label.into(), scope: BindingScope::Any }
     }
 
     #[must_use]
@@ -85,10 +80,7 @@ pub(crate) fn binding_for_key<T>(
     document: bool,
     split: bool,
 ) -> Option<&KeyBinding<T>> {
-    bindings
-        .iter()
-        .rev()
-        .find(|binding| binding.matches(key, document, split))
+    bindings.iter().rev().find(|binding| binding.matches(key, document, split))
 }
 
 pub(crate) fn help_bindings<T>(
@@ -124,20 +116,13 @@ pub(crate) fn footer_hint<T: PartialEq>(
                     .is_some_and(|resolved| ptr::eq(resolved, *binding))
         })
         .collect();
-    let help = active
-        .iter()
-        .find(|binding| &binding.command == help)
-        .copied();
-    let help_hint = help
-        .map(KeyBinding::hint)
-        .filter(|hint| hint.width() <= width);
+    let help = active.iter().find(|binding| &binding.command == help).copied();
+    let help_hint = help.map(KeyBinding::hint).filter(|hint| hint.width() <= width);
     let mut remaining = width.saturating_sub(help_hint.as_ref().map_or(0, |hint| hint.width() + 2));
     let mut commands = Vec::new();
     let mut hints = Vec::new();
     for binding in active {
-        if help.is_some_and(|help| binding.command == help.command)
-            || commands.contains(&&binding.command)
-        {
+        if help.is_some_and(|help| binding.command == help.command) || commands.contains(&&binding.command) {
             continue;
         }
         let hint = binding.hint();
@@ -163,10 +148,7 @@ fn normalize_key(mut key: KeyEvent) -> KeyEvent {
 }
 
 #[must_use]
-#[expect(
-    clippy::too_many_lines,
-    reason = "Declarative table of default keybindings"
-)]
+#[expect(clippy::too_many_lines, reason = "Declarative table of default keybindings")]
 pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
     use BindingScope::{Any, Document, Navigation, SplitDocument};
     use DiffReviewCommand as C;
@@ -189,30 +171,10 @@ pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
         (K::PageDown, C::Page(1), "page down", Any),
         (K::Home, C::First, "first", Any),
         (K::End, C::Last, "last", Any),
-        (
-            K::Char('c'),
-            ReviewCommand::BeginComment.into(),
-            "comment",
-            Document,
-        ),
-        (
-            K::Char('e'),
-            ReviewCommand::EditComment.into(),
-            "edit comment",
-            Document,
-        ),
-        (
-            K::Char('x'),
-            ReviewCommand::DeleteComment.into(),
-            "delete comment",
-            Document,
-        ),
-        (
-            K::Char('u'),
-            ReviewCommand::UndoComment.into(),
-            "undo comment",
-            Document,
-        ),
+        (K::Char('c'), ReviewCommand::BeginComment.into(), "comment", Document),
+        (K::Char('e'), ReviewCommand::EditComment.into(), "edit comment", Document),
+        (K::Char('x'), ReviewCommand::DeleteComment.into(), "delete comment", Document),
+        (K::Char('u'), ReviewCommand::UndoComment.into(), "undo comment", Document),
         (K::Char('s'), C::SubmitReview, "submit", Document),
         (K::Char('y'), C::CopyReview, "copy", Document),
         (K::Char(' '), C::ToggleStage, "stage/unstage", Navigation),
@@ -220,73 +182,27 @@ pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
         (K::Char('A'), C::UnstageAll, "unstage all", Navigation),
         (K::Char('C'), C::BeginCommit, "commit", Any),
         (K::Char('d'), C::BeginDiscard, "discard", Any),
-        (
-            K::Char('t'),
-            ReviewCommand::OpenThemePicker.into(),
-            "theme",
-            Any,
-        ),
-        (
-            K::Enter,
-            C::RevealGap(RevealAmount::Step),
-            "reveal gap",
-            Document,
-        ),
+        (K::Char('t'), ReviewCommand::OpenThemePicker.into(), "theme", Any),
+        (K::Enter, C::RevealGap(RevealAmount::Step), "reveal gap", Document),
         (K::Char('o'), C::ToggleSourceView, "source / diff", Any),
-        (
-            K::Char('O'),
-            C::RevealGap(RevealAmount::All),
-            "reveal all",
-            Document,
-        ),
-        (
-            K::Char('f'),
-            C::ToggleFullFile,
-            "all diff context",
-            Document,
-        ),
-        (
-            K::Char('z'),
-            C::ToggleFileCollapsed(None),
-            "collapse file",
-            Document,
-        ),
-        (
-            K::Char('Z'),
-            C::ToggleAllFilesCollapsed,
-            "collapse all",
-            Any,
-        ),
+        (K::Char('O'), C::RevealGap(RevealAmount::All), "reveal all", Document),
+        (K::Char('f'), C::ToggleFullFile, "all diff context", Document),
+        (K::Char('z'), C::ToggleFileCollapsed(None), "collapse file", Document),
+        (K::Char('Z'), C::ToggleAllFilesCollapsed, "collapse all", Any),
         (K::Char('v'), C::ToggleLayout, "split / unified", Any),
-        (
-            K::Char('V'),
-            C::SetViewMode(ViewMode::Auto),
-            "auto layout",
-            Any,
-        ),
+        (K::Char('V'), C::SetViewMode(ViewMode::Auto), "auto layout", Any),
         (K::Char('S'), C::CycleScope, "scope", Any),
         (K::Char(']'), C::StepTarget(1), "next commit", Any),
         (K::Char('['), C::StepTarget(-1), "previous commit", Any),
         (K::Char('r'), C::Refresh, "refresh", Any),
         (K::Char('?'), ReviewCommand::ShowHelp.into(), "help", Any),
-        (
-            K::Left,
-            C::SelectSide(DiffSide::Old),
-            "old side",
-            SplitDocument,
-        ),
-        (
-            K::Right,
-            C::SelectSide(DiffSide::New),
-            "new side",
-            SplitDocument,
-        ),
+        (K::Left, C::SelectSide(DiffSide::Old), "old side", SplitDocument),
+        (K::Right, C::SelectSide(DiffSide::New), "new side", SplitDocument),
     ];
     let mut bindings: Vec<_> = entries
         .into_iter()
         .map(|(key, command, label, scope)| {
-            KeyBinding::new(KeyEvent::new(key, KeyModifiers::NONE), command, label)
-                .with_scope(scope)
+            KeyBinding::new(KeyEvent::new(key, KeyModifiers::NONE), command, label).with_scope(scope)
         })
         .collect();
     bindings.push(KeyBinding::new(

@@ -7,12 +7,10 @@ use crate::{
     text::{FitOptions, FitPosition, fit_spans_from},
 };
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, FileDiff, Layout, PresentationOptions, PresentedCell,
-    PresentedRow, RowKind, ViewMode,
+    DiffDocument, DiffPresentation, FileDiff, Layout, PresentationOptions, PresentedCell, PresentedRow, RowKind,
+    ViewMode,
 };
-use clankerdiff_syntax::{
-    HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme, empty_spans,
-};
+use clankerdiff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme, empty_spans};
 use clankerdiff_theme::{Fingerprint, ReviewTheme};
 use ratatui::{
     style::Style,
@@ -74,10 +72,7 @@ impl DiffPreviewState {
     }
 
     pub fn set_file(&mut self, file: FileDiff) {
-        *self = Self {
-            stats: self.stats,
-            ..Self::new(file)
-        };
+        *self = Self { stats: self.stats, ..Self::new(file) };
     }
 
     pub fn take_stats(&mut self) -> DiffPreviewStats {
@@ -107,8 +102,7 @@ impl DiffPreviewState {
                 &slot.insert((presentation_key, presentation)).1
             }
         };
-        let rows: Arc<[Line<'static>]> =
-            render_preview_rows(presentation, width, theme, highlighter, options).into();
+        let rows: Arc<[Line<'static>]> = render_preview_rows(presentation, width, theme, highlighter, options).into();
         self.stats.rows_generated += rows.len();
         self.rendered = Some((key, Arc::clone(&rows)));
         rows
@@ -116,18 +110,10 @@ impl DiffPreviewState {
 }
 
 fn preview_document(file: FileDiff) -> Arc<DiffDocument> {
-    Arc::new(DiffDocument {
-        repo_root: String::new(),
-        files: vec![file],
-        ..DiffDocument::default()
-    })
+    Arc::new(DiffDocument { repo_root: String::new(), files: vec![file], ..DiffDocument::default() })
 }
 
-fn preview_presentation(
-    document: Arc<DiffDocument>,
-    width: u16,
-    options: DiffPreviewOptions,
-) -> DiffPresentation {
+fn preview_presentation(document: Arc<DiffDocument>, width: u16, options: DiffPreviewOptions) -> DiffPresentation {
     DiffPresentation::new(
         document,
         PresentationOptions {
@@ -185,22 +171,12 @@ fn render_preview_rows(
         .iter()
         .filter(|row| options.include_gaps || row.kind != RowKind::ExpandGap)
         .collect::<Vec<_>>();
-    let mut renderer = PreviewRenderer {
-        presentation,
-        theme,
-        highlighter,
-        width,
-        tab_width: options.tab_width,
-    };
+    let mut renderer = PreviewRenderer { presentation, theme, highlighter, width, tab_width: options.tab_width };
     let mut lines = Vec::new();
     let mut overflow = 0;
     for (index, row) in eligible.iter().enumerate() {
         let remaining = options.max_content_rows.saturating_sub(lines.len());
-        let segments = if remaining == 0 {
-            Vec::new()
-        } else {
-            renderer.render(row, remaining.saturating_add(1))
-        };
+        let segments = if remaining == 0 { Vec::new() } else { renderer.render(row, remaining.saturating_add(1)) };
         let truncated = remaining == 0 || segments.len() > remaining;
         lines.extend(segments.into_iter().take(remaining));
         if truncated {
@@ -210,10 +186,7 @@ fn render_preview_rows(
     }
     if options.overflow_summary && overflow > 0 {
         lines.push(fit_line(
-            Line::styled(
-                format!("… {overflow} more rows"),
-                page_style(theme).fg(page_color(theme, theme.diff.muted)),
-            ),
+            Line::styled(format!("… {overflow} more rows"), page_style(theme).fg(page_color(theme, theme.diff.muted))),
             usize::from(width),
             options.tab_width,
         ));
@@ -239,20 +212,14 @@ impl PreviewRenderer<'_> {
             Layout::Split => {
                 let half = self.width.saturating_sub(1) / 2;
                 let right_width = self.width.saturating_sub(1).saturating_sub(half);
-                let mut left = row
-                    .left
-                    .as_ref()
-                    .map_or_else(Vec::new, |cell| self.render_cell(row, cell, half, limit));
-                let mut right = row.right.as_ref().map_or_else(Vec::new, |cell| {
-                    self.render_cell(row, cell, right_width, limit)
-                });
+                let mut left = row.left.as_ref().map_or_else(Vec::new, |cell| self.render_cell(row, cell, half, limit));
+                let mut right =
+                    row.right.as_ref().map_or_else(Vec::new, |cell| self.render_cell(row, cell, right_width, limit));
                 let height = left.len().max(right.len()).max(1);
                 left.resize_with(height, || self.blank(row.left.as_ref(), half));
                 right.resize_with(height, || self.blank(row.right.as_ref(), right_width));
-                let divider = Span::styled(
-                    "│",
-                    page_style(self.theme).fg(page_color(self.theme, self.theme.diff.border)),
-                );
+                let divider =
+                    Span::styled("│", page_style(self.theme).fg(page_color(self.theme, self.theme.diff.border)));
                 left.into_iter()
                     .zip(right)
                     .map(|(left, right)| {
@@ -268,11 +235,7 @@ impl PreviewRenderer<'_> {
 
     fn cell_style(&self, cell: &PresentedCell) -> Style {
         let colors = self.theme.diff.tone(cell.tone);
-        layered_style(
-            colors.foreground,
-            colors.background,
-            self.theme.diff.background,
-        )
+        layered_style(colors.foreground, colors.background, self.theme.diff.background)
     }
 
     fn blank(&self, cell: Option<&PresentedCell>, width: u16) -> Line<'static> {
@@ -292,32 +255,17 @@ impl PreviewRenderer<'_> {
         limit: usize,
     ) -> Vec<Line<'static>> {
         let base = self.cell_style(cell);
-        let number = cell
-            .line_number()
-            .map_or_else(String::new, |line| line.to_string());
+        let number = cell.line_number().map_or_else(String::new, |line| line.to_string());
         let number_width = number.len().max(4);
         let gutter = |number: &str| {
-            vec![
-                diff_indicator(cell.tone, self.theme, base),
-                Span::styled(format!("{number:>number_width$} "), base),
-            ]
+            vec![diff_indicator(cell.tone, self.theme, base), Span::styled(format!("{number:>number_width$} "), base)]
         };
         let width = usize::from(width);
         let gutter_width = number_width + 2;
         if width <= gutter_width {
-            return vec![fit_line(
-                Line::from(gutter(&number)).style(base),
-                width,
-                self.tab_width,
-            )];
+            return vec![fit_line(Line::from(gutter(&number)).style(base), width, self.tab_width)];
         }
-        let spans = cell_highlights(
-            self.highlighter,
-            &self.theme.syntax,
-            self.presentation,
-            row,
-            cell,
-        );
+        let spans = cell_highlights(self.highlighter, &self.theme.syntax, self.presentation, row, cell);
         let content = highlighted_line(&cell.text, &spans, base).spans;
         let content_width = width - gutter_width;
         let wrap = matches!(row.kind, RowKind::Code | RowKind::ExpandedContext);
@@ -326,8 +274,7 @@ impl PreviewRenderer<'_> {
             .enumerate()
             .map(|(segment, line)| {
                 let mut line = pad_line(line.style(base), content_width);
-                line.spans
-                    .splice(0..0, gutter(if segment == 0 { &number } else { "↪" }));
+                line.spans.splice(0..0, gutter(if segment == 0 { &number } else { "↪" }));
                 line
             })
             .collect()
@@ -337,9 +284,7 @@ impl PreviewRenderer<'_> {
 /// Clips a line to `width` cells and pads it with the line's base style.
 fn fit_line(line: Line<'static>, width: usize, tab_width: u16) -> Line<'static> {
     let base = line.style;
-    let fitted = fit(line.spans, width, false, tab_width)
-        .next()
-        .unwrap_or_default();
+    let fitted = fit(line.spans, width, false, tab_width).next().unwrap_or_default();
     pad_line(fitted.style(base), width)
 }
 
@@ -347,20 +292,10 @@ fn page_style(theme: &ReviewTheme) -> Style {
     Style::new().bg(page_color(theme, theme.diff.background))
 }
 
-fn fit(
-    spans: Vec<Span<'_>>,
-    width: usize,
-    wrap: bool,
-    tab_width: u16,
-) -> impl Iterator<Item = Line<'static>> {
+fn fit(spans: Vec<Span<'_>>, width: usize, wrap: bool, tab_width: u16) -> impl Iterator<Item = Line<'static>> {
     fit_spans_from(
         spans,
-        FitOptions {
-            width,
-            wrap,
-            tab_width: usize::from(tab_width),
-            continuation: "",
-        },
+        FitOptions { width, wrap, tab_width: usize::from(tab_width), continuation: "" },
         FitPosition::default(),
     )
     .map(|(line, _)| line)
@@ -368,9 +303,6 @@ fn fit(
 
 fn pad_line(mut line: Line<'static>, width: usize) -> Line<'static> {
     let used = line.width();
-    line.spans.push(Span::styled(
-        " ".repeat(width.saturating_sub(used)),
-        line.style,
-    ));
+    line.spans.push(Span::styled(" ".repeat(width.saturating_sub(used)), line.style));
     line
 }

@@ -20,9 +20,9 @@ pub use interface_size::InterfaceSize;
 
 pub mod prelude {
     pub use super::components::{
-        ActionBar, Backdrop, Badge, Button, ButtonVariant, ControlSize, ControlState, Disclosure,
-        EmptyState, IconButton, InteractionState, ListRow, Modal, ModalSize, MutedText, NoticeTone,
-        Notification, SectionHeader, SelectionState, Surface, SurfaceExt, Tooltip,
+        ActionBar, Backdrop, Badge, Button, ButtonVariant, ControlSize, ControlState, Disclosure, EmptyState,
+        IconButton, InteractionState, ListRow, Modal, ModalSize, MutedText, NoticeTone, Notification, SectionHeader,
+        SelectionState, Surface, SurfaceExt, Tooltip,
     };
     pub use super::dialog::{ConfirmDialog, ConfirmDialogEvent};
     pub use super::fonts::{CODE_FONT, UI_FONT};
@@ -30,8 +30,7 @@ pub mod prelude {
     pub use super::inline_edit::InlineEdit;
     pub use super::menu::{MenuItem, with_menu};
     pub use super::picker::{
-        PickerItem, PickerList, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent,
-        ThemePickerOverlay,
+        PickerItem, PickerList, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent, ThemePickerOverlay,
     };
     pub use super::resizable::{PanelSide, ResizablePanel};
     pub use super::scrollbar::ListScrollbar;

@@ -12,41 +12,32 @@
 
 use crate::run_loop;
 use gpui::{
-    AnyWindowHandle, App, AppContext, AsyncApp, Keystroke, Modifiers, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput, Point, point, px,
+    AnyWindowHandle, App, AppContext, AsyncApp, Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, PlatformInput, Point, point, px,
 };
 use std::time::Duration;
 
 pub fn run(window: impl Into<AnyWindowHandle>, script: String, cx: &mut App) {
     let window = window.into();
     cx.spawn(async move |cx| {
-        for line in script
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        {
+        for line in script.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
             let (command, argument) = line.split_once(' ').unwrap_or((line, ""));
             match command {
                 "wait" => {
                     let millis = argument.parse().unwrap_or(500);
-                    cx.background_executor()
-                        .timer(Duration::from_millis(millis))
-                        .await;
+                    cx.background_executor().timer(Duration::from_millis(millis)).await;
                 }
                 "type" => {
                     for keystroke in typed(&argument.replace("\\n", "\n")) {
-                        let _ = cx.update_window(window, |_, window, cx| {
-                            window.dispatch_keystroke(keystroke, cx)
-                        });
+                        let _ = cx.update_window(window, |_, window, cx| window.dispatch_keystroke(keystroke, cx));
                     }
                 }
                 "keys" => {
                     for keystroke in argument.split_whitespace() {
                         match Keystroke::parse(keystroke) {
                             Ok(keystroke) => {
-                                let _ = cx.update_window(window, |_, window, cx| {
-                                    window.dispatch_keystroke(keystroke, cx)
-                                });
+                                let _ =
+                                    cx.update_window(window, |_, window, cx| window.dispatch_keystroke(keystroke, cx));
                                 settle(cx).await;
                                 draw(window, cx);
                             }
@@ -55,21 +46,16 @@ pub fn run(window: impl Into<AnyWindowHandle>, script: String, cx: &mut App) {
                     }
                 }
                 "action" => {
-                    let _ = cx.update_window(window, |_, window, cx| {
-                        match cx.build_action(argument, None) {
-                            Ok(action) => window.dispatch_action(action, cx),
-                            Err(error) => eprintln!("script: unknown action `{argument}`: {error}"),
-                        }
+                    let _ = cx.update_window(window, |_, window, cx| match cx.build_action(argument, None) {
+                        Ok(action) => window.dispatch_action(action, cx),
+                        Err(error) => eprintln!("script: unknown action `{argument}`: {error}"),
                     });
                     settle(cx).await;
                 }
                 "click" => {
                     if let [x, y, ..] = numbers(argument).as_slice() {
-                        let count = argument
-                            .split_whitespace()
-                            .nth(2)
-                            .and_then(|count| count.parse().ok())
-                            .unwrap_or(1);
+                        let count =
+                            argument.split_whitespace().nth(2).and_then(|count| count.parse().ok()).unwrap_or(1);
                         let at = point(px(*x), px(*y));
                         for click in 1..=count {
                             mouse(window, cx, press(at, click));
@@ -120,20 +106,15 @@ fn typed(text: &str) -> Vec<Keystroke> {
     text.chars()
         .filter_map(|ch| match ch {
             '\n' => Keystroke::parse("enter").ok(),
-            _ => Some(Keystroke {
-                modifiers: Modifiers::default(),
-                key: ch.to_string(),
-                key_char: Some(ch.to_string()),
-            }),
+            _ => {
+                Some(Keystroke { modifiers: Modifiers::default(), key: ch.to_string(), key_char: Some(ch.to_string()) })
+            }
         })
         .collect()
 }
 
 fn numbers(argument: &str) -> Vec<f32> {
-    argument
-        .split_whitespace()
-        .filter_map(|number| number.parse().ok())
-        .collect()
+    argument.split_whitespace().filter_map(|number| number.parse().ok()).collect()
 }
 
 fn press(position: Point<Pixels>, click_count: usize) -> PlatformInput {
@@ -170,7 +151,5 @@ fn draw(window: AnyWindowHandle, cx: &mut AsyncApp) {
 }
 
 async fn settle(cx: &mut AsyncApp) {
-    cx.background_executor()
-        .timer(Duration::from_millis(50))
-        .await;
+    cx.background_executor().timer(Duration::from_millis(50)).await;
 }

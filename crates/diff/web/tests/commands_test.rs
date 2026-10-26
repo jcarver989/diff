@@ -12,33 +12,18 @@ fn decodes_shared_commands_without_a_browser() -> Result<(), Box<dyn Error>> {
             r#"{"target":"diff","command":"toggle_source_view"}"#,
             ViewerCommand::Diff(DiffReviewCommand::ToggleSourceView),
         ),
-        (
-            r#"{"target":"diff","command":"refresh"}"#,
-            ViewerCommand::Diff(DiffReviewCommand::Refresh),
-        ),
+        (r#"{"target":"diff","command":"refresh"}"#, ViewerCommand::Diff(DiffReviewCommand::Refresh)),
         (
             r#"{"target":"diff","command":{"review":"begin_comment"}}"#,
             ViewerCommand::Diff(ReviewCommand::BeginComment.into()),
         ),
         (
             r#"{"target":"diff","command":{"scroll":{"pane":"diff","lines":-3}}}"#,
-            ViewerCommand::Diff(DiffReviewCommand::Scroll {
-                pane: FocusPane::Diff,
-                lines: -3,
-            }),
+            ViewerCommand::Diff(DiffReviewCommand::Scroll { pane: FocusPane::Diff, lines: -3 }),
         ),
-        (
-            r#"{"target":"markdown","command":"approve"}"#,
-            ViewerCommand::Markdown(MarkdownReviewCommand::Approve),
-        ),
+        (r#"{"target":"markdown","command":"approve"}"#, ViewerCommand::Markdown(MarkdownReviewCommand::Approve)),
     ] {
-        assert_eq!(
-            decode_command(json)?,
-            CommandRequest {
-                request_id: None,
-                command
-            }
-        );
+        assert_eq!(decode_command(json)?, CommandRequest { request_id: None, command });
     }
     Ok(())
 }
@@ -49,14 +34,9 @@ fn requests_round_trip_with_correlation_ids() -> Result<(), Box<dyn Error>> {
         ViewerCommand::Diff(DiffReviewCommand::ToggleSourceView),
         ViewerCommand::Diff(DiffReviewCommand::SelectFile(3)),
         ViewerCommand::Diff(ReviewCommand::MoveTheme(-1).into()),
-        ViewerCommand::Markdown(MarkdownReviewCommand::CopyReview(
-            MarkdownReviewDecision::ChangesRequested,
-        )),
+        ViewerCommand::Markdown(MarkdownReviewCommand::CopyReview(MarkdownReviewDecision::ChangesRequested)),
     ] {
-        let request = CommandRequest {
-            request_id: Some(42),
-            command,
-        };
+        let request = CommandRequest { request_id: Some(42), command };
         assert_eq!(decode_command(&serde_json::to_string(&request)?)?, request);
     }
     Ok(())
@@ -72,24 +52,17 @@ fn rejects_invalid_commands_and_capabilities() {
         r#"{"target":"diff"}"#,
         "not json",
     ] {
-        assert!(matches!(
-            decode_command(json),
-            Err(CommandError::InvalidCommand(_))
-        ));
+        assert!(matches!(decode_command(json), Err(CommandError::InvalidCommand(_))));
     }
     for json in ["{}", r#"{"repository":"false"}"#, "null"] {
-        assert!(matches!(
-            decode_capabilities(json),
-            Err(CommandError::InvalidCapabilities(_))
-        ));
+        assert!(matches!(decode_capabilities(json), Err(CommandError::InvalidCapabilities(_))));
     }
 }
 
 #[test]
 fn decodes_host_capabilities_for_shared_command_gates() -> Result<(), Box<dyn Error>> {
-    let capabilities = decode_capabilities(
-        r#"{"repository":false,"refresh":true,"scope":false,"submit":true,"clipboard":false}"#,
-    )?;
+    let capabilities =
+        decode_capabilities(r#"{"repository":false,"refresh":true,"scope":false,"submit":true,"clipboard":false}"#)?;
     assert!(!capabilities.repository);
     assert!(capabilities.refresh);
     assert!(!capabilities.scope);

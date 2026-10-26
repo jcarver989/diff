@@ -6,8 +6,8 @@ use clankerdiff_client::{ClientState, DiffClient};
 use clankerdiff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use clankerdiff_ratatui::{
-    DiffReviewState, DiffReviewWidget, InputOutcome, MarkdownReviewEvent, MarkdownReviewState,
-    MarkdownReviewWidget, ThemeChoice, handle_crossterm_event, handle_markdown_crossterm_event,
+    DiffReviewState, DiffReviewWidget, InputOutcome, MarkdownReviewEvent, MarkdownReviewState, MarkdownReviewWidget,
+    ThemeChoice, handle_crossterm_event, handle_markdown_crossterm_event,
 };
 use crossterm::{
     event::{self, Event},
@@ -128,10 +128,7 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
     let mut operation: Option<Receiver<Result<(), clankerdiff_client::ClientError>>> = None;
     loop {
         let current = client.state();
-        if last_state
-            .as_ref()
-            .is_none_or(|old| !Arc::ptr_eq(old, &current))
-        {
+        if last_state.as_ref().is_none_or(|old| !Arc::ptr_eq(old, &current)) {
             if let Some(snapshot) = current.snapshot_if_changed(&mut installed) {
                 state.set_document(snapshot.clone());
             }
@@ -196,9 +193,7 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
     }
 }
 
-pub fn run_markdown(
-    document: Arc<MarkdownDocument>,
-) -> Result<Option<MarkdownReviewSubmission>, TuiError> {
+pub fn run_markdown(document: Arc<MarkdownDocument>) -> Result<Option<MarkdownReviewSubmission>, TuiError> {
     if !stdin().is_terminal() || !stderr().is_terminal() {
         return Err(TuiError::NoTerminal);
     }
@@ -233,18 +228,13 @@ pub fn run_markdown(
     }
 }
 
-fn apply_markdown_event(
-    state: &mut MarkdownReviewState,
-    event: Event,
-) -> Result<MarkdownEventOutcome, TuiError> {
+fn apply_markdown_event(state: &mut MarkdownReviewState, event: Event) -> Result<MarkdownEventOutcome, TuiError> {
     let input = handle_markdown_crossterm_event(state, event)?;
     if let InputOutcome::ThemeSelected(id) = &input {
         let _ = crate::preferences::save_theme(&id.to_string());
     }
     Ok(match input.into_event() {
-        Some(MarkdownReviewEvent::Submit(submission)) => {
-            MarkdownEventOutcome::Submitted(submission)
-        }
+        Some(MarkdownReviewEvent::Submit(submission)) => MarkdownEventOutcome::Submitted(submission),
         Some(MarkdownReviewEvent::Cancel) => MarkdownEventOutcome::Cancelled,
         Some(MarkdownReviewEvent::CopyFormatted(_)) | None => MarkdownEventOutcome::Continue,
     })

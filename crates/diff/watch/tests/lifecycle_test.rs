@@ -6,27 +6,19 @@ use tokio::{sync::oneshot, time::timeout};
 
 #[tokio::test]
 async fn explicit_refresh_and_joined_shutdown() -> Result<(), Box<dyn Error>> {
-    let repo = RepoFixtureBuilder::new()
-        .file("a", "old\n")
-        .committed()
-        .build();
+    let repo = RepoFixtureBuilder::new().file("a", "old\n").committed().build();
 
     let watcher = RepositoryWatcher::spawn(
         repo.repository().await,
         DiffScope::Both,
-        WatchOptions {
-            debounce: Duration::from_secs(60),
-        },
+        WatchOptions { debounce: Duration::from_secs(60) },
     )
     .await?;
 
     let mut state = watcher.state_rx.clone();
     repo.write("a", "new\n");
     let (result_tx, result_rx) = oneshot::channel();
-    watcher
-        .request_tx
-        .send(RepositoryRequest::Refresh { result_tx })
-        .await?;
+    watcher.request_tx.send(RepositoryRequest::Refresh { result_tx }).await?;
 
     result_rx.await??;
     assert_eq!(state.borrow_and_update().snapshot.files.len(), 1);

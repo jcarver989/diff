@@ -41,16 +41,12 @@ impl RepoPath {
 
     #[must_use]
     pub fn file_name(&self) -> &str {
-        self.as_str()
-            .rsplit_once('/')
-            .map_or(self.as_str(), |(_, name)| name)
+        self.as_str().rsplit_once('/').map_or(self.as_str(), |(_, name)| name)
     }
 
     #[must_use]
     pub fn directory(&self) -> Option<&str> {
-        self.as_str()
-            .rsplit_once('/')
-            .map(|(directory, _)| directory)
+        self.as_str().rsplit_once('/').map(|(directory, _)| directory)
     }
 }
 

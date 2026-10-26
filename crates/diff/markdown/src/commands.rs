@@ -19,10 +19,7 @@ pub enum MarkdownReviewCommand {
     SelectTarget(MarkdownTargetId),
     SelectHeading(usize),
     MoveSelection(isize),
-    Scroll {
-        pane: MarkdownFocusPane,
-        lines: isize,
-    },
+    Scroll { pane: MarkdownFocusPane, lines: isize },
     Page(isize),
     First,
     Last,
@@ -50,9 +47,7 @@ impl MarkdownReviewCommand {
             return false;
         }
         match self {
-            Self::Focus(MarkdownFocusPane::Outline) | Self::ToggleFocus => {
-                context.navigation_available
-            }
+            Self::Focus(MarkdownFocusPane::Outline) | Self::ToggleFocus => context.navigation_available,
             Self::Approve | Self::RequestChanges => context.capabilities.submit,
             Self::CopyReview(_) => context.capabilities.clipboard,
             _ => true,

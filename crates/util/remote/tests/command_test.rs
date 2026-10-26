@@ -1,6 +1,4 @@
-use clankerdiff_remote::{
-    CommandRemotes, InstanceState, Lifecycle, RemoteError, RemoteSpec, Remotes, short_id,
-};
+use clankerdiff_remote::{CommandRemotes, InstanceState, Lifecycle, RemoteError, RemoteSpec, Remotes, short_id};
 use std::error::Error;
 use std::fs;
 use std::path::Path;
@@ -21,17 +19,8 @@ fn listing_reads_the_instances_that_have_not_ended() -> TestResult {
 
     let instances = CommandRemotes.list(&remote.spec)?;
 
-    let states: Vec<(&str, InstanceState)> = instances
-        .iter()
-        .map(|vm| (vm.id.as_str(), vm.state))
-        .collect();
-    assert_eq!(
-        states,
-        [
-            ("mvm-1", InstanceState::Running),
-            ("mvm-2", InstanceState::Suspended)
-        ]
-    );
+    let states: Vec<(&str, InstanceState)> = instances.iter().map(|vm| (vm.id.as_str(), vm.state)).collect();
+    assert_eq!(states, [("mvm-1", InstanceState::Running), ("mvm-2", InstanceState::Suspended)]);
     let expires_at = SystemTime::UNIX_EPOCH + Duration::from_hours(525_960);
     assert_eq!(instances[0].expires_at, Some(expires_at));
     assert_eq!(instances[1].expires_at, None);
@@ -42,9 +31,7 @@ fn listing_reads_the_instances_that_have_not_ended() -> TestResult {
 fn a_listing_that_is_not_the_contract_is_reported() -> TestResult {
     let remote = TestRemote::new()?.list(r#"{"microvms":[]}"#);
 
-    let error = CommandRemotes
-        .list(&remote.spec)
-        .expect_err("there are no instances");
+    let error = CommandRemotes.list(&remote.spec).expect_err("there are no instances");
 
     assert!(matches!(error, RemoteError::Output { .. }), "{error}");
     Ok(())
@@ -58,9 +45,7 @@ fn launching_reads_a_bare_id_or_a_json_one() -> TestResult {
 
     assert_eq!(CommandRemotes.launch(&bare.spec)?, "mvm-7");
     assert_eq!(CommandRemotes.launch(&json.spec)?, "mvm-8");
-    let error = CommandRemotes
-        .launch(&silent.spec)
-        .expect_err("nothing was printed");
+    let error = CommandRemotes.launch(&silent.spec).expect_err("nothing was printed");
     assert!(matches!(error, RemoteError::NoId { .. }), "{error}");
     Ok(())
 }
@@ -68,10 +53,7 @@ fn launching_reads_a_bare_id_or_a_json_one() -> TestResult {
 #[test]
 fn a_change_runs_its_command_for_the_instance_in_the_remotes_directory() -> TestResult {
     let remote = TestRemote::new()?;
-    let spec = RemoteSpec {
-        suspend: Some(sh("pwd -P > \"suspended-$1\"", &["${ID}"])),
-        ..remote.spec.clone()
-    };
+    let spec = RemoteSpec { suspend: Some(sh("pwd -P > \"suspended-$1\"", &["${ID}"])), ..remote.spec.clone() };
 
     CommandRemotes.change(&spec, "mvm-1", Lifecycle::Suspend)?;
 
@@ -84,9 +66,7 @@ fn a_change_runs_its_command_for_the_instance_in_the_remotes_directory() -> Test
 fn a_change_the_remote_lacks_is_refused() -> TestResult {
     let remote = TestRemote::new()?;
 
-    let error = CommandRemotes
-        .change(&remote.spec, "mvm-1", Lifecycle::Resume)
-        .expect_err("there is no resume");
+    let error = CommandRemotes.change(&remote.spec, "mvm-1", Lifecycle::Resume).expect_err("there is no resume");
 
     assert!(matches!(error, RemoteError::Unsupported { .. }), "{error}");
     Ok(())
@@ -96,10 +76,7 @@ fn a_change_the_remote_lacks_is_refused() -> TestResult {
 fn a_failed_command_reports_the_last_line_it_printed_on_stderr() -> TestResult {
     let remote = TestRemote::new()?;
     let spec = RemoteSpec {
-        list: Some(sh(
-            "echo listing >&2; echo 'AWS credential setup failed' >&2; echo >&2; exit 3",
-            &[],
-        )),
+        list: Some(sh("echo listing >&2; echo 'AWS credential setup failed' >&2; echo >&2; exit 3", &[])),
         ..remote.spec.clone()
     };
 
@@ -112,10 +89,7 @@ fn a_failed_command_reports_the_last_line_it_printed_on_stderr() -> TestResult {
 #[test]
 fn a_missing_program_is_reported() -> TestResult {
     let remote = TestRemote::new()?;
-    let spec = RemoteSpec {
-        list: Some(vec!["no-such-remote-program".to_owned()]),
-        ..remote.spec.clone()
-    };
+    let spec = RemoteSpec { list: Some(vec!["no-such-remote-program".to_owned()]), ..remote.spec.clone() };
 
     let error = CommandRemotes.list(&spec).expect_err("there is no program");
 
@@ -150,10 +124,7 @@ struct TestRemote {
 impl TestRemote {
     fn new() -> Result<Self, Box<dyn Error>> {
         let dir = tempfile::tempdir()?;
-        let spec = RemoteSpec {
-            dir: Some(dir.path().to_owned()),
-            ..RemoteSpec::named("patchwave")
-        };
+        let spec = RemoteSpec { dir: Some(dir.path().to_owned()), ..RemoteSpec::named("patchwave") };
         Ok(Self { dir, spec })
     }
 
@@ -169,9 +140,5 @@ impl TestRemote {
 }
 
 fn sh(script: &str, args: &[&str]) -> Vec<String> {
-    ["sh", "-c", script, "sh"]
-        .into_iter()
-        .chain(args.iter().copied())
-        .map(str::to_owned)
-        .collect()
+    ["sh", "-c", script, "sh"].into_iter().chain(args.iter().copied()).map(str::to_owned).collect()
 }

@@ -36,31 +36,26 @@ pub use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewError};
 pub use clankerdiff_theme::ReviewTheme;
 pub use color::{composite_color, layered_style, page_color};
 pub use commands::{DiffReviewCommand, MarkdownReviewCommand, ReviewCommand};
-pub use diff_preview::{
-    DiffPreviewOptions, DiffPreviewState, DiffPreviewStats, render_diff_preview,
-};
+pub use diff_preview::{DiffPreviewOptions, DiffPreviewState, DiffPreviewStats, render_diff_preview};
 #[cfg(feature = "crossterm-backend")]
 pub use input::handle_crossterm_event;
 pub use interaction::{
-    InputOutcome, InteractionPhase, KeyCode, KeyCode as Key, KeyEvent, KeyModifiers, MouseButton,
-    MouseEvent, MouseEventKind, ReviewInput,
+    InputOutcome, InteractionPhase, KeyCode, KeyCode as Key, KeyEvent, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind, ReviewInput,
 };
-pub use keybindings::{
-    BindingScope, KeyBinding, default_diff_keybindings, default_markdown_keybindings,
-};
+pub use keybindings::{BindingScope, KeyBinding, default_diff_keybindings, default_markdown_keybindings};
 pub use markdown::{
-    MarkdownCommitError, MarkdownRenderStats, MarkdownRenderer, MarkdownStreamError,
-    StreamingMarkdownPolicy, StreamingMarkdownState,
+    MarkdownCommitError, MarkdownRenderStats, MarkdownRenderer, MarkdownStreamError, StreamingMarkdownPolicy,
+    StreamingMarkdownState,
 };
 pub use markdown_layout::{
-    MarkdownLayout, MarkdownLayoutOptions, MarkdownPresentation, MarkdownRow, MarkdownRowUpdate,
-    MarkdownRows,
+    MarkdownLayout, MarkdownLayoutOptions, MarkdownPresentation, MarkdownRow, MarkdownRowUpdate, MarkdownRows,
 };
 #[cfg(feature = "crossterm-backend")]
 pub use markdown_review::handle_crossterm_event as handle_markdown_crossterm_event;
 pub use markdown_review::{
-    MarkdownFocusPane, MarkdownReview, MarkdownReviewBuilder, MarkdownReviewEvent,
-    MarkdownReviewState, MarkdownReviewWidget,
+    MarkdownFocusPane, MarkdownReview, MarkdownReviewBuilder, MarkdownReviewEvent, MarkdownReviewState,
+    MarkdownReviewWidget,
 };
 pub use options::{NavigationPane, ReviewOptions};
 pub use render::DiffReviewWidget;

@@ -53,24 +53,15 @@ fn settled_frame_emits_no_terminal_cells_and_reuses_highlights() {
 fn wrapped_cells_are_highlighted_once_per_visible_side() {
     for split in [false, true] {
         let source = format!("{}\n", "identifier_".repeat(1000));
-        let document = DocumentBuilder::new()
-            .changed(
-                "long.rs",
-                &source,
-                &source.replace("identifier", "replacement"),
-            )
-            .build();
+        let document =
+            DocumentBuilder::new().changed("long.rs", &source, &source.replace("identifier", "replacement")).build();
         let mut harness = ReviewHarness::new(document, 80, 12);
         harness.state_mut().set_options(ReviewOptions {
             navigation: NavigationPane::Hidden,
             footer: false,
             ..Default::default()
         });
-        harness.state_mut().set_view_mode(if split {
-            ViewMode::Split
-        } else {
-            ViewMode::Unified
-        });
+        harness.state_mut().set_view_mode(if split { ViewMode::Split } else { ViewMode::Unified });
         harness.draw();
         for _ in 0..5 {
             harness.input_and_draw(key(KeyCode::PageDown));
@@ -85,11 +76,7 @@ fn wrapped_cells_are_highlighted_once_per_visible_side() {
 fn an_equal_content_snapshot_swap_reuses_every_highlight() {
     let old = source_lines(1_000, "");
     let new = source_lines(1_000, " + 1");
-    let fixture = || {
-        DocumentBuilder::new()
-            .changed("src/large.rs", &old, &new)
-            .build()
-    };
+    let fixture = || DocumentBuilder::new().changed("src/large.rs", &old, &new).build();
     let mut harness = ReviewHarness::new(fixture(), 100, 24);
     harness.draw();
     assert_eq!(harness.draw().highlight_misses, 0);
@@ -97,10 +84,7 @@ fn an_equal_content_snapshot_swap_reuses_every_highlight() {
     harness.state_mut().set_document(fixture());
 
     let swapped = harness.draw();
-    assert_eq!(
-        swapped.highlight_misses, 0,
-        "content-addressed highlights must survive a snapshot swap"
-    );
+    assert_eq!(swapped.highlight_misses, 0, "content-addressed highlights must survive a snapshot swap");
     assert_eq!(swapped.highlight_calls, swapped.highlight_hits);
 }
 
@@ -125,14 +109,8 @@ fn highlighting_work_is_bounded_by_the_viewport_not_document_size() {
 #[test]
 fn deep_full_file_scroll_parses_complete_sources_once() -> Result<(), SyntaxError> {
     let old = source_lines(100_000, "");
-    let new = old.replacen(
-        "let value_50000 = 50000;",
-        "let value_50000 = 50000 + 1;",
-        1,
-    );
-    let fixture = DocumentBuilder::new()
-        .changed_with_hunk_window("src/large.rs", &old, &new, 49_997..=50_003)
-        .build();
+    let new = old.replacen("let value_50000 = 50000;", "let value_50000 = 50000 + 1;", 1);
+    let fixture = DocumentBuilder::new().changed_with_hunk_window("src/large.rs", &old, &new, 49_997..=50_003).build();
     let mut harness = ReviewHarness::new(fixture, 100, 24);
     harness.input(key(KeyCode::Tab));
     harness.input(key(KeyCode::Char('f')));
@@ -145,21 +123,13 @@ fn deep_full_file_scroll_parses_complete_sources_once() -> Result<(), SyntaxErro
     let mut reference = SyntaxHighlighter::new(0);
     let theme = SyntaxTheme::default();
     for source in [&old, &new] {
-        reference.with_theme(&theme).highlight_document(
-            Fingerprint::of([source.as_str()]),
-            "rust",
-            || source,
-        )?;
+        reference.with_theme(&theme).highlight_document(Fingerprint::of([source.as_str()]), "rust", || source)?;
     }
     assert!(first_parse.highlight_misses <= 2);
     assert!(first_parse.highlighted_bytes <= reference.stats().bytes);
     assert!(reference.stats().bytes <= 4 * (old.len() + new.len()) + 64 * 1024);
     let jumped = harness.input_and_draw(key(KeyCode::End));
-    assert!(
-        jumped.highlighted_bytes < 100_000,
-        "deep full-file navigation parsed {} bytes",
-        jumped.highlighted_bytes
-    );
+    assert!(jumped.highlighted_bytes < 100_000, "deep full-file navigation parsed {} bytes", jumped.highlighted_bytes);
     let settled = harness.draw();
     assert_eq!(settled.highlight_misses, 0);
     Ok(())
@@ -190,15 +160,9 @@ fn deep_patch_only_split_scroll_highlights_visible_lines_and_then_settles() {
     );
 
     let settled = harness.draw();
-    assert_eq!(
-        settled.highlight_misses, 0,
-        "the current patch-only viewport stays cached"
-    );
+    assert_eq!(settled.highlight_misses, 0, "the current patch-only viewport stays cached");
     let paged = harness.input_and_draw(key(KeyCode::PageDown));
-    assert!(
-        paged.highlight_misses <= 48,
-        "patch-only fallback highlights at most the newly visible split cells"
-    );
+    assert!(paged.highlight_misses <= 48, "patch-only fallback highlights at most the newly visible split cells");
 }
 
 #[test]
@@ -273,10 +237,7 @@ fn aether_streaming_prose_has_bounded_parser_work() -> Result<(), Box<dyn Error>
     let mut sentence = 0;
     while source.len() < 16 * 1024 {
         for _ in 0..4 {
-            write!(
-                source,
-                "Sentence {sentence} carries ordinary words so wrapping and parsing do real work. "
-            )?;
+            write!(source, "Sentence {sentence} carries ordinary words so wrapping and parsing do real work. ")?;
             sentence += 1;
         }
         source.push_str("\n\n");
@@ -289,10 +250,7 @@ fn aether_streaming_code_has_bounded_parser_and_highlight_work() -> Result<(), B
     let mut source = String::from("```rust\n");
     let mut line = 0;
     while source.len() < 24 * 1024 {
-        writeln!(
-            source,
-            "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");"
-        )?;
+        writeln!(source, "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");")?;
         line += 1;
     }
     source.push_str("```\n");
@@ -311,10 +269,7 @@ fn assert_streaming_budget(source: &str, code: bool) -> Result<(), Box<dyn Error
     let work = fixture.state.take_stats();
     let budget = 4 * source.len() + 64 * 1024;
     assert_eq!(work.rows_materialized, 0);
-    assert!(
-        work.parsed_bytes <= budget && (!code || work.highlighted_bytes <= budget),
-        "{work:?}, budget {budget}"
-    );
+    assert!(work.parsed_bytes <= budget && (!code || work.highlighted_bytes <= budget), "{work:?}, budget {budget}");
     fixture.assert_equivalent();
     fixture.state.take_stats();
     fixture.apply_update();
@@ -326,19 +281,11 @@ fn assert_streaming_budget(source: &str, code: bool) -> Result<(), Box<dyn Error
 }
 
 fn large_document(rows: usize) -> Arc<DiffDocument> {
-    DocumentBuilder::new()
-        .generated("src/large.rs", rows)
-        .build()
+    DocumentBuilder::new().generated("src/large.rs", rows).build()
 }
 
 fn modified_document(rows: usize) -> Arc<DiffDocument> {
-    DocumentBuilder::new()
-        .changed(
-            "src/large.rs",
-            &source_lines(rows, ""),
-            &source_lines(rows, " + 1"),
-        )
-        .build()
+    DocumentBuilder::new().changed("src/large.rs", &source_lines(rows, ""), &source_lines(rows, " + 1")).build()
 }
 
 fn source_lines(rows: usize, suffix: &str) -> String {

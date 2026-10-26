@@ -32,10 +32,7 @@ fn patches_apply_and_reverse_to_exact_snapshots() -> Result<(), TestError> {
     for absolute in [false, true] {
         for name in ["file.txt", "space name.txt", "quote\"back\\tab\t雪\n.txt"] {
             for (old, new) in cases {
-                PatchFixture::new()?
-                    .name(name)
-                    .absolute(absolute)
-                    .check(old, new)?;
+                PatchFixture::new()?.name(name).absolute(absolute).check(old, new)?;
             }
         }
     }
@@ -52,17 +49,15 @@ fn no_patch_for_identical_snapshots() -> Result<(), PatchError> {
 
 #[test]
 fn file_existence_controls_git_headers() -> Result<(), TestError> {
-    for (old, new, header) in [
-        (None, Some(""), "new file mode 100644\n"),
-        (Some(""), None, "deleted file mode 100644\n"),
-    ] {
+    for (old, new, header) in
+        [(None, Some(""), "new file mode 100644\n"), (Some(""), None, "deleted file mode 100644\n")]
+    {
         let patch = git_patch_from_texts("file.txt", old, new)?.ok_or(TestError::MissingPatch)?;
         assert!(patch.contains(header));
         assert!(!patch.contains("@@"));
     }
     for (old, new) in [("", "text\n"), ("text\n", "")] {
-        let patch = git_patch_from_texts("file.txt", Some(old), Some(new))?
-            .ok_or(TestError::MissingPatch)?;
+        let patch = git_patch_from_texts("file.txt", Some(old), Some(new))?.ok_or(TestError::MissingPatch)?;
         assert!(!patch.contains("file mode"));
         assert!(!patch.contains("/dev/null"));
     }
@@ -75,15 +70,9 @@ fn distant_edits_have_compact_contextual_hunks() -> Result<(), TestError> {
     for line in 0..1000 {
         old.extend(["line ", &line.to_string(), "\n"]);
     }
-    let new = old
-        .replace("line 10\n", "changed 10\n")
-        .replace("line 990\n", "changed 990\n");
-    let patch =
-        git_patch_from_texts("file.txt", Some(&old), Some(&new))?.ok_or(TestError::MissingPatch)?;
-    assert_eq!(
-        patch.lines().filter(|line| line.starts_with("@@")).count(),
-        2
-    );
+    let new = old.replace("line 10\n", "changed 10\n").replace("line 990\n", "changed 990\n");
+    let patch = git_patch_from_texts("file.txt", Some(&old), Some(&new))?.ok_or(TestError::MissingPatch)?;
+    assert_eq!(patch.lines().filter(|line| line.starts_with("@@")).count(), 2);
     assert!(patch.contains(" line 9\n"));
     assert!(patch.contains("-line 10\n+changed 10\n"));
     assert!(!patch.contains("line 500\n"));
@@ -95,8 +84,7 @@ fn distant_edits_have_compact_contextual_hunks() -> Result<(), TestError> {
 fn eof_outside_changed_hunks_is_preserved() -> Result<(), TestError> {
     let old = format!("old\n{}last", "context\n".repeat(20));
     let new = old.replacen("old", "new", 1);
-    let patch =
-        git_patch_from_texts("file.txt", Some(&old), Some(&new))?.ok_or(TestError::MissingPatch)?;
+    let patch = git_patch_from_texts("file.txt", Some(&old), Some(&new))?.ok_or(TestError::MissingPatch)?;
     assert!(!patch.contains("No newline"));
     PatchFixture::new()?.check(Some(&old), Some(&new))
 }
@@ -104,16 +92,10 @@ fn eof_outside_changed_hunks_is_preserved() -> Result<(), TestError> {
 #[test]
 fn rejects_invalid_paths_and_binary_text() {
     for path in ["", "bad\0path", "/dev/null"] {
-        assert!(matches!(
-            git_patch_from_texts(path, None, Some("new")),
-            Err(PatchError::InvalidPath)
-        ));
+        assert!(matches!(git_patch_from_texts(path, None, Some("new")), Err(PatchError::InvalidPath)));
     }
     for (old, new) in [(Some("old\0"), Some("new")), (None, Some("new\0"))] {
-        assert!(matches!(
-            git_patch_from_texts("file.txt", old, new),
-            Err(PatchError::BinaryText)
-        ));
+        assert!(matches!(git_patch_from_texts("file.txt", old, new), Err(PatchError::BinaryText)));
     }
 }
 
@@ -137,11 +119,7 @@ impl PatchFixture {
     fn new() -> Result<Self, TestError> {
         let directory = tempdir()?;
         fs::write(directory.path().join(".keep"), "")?;
-        Ok(Self {
-            directory,
-            name: "file.txt".into(),
-            absolute: false,
-        })
+        Ok(Self { directory, name: "file.txt".into(), absolute: false })
     }
 
     fn name(mut self, name: &str) -> Self {
@@ -159,45 +137,21 @@ impl PatchFixture {
         if let Some(old) = old {
             fs::write(&file_path, old)?;
         }
-        let patch_path = if self.absolute {
-            file_path.to_string_lossy().into_owned()
-        } else {
-            self.name.clone()
-        };
+        let patch_path = if self.absolute { file_path.to_string_lossy().into_owned() } else { self.name.clone() };
         let patch = git_patch_from_texts(&patch_path, old, new)?.ok_or(TestError::MissingPatch)?;
         for (reverse, expected) in [(false, new), (true, old)] {
             let mut command = Command::new("git");
-            command.current_dir(self.directory.path()).args([
-                "apply",
-                "--unsafe-paths",
-                "--whitespace=nowarn",
-                "-p0",
-            ]);
+            command.current_dir(self.directory.path()).args(["apply", "--unsafe-paths", "--whitespace=nowarn", "-p0"]);
             if reverse {
                 command.arg("--reverse");
             }
-            let mut child = command
-                .arg("-")
-                .stdin(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
-            child
-                .stdin
-                .take()
-                .ok_or_else(|| io::Error::other("missing stdin"))?
-                .write_all(patch.as_bytes())?;
+            let mut child = command.arg("-").stdin(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+            child.stdin.take().ok_or_else(|| io::Error::other("missing stdin"))?.write_all(patch.as_bytes())?;
             let output = child.wait_with_output()?;
-            assert!(
-                output.status.success(),
-                "reverse={reverse}: {}\n{patch}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+            assert!(output.status.success(), "reverse={reverse}: {}\n{patch}", String::from_utf8_lossy(&output.stderr));
             match expected {
                 Some(text) => {
-                    assert!(
-                        file_path.try_exists()?,
-                        "missing file after reverse={reverse}: {patch}"
-                    );
+                    assert!(file_path.try_exists()?, "missing file after reverse={reverse}: {patch}");
                     assert_eq!(fs::read(&file_path)?, text.as_bytes());
                 }
                 None => assert!(!file_path.try_exists()?),

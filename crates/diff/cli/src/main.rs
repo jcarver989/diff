@@ -4,10 +4,7 @@ mod protocol;
 mod session;
 mod tui;
 
-use args::{
-    CapabilitiesArgs, Cli, Command, ConnectArgs, MarkdownArgs, OutputFormat, ReviewArgs,
-    TuiPlacement, Ui,
-};
+use args::{CapabilitiesArgs, Cli, Command, ConnectArgs, MarkdownArgs, OutputFormat, ReviewArgs, TuiPlacement, Ui};
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_git::GitRepository;
@@ -96,8 +93,7 @@ async fn connect(args: ConnectArgs) -> Result<ReviewOutcome, AppError> {
     if args.ui == Ui::Desktop {
         return Err(AppError::DesktopDisabled);
     }
-    let client =
-        DiffClient::connect_with_headers(&args.url, args.scope.into(), args.headers).await?;
+    let client = DiffClient::connect_with_headers(&args.url, args.scope.into(), args.headers).await?;
     let outcome = match args.ui {
         Ui::Tui => tui::run_client(&client),
         #[cfg(feature = "desktop")]
@@ -120,14 +116,12 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
         #[cfg(feature = "desktop")]
-        Ui::Desktop => {
-            clankerdiff_gpui_desktop::run_review(clankerdiff_gpui_desktop::args::CliArgs {
-                repository: root.clone(),
-                scope: args.scope,
-                commits: args.commits,
-                connect: None,
-            })
-        }
+        Ui::Desktop => clankerdiff_gpui_desktop::run_review(clankerdiff_gpui_desktop::args::CliArgs {
+            repository: root.clone(),
+            scope: args.scope,
+            commits: args.commits,
+            connect: None,
+        }),
         Ui::Tui => match args.tui_placement {
             TuiPlacement::Current => {
                 let server = DiffServer::open(&root, ServerOptions::default()).await?;
@@ -150,11 +144,7 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
     Ok(diff_response(root, args.scope, submission))
 }
 
-fn diff_response(
-    repository_root: PathBuf,
-    scope: DiffScope,
-    submission: Option<ReviewSubmission>,
-) -> ReviewResponse {
+fn diff_response(repository_root: PathBuf, scope: DiffScope, submission: Option<ReviewSubmission>) -> ReviewResponse {
     ReviewResponse::Diff {
         protocol_version: PROTOCOL_VERSION,
         outcome: diff_outcome(submission.as_ref()),
@@ -166,11 +156,7 @@ fn diff_response(
 
 fn diff_outcome(submission: Option<&ReviewSubmission>) -> ReviewOutcome {
     submission.map_or(ReviewOutcome::Cancelled, |submission| {
-        if submission.comments.is_empty() {
-            ReviewOutcome::Approved
-        } else {
-            ReviewOutcome::ChangesRequested
-        }
+        if submission.comments.is_empty() { ReviewOutcome::Approved } else { ReviewOutcome::ChangesRequested }
     })
 }
 
@@ -188,14 +174,11 @@ fn run_markdown(args: &MarkdownArgs) -> Result<ReviewResponse, AppError> {
             return Err(AppError::MarkdownDirectory(args.path.clone()));
         }
         let bytes = fs::read(path)?;
-        let file_name = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned());
+        let file_name = path.file_name().map(|name| name.to_string_lossy().into_owned());
         (decode_markdown(bytes)?, Some(args.path.clone()), file_name)
     };
     let source_path = args.source_path.clone().or(physical_source_path);
-    let provisional =
-        MarkdownDocument::parse_with_metadata(source_path.clone(), None, source.clone());
+    let provisional = MarkdownDocument::parse_with_metadata(source_path.clone(), None, source.clone());
     let title = args.title.clone().or_else(|| {
         provisional
             .outline()
@@ -212,21 +195,11 @@ fn run_markdown(args: &MarkdownArgs) -> Result<ReviewResponse, AppError> {
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
     };
-    let outcome =
-        submission
-            .as_ref()
-            .map_or(ReviewOutcome::Cancelled, |submission| {
-                match submission.decision {
-                    MarkdownReviewDecision::Approved => ReviewOutcome::Approved,
-                    MarkdownReviewDecision::ChangesRequested => ReviewOutcome::ChangesRequested,
-                }
-            });
-    Ok(ReviewResponse::Markdown {
-        protocol_version: PROTOCOL_VERSION,
-        outcome,
-        source_path,
-        submission,
-    })
+    let outcome = submission.as_ref().map_or(ReviewOutcome::Cancelled, |submission| match submission.decision {
+        MarkdownReviewDecision::Approved => ReviewOutcome::Approved,
+        MarkdownReviewDecision::ChangesRequested => ReviewOutcome::ChangesRequested,
+    });
+    Ok(ReviewResponse::Markdown { protocol_version: PROTOCOL_VERSION, outcome, source_path, submission })
 }
 
 fn decode_markdown(bytes: Vec<u8>) -> Result<String, AppError> {
@@ -238,20 +211,11 @@ fn write_review_response(response: &ReviewResponse, format: OutputFormat) -> Res
         OutputFormat::Json => write_json(response),
         OutputFormat::Text => {
             match response {
-                ReviewResponse::Diff {
-                    submission: Some(submission),
-                    ..
-                } => println!("{}", text_feedback(submission)),
-                ReviewResponse::Markdown {
-                    submission: Some(submission),
-                    ..
-                } => println!("{}", markdown_text_feedback(submission)),
-                ReviewResponse::Diff {
-                    submission: None, ..
+                ReviewResponse::Diff { submission: Some(submission), .. } => println!("{}", text_feedback(submission)),
+                ReviewResponse::Markdown { submission: Some(submission), .. } => {
+                    println!("{}", markdown_text_feedback(submission))
                 }
-                | ReviewResponse::Markdown {
-                    submission: None, ..
-                } => {}
+                ReviewResponse::Diff { submission: None, .. } | ReviewResponse::Markdown { submission: None, .. } => {}
             }
             Ok(())
         }
@@ -263,18 +227,8 @@ fn write_capabilities(args: &CapabilitiesArgs) -> Result<(), AppError> {
     match args.format {
         OutputFormat::Json => write_json(&capabilities),
         OutputFormat::Text => {
-            let review_kinds = capabilities
-                .review_kinds
-                .iter()
-                .map(|kind| kind.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
-            let uis = capabilities
-                .uis
-                .iter()
-                .map(|ui| ui.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
+            let review_kinds = capabilities.review_kinds.iter().map(|kind| kind.as_str()).collect::<Vec<_>>().join(",");
+            let uis = capabilities.uis.iter().map(|ui| ui.as_str()).collect::<Vec<_>>().join(",");
             println!(
                 "protocol={} review_kinds={review_kinds} uis={uis} current_terminal_tui={}",
                 capabilities.protocol_version, capabilities.current_terminal_tui
@@ -303,9 +257,7 @@ fn exit_code(outcome: ReviewOutcome) -> ExitCode {
 
 fn markdown_text_feedback(submission: &MarkdownReviewSubmission) -> &str {
     match submission.decision {
-        MarkdownReviewDecision::Approved => {
-            "I reviewed the Markdown document and approve it with no comments."
-        }
+        MarkdownReviewDecision::Approved => "I reviewed the Markdown document and approve it with no comments.",
         MarkdownReviewDecision::ChangesRequested => &submission.formatted,
     }
 }
@@ -333,9 +285,7 @@ enum AppError {
     MarkdownDirectory(String),
     #[error("Markdown input is not valid UTF-8: {0}")]
     InvalidMarkdownUtf8(std::str::Utf8Error),
-    #[error(
-        "Markdown from stdin cannot use the TUI; use a temporary file so stdin remains interactive"
-    )]
+    #[error("Markdown from stdin cannot use the TUI; use a temporary file so stdin remains interactive")]
     MarkdownStdinTui,
     #[error("could not read or write review data: {0}")]
     Io(#[from] io::Error),
@@ -355,25 +305,15 @@ mod tests {
 
     #[test]
     fn markdown_decisions_have_explicit_text() {
-        let approved = MarkdownReview::default()
-            .try_submission(MarkdownReviewDecision::Approved)
-            .unwrap();
+        let approved = MarkdownReview::default().try_submission(MarkdownReviewDecision::Approved).unwrap();
         assert!(markdown_text_feedback(&approved).contains("approve"));
-        let changes = MarkdownReview::default()
-            .try_submission(MarkdownReviewDecision::ChangesRequested)
-            .unwrap();
-        assert_eq!(
-            markdown_text_feedback(&changes),
-            "Changes requested, but no inline comments were provided."
-        );
+        let changes = MarkdownReview::default().try_submission(MarkdownReviewDecision::ChangesRequested).unwrap();
+        assert_eq!(markdown_text_feedback(&changes), "Changes requested, but no inline comments were provided.");
     }
 
     #[test]
     fn empty_review_is_an_approval() {
         let submission = Review::default().submission();
-        assert_eq!(
-            text_feedback(&submission),
-            "I reviewed the working tree diff and approve it with no comments."
-        );
+        assert_eq!(text_feedback(&submission), "I reviewed the working tree diff and approve it with no comments.");
     }
 }

@@ -19,8 +19,7 @@ fn command_failures_classify_index_locks_without_exposing_stderr() {
     let error = GitError::CommandFailed {
         operation: "unstage paths",
         status: Some(128),
-        stderr: "fatal: Unable to create '/sensitive/repo/.git/index.lock': File exists."
-            .to_owned(),
+        stderr: "fatal: Unable to create '/sensitive/repo/.git/index.lock': File exists.".to_owned(),
     };
     let message = error.to_string();
     assert!(message.contains("Git index is locked"));
@@ -29,13 +28,7 @@ fn command_failures_classify_index_locks_without_exposing_stderr() {
 
 #[test]
 fn unrecognized_command_failures_keep_stderr_private() {
-    let error = GitError::CommandFailed {
-        operation: "commit",
-        status: Some(1),
-        stderr: "sensitive hook output".to_owned(),
-    };
-    assert_eq!(
-        error.to_string(),
-        "git operation `commit` failed with status Some(1)"
-    );
+    let error =
+        GitError::CommandFailed { operation: "commit", status: Some(1), stderr: "sensitive hook output".to_owned() };
+    assert_eq!(error.to_string(), "git operation `commit` failed with status Some(1)");
 }

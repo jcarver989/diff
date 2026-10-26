@@ -3,20 +3,10 @@ use std::{io, process::Command};
 
 #[test]
 fn capabilities_are_one_clean_json_line() {
-    let output = clankerdiff()
-        .args(["capabilities", "--format=json"])
-        .output()
-        .unwrap();
+    let output = clankerdiff().args(["capabilities", "--format=json"]).output().unwrap();
     assert!(output.status.success());
     assert_eq!(output.stderr.len(), 0);
-    assert_eq!(
-        output
-            .stdout
-            .split(|byte| *byte == b'\n')
-            .count()
-            .saturating_sub(1),
-        1
-    );
+    assert_eq!(output.stdout.split(|byte| *byte == b'\n').count().saturating_sub(1), 1);
     assert_eq!(output.stdout.last(), Some(&b'\n'));
 
     let capabilities: CapabilityResponse = serde_json::from_slice(&output.stdout).unwrap();
@@ -27,10 +17,7 @@ fn capabilities_are_one_clean_json_line() {
 
 #[test]
 fn process_failures_keep_stdout_protocol_clean() {
-    let output = clankerdiff()
-        .args(["markdown", "this-file-does-not-exist.md", "--format=json"])
-        .output()
-        .unwrap();
+    let output = clankerdiff().args(["markdown", "this-file-does-not-exist.md", "--format=json"]).output().unwrap();
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(output.stdout.len(), 0);
     assert!(String::from_utf8_lossy(&output.stderr).contains("error:"));
@@ -41,10 +28,7 @@ fn version_uses_the_executable_name() -> io::Result<()> {
     let output = clankerdiff().arg("--version").output()?;
     assert!(output.status.success());
     assert_eq!(output.stderr.len(), 0);
-    assert_eq!(
-        output.stdout,
-        format!("clankerdiff {}\n", env!("CARGO_PKG_VERSION")).as_bytes()
-    );
+    assert_eq!(output.stdout, format!("clankerdiff {}\n", env!("CARGO_PKG_VERSION")).as_bytes());
     Ok(())
 }
 

@@ -24,8 +24,5 @@ pub async fn sleep(duration: Duration) {
     #[cfg(not(target_arch = "wasm32"))]
     tokio::time::sleep(duration).await;
     #[cfg(target_arch = "wasm32")]
-    gloo_timers::future::TimeoutFuture::new(
-        u32::try_from(duration.as_millis()).unwrap_or(u32::MAX),
-    )
-    .await;
+    gloo_timers::future::TimeoutFuture::new(u32::try_from(duration.as_millis()).unwrap_or(u32::MAX)).await;
 }

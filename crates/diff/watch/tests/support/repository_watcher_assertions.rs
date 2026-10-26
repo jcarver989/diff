@@ -15,9 +15,7 @@ pub fn healthy(state: &RepositoryState) -> TestResult<Arc<DiffDocument>> {
     }
 }
 
-pub async fn wait_for_snapshot(
-    state: &mut watch::Receiver<RepositoryState>,
-) -> TestResult<Arc<DiffDocument>> {
+pub async fn wait_for_snapshot(state: &mut watch::Receiver<RepositoryState>) -> TestResult<Arc<DiffDocument>> {
     wait_for("snapshot publication", state.changed()).await?;
     healthy(&state.borrow_and_update())
 }

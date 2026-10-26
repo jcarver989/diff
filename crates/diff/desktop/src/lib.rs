@@ -16,9 +16,7 @@ use clankerdiff_gpui::{
 };
 use clankerdiff_gpui_shell::{launch, runtime};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
-use gpui::{
-    App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size,
-};
+use gpui::{App, AppContext, Bounds, Pixels, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 use markdown_app::MarkdownDesktopApp;
 use std::sync::mpsc;
 
@@ -27,10 +25,7 @@ const WINDOW_TITLE: &str = "Diff Review";
 
 fn window_options(bounds: Bounds<Pixels>) -> WindowOptions {
     WindowOptions {
-        titlebar: Some(TitlebarOptions {
-            title: Some("ClankerDiff".into()),
-            ..Default::default()
-        }),
+        titlebar: Some(TitlebarOptions { title: Some("ClankerDiff".into()), ..Default::default() }),
         window_bounds: Some(WindowBounds::Maximized(bounds)),
         window_min_size: Some(size(px(640.0), px(480.0))),
         focus: true,
@@ -142,12 +137,7 @@ mod tests {
         assert!(app_actions.contains(&"app_menu::Hide".to_owned()));
         assert!(app_actions.contains(&"app_menu::HideOthers".to_owned()));
         assert!(app_actions.contains(&"app_menu::ShowAll".to_owned()));
-        assert!(
-            menus[0]
-                .items
-                .iter()
-                .any(|item| matches!(item, OwnedMenuItem::SystemMenu(_)))
-        );
+        assert!(menus[0].items.iter().any(|item| matches!(item, OwnedMenuItem::SystemMenu(_))));
 
         let edit_os_actions: Vec<Option<gpui::OsAction>> = menus[1]
             .items
@@ -189,9 +179,6 @@ mod tests {
         assert!(options.is_resizable);
         assert!(options.is_minimizable);
         assert_eq!(options.window_decorations, None);
-        assert_eq!(
-            options.titlebar.and_then(|titlebar| titlebar.title),
-            Some("ClankerDiff".into())
-        );
+        assert_eq!(options.titlebar.and_then(|titlebar| titlebar.title), Some("ClankerDiff".into()));
     }
 }

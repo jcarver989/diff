@@ -4,8 +4,7 @@ use crate::color::{composite_color, native_color, page_color};
 use clankerdiff_core::{DiffTone, FileStatus};
 use clankerdiff_theme::FontStyle;
 use clankerdiff_theme::{
-    ButtonVariant, ControlState, ModalSize, NoticeTone, ReviewTheme, Rgba, SelectionState,
-    SemanticStyle, UiPalette,
+    ButtonVariant, ControlState, ModalSize, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle, UiPalette,
 };
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -81,20 +80,14 @@ impl RatatuiUiTheme {
             positive: color(palette.positive),
             warning: color(palette.warning),
             destructive: color(palette.destructive),
-            destructive_foreground: native_color(
-                palette.destructive_foreground,
-                color(palette.destructive),
-            ),
+            destructive_foreground: native_color(palette.destructive_foreground, color(palette.destructive)),
         }
     }
 }
 
 impl From<&UiPalette> for RatatuiUiTheme {
     fn from(palette: &UiPalette) -> Self {
-        Self::from_palette(
-            *palette,
-            composite_color(palette.canvas, Rgba::new(0, 0, 0, 255)),
-        )
+        Self::from_palette(*palette, composite_color(palette.canvas, Rgba::new(0, 0, 0, 255)))
     }
 }
 
@@ -172,10 +165,7 @@ pub(crate) fn syntax_style(foreground: Rgba, font: FontStyle, background: Color)
     modifiers.set(Modifier::BOLD, font.bold);
     modifiers.set(Modifier::ITALIC, font.italic);
     modifiers.set(Modifier::UNDERLINED, font.underline);
-    Style::new()
-        .fg(native_color(foreground, background))
-        .bg(background)
-        .add_modifier(modifiers)
+    Style::new().fg(native_color(foreground, background)).bg(background).add_modifier(modifiers)
 }
 
 pub(crate) const fn file_status_color(status: FileStatus, theme: &RatatuiTheme) -> Color {

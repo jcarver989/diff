@@ -9,11 +9,7 @@ pub enum PatchError {
     BinaryText,
 }
 
-pub fn git_patch_from_texts(
-    path: &str,
-    old: Option<&str>,
-    new: Option<&str>,
-) -> Result<Option<String>, PatchError> {
+pub fn git_patch_from_texts(path: &str, old: Option<&str>, new: Option<&str>) -> Result<Option<String>, PatchError> {
     if path.is_empty() || path.contains('\0') || path == "/dev/null" {
         return Err(PatchError::InvalidPath);
     }
@@ -32,16 +28,8 @@ pub fn git_patch_from_texts(
         output.push_str("deleted file mode 100644\n");
     }
 
-    let old_path = if old.is_some() {
-        &quoted_path
-    } else {
-        "/dev/null"
-    };
-    let new_path = if new.is_some() {
-        &quoted_path
-    } else {
-        "/dev/null"
-    };
+    let old_path = if old.is_some() { &quoted_path } else { "/dev/null" };
+    let new_path = if new.is_some() { &quoted_path } else { "/dev/null" };
     output.extend(["--- ", old_path, "\n+++ ", new_path, "\n"]);
     let diff = TextDiff::from_lines(old.unwrap_or_default(), new.unwrap_or_default());
     output.push_str(&diff.unified_diff().context_radius(3).to_string());

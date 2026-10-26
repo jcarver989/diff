@@ -3,8 +3,7 @@ use super::{
     theme::UiTheme,
 };
 use gpui::{
-    App, Context, EventEmitter, FocusHandle, Focusable, KeyBinding, SharedString, Window, actions,
-    div, prelude::*,
+    App, Context, EventEmitter, FocusHandle, Focusable, KeyBinding, SharedString, Window, actions, div, prelude::*,
 };
 
 actions!(confirm_dialog, [Confirm, Cancel]);
@@ -119,11 +118,7 @@ impl Render for ConfirmDialog {
                     .flex()
                     .flex_col()
                     .gap_4()
-                    .child(
-                        div()
-                            .text_color(self.theme.colors.text_secondary)
-                            .child(self.message.clone()),
-                    )
+                    .child(div().text_color(self.theme.colors.text_secondary).child(self.message.clone()))
                     .child(
                         div()
                             .flex()
@@ -140,13 +135,9 @@ impl Render for ConfirmDialog {
                                     .on_click(emit(ConfirmDialogEvent::Alternate))
                             }))
                             .child(
-                                Button::new(
-                                    format!("{}-confirm", self.id),
-                                    self.confirm.clone(),
-                                    self.theme,
-                                )
-                                .variant(self.confirm_variant)
-                                .on_click(emit(ConfirmDialogEvent::Confirmed)),
+                                Button::new(format!("{}-confirm", self.id), self.confirm.clone(), self.theme)
+                                    .variant(self.confirm_variant)
+                                    .on_click(emit(ConfirmDialogEvent::Confirmed)),
                             ),
                     ),
             )

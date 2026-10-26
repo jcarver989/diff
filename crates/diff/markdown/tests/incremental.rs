@@ -197,10 +197,7 @@ fn tiny_chunks_scale_linearly_with_input_size() -> TestResult {
             assert_matches_one_shot(&stream)?;
         }
         if let Some(previous) = previous {
-            assert!(
-                work <= previous * 5 / 2,
-                "doubling input {size} grew work from {previous} to {work}"
-            );
+            assert!(work <= previous * 5 / 2, "doubling input {size} grew work from {previous} to {work}");
         }
         previous = Some(work);
     }
@@ -230,13 +227,7 @@ fn open_fences_report_their_block_and_close_precisely() -> TestResult {
     let MarkdownBlockKind::CodeBlock(code) = &stream.document().blocks()[1].kind else {
         return Err("expected code block".into());
     };
-    assert_eq!(
-        code.lines
-            .iter()
-            .map(|line| line.text.as_str())
-            .collect::<Vec<_>>(),
-        ["let a = 1;", "```x"]
-    );
+    assert_eq!(code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), ["let a = 1;", "```x"]);
     Ok(())
 }
 
@@ -324,10 +315,7 @@ fn growing_structural_tails_do_not_reprocess_settled_prefixes() -> TestResult {
         let after = stream.parse_stats();
         assert_eq!(stream.settled_blocks(), prefix_blocks);
         assert!(after.parsed_bytes - before.parsed_bytes <= expected_parse_work);
-        assert_eq!(
-            after.source_bytes_copied - before.source_bytes_copied,
-            tail.len()
-        );
+        assert_eq!(after.source_bytes_copied - before.source_bytes_copied, tail.len());
         assert_eq!(after.prefix_bytes_copied, before.prefix_bytes_copied);
         assert!(after.parsed_bytes - before.parsed_bytes >= tail.len());
     }
@@ -351,12 +339,7 @@ fn assert_matches_one_shot(stream: &MarkdownStream) -> TestResult {
     let actual = stream.document();
     if actual != &expected {
         let blocks = expected.blocks().len();
-        for (index, (left, right)) in actual
-            .blocks()
-            .iter()
-            .zip(expected.blocks().iter())
-            .enumerate()
-        {
+        for (index, (left, right)) in actual.blocks().iter().zip(expected.blocks().iter()).enumerate() {
             if left != right {
                 return Err(format!(
                     "block {index} of {blocks} differs for source {:?}\n incremental: {left:#?}\n one-shot: {right:#?}",
@@ -384,9 +367,7 @@ fn assert_matches_one_shot(stream: &MarkdownStream) -> TestResult {
 
 fn exactness_message() -> String {
     let mut message = String::from("Streaming contract\n===\n\n");
-    message.push_str(
-        "The paragraph above is a setext heading, so no line of it may be finalized early.\n\n",
-    );
+    message.push_str("The paragraph above is a setext heading, so no line of it may be finalized early.\n\n");
     message.push_str("```rust\nfn one() {\n    let s = \"starts here\n");
     for index in 0..40 {
         let _ = writeln!(message, "and continues {index}");
@@ -410,10 +391,8 @@ fn prose_message(total_bytes: usize) -> String {
     let mut sentence = 0;
     while message.len() < total_bytes {
         for _ in 0..4 {
-            let _ = write!(
-                message,
-                "Sentence {sentence} carries ordinary words so wrapping and parsing do real work. "
-            );
+            let _ =
+                write!(message, "Sentence {sentence} carries ordinary words so wrapping and parsing do real work. ");
             sentence += 1;
         }
         message.push_str("\n\n");
@@ -425,10 +404,7 @@ fn code_block_message(total_bytes: usize) -> String {
     let mut message = String::from("```rust\n");
     let mut line = 0;
     while message.len() < total_bytes {
-        let _ = writeln!(
-            message,
-            "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");"
-        );
+        let _ = writeln!(message, "let value_{line} = state.reconcile(incoming[{line}]).expect(\"delta accepted\");");
         line += 1;
     }
     message.push_str("```\n");
@@ -492,9 +468,6 @@ fn generate(seed: &mut u64) -> String {
     };
     let count = 1 + (next() % 24) as usize;
     (0..count)
-        .map(|_| {
-            PIECES[usize::try_from(next() % PIECES.len() as u64)
-                .expect("index is below PIECES.len()")]
-        })
+        .map(|_| PIECES[usize::try_from(next() % PIECES.len() as u64).expect("index is below PIECES.len()")])
         .collect()
 }

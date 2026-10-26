@@ -1,38 +1,20 @@
 use clankerdiff_core::{
-    CommandContext, DiffReviewCommand, DiffScope, FocusPane, InteractionPhase, RepositoryAction,
-    ReviewCapabilities, ReviewCommand,
+    CommandContext, DiffReviewCommand, DiffScope, FocusPane, InteractionPhase, RepositoryAction, ReviewCapabilities,
+    ReviewCommand,
 };
 
 #[test]
 fn repository_commands_require_capabilities_and_browse_mode() {
     for context in [
+        CommandContext { repository_pending: true, ..CommandContext::default() },
         CommandContext {
-            repository_pending: true,
+            capabilities: ReviewCapabilities { repository: false, ..ReviewCapabilities::default() },
             ..CommandContext::default()
         },
-        CommandContext {
-            capabilities: ReviewCapabilities {
-                repository: false,
-                ..ReviewCapabilities::default()
-            },
-            ..CommandContext::default()
-        },
-        CommandContext {
-            phase: InteractionPhase::Help,
-            ..CommandContext::default()
-        },
-        CommandContext {
-            phase: InteractionPhase::Draft,
-            ..CommandContext::default()
-        },
-        CommandContext {
-            phase: InteractionPhase::RepositoryPrompt,
-            ..CommandContext::default()
-        },
-        CommandContext {
-            phase: InteractionPhase::ThemePicker,
-            ..CommandContext::default()
-        },
+        CommandContext { phase: InteractionPhase::Help, ..CommandContext::default() },
+        CommandContext { phase: InteractionPhase::Draft, ..CommandContext::default() },
+        CommandContext { phase: InteractionPhase::RepositoryPrompt, ..CommandContext::default() },
+        CommandContext { phase: InteractionPhase::ThemePicker, ..CommandContext::default() },
     ] {
         for command in [
             DiffReviewCommand::StageAll,
@@ -47,10 +29,7 @@ fn repository_commands_require_capabilities_and_browse_mode() {
 
 #[test]
 fn loading_blocks_review_mutations_but_allows_refresh_and_scope_changes() {
-    let context = CommandContext {
-        document_ready: false,
-        ..CommandContext::default()
-    };
+    let context = CommandContext { document_ready: false, ..CommandContext::default() };
     assert!(!ReviewCommand::BeginComment.enabled(&context));
     assert!(!DiffReviewCommand::SubmitReview.enabled(&context));
     for command in [
@@ -98,26 +77,17 @@ fn modal_commands_are_available_only_in_their_phase() {
         (ReviewCommand::CommitTheme, InteractionPhase::ThemePicker),
     ] {
         assert!(!command.enabled(&CommandContext::default()));
-        assert!(command.enabled(&CommandContext {
-            phase,
-            ..CommandContext::default()
-        }));
+        assert!(command.enabled(&CommandContext { phase, ..CommandContext::default() }));
     }
 }
 
 #[test]
 fn unavailable_navigation_and_themes_do_not_disable_document_commands() {
-    let context = CommandContext {
-        navigation_available: false,
-        ..CommandContext::default()
-    };
+    let context = CommandContext { navigation_available: false, ..CommandContext::default() };
     assert!(!DiffReviewCommand::ToggleFocus.enabled(&context));
     assert!(!DiffReviewCommand::Focus(FocusPane::Files).enabled(&context));
     assert!(DiffReviewCommand::Focus(FocusPane::Diff).enabled(&context));
     assert!(ReviewCommand::BeginComment.enabled(&context));
     assert!(!ReviewCommand::OpenThemePicker.enabled(&context));
-    assert!(ReviewCommand::OpenThemePicker.enabled(&CommandContext {
-        themes_available: true,
-        ..context
-    }));
+    assert!(ReviewCommand::OpenThemePicker.enabled(&CommandContext { themes_available: true, ..context }));
 }

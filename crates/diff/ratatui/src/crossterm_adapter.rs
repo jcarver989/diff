@@ -1,14 +1,10 @@
 use crate::{
-    InputOutcome, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-    ReviewInput,
+    InputOutcome, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, ReviewInput,
     interaction::{self, ReviewWidget},
 };
 use crossterm::event::{self, Event, KeyEventKind};
 
-pub(crate) fn handle_event<T: ReviewWidget>(
-    state: &mut T,
-    event: Event,
-) -> Result<InputOutcome<T::Event>, T::Error> {
+pub(crate) fn handle_event<T: ReviewWidget>(state: &mut T, event: Event) -> Result<InputOutcome<T::Event>, T::Error> {
     let input = match event {
         Event::Key(key) if key.kind != KeyEventKind::Release => ReviewInput::Key(key.into()),
         Event::Paste(text) => ReviewInput::Paste(text),
@@ -97,11 +93,6 @@ impl From<event::MouseEventKind> for MouseEventKind {
 }
 impl From<event::MouseEvent> for MouseEvent {
     fn from(value: event::MouseEvent) -> Self {
-        Self {
-            kind: value.kind.into(),
-            column: value.column,
-            row: value.row,
-            modifiers: value.modifiers.into(),
-        }
+        Self { kind: value.kind.into(), column: value.column, row: value.row, modifiers: value.modifiers.into() }
     }
 }

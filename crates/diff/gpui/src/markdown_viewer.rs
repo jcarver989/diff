@@ -9,21 +9,18 @@ mod rows;
 use crate::{
     ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
-    ui::prelude::{
-        SearchPicker, ThemePicker, ThemePickerEvent, Typography, TypographyExt, UI_FONT, UiTheme,
-        rem,
-    },
+    ui::prelude::{SearchPicker, ThemePicker, ThemePickerEvent, Typography, TypographyExt, UI_FONT, UiTheme, rem},
 };
 use clankerdiff_core::{InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
-    MarkdownDocument, MarkdownFocusPane, MarkdownReview, MarkdownReviewCommand,
-    MarkdownReviewDecision, MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
+    MarkdownDocument, MarkdownFocusPane, MarkdownReview, MarkdownReviewCommand, MarkdownReviewDecision,
+    MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
 };
 use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_theme::{ReviewTheme, ThemeChoice};
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, Rems,
-    ScrollHandle, Subscription, Window, actions, div, prelude::*,
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, Rems, ScrollHandle,
+    Subscription, Window, actions, div, prelude::*,
 };
 use inline::InlineColors;
 use rows::{DocumentRow, document_rows};
@@ -67,11 +64,7 @@ pub struct MarkdownReviewerOptions {
 
 impl Default for MarkdownReviewerOptions {
     fn default() -> Self {
-        Self {
-            outline_width: rem(220.0),
-            show_outline: true,
-            themes: true,
-        }
+        Self { outline_width: rem(220.0), show_outline: true, themes: true }
     }
 }
 
@@ -111,19 +104,11 @@ pub struct MarkdownReviewer {
 impl MarkdownReviewer {
     #[must_use]
     pub fn new(document: Arc<MarkdownDocument>) -> Self {
-        Self::with_options(
-            document,
-            ReviewTheme::default(),
-            MarkdownReviewerOptions::default(),
-        )
+        Self::with_options(document, ReviewTheme::default(), MarkdownReviewerOptions::default())
     }
 
     #[must_use]
-    pub fn with_options(
-        document: Arc<MarkdownDocument>,
-        theme: ReviewTheme,
-        options: MarkdownReviewerOptions,
-    ) -> Self {
+    pub fn with_options(document: Arc<MarkdownDocument>, theme: ReviewTheme, options: MarkdownReviewerOptions) -> Self {
         let (rows, target_rows) = layout_rows(&document);
         let ui = UiTheme::new(&theme);
         Self {
@@ -239,23 +224,12 @@ impl MarkdownReviewer {
     fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         init_input(cx);
         let (theme, ui) = (self.theme.clone(), self.ui);
-        let picker = cx.new(|cx| {
-            ThemePicker::new(
-                "markdown-theme-picker",
-                &theme,
-                ThemeChoice::catalog(),
-                ui,
-                window,
-                cx,
-            )
-        });
+        let picker =
+            cx.new(|cx| ThemePicker::new("markdown-theme-picker", &theme, ThemeChoice::catalog(), ui, window, cx));
         let subscription = cx.subscribe(&picker, |reviewer, _, event: &ThemePickerEvent, cx| {
             reviewer.on_theme_picker_event(event, cx);
         });
-        self.overlay = Overlay::Themes {
-            picker,
-            _subscription: subscription,
-        };
+        self.overlay = Overlay::Themes { picker, _subscription: subscription };
         cx.notify();
     }
 
@@ -265,9 +239,7 @@ impl MarkdownReviewer {
             ThemePickerEvent::Commit(theme) => {
                 self.overlay = Overlay::None;
                 self.apply_theme(theme.clone(), cx);
-                cx.emit(ThemeChanged {
-                    id: theme.id().to_string(),
-                });
+                cx.emit(ThemeChanged { id: theme.id().to_string() });
             }
             ThemePickerEvent::Cancel(theme) => {
                 self.overlay = Overlay::None;
@@ -324,15 +296,10 @@ impl MarkdownReviewer {
     }
 
     fn mount_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let body = self
-            .session
-            .draft()
-            .map_or_else(String::new, |draft| draft.body().to_owned());
+        let body = self.session.draft().map_or_else(String::new, |draft| draft.body().to_owned());
         let editor = cx.new(|cx| CommentEditor::new(body, self.theme.clone(), window, cx));
-        self.editor_subscription = Some(cx.subscribe_in(
-            &editor,
-            window,
-            |reviewer, _, event: &CommentEditorEvent, window, cx| match event {
+        self.editor_subscription =
+            Some(cx.subscribe_in(&editor, window, |reviewer, _, event: &CommentEditorEvent, window, cx| match event {
                 CommentEditorEvent::Changed(body) => {
                     if let Some(draft) = reviewer.session.draft_mut() {
                         draft.set_body(body);
@@ -343,8 +310,7 @@ impl MarkdownReviewer {
                     reviewer.run(ReviewCommand::SubmitComment, window, cx);
                 }
                 CommentEditorEvent::Cancel => reviewer.run(ReviewCommand::Cancel, window, cx),
-            },
-        ));
+            }));
         self.editor = Some(editor.clone());
         editor.focus_handle(cx).focus(window, cx);
         self.reveal_selected_target();
@@ -363,11 +329,7 @@ impl MarkdownReviewer {
     }
 
     fn dismiss_comment(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .session
-            .draft()
-            .is_some_and(|draft| draft.editing() == Some(id))
-        {
+        if self.session.draft().is_some_and(|draft| draft.editing() == Some(id)) {
             self.discard_comment(cx);
         }
         self.session.review_mut().remove_comment(id);
@@ -409,9 +371,7 @@ impl EventEmitter<ThemeChanged> for MarkdownReviewer {}
 
 impl Focusable for MarkdownReviewer {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.focus_handle
-            .clone()
-            .unwrap_or_else(|| cx.focus_handle())
+        self.focus_handle.clone().unwrap_or_else(|| cx.focus_handle())
     }
 }
 
@@ -419,10 +379,7 @@ impl Render for MarkdownReviewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use MarkdownReviewCommand as C;
         use ReviewCommand as R;
-        let focus = self
-            .focus_handle
-            .get_or_insert_with(|| cx.focus_handle())
-            .clone();
+        let focus = self.focus_handle.get_or_insert_with(|| cx.focus_handle()).clone();
         if window.focused(cx).is_none() && self.editor.is_none() {
             focus.focus(window, cx);
         }
@@ -431,46 +388,25 @@ impl Render for MarkdownReviewer {
         div()
             .key_context(self.key_context())
             .track_focus(&focus)
-            .on_action(Self::dispatch::<MarkdownNextTarget>(
-                C::MoveSelection(1),
-                cx,
-            ))
-            .on_action(Self::dispatch::<MarkdownPreviousTarget>(
-                C::MoveSelection(-1),
-                cx,
-            ))
+            .on_action(Self::dispatch::<MarkdownNextTarget>(C::MoveSelection(1), cx))
+            .on_action(Self::dispatch::<MarkdownPreviousTarget>(C::MoveSelection(-1), cx))
             .on_action(Self::dispatch::<MarkdownFirstTarget>(C::First, cx))
             .on_action(Self::dispatch::<MarkdownLastTarget>(C::Last, cx))
             .on_action(Self::dispatch::<MarkdownNextHeading>(C::NextHeading, cx))
-            .on_action(Self::dispatch::<MarkdownPreviousHeading>(
-                C::PreviousHeading,
-                cx,
-            ))
+            .on_action(Self::dispatch::<MarkdownPreviousHeading>(C::PreviousHeading, cx))
             .on_action(Self::dispatch::<MarkdownPageUp>(C::Page(-1), cx))
             .on_action(Self::dispatch::<MarkdownPageDown>(C::Page(1), cx))
             .on_action(Self::dispatch::<MarkdownToggleFocus>(C::ToggleFocus, cx))
             .on_action(Self::dispatch::<MarkdownOpenSelected>(C::OpenSelected, cx))
             .on_action(Self::dispatch::<MarkdownApprove>(C::Approve, cx))
-            .on_action(Self::dispatch::<MarkdownRequestChanges>(
-                C::RequestChanges,
-                cx,
-            ))
+            .on_action(Self::dispatch::<MarkdownRequestChanges>(C::RequestChanges, cx))
             .on_action(Self::dispatch::<MarkdownAddComment>(R::BeginComment, cx))
             .on_action(Self::dispatch::<MarkdownEditComment>(R::EditComment, cx))
-            .on_action(Self::dispatch::<MarkdownDeleteComment>(
-                R::DeleteComment,
-                cx,
-            ))
+            .on_action(Self::dispatch::<MarkdownDeleteComment>(R::DeleteComment, cx))
             .on_action(Self::dispatch::<MarkdownUndoComment>(R::UndoComment, cx))
-            .on_action(Self::dispatch::<MarkdownSubmitComment>(
-                R::SubmitComment,
-                cx,
-            ))
+            .on_action(Self::dispatch::<MarkdownSubmitComment>(R::SubmitComment, cx))
             .on_action(Self::dispatch::<MarkdownShowShortcuts>(R::ShowHelp, cx))
-            .on_action(Self::dispatch::<MarkdownShowThemePicker>(
-                R::OpenThemePicker,
-                cx,
-            ))
+            .on_action(Self::dispatch::<MarkdownShowThemePicker>(R::OpenThemePicker, cx))
             .on_action(Self::dispatch::<MarkdownCancel>(R::Cancel, cx))
             .on_action(cx.listener(|reviewer, _: &MarkdownCopyReview, window, cx| {
                 reviewer.copy_review(window, cx);
@@ -492,9 +428,7 @@ impl Render for MarkdownReviewer {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .when(self.outline_visible(), |body| {
-                        body.child(self.render_outline(cx))
-                    })
+                    .when(self.outline_visible(), |body| body.child(self.render_outline(cx)))
                     .child(self.render_document(cx)),
             )
             .map(|reviewer| match &self.overlay {
@@ -505,14 +439,9 @@ impl Render for MarkdownReviewer {
     }
 }
 
-fn layout_rows(
-    document: &MarkdownDocument,
-) -> (Vec<DocumentRow>, HashMap<MarkdownTargetId, usize>) {
+fn layout_rows(document: &MarkdownDocument) -> (Vec<DocumentRow>, HashMap<MarkdownTargetId, usize>) {
     let rows = document_rows(document.blocks());
-    let target_rows = rows
-        .iter()
-        .enumerate()
-        .filter_map(|(index, row)| row.target.map(|target| (target, index)))
-        .collect();
+    let target_rows =
+        rows.iter().enumerate().filter_map(|(index, row)| row.target.map(|target| (target, index))).collect();
     (rows, target_rows)
 }

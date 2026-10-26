@@ -1,6 +1,6 @@
 use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand, DiffReviewEvent, FocusPane, Layout, RepoPath,
-    RepositoryAction, StageState, ViewMode, testing::DocumentBuilder,
+    DiffDocument, DiffReviewCommand, DiffReviewEvent, FocusPane, Layout, RepoPath, RepositoryAction, StageState,
+    ViewMode, testing::DocumentBuilder,
 };
 use clankerdiff_gpui::{
     testing::{DiffViewerHarnessBuilder, MarkdownReviewerHarnessBuilder},
@@ -18,23 +18,15 @@ fn source_hotkey_renders_one_column_and_restores_the_diff(cx: &mut TestAppContex
         let selected = harness.read(cx, |viewer, _| viewer.session().selected_row());
         let offset = harness.diff_scroll_top(cx);
         harness.simulate_keystrokes(cx, "o");
-        let header = harness
-            .bounds(cx, "source-mode-header")
-            .ok_or("source header not rendered")?;
+        let header = harness.bounds(cx, "source-mode-header").ok_or("source header not rendered")?;
         assert!(header.size.width > px(0.0));
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.layout()),
-            Layout::Unified
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.layout()), Layout::Unified);
         harness.simulate_keystrokes(cx, "shift-g c");
         assert!(harness.bounds(cx, "comment-input").is_none());
         harness.simulate_keystrokes(cx, "o");
         assert!(harness.bounds(cx, "source-mode-header").is_none());
         assert_eq!(harness.read(cx, |viewer, _| viewer.layout()), Layout::Split);
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.session().selected_row()),
-            selected
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.session().selected_row()), selected);
         let restored = harness.diff_scroll_top(cx);
         assert_eq!(restored.item_ix, offset.item_ix);
         assert_eq!(restored.offset_in_item, offset.offset_in_item);
@@ -46,33 +38,18 @@ fn source_hotkey_renders_one_column_and_restores_the_diff(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-fn source_round_trip_preserves_independent_scroll_across_snapshots_and_resize(
-    cx: &mut TestAppContext,
-) {
+fn source_round_trip_preserves_independent_scroll_across_snapshots_and_resize(cx: &mut TestAppContext) {
     let result = (|| -> Result<(), Box<dyn Error>> {
-        let builder = DocumentBuilder::new().changed(
-            "a.rs",
-            &"let old = 1;\n".repeat(100),
-            &"let new = 2;\n".repeat(100),
-        );
+        let builder =
+            DocumentBuilder::new().changed("a.rs", &"let old = 1;\n".repeat(100), &"let new = 2;\n".repeat(100));
         let document = builder.clone().build();
         for (replacement, resize) in [
             (document.clone(), false),
             (builder.clone().changed("b.rs", "old", "new").build(), false),
             (document.clone(), true),
         ] {
-            let harness = DiffViewerHarnessBuilder {
-                document: document.clone(),
-                ..Default::default()
-            }
-            .build(cx);
-            assert!(harness.dispatch_command(
-                cx,
-                DiffReviewCommand::Scroll {
-                    pane: FocusPane::Diff,
-                    lines: 35
-                }
-            )?);
+            let harness = DiffViewerHarnessBuilder { document: document.clone(), ..Default::default() }.build(cx);
+            assert!(harness.dispatch_command(cx, DiffReviewCommand::Scroll { pane: FocusPane::Diff, lines: 35 })?);
             let offset = harness.diff_scroll_top(cx);
             assert!(offset.item_ix > 0);
             let selected = harness.read(cx, |viewer, _| viewer.session().selected_row());
@@ -82,10 +59,7 @@ fn source_round_trip_preserves_independent_scroll_across_snapshots_and_resize(
                 harness.update(cx, |viewer, cx| viewer.set_document(equal, cx));
                 harness.draw(cx);
                 assert_eq!(harness.diff_scroll_top(cx).item_ix, source_offset.item_ix);
-                assert_eq!(
-                    harness.diff_scroll_top(cx).offset_in_item,
-                    source_offset.offset_in_item
-                );
+                assert_eq!(harness.diff_scroll_top(cx).offset_in_item, source_offset.offset_in_item);
             }
             harness.update(cx, |viewer, cx| {
                 viewer.set_document(replacement, cx);
@@ -96,14 +70,8 @@ fn source_round_trip_preserves_independent_scroll_across_snapshots_and_resize(
             harness.draw(cx);
             harness.simulate_keystrokes(cx, "o");
             assert_eq!(harness.diff_scroll_top(cx).item_ix, offset.item_ix);
-            assert_eq!(
-                harness.diff_scroll_top(cx).offset_in_item,
-                offset.offset_in_item
-            );
-            assert_eq!(
-                harness.read(cx, |viewer, _| viewer.session().selected_row()),
-                selected
-            );
+            assert_eq!(harness.diff_scroll_top(cx).offset_in_item, offset.offset_in_item);
+            assert_eq!(harness.read(cx, |viewer, _| viewer.session().selected_row()), selected);
             assert!(harness.dispatch_command(cx, DiffReviewCommand::ToggleSourceView)?);
         }
         Ok(())
@@ -141,27 +109,14 @@ fn snapshot_and_health_updates_do_not_settle_commands(cx: &mut TestAppContext) {
 fn renders_the_viewer_sidebar_and_diff_pane(cx: &mut TestAppContext) {
     let harness = viewer_builder().build(cx);
 
-    let root = harness
-        .bounds(cx, "diff-viewer")
-        .expect("viewer is painted");
-    let content = harness
-        .bounds(cx, "diff-viewer-content")
-        .expect("viewer content is painted");
-    let sidebar = harness
-        .bounds(cx, "diff-sidebar")
-        .expect("sidebar is painted");
-    let files = harness
-        .bounds(cx, "diff-files")
-        .expect("file tree is painted");
-    let diff = harness
-        .bounds(cx, "diff-pane")
-        .expect("diff pane is painted");
+    let root = harness.bounds(cx, "diff-viewer").expect("viewer is painted");
+    let content = harness.bounds(cx, "diff-viewer-content").expect("viewer content is painted");
+    let sidebar = harness.bounds(cx, "diff-sidebar").expect("sidebar is painted");
+    let files = harness.bounds(cx, "diff-files").expect("file tree is painted");
+    let diff = harness.bounds(cx, "diff-pane").expect("diff pane is painted");
 
     assert!(root.size.width > px(0.0));
-    assert!(
-        root.size.height > content.size.height,
-        "review bar uses remaining height"
-    );
+    assert!(root.size.height > content.size.height, "review bar uses remaining height");
     assert_eq!(sidebar.origin.x, content.origin.x);
     assert_eq!(files.origin.x, sidebar.origin.x);
     assert!(diff.origin.x > sidebar.origin.x);
@@ -175,12 +130,8 @@ fn comment_shortcut_renders_the_real_editor(cx: &mut TestAppContext) {
 
     harness.simulate_keystrokes(cx, "c");
 
-    let editor = harness
-        .bounds(cx, "comment-input")
-        .expect("comment editor is painted after the shortcut");
-    let diff = harness
-        .bounds(cx, "diff-pane")
-        .expect("diff pane is painted");
+    let editor = harness.bounds(cx, "comment-input").expect("comment editor is painted after the shortcut");
+    let diff = harness.bounds(cx, "diff-pane").expect("diff pane is painted");
     assert!(editor.size.width > px(0.0));
     assert!(editor.size.height >= px(96.0));
     assert!(editor.origin.x >= diff.origin.x);
@@ -210,27 +161,14 @@ fn scrolling_the_open_theme_picker_keeps_the_background_in_place(cx: &mut TestAp
     }
     .build(cx);
     harness.simulate_keystrokes(cx, "t");
-    assert!(
-        harness.read(cx, |viewer, _| viewer.theme_picker_open()),
-        "theme picker opens"
-    );
+    assert!(harness.read(cx, |viewer, _| viewer.theme_picker_open()), "theme picker opens");
     harness.scroll_to_bottom_of_diff(cx);
     let scrolled = harness.diff_scroll_top(cx);
-    assert!(
-        scrolled.item_ix > 0,
-        "the diff list starts away from the top"
-    );
+    assert!(scrolled.item_ix > 0, "the diff list starts away from the top");
     harness
-        .scroll(
-            cx,
-            "theme-picker-backdrop",
-            gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(240.0))),
-        )
+        .scroll(cx, "theme-picker-backdrop", gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(240.0))))
         .expect("the theme picker backdrop is painted");
-    assert!(
-        harness.read(cx, |viewer, _| viewer.theme_picker_open()),
-        "scrolling the picker keeps it open"
-    );
+    assert!(harness.read(cx, |viewer, _| viewer.theme_picker_open()), "scrolling the picker keeps it open");
     let after = harness.diff_scroll_top(cx);
     assert_eq!(scrolled.item_ix, after.item_ix);
     assert_eq!(scrolled.offset_in_item, after.offset_in_item);
@@ -243,9 +181,7 @@ fn replacing_a_document_that_drops_the_anchor_closes_the_editor(cx: &mut TestApp
     assert!(harness.bounds(cx, "comment-input").is_some());
 
     harness.update(cx, |viewer, cx| {
-        let replacement = DocumentBuilder::new()
-            .changed("other.rs", "a\n", "b\n")
-            .build();
+        let replacement = DocumentBuilder::new().changed("other.rs", "a\n", "b\n").build();
         viewer.set_document(replacement, cx);
     });
 
@@ -259,9 +195,7 @@ fn replacing_a_document_that_drops_the_anchor_closes_the_editor(cx: &mut TestApp
 fn comment_card_dismissal_immediately_targets_the_clicked_comment(cx: &mut TestAppContext) {
     for mode in [ViewMode::Unified, ViewMode::Split] {
         DiffViewerHarnessBuilder {
-            document: DocumentBuilder::new()
-                .changed("src/lib.rs", "old\nother\n", "new\nsecond\n")
-                .build(),
+            document: DocumentBuilder::new().changed("src/lib.rs", "old\nother\n", "new\nsecond\n").build(),
             ..Default::default()
         }
         .with_view_mode(mode)
@@ -286,56 +220,48 @@ fn comment_card_dismissal_immediately_targets_the_clicked_comment(cx: &mut TestA
 
 #[gpui::test]
 fn dismissing_a_queued_comment_preserves_an_active_draft(cx: &mut TestAppContext) {
-    DiffViewerHarnessBuilder::default()
-        .with_comments(["Queued"])
-        .run(cx, |harness, cx| {
-            harness.simulate_keystrokes(cx, "c");
-            harness.simulate_input(cx, "Still writing");
-            harness.click(cx, "dismiss-comment-0")?;
-            assert!(harness.review(cx).is_empty());
-            assert_eq!(harness.draft_body(cx).as_deref(), Some("Still writing"));
-            assert!(harness.comment_focused(cx)?);
-            harness.simulate_keystrokes(cx, "escape");
-            assert!(harness.bounds(cx, "comment-input").is_none());
-            Ok(())
-        });
+    DiffViewerHarnessBuilder::default().with_comments(["Queued"]).run(cx, |harness, cx| {
+        harness.simulate_keystrokes(cx, "c");
+        harness.simulate_input(cx, "Still writing");
+        harness.click(cx, "dismiss-comment-0")?;
+        assert!(harness.review(cx).is_empty());
+        assert_eq!(harness.draft_body(cx).as_deref(), Some("Still writing"));
+        assert!(harness.comment_focused(cx)?);
+        harness.simulate_keystrokes(cx, "escape");
+        assert!(harness.bounds(cx, "comment-input").is_none());
+        Ok(())
+    });
 }
 
 #[gpui::test]
 fn markdown_comment_cards_use_the_same_dismissal_controls(cx: &mut TestAppContext) {
-    MarkdownReviewerHarnessBuilder::default()
-        .with_comments(["First", "Second"])
-        .run(cx, |harness, cx| {
-            let target = harness
-                .read(cx, |reviewer, _| {
-                    reviewer.document().targets().get(1).map(|target| target.id)
-                })
-                .ok_or("missing other target")?;
-            assert!(harness.dispatch_command(cx, MarkdownReviewCommand::SelectTarget(target))?);
-            harness.click(cx, "dismiss-comment-0")?;
-            assert!(harness.review(cx).comment(0).is_none());
-            assert_eq!(harness.comment_bodies(cx), ["Second"]);
-            assert_eq!(harness.selected_target(cx), Some(target));
-            Ok(())
-        });
+    MarkdownReviewerHarnessBuilder::default().with_comments(["First", "Second"]).run(cx, |harness, cx| {
+        let target = harness
+            .read(cx, |reviewer, _| reviewer.document().targets().get(1).map(|target| target.id))
+            .ok_or("missing other target")?;
+        assert!(harness.dispatch_command(cx, MarkdownReviewCommand::SelectTarget(target))?);
+        harness.click(cx, "dismiss-comment-0")?;
+        assert!(harness.review(cx).comment(0).is_none());
+        assert_eq!(harness.comment_bodies(cx), ["Second"]);
+        assert_eq!(harness.selected_target(cx), Some(target));
+        Ok(())
+    });
 }
 
 #[gpui::test]
 fn dismissal_controls_support_keyboard_activation_without_viewer_actions(cx: &mut TestAppContext) {
     for key in ["enter", "space"] {
-        DiffViewerHarnessBuilder::default()
-            .with_comments(["Queued"])
-            .run(cx, |harness, cx| {
-                let selected = harness.selected_row(cx);
-                for _ in 0..3 {
-                    harness.focus_next(cx);
-                }
-                harness.press_key(cx, key);
-                assert!(harness.review(cx).is_empty());
-                assert_eq!(harness.selected_row(cx), selected);
-                assert_eq!(harness.events(cx).len(), 0);
-                Ok(())
-            });
+        DiffViewerHarnessBuilder::default().with_comments(["Queued"]).run(cx, |harness, cx| {
+            let selected = harness.selected_row(cx);
+            for _ in 0..3 {
+                harness.focus_next(cx);
+            }
+            harness.press_key(cx, key);
+            assert!(harness.review(cx).is_empty());
+            assert_eq!(harness.selected_row(cx), selected);
+            assert_eq!(harness.events(cx).len(), 0);
+            Ok(())
+        });
     }
 }
 
@@ -347,12 +273,8 @@ fn dismissal_button_fits_a_narrow_split_pane(cx: &mut TestAppContext) {
         .with_comments(["Queued"])
         .run(cx, |harness, cx| {
             harness.update(cx, |viewer, cx| viewer.set_sidebar_width(rem(180.0), cx));
-            let card = harness
-                .bounds(cx, "review-comment-0")
-                .ok_or("missing card")?;
-            let button = harness
-                .bounds(cx, "dismiss-comment-0")
-                .ok_or("missing dismissal control")?;
+            let card = harness.bounds(cx, "review-comment-0").ok_or("missing card")?;
+            let button = harness.bounds(cx, "dismiss-comment-0").ok_or("missing dismissal control")?;
             assert!(button.origin.x >= card.origin.x);
             assert!(button.right() <= card.right());
             assert!(button.bottom() <= card.bottom());
@@ -364,146 +286,91 @@ fn dismissal_button_fits_a_narrow_split_pane(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn dismissing_the_comment_being_edited_closes_its_editor(cx: &mut TestAppContext) {
-    DiffViewerHarnessBuilder::default()
-        .with_comments(["Queued"])
-        .run(cx, |harness, cx| {
-            harness.simulate_keystrokes(cx, "e");
-            assert!(harness.bounds(cx, "comment-input").is_some());
-            harness.click(cx, "dismiss-comment-0")?;
-            assert!(harness.review(cx).is_empty());
-            assert!(harness.draft_body(cx).is_none());
-            assert!(harness.bounds(cx, "comment-input").is_none());
-            Ok(())
-        });
+    DiffViewerHarnessBuilder::default().with_comments(["Queued"]).run(cx, |harness, cx| {
+        harness.simulate_keystrokes(cx, "e");
+        assert!(harness.bounds(cx, "comment-input").is_some());
+        harness.click(cx, "dismiss-comment-0")?;
+        assert!(harness.review(cx).is_empty());
+        assert!(harness.draft_body(cx).is_none());
+        assert!(harness.bounds(cx, "comment-input").is_none());
+        Ok(())
+    });
 }
 
 #[gpui::test]
 fn sidebar_defaults_to_a_responsive_quarter_of_the_window(cx: &mut TestAppContext) {
-    for (width, expected) in [
-        (600.0, 280.0),
-        (1_000.0, 320.0),
-        (1_600.0, 400.0),
-        (2_800.0, 700.0),
-        (4_000.0, 960.0),
-    ] {
-        DiffViewerHarnessBuilder::default()
-            .with_window_size(width, 700.0)
+    for (width, expected) in [(600.0, 280.0), (1_000.0, 320.0), (1_600.0, 400.0), (2_800.0, 700.0), (4_000.0, 960.0)] {
+        DiffViewerHarnessBuilder::default().with_window_size(width, 700.0).run(cx, |harness, cx| {
+            let sidebar = harness.bounds(cx, "diff-sidebar").ok_or("missing sidebar")?;
+            assert_eq!(sidebar.size.width, px(expected));
+            assert!((harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(expected).0).abs() < f32::EPSILON);
+            harness.update(cx, |viewer, cx| viewer.set_sidebar_width(rem(240.0), cx));
+            harness.draw(cx);
+            assert_eq!(harness.bounds(cx, "diff-sidebar").ok_or("missing sidebar")?.size.width, px(240.0));
+            Ok(())
+        });
+    }
+}
+
+#[gpui::test]
+fn sidebar_tracks_window_resizes_until_manually_sized(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default().with_window_size(1_600.0, 700.0).run(cx, |harness, cx| {
+        cx.simulate_window_resize(harness.window(), size(px(2_000.0), px(700.0)));
+        harness.draw(cx);
+        assert!((harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(500.0).0).abs() < f32::EPSILON);
+        harness.update(cx, |viewer, cx| viewer.set_sidebar_width(rem(450.0), cx));
+        for (width, expected) in [(600.0, 280.0), (2_000.0, 450.0)] {
+            cx.simulate_window_resize(harness.window(), size(px(width), px(700.0)));
+            harness.draw(cx);
+            assert!((harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(expected).0).abs() < f32::EPSILON);
+        }
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn dragging_the_drawer_edge_resizes_it(cx: &mut TestAppContext) {
+    DiffViewerHarnessBuilder::default().with_window_size(1_600.0, 700.0).run(cx, |harness, cx| {
+        let handle = harness.bounds(cx, "diff-sidebar-resize-handle").ok_or("missing resize handle")?;
+        harness.drag(cx, "diff-sidebar-resize-handle", gpui::point(px(500.0), handle.center().y))?;
+        let width = harness.read(cx, |viewer, _| viewer.sidebar_width());
+        assert!((width.0 - rem(500.0).0).abs() < 0.01);
+        cx.simulate_window_resize(harness.window(), size(px(2_400.0), px(700.0)));
+        harness.draw(cx);
+        let width = harness.read(cx, |viewer, _| viewer.sidebar_width());
+        assert!((width.0 - rem(500.0).0).abs() < 0.01);
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn the_drawer_scales_with_the_interface_size(cx: &mut TestAppContext) {
+    for interface_size in [16.0, 20.0] {
+        DiffViewerHarnessBuilder { interface_size, ..DiffViewerHarnessBuilder::default() }
+            .with_window_size(1_600.0, 700.0)
             .run(cx, |harness, cx| {
-                let sidebar = harness
-                    .bounds(cx, "diff-sidebar")
-                    .ok_or("missing sidebar")?;
-                assert_eq!(sidebar.size.width, px(expected));
-                assert!(
-                    (harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(expected).0)
-                        .abs()
-                        < f32::EPSILON
-                );
-                harness.update(cx, |viewer, cx| viewer.set_sidebar_width(rem(240.0), cx));
-                harness.draw(cx);
-                assert_eq!(
-                    harness
-                        .bounds(cx, "diff-sidebar")
-                        .ok_or("missing sidebar")?
-                        .size
-                        .width,
-                    px(240.0)
-                );
+                let scale = interface_size / BASE_SIZE;
+                let row = harness.bounds(cx, "diff-file:src/lib.rs").ok_or("missing file row")?;
+                assert_eq!(row.size.height, px(ROW_HEIGHT * scale));
+                let checkbox = harness.bounds(cx, "diff-file-checkbox:0").ok_or("missing file checkbox")?;
+                assert_eq!(checkbox.size.width, px(CHECKBOX_SIZE * scale));
+                let directory = harness.bounds(cx, "diff-directory:src").ok_or("missing directory row")?;
+                assert_eq!(directory.size.height, row.size.height);
                 Ok(())
             });
     }
 }
 
 #[gpui::test]
-fn sidebar_tracks_window_resizes_until_manually_sized(cx: &mut TestAppContext) {
-    DiffViewerHarnessBuilder::default()
-        .with_window_size(1_600.0, 700.0)
-        .run(cx, |harness, cx| {
-            cx.simulate_window_resize(harness.window(), size(px(2_000.0), px(700.0)));
-            harness.draw(cx);
-            assert!(
-                (harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(500.0).0).abs()
-                    < f32::EPSILON
-            );
-            harness.update(cx, |viewer, cx| viewer.set_sidebar_width(rem(450.0), cx));
-            for (width, expected) in [(600.0, 280.0), (2_000.0, 450.0)] {
-                cx.simulate_window_resize(harness.window(), size(px(width), px(700.0)));
-                harness.draw(cx);
-                assert!(
-                    (harness.read(cx, |viewer, _| viewer.sidebar_width()).0 - rem(expected).0)
-                        .abs()
-                        < f32::EPSILON
-                );
-            }
-            Ok(())
-        });
-}
-
-#[gpui::test]
-fn dragging_the_drawer_edge_resizes_it(cx: &mut TestAppContext) {
-    DiffViewerHarnessBuilder::default()
-        .with_window_size(1_600.0, 700.0)
-        .run(cx, |harness, cx| {
-            let handle = harness
-                .bounds(cx, "diff-sidebar-resize-handle")
-                .ok_or("missing resize handle")?;
-            harness.drag(
-                cx,
-                "diff-sidebar-resize-handle",
-                gpui::point(px(500.0), handle.center().y),
-            )?;
-            let width = harness.read(cx, |viewer, _| viewer.sidebar_width());
-            assert!((width.0 - rem(500.0).0).abs() < 0.01);
-            cx.simulate_window_resize(harness.window(), size(px(2_400.0), px(700.0)));
-            harness.draw(cx);
-            let width = harness.read(cx, |viewer, _| viewer.sidebar_width());
-            assert!((width.0 - rem(500.0).0).abs() < 0.01);
-            Ok(())
-        });
-}
-
-#[gpui::test]
-fn the_drawer_scales_with_the_interface_size(cx: &mut TestAppContext) {
-    for interface_size in [16.0, 20.0] {
-        DiffViewerHarnessBuilder {
-            interface_size,
-            ..DiffViewerHarnessBuilder::default()
-        }
-        .with_window_size(1_600.0, 700.0)
-        .run(cx, |harness, cx| {
-            let scale = interface_size / BASE_SIZE;
-            let row = harness
-                .bounds(cx, "diff-file:src/lib.rs")
-                .ok_or("missing file row")?;
-            assert_eq!(row.size.height, px(ROW_HEIGHT * scale));
-            let checkbox = harness
-                .bounds(cx, "diff-file-checkbox:0")
-                .ok_or("missing file checkbox")?;
-            assert_eq!(checkbox.size.width, px(CHECKBOX_SIZE * scale));
-            let directory = harness
-                .bounds(cx, "diff-directory:src")
-                .ok_or("missing directory row")?;
-            assert_eq!(directory.size.height, row.size.height);
-            Ok(())
-        });
-    }
-}
-
-#[gpui::test]
 fn toolbar_controls_change_the_interface_size(cx: &mut TestAppContext) {
     DiffViewerHarnessBuilder::default().run(cx, |harness, cx| {
-        let before = harness
-            .bounds(cx, "diff-file:src/lib.rs")
-            .ok_or("missing file row")?;
+        let before = harness.bounds(cx, "diff-file:src/lib.rs").ok_or("missing file row")?;
         harness.click(cx, "increase-interface-size")?;
         harness.click(cx, "increase-interface-size")?;
-        let after = harness
-            .bounds(cx, "diff-file:src/lib.rs")
-            .ok_or("missing file row")?;
+        let after = harness.bounds(cx, "diff-file:src/lib.rs").ok_or("missing file row")?;
         assert_eq!(after.size.height, before.size.height * (18.0 / 16.0));
         harness.click(cx, "reset-interface-size")?;
-        let reset = harness
-            .bounds(cx, "diff-file:src/lib.rs")
-            .ok_or("missing file row")?;
+        let reset = harness.bounds(cx, "diff-file:src/lib.rs").ok_or("missing file row")?;
         assert_eq!(reset.size.height, before.size.height);
         Ok(())
     });
@@ -511,11 +378,7 @@ fn toolbar_controls_change_the_interface_size(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn staging_checkboxes_keep_their_geometry_and_do_not_activate_rows(cx: &mut TestAppContext) {
-    for stage in [
-        StageState::Unstaged,
-        StageState::Staged,
-        StageState::PartiallyStaged,
-    ] {
+    for stage in [StageState::Unstaged, StageState::Staged, StageState::PartiallyStaged] {
         DiffViewerHarnessBuilder {
             document: DocumentBuilder::new()
                 .changed_staged("src/lib.rs", "old", "new", stage)
@@ -525,29 +388,19 @@ fn staging_checkboxes_keep_their_geometry_and_do_not_activate_rows(cx: &mut Test
         }
         .run(cx, |harness, cx| {
             harness.dispatch_command(cx, DiffReviewCommand::SelectFile(1))?;
-            let file = harness
-                .bounds(cx, "diff-file-checkbox:0")
-                .ok_or("missing file checkbox")?;
-            let directory = harness
-                .bounds(cx, "diff-directory-checkbox:src")
-                .ok_or("missing directory checkbox")?;
+            let file = harness.bounds(cx, "diff-file-checkbox:0").ok_or("missing file checkbox")?;
+            let directory = harness.bounds(cx, "diff-directory-checkbox:src").ok_or("missing directory checkbox")?;
             assert_eq!(file.size.width, px(CHECKBOX_SIZE));
             assert_eq!(file.size.height, px(CHECKBOX_SIZE));
             assert_eq!(file.size, directory.size);
             harness.click(cx, "diff-file-checkbox:0")?;
-            assert_eq!(
-                harness.read(cx, |viewer, _| viewer.selected_file()),
-                Some(1)
-            );
+            assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
             let expected = if stage == StageState::Staged {
                 RepositoryAction::UnstagePaths(vec![RepoPath::new("src/lib.rs")?])
             } else {
                 RepositoryAction::StagePaths(vec![RepoPath::new("src/lib.rs")?])
             };
-            assert_eq!(
-                harness.events(cx),
-                vec![DiffReviewEvent::RepositoryAction(expected)]
-            );
+            assert_eq!(harness.events(cx), vec![DiffReviewEvent::RepositoryAction(expected)]);
             harness.update(cx, |viewer, cx| viewer.set_repository_pending(false, cx));
             harness.click(cx, "diff-directory-checkbox:src")?;
             assert!(harness.bounds(cx, "diff-file-checkbox:0").is_some());
@@ -558,9 +411,7 @@ fn staging_checkboxes_keep_their_geometry_and_do_not_activate_rows(cx: &mut Test
 }
 
 #[gpui::test]
-fn staging_checkboxes_support_keyboard_activation_without_viewer_shortcuts(
-    cx: &mut TestAppContext,
-) {
+fn staging_checkboxes_support_keyboard_activation_without_viewer_shortcuts(cx: &mut TestAppContext) {
     for key in ["enter", "space"] {
         DiffViewerHarnessBuilder {
             document: DocumentBuilder::new().changed("a.rs", "old", "new").build(),
@@ -572,9 +423,7 @@ fn staging_checkboxes_support_keyboard_activation_without_viewer_shortcuts(
             harness.press_key(cx, key);
             assert_eq!(
                 harness.events(cx),
-                vec![DiffReviewEvent::RepositoryAction(
-                    RepositoryAction::StagePaths(vec![RepoPath::new("a.rs")?])
-                )]
+                vec![DiffReviewEvent::RepositoryAction(RepositoryAction::StagePaths(vec![RepoPath::new("a.rs")?]))]
             );
             Ok(())
         });
@@ -584,10 +433,7 @@ fn staging_checkboxes_support_keyboard_activation_without_viewer_shortcuts(
 #[gpui::test]
 fn staging_refresh_preserves_selected_collapsed_directory(cx: &mut TestAppContext) {
     DiffViewerHarnessBuilder {
-        document: DocumentBuilder::new()
-            .changed("src/lib.rs", "old", "new")
-            .changed("z.rs", "old", "new")
-            .build(),
+        document: DocumentBuilder::new().changed("src/lib.rs", "old", "new").changed("z.rs", "old", "new").build(),
         ..Default::default()
     }
     .run(cx, |harness, cx| {
@@ -606,17 +452,14 @@ fn staging_refresh_preserves_selected_collapsed_directory(cx: &mut TestAppContex
             viewer.set_repository_pending(false, cx);
         });
         harness.draw(cx);
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.selected_file()),
-            Some(1)
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
         assert!(harness.bounds(cx, "diff-file-checkbox:1").is_none());
         assert!(harness.dispatch_command(cx, DiffReviewCommand::ToggleStage)?);
         assert_eq!(
             harness.events(cx).last(),
-            Some(&DiffReviewEvent::RepositoryAction(
-                RepositoryAction::UnstagePaths(vec![RepoPath::new("src/lib.rs")?])
-            ))
+            Some(&DiffReviewEvent::RepositoryAction(RepositoryAction::UnstagePaths(vec![RepoPath::new(
+                "src/lib.rs"
+            )?])))
         );
         Ok(())
     });
@@ -625,10 +468,7 @@ fn staging_refresh_preserves_selected_collapsed_directory(cx: &mut TestAppContex
 #[gpui::test]
 fn staging_refresh_preserves_file_selection_and_checkbox_focus_by_path(cx: &mut TestAppContext) {
     DiffViewerHarnessBuilder {
-        document: DocumentBuilder::new()
-            .changed("a.rs", "old", "new")
-            .changed("b.rs", "old", "new")
-            .build(),
+        document: DocumentBuilder::new().changed("a.rs", "old", "new").changed("b.rs", "old", "new").build(),
         ..Default::default()
     }
     .run(cx, |harness, cx| {
@@ -645,20 +485,13 @@ fn staging_refresh_preserves_file_selection_and_checkbox_focus_by_path(cx: &mut 
             viewer.set_repository_pending(false, cx);
         });
         harness.draw(cx);
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.selected_file()),
-            Some(1)
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
         harness.press_key(cx, "space");
         assert_eq!(
             harness.events(cx),
             vec![
-                DiffReviewEvent::RepositoryAction(RepositoryAction::StagePaths(vec![
-                    RepoPath::new("a.rs")?
-                ])),
-                DiffReviewEvent::RepositoryAction(RepositoryAction::UnstagePaths(vec![
-                    RepoPath::new("a.rs")?
-                ])),
+                DiffReviewEvent::RepositoryAction(RepositoryAction::StagePaths(vec![RepoPath::new("a.rs")?])),
+                DiffReviewEvent::RepositoryAction(RepositoryAction::UnstagePaths(vec![RepoPath::new("a.rs")?])),
             ]
         );
         Ok(())
@@ -670,12 +503,7 @@ fn directory_staging_only_sends_unstaged_and_partial_changes(cx: &mut TestAppCon
     DiffViewerHarnessBuilder {
         document: DocumentBuilder::new()
             .changed_staged("src/deleted.rs", "old\n", "", StageState::Staged)
-            .changed_staged(
-                "src/partial.rs",
-                "old\n",
-                "new\n",
-                StageState::PartiallyStaged,
-            )
+            .changed_staged("src/partial.rs", "old\n", "new\n", StageState::PartiallyStaged)
             .changed("src/edit.rs", "old\n", "new\n")
             .changed("other.rs", "old\n", "new\n")
             .build(),
@@ -685,12 +513,10 @@ fn directory_staging_only_sends_unstaged_and_partial_changes(cx: &mut TestAppCon
         harness.click(cx, "diff-directory-checkbox:src")?;
         assert_eq!(
             harness.events(cx),
-            vec![DiffReviewEvent::RepositoryAction(
-                RepositoryAction::StagePaths(vec![
-                    RepoPath::new("src/partial.rs")?,
-                    RepoPath::new("src/edit.rs")?
-                ])
-            )]
+            vec![DiffReviewEvent::RepositoryAction(RepositoryAction::StagePaths(vec![
+                RepoPath::new("src/partial.rs")?,
+                RepoPath::new("src/edit.rs")?
+            ]))]
         );
         Ok(())
     });
@@ -698,30 +524,18 @@ fn directory_staging_only_sends_unstaged_and_partial_changes(cx: &mut TestAppCon
 
 #[gpui::test]
 fn directory_unstaging_includes_a_renames_source_outside_the_directory(cx: &mut TestAppContext) {
-    let mut document = (*DocumentBuilder::new()
-        .renamed(
-            "old/source.rs",
-            "new/destination.rs",
-            "content\n",
-            "content\n",
-        )
-        .build())
-    .clone();
+    let mut document =
+        (*DocumentBuilder::new().renamed("old/source.rs", "new/destination.rs", "content\n", "content\n").build())
+            .clone();
     document.files[0].staged = StageState::Staged;
-    DiffViewerHarnessBuilder {
-        document: Arc::new(document),
-        ..Default::default()
-    }
-    .run(cx, |harness, cx| {
+    DiffViewerHarnessBuilder { document: Arc::new(document), ..Default::default() }.run(cx, |harness, cx| {
         harness.click(cx, "diff-directory-checkbox:new")?;
         assert_eq!(
             harness.events(cx),
-            vec![DiffReviewEvent::RepositoryAction(
-                RepositoryAction::UnstagePaths(vec![
-                    RepoPath::new("new/destination.rs")?,
-                    RepoPath::new("old/source.rs")?
-                ])
-            )]
+            vec![DiffReviewEvent::RepositoryAction(RepositoryAction::UnstagePaths(vec![
+                RepoPath::new("new/destination.rs")?,
+                RepoPath::new("old/source.rs")?
+            ]))]
         );
         Ok(())
     });
@@ -743,43 +557,31 @@ fn equal_document() -> Arc<DiffDocument> {
 }
 
 fn viewer_builder() -> DiffViewerHarnessBuilder {
-    DiffViewerHarnessBuilder {
-        document: document_builder().build(),
-        ..DiffViewerHarnessBuilder::default()
-    }
+    DiffViewerHarnessBuilder { document: document_builder().build(), ..DiffViewerHarnessBuilder::default() }
 }
 
 #[gpui::test]
 fn hiding_the_file_tree_gives_its_room_to_the_diff(cx: &mut TestAppContext) {
-    DiffViewerHarnessBuilder::default()
-        .with_window_size(1_000.0, 700.0)
-        .run(cx, |harness, cx| {
-            let expanded = harness
-                .bounds(cx, "diff-sidebar-toggle")
-                .ok_or("missing toggle in the file tree")?;
-            harness.click(cx, "diff-sidebar-toggle")?;
-            assert!(harness.bounds(cx, "diff-sidebar").is_none());
-            assert!(harness.read(cx, |viewer, _| viewer.sidebar_collapsed()));
-            let pane = harness.bounds(cx, "diff-pane").ok_or("missing diff pane")?;
-            assert_eq!(pane.size.width, px(1_000.0));
-            let collapsed = harness
-                .bounds(cx, "diff-sidebar-toggle")
-                .ok_or("missing toggle in the diff toolbar")?;
-            assert_eq!(collapsed.origin.x, expanded.origin.x);
-            harness.click(cx, "diff-sidebar-toggle")?;
-            assert!(harness.bounds(cx, "diff-sidebar").is_some());
-            Ok(())
-        });
+    DiffViewerHarnessBuilder::default().with_window_size(1_000.0, 700.0).run(cx, |harness, cx| {
+        let expanded = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing toggle in the file tree")?;
+        harness.click(cx, "diff-sidebar-toggle")?;
+        assert!(harness.bounds(cx, "diff-sidebar").is_none());
+        assert!(harness.read(cx, |viewer, _| viewer.sidebar_collapsed()));
+        let pane = harness.bounds(cx, "diff-pane").ok_or("missing diff pane")?;
+        assert_eq!(pane.size.width, px(1_000.0));
+        let collapsed = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing toggle in the diff toolbar")?;
+        assert_eq!(collapsed.origin.x, expanded.origin.x);
+        harness.click(cx, "diff-sidebar-toggle")?;
+        assert!(harness.bounds(cx, "diff-sidebar").is_some());
+        Ok(())
+    });
 }
 
 #[gpui::test]
 fn the_file_tree_shortcut_hides_it_and_focusing_files_shows_it_again(cx: &mut TestAppContext) {
     DiffViewerHarnessBuilder::default().run(cx, |harness, cx| {
         harness.simulate_keystrokes(cx, "tab");
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.pane()),
-            FocusPane::Files
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.pane()), FocusPane::Files);
         harness.simulate_keystrokes(cx, "b");
         assert!(harness.bounds(cx, "diff-sidebar").is_none());
         assert_eq!(
@@ -789,10 +591,7 @@ fn the_file_tree_shortcut_hides_it_and_focusing_files_shows_it_again(cx: &mut Te
         );
         harness.simulate_keystrokes(cx, "tab");
         assert!(harness.bounds(cx, "diff-sidebar").is_some());
-        assert_eq!(
-            harness.read(cx, |viewer, _| viewer.pane()),
-            FocusPane::Files
-        );
+        assert_eq!(harness.read(cx, |viewer, _| viewer.pane()), FocusPane::Files);
         Ok(())
     });
 }

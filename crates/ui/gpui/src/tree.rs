@@ -6,8 +6,8 @@ use crate::{
     typography::{Typography, TypographyExt},
 };
 use gpui::{
-    AnyElement, App, ClickEvent, ElementId, Hsla, IntoElement, ParentElement, Rems, RenderOnce,
-    Role, SharedString, Window, div, prelude::*,
+    AnyElement, App, ClickEvent, ElementId, Hsla, IntoElement, ParentElement, Rems, RenderOnce, Role, SharedString,
+    Window, div, prelude::*,
 };
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -90,10 +90,7 @@ impl TreeRow {
     }
 
     #[must_use]
-    pub fn on_click(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Box::new(handler));
         self
     }
@@ -111,13 +108,8 @@ impl RenderOnce for TreeRow {
         let selector = self.id.to_string();
         let group = ListRow::hover_group(&selector);
         let label_selector = format!("{selector}-label");
-        let chevron = self.expanded.map(|expanded| {
-            if expanded {
-                IconName::ChevronDown
-            } else {
-                IconName::ChevronRight
-            }
-        });
+        let chevron =
+            self.expanded.map(|expanded| if expanded { IconName::ChevronDown } else { IconName::ChevronRight });
         div()
             .id(self.id)
             .group(group)
@@ -126,10 +118,7 @@ impl RenderOnce for TreeRow {
             .aria_label(self.aria_label.unwrap_or_else(|| self.label.clone()))
             .aria_level(self.depth + 1)
             .aria_selected(self.selected)
-            .when_some(
-                self.expanded,
-                gpui::StatefulInteractiveElement::aria_expanded,
-            )
+            .when_some(self.expanded, gpui::StatefulInteractiveElement::aria_expanded)
             .w_full()
             .min_w_0()
             .h(rem(tokens::ROW_HEIGHT))
@@ -143,37 +132,16 @@ impl RenderOnce for TreeRow {
             .typography(Typography::Body)
             .text_color(self.label_color.unwrap_or(colors.text))
             .when(self.selected, |row| row.bg(colors.surface_selected))
-            .when(!self.selected, |row| {
-                row.hover(move |row| row.bg(colors.surface_hover))
-            })
-            .when_some(self.on_click, |row, handler| {
-                row.cursor_pointer().on_click(handler)
-            })
+            .when(!self.selected, |row| row.hover(move |row| row.bg(colors.surface_hover)))
+            .when_some(self.on_click, |row, handler| row.cursor_pointer().on_click(handler))
             .child(
-                div()
-                    .flex_none()
-                    .size(rem(tokens::ICON_SIZE))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .children(chevron.map(|chevron| {
-                        Icon::new(chevron, colors.text_muted).size(tokens::ICON_SIZE_SMALL)
-                    })),
+                div().flex_none().size(rem(tokens::ICON_SIZE)).flex().items_center().justify_center().children(
+                    chevron.map(|chevron| Icon::new(chevron, colors.text_muted).size(tokens::ICON_SIZE_SMALL)),
+                ),
             )
             .children(self.leading)
-            .children(
-                self.icon
-                    .map(|(icon, color)| Icon::new(icon, color.unwrap_or(colors.text_muted))),
-            )
-            .child(
-                div()
-                    .debug_selector(move || label_selector)
-                    .flex_1()
-                    .min_w_0()
-                    .ml_1()
-                    .truncate()
-                    .child(self.label),
-            )
+            .children(self.icon.map(|(icon, color)| Icon::new(icon, color.unwrap_or(colors.text_muted))))
+            .child(div().debug_selector(move || label_selector).flex_1().min_w_0().ml_1().truncate().child(self.label))
             .children(self.children)
     }
 }

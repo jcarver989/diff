@@ -114,25 +114,18 @@ pub fn default_file() -> Option<PathBuf> {
 impl RemotesFile {
     pub fn read(file: &Path) -> Result<Self, RemoteError> {
         match fs::read_to_string(file) {
-            Ok(text) => serde_json::from_str(&text).map_err(|source| RemoteError::Parse {
-                path: file.to_owned(),
-                source,
-            }),
+            Ok(text) => {
+                serde_json::from_str(&text).map_err(|source| RemoteError::Parse { path: file.to_owned(), source })
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(source) => Err(RemoteError::Read {
-                path: file.to_owned(),
-                source,
-            }),
+            Err(source) => Err(RemoteError::Read { path: file.to_owned(), source }),
         }
     }
 }
 
 impl RemoteSpec {
     pub fn named(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            ..Self::default()
-        }
+        Self { name: name.into(), ..Self::default() }
     }
 
     #[must_use]
@@ -150,14 +143,8 @@ impl RemoteSpec {
         self.can(Action::from(change))
     }
 
-    pub fn invocation(
-        &self,
-        action: Action,
-        instance: Option<&str>,
-    ) -> Result<Option<Invocation>, RemoteError> {
-        self.command(action)
-            .map(|argv| self.expand_command(argv, action, instance))
-            .transpose()
+    pub fn invocation(&self, action: Action, instance: Option<&str>) -> Result<Option<Invocation>, RemoteError> {
+        self.command(action).map(|argv| self.expand_command(argv, action, instance)).transpose()
     }
 
     pub fn acp(&self, instance: Option<&str>) -> Result<Option<AcpTarget>, RemoteError> {
@@ -165,18 +152,10 @@ impl RemoteSpec {
             return Ok(None);
         };
         let transport = match &acp.transport {
-            AcpCommand::Stdio(argv) => {
-                AcpTransport::Stdio(self.expand_command(argv, "acp", instance)?)
-            }
-            AcpCommand::Websocket(argv) => {
-                AcpTransport::Websocket(self.expand_command(argv, "acp", instance)?)
-            }
+            AcpCommand::Stdio(argv) => AcpTransport::Stdio(self.expand_command(argv, "acp", instance)?),
+            AcpCommand::Websocket(argv) => AcpTransport::Websocket(self.expand_command(argv, "acp", instance)?),
         };
-        let cwd = acp
-            .cwd
-            .as_deref()
-            .map(|cwd| self.expand(cwd, instance))
-            .transpose()?;
+        let cwd = acp.cwd.as_deref().map(|cwd| self.expand(cwd, instance)).transpose()?;
         Ok(Some(AcpTarget { transport, cwd }))
     }
 
@@ -199,46 +178,24 @@ impl RemoteSpec {
         instance: Option<&str>,
     ) -> Result<Invocation, RemoteError> {
         let Some((program, rest)) = words.split_first() else {
-            return Err(RemoteError::EmptyCommand {
-                remote: self.name.clone(),
-                action: action.to_string(),
-            });
+            return Err(RemoteError::EmptyCommand { remote: self.name.clone(), action: action.to_string() });
         };
-        let program = expand_home(Path::new(&self.expand(program, instance)?))
-            .to_string_lossy()
-            .into_owned();
-        let args = rest
-            .iter()
-            .map(|arg| self.expand(arg, instance))
-            .collect::<Result<_, _>>()?;
+        let program = expand_home(Path::new(&self.expand(program, instance)?)).to_string_lossy().into_owned();
+        let args = rest.iter().map(|arg| self.expand(arg, instance)).collect::<Result<_, _>>()?;
         let env = self
             .env
             .iter()
             .map(|(name, value)| Ok((name.clone(), self.expand(value, instance)?)))
             .collect::<Result<_, RemoteError>>()?;
-        let dir = self
-            .dir
-            .as_deref()
-            .map(expand_home)
-            .or_else(std::env::home_dir)
-            .unwrap_or_else(|| "/".into());
-        Ok(Invocation {
-            program,
-            args,
-            dir,
-            env,
-        })
+        let dir = self.dir.as_deref().map(expand_home).or_else(std::env::home_dir).unwrap_or_else(|| "/".into());
+        Ok(Invocation { program, args, dir, env })
     }
 
     fn expand(&self, template: &str, instance: Option<&str>) -> Result<String, RemoteError> {
         expand(template, |name| match name {
             "ID" => instance.map(str::to_owned),
             "NAME" => Some(self.name.clone()),
-            _ => self
-                .vars
-                .get(name)
-                .cloned()
-                .or_else(|| std::env::var(name).ok()),
+            _ => self.vars.get(name).cloned().or_else(|| std::env::var(name).ok()),
         })
     }
 }
@@ -246,18 +203,12 @@ impl RemoteSpec {
 impl Acp {
     #[must_use]
     pub fn stdio(argv: Vec<String>) -> Self {
-        Self {
-            transport: AcpCommand::Stdio(argv),
-            cwd: None,
-        }
+        Self { transport: AcpCommand::Stdio(argv), cwd: None }
     }
 
     #[must_use]
     pub fn websocket(argv: Vec<String>) -> Self {
-        Self {
-            transport: AcpCommand::Websocket(argv),
-            cwd: None,
-        }
+        Self { transport: AcpCommand::Websocket(argv), cwd: None }
     }
 }
 
@@ -270,10 +221,7 @@ impl TryFrom<AcpFields> for Acp {
             (None, Some(argv)) => AcpCommand::Websocket(argv),
             _ => return Err("`acp` needs exactly one of `stdio` and `websocket`"),
         };
-        Ok(Self {
-            transport,
-            cwd: fields.cwd,
-        })
+        Ok(Self { transport, cwd: fields.cwd })
     }
 }
 
@@ -283,11 +231,7 @@ impl From<Acp> for AcpFields {
             AcpCommand::Stdio(argv) => (Some(argv), None),
             AcpCommand::Websocket(argv) => (None, Some(argv)),
         };
-        Self {
-            stdio,
-            websocket,
-            cwd: acp.cwd,
-        }
+        Self { stdio, websocket, cwd: acp.cwd }
     }
 }
 

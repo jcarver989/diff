@@ -19,10 +19,7 @@ pub fn install(cx: &mut App, handle: Handle) {
 }
 
 /// Runs `operation` on the installed Tokio runtime. Dropping the returned task aborts it.
-pub fn spawn<T>(
-    cx: &impl AppContext,
-    operation: impl Future<Output = T> + Send + 'static,
-) -> Task<Result<T, JoinError>>
+pub fn spawn<T>(cx: &impl AppContext, operation: impl Future<Output = T> + Send + 'static) -> Task<Result<T, JoinError>>
 where
     T: Send + 'static,
 {

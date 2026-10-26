@@ -26,12 +26,7 @@ impl<T: Serialize + DeserializeOwned + Default + Clone + PartialEq + Send + 'sta
             }
             async {}
         });
-        Self {
-            state,
-            file,
-            save: None,
-            _quit: quit,
-        }
+        Self { state, file, save: None, _quit: quit }
     }
 
     pub fn state(&self) -> &T {
@@ -58,19 +53,14 @@ impl<T: Serialize + DeserializeOwned + Default + Clone + PartialEq + Send + 'sta
             let Ok(state) = this.read_with(cx, |store, _| store.state.clone()) else {
                 return;
             };
-            let _ = cx
-                .background_spawn(async move { write(&file, &state) })
-                .await;
+            let _ = cx.background_spawn(async move { write(&file, &state) }).await;
         }));
     }
 }
 
 #[must_use]
 pub fn config_dir(name: &str) -> Option<PathBuf> {
-    if let Some(dir) = env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-    {
+    if let Some(dir) = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).filter(|dir| dir.is_absolute()) {
         return Some(dir.join(name.to_lowercase()));
     }
     if cfg!(target_os = "macos") {

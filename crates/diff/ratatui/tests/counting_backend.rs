@@ -9,13 +9,7 @@ fn counts_emitted_cells_and_resets_stats() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(CountingBackend::new(8, 2))?;
     terminal.draw(|frame| frame.render_widget(Paragraph::new("hello"), frame.area()))?;
 
-    assert_eq!(
-        terminal.backend_mut().take_stats(),
-        BackendStats {
-            draws: 1,
-            cells_drawn: 5,
-        }
-    );
+    assert_eq!(terminal.backend_mut().take_stats(), BackendStats { draws: 1, cells_drawn: 5 });
     assert_eq!(terminal.backend_mut().take_stats(), BackendStats::default());
     assert_eq!(terminal.backend().buffer()[(0, 0)].symbol(), "h");
 

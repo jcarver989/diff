@@ -20,10 +20,7 @@ impl ThemeStore {
 
     #[must_use]
     pub fn pair(&self) -> ThemePair {
-        self.file
-            .as_deref()
-            .and_then(persist::read)
-            .unwrap_or_default()
+        self.file.as_deref().and_then(persist::read).unwrap_or_default()
     }
 
     #[must_use]
@@ -58,10 +55,7 @@ impl ViewModeStore {
 
     #[must_use]
     pub fn view_mode(&self) -> ViewMode {
-        self.file
-            .as_deref()
-            .and_then(persist::read)
-            .unwrap_or_default()
+        self.file.as_deref().and_then(persist::read).unwrap_or_default()
     }
 
     pub fn remember(&self, mode: ViewMode) -> io::Result<()> {

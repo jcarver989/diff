@@ -32,13 +32,8 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReviewCompletion {
-    Submitted {
-        target: ReviewTarget,
-        submission: ReviewSubmission,
-    },
-    Cancelled {
-        target: ReviewTarget,
-    },
+    Submitted { target: ReviewTarget, submission: ReviewSubmission },
+    Cancelled { target: ReviewTarget },
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -88,10 +83,7 @@ impl Context {
         self.completion.reserve()
     }
 
-    pub async fn publish_completion(
-        &self,
-        completion: ReviewCompletion,
-    ) -> Result<(), RemoteError> {
+    pub async fn publish_completion(&self, completion: ReviewCompletion) -> Result<(), RemoteError> {
         self.completion.publish(completion).await
     }
 }
@@ -106,8 +98,7 @@ pub(crate) struct Handle {
 impl Handle {
     pub fn accept<T: Transport>(&self, transport: T, stop: CancellationToken) {
         let context = Arc::clone(&self.context);
-        self.tasks
-            .spawn(connection::accept(context, transport, stop));
+        self.tasks.spawn(connection::accept(context, transport, stop));
     }
 
     #[cfg(feature = "websocket")]
@@ -135,27 +126,19 @@ pub struct DiffServer {
 impl DiffServer {
     pub async fn open(path: impl AsRef<Path>, options: ServerOptions) -> Result<Self, ServerError> {
         let repository = GitRepository::discover(path).await?;
-        let watcher =
-            RepositoryWatcher::spawn(repository.clone(), DiffScope::Both, options.watch).await?;
+        let watcher = RepositoryWatcher::spawn(repository.clone(), DiffScope::Both, options.watch).await?;
         let (completion_tx, completions) = mpsc::channel(1);
         let handle = Handle {
             context: Arc::new(Context {
                 root: Arc::from(repository.root().to_string_lossy().as_ref()),
                 repository,
                 watcher: watcher.handle(),
-                completion: CompletionSink {
-                    accepted: AtomicBool::new(false),
-                    sender: completion_tx,
-                },
+                completion: CompletionSink { accepted: AtomicBool::new(false), sender: completion_tx },
             }),
             tasks: TaskTracker::new(),
             stop: CancellationToken::new(),
         };
-        Ok(Self {
-            handle,
-            watcher: Some(watcher),
-            completions,
-        })
+        Ok(Self { handle, watcher: Some(watcher), completions })
     }
 
     #[must_use]
@@ -169,10 +152,7 @@ impl DiffServer {
             let state = self.watcher.as_ref()?.state_rx.borrow();
             state.snapshot.commits.as_ref()?.page(0, scope)
         };
-        commits
-            .then(first_commit)
-            .flatten()
-            .unwrap_or(ReviewTarget::WorkingTree(scope))
+        commits.then(first_commit).flatten().unwrap_or(ReviewTarget::WorkingTree(scope))
     }
 
     pub async fn next_review(&mut self) -> Result<ReviewCompletion, ServerError> {
@@ -211,10 +191,7 @@ impl DiffServer {
     pub async fn shutdown(mut self) -> Result<(), ServerError> {
         self.handle.stop.cancel();
         self.handle.tasks.close();
-        if timeout(SHUTDOWN_GRACE, self.handle.tasks.wait())
-            .await
-            .is_err()
-        {
+        if timeout(SHUTDOWN_GRACE, self.handle.tasks.wait()).await.is_err() {
             return Err(ServerError::Stopped);
         }
         if let Some(watcher) = self.watcher.take() {

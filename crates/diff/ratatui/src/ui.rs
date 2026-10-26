@@ -27,12 +27,7 @@ pub(crate) struct AppFrame<'a> {
 }
 impl<'a> AppFrame<'a> {
     pub(crate) const fn new(title: &'a str, borders: bool, theme: &'a RatatuiTheme) -> Self {
-        Self {
-            title,
-            borders,
-            footer: true,
-            theme,
-        }
+        Self { title, borders, footer: true, theme }
     }
     pub(crate) const fn footer(mut self, footer: bool) -> Self {
         self.footer = footer;
@@ -40,10 +35,7 @@ impl<'a> AppFrame<'a> {
     }
 
     pub(crate) fn render(self, area: Rect, buffer: &mut Buffer) -> FrameRegions {
-        buffer.set_style(
-            area,
-            Style::new().fg(self.theme.ui.text).bg(self.theme.ui.canvas),
-        );
+        buffer.set_style(area, Style::new().fg(self.theme.ui.text).bg(self.theme.ui.canvas));
         let inner = if self.borders {
             let block = Block::new()
                 .borders(Borders::ALL)
@@ -57,11 +49,7 @@ impl<'a> AppFrame<'a> {
         };
         let [body, footer] = Layout::vertical([
             Constraint::Min(0),
-            Constraint::Length(if self.footer {
-                ACTION_BAR_HEIGHT.min(inner.height)
-            } else {
-                0
-            }),
+            Constraint::Length(if self.footer { ACTION_BAR_HEIGHT.min(inner.height) } else { 0 }),
         ])
         .areas(inner);
         FrameRegions { body, footer }
@@ -80,9 +68,7 @@ impl<'a> ActionBar<'a> {
 impl Widget for ActionBar<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         let ui = self.theme.ui.on_background(self.theme.ui.surface);
-        Paragraph::new(self.line)
-            .style(Style::new().fg(ui.text_muted).bg(ui.canvas))
-            .render(area, buffer);
+        Paragraph::new(self.line).style(Style::new().fg(ui.text_muted).bg(ui.canvas)).render(area, buffer);
     }
 }
 
@@ -96,12 +82,7 @@ pub struct ActionLabel<'a> {
 impl<'a> ActionLabel<'a> {
     #[must_use]
     pub const fn new(key: &'a str, label: &'a str, theme: &'a RatatuiTheme) -> Self {
-        Self {
-            key,
-            label,
-            variant: ButtonVariant::Ghost,
-            theme,
-        }
+        Self { key, label, variant: ButtonVariant::Ghost, theme }
     }
     #[must_use]
     pub const fn variant(mut self, variant: ButtonVariant) -> Self {
@@ -113,9 +94,7 @@ impl<'a> ActionLabel<'a> {
     pub fn into_span(self) -> Span<'static> {
         Span::styled(
             format!("[{}] {}", self.key, self.label),
-            self.theme
-                .ui
-                .control_style(self.variant, ControlState::default()),
+            self.theme.ui.control_style(self.variant, ControlState::default()),
         )
     }
 }
@@ -133,12 +112,7 @@ pub(crate) struct Modal<'a> {
 }
 impl<'a> Modal<'a> {
     pub(crate) const fn new(title: &'a str, size: ModalSize, theme: &'a RatatuiTheme) -> Self {
-        Self {
-            title,
-            hint: None,
-            size,
-            theme,
-        }
+        Self { title, hint: None, size, theme }
     }
     pub(crate) const fn hint(mut self, hint: &'a str) -> Self {
         self.hint = Some(hint);
@@ -157,14 +131,9 @@ impl<'a> Modal<'a> {
         Clear.render(popup, buffer);
         let block = Block::bordered()
             .title(format!(" {} ", self.title))
-            .title_bottom(
-                self.hint
-                    .map_or_else(Line::default, |hint| Line::from(format!(" {hint} "))),
-            )
+            .title_bottom(self.hint.map_or_else(Line::default, |hint| Line::from(format!(" {hint} "))))
             .style(self.theme.ui.selection_style(SelectionState::None))
-            .border_style(
-                Style::new().fg(self.theme.ui.on_background(self.theme.ui.surface).border),
-            );
+            .border_style(Style::new().fg(self.theme.ui.on_background(self.theme.ui.surface).border));
         let inner = block.inner(popup);
         block.render(popup, buffer);
         inner
@@ -184,23 +153,11 @@ impl<'a> EmptyState<'a> {
 impl Widget for EmptyState<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         Paragraph::new(self.text)
-            .style(
-                self.theme
-                    .ui
-                    .notice_style(self.tone)
-                    .bg(self.theme.ui.canvas),
-            )
+            .style(self.theme.ui.notice_style(self.tone).bg(self.theme.ui.canvas))
             .render(area, buffer);
     }
 }
 
-pub(crate) fn render_modal_text(
-    area: Rect,
-    buffer: &mut Buffer,
-    text: impl Into<Text<'static>>,
-    theme: &RatatuiTheme,
-) {
-    Paragraph::new(text)
-        .style(theme.ui.selection_style(SelectionState::None))
-        .render(area, buffer);
+pub(crate) fn render_modal_text(area: Rect, buffer: &mut Buffer, text: impl Into<Text<'static>>, theme: &RatatuiTheme) {
+    Paragraph::new(text).style(theme.ui.selection_style(SelectionState::None)).render(area, buffer);
 }

@@ -16,10 +16,7 @@ fn other_themes_derive_their_ansi_colors_from_the_ui() -> Result<(), Box<dyn Err
 
     let red = theme.ui.destructive;
     assert_eq!(palette.ansi[1], Rgba::new(red.r, red.g, red.b, 255));
-    assert_eq!(
-        palette.background,
-        Rgba::new(theme.ui.canvas.r, theme.ui.canvas.g, theme.ui.canvas.b, 255)
-    );
+    assert_eq!(palette.background, Rgba::new(theme.ui.canvas.r, theme.ui.canvas.g, theme.ui.canvas.b, 255));
     Ok(())
 }
 

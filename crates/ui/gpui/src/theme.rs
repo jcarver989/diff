@@ -1,8 +1,8 @@
 //! GPUI-facing semantic theme tokens.
 
 use clankerdiff_theme::{
-    Appearance, ButtonVariant, ControlState, NoticeTone, ReviewTheme, Rgba, SelectionState,
-    SemanticStyle, TerminalPalette, ThemePreference, UiPalette,
+    Appearance, ButtonVariant, ControlState, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle,
+    TerminalPalette, ThemePreference, UiPalette,
 };
 use gpui::{App, Global, Hsla, Window, WindowAppearance};
 use gpui_base::input::InputEditorStyle;
@@ -10,13 +10,8 @@ use gpui_base::input::InputEditorStyle;
 /// Converts a renderer-neutral sRGB color to GPUI's HSLA color.
 #[must_use]
 pub fn color(value: Rgba) -> Hsla {
-    gpui::rgba(
-        (u32::from(value.r) << 24)
-            | (u32::from(value.g) << 16)
-            | (u32::from(value.b) << 8)
-            | u32::from(value.a),
-    )
-    .into()
+    gpui::rgba((u32::from(value.r) << 24) | (u32::from(value.g) << 16) | (u32::from(value.b) << 8) | u32::from(value.a))
+        .into()
 }
 
 #[must_use]
@@ -38,11 +33,7 @@ impl Global for ActiveTheme {}
 
 impl ActiveTheme {
     pub fn install(review: ReviewTheme, window: &mut Window, cx: &mut App) {
-        cx.set_global(Self {
-            ui: UiTheme::new(&review),
-            terminal: review.terminal_palette(),
-            review,
-        });
+        cx.set_global(Self { ui: UiTheme::new(&review), terminal: review.terminal_palette(), review });
         window.refresh();
     }
 
@@ -146,10 +137,7 @@ impl UiTheme {
     #[must_use]
     pub fn new(theme: &ReviewTheme) -> Self {
         let palette = theme.ui;
-        Self {
-            colors: UiColors::from_palette(&palette),
-            palette,
-        }
+        Self { colors: UiColors::from_palette(&palette), palette }
     }
 
     #[must_use]

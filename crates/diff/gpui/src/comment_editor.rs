@@ -4,8 +4,8 @@ use crate::{
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, Global, MouseButton, SharedString, Subscription,
-    Window, div, prelude::*,
+    App, Context, Entity, FocusHandle, Focusable, Global, MouseButton, SharedString, Subscription, Window, div,
+    prelude::*,
 };
 use gpui_base::input::{Escape, InputEditorStyle, InputEvent, Textarea, TextareaState};
 
@@ -35,12 +35,7 @@ pub(crate) struct CommentEditor {
 }
 
 impl CommentEditor {
-    pub(crate) fn new(
-        body: String,
-        theme: ReviewTheme,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub(crate) fn new(body: String, theme: ReviewTheme, window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self::with_placeholder(body, theme, "Leave a comment…", window, cx)
     }
 
@@ -69,12 +64,7 @@ impl CommentEditor {
             InputEvent::PressEnter { shift: true, .. } => {}
         });
         let observation = cx.observe(&input, |editor, input, cx| editor.sync_body(&input, cx));
-        Self {
-            input,
-            body: body.into(),
-            theme,
-            _subscriptions: vec![subscription, observation],
-        }
+        Self { input, body: body.into(), theme, _subscriptions: vec![subscription, observation] }
     }
 
     fn sync_body(&mut self, input: &Entity<TextareaState>, cx: &mut Context<Self>) {
@@ -145,11 +135,7 @@ impl Render for CommentEditor {
             .p_3()
             .rounded_md()
             .border_1()
-            .border_color(style::color(if focused {
-                palette.accent
-            } else {
-                palette.border
-            }))
+            .border_color(style::color(if focused { palette.accent } else { palette.border }))
             .bg(style::color(palette.background))
             .text_color(style::color(palette.foreground))
             .cursor_text()

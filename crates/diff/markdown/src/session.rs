@@ -1,9 +1,8 @@
 //! Selection, draft editing, and decisions for a Markdown review.
 
 use crate::{
-    MarkdownAnchor, MarkdownCommentContext, MarkdownDocument, MarkdownReview,
-    MarkdownReviewDecision, MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSubmission,
-    MarkdownTarget, MarkdownTargetId,
+    MarkdownAnchor, MarkdownCommentContext, MarkdownDocument, MarkdownReview, MarkdownReviewDecision,
+    MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSubmission, MarkdownTarget, MarkdownTargetId,
 };
 use std::sync::Arc;
 
@@ -26,14 +25,7 @@ impl MarkdownCommentDraft {
         body: String,
         editing: Option<u64>,
     ) -> Self {
-        Self {
-            target,
-            anchor,
-            context,
-            cursor: body.len(),
-            body,
-            editing,
-        }
+        Self { target, anchor, context, cursor: body.len(), body, editing }
     }
 
     #[must_use]
@@ -114,17 +106,11 @@ impl MarkdownCommentDraft {
     }
 
     fn previous_boundary(&self) -> usize {
-        self.body[..self.cursor]
-            .char_indices()
-            .next_back()
-            .map_or(0, |(offset, _)| offset)
+        self.body[..self.cursor].char_indices().next_back().map_or(0, |(offset, _)| offset)
     }
 
     fn next_boundary(&self) -> usize {
-        self.body[self.cursor..]
-            .char_indices()
-            .nth(1)
-            .map_or(self.body.len(), |(offset, _)| self.cursor + offset)
+        self.body[self.cursor..].char_indices().nth(1).map_or(self.body.len(), |(offset, _)| self.cursor + offset)
     }
 }
 
@@ -141,12 +127,7 @@ impl MarkdownReviewSession {
     #[must_use]
     pub fn new(document: Arc<MarkdownDocument>) -> Self {
         let selected_target = document.targets().first().map(|target| target.id);
-        Self {
-            document,
-            review: MarkdownReview::default(),
-            selected_target,
-            draft: None,
-        }
+        Self { document, review: MarkdownReview::default(), selected_target, draft: None }
     }
 
     #[must_use]
@@ -175,8 +156,7 @@ impl MarkdownReviewSession {
 
     #[must_use]
     pub fn selected_anchor(&self) -> Option<MarkdownAnchor> {
-        self.selected_target
-            .and_then(|id| self.document.anchor_for_target(id))
+        self.selected_target.and_then(|id| self.document.anchor_for_target(id))
     }
 
     #[must_use]
@@ -217,10 +197,8 @@ impl MarkdownReviewSession {
     /// Returns comments attached to the current selection.
     #[must_use]
     pub fn selected_comments(&self) -> std::vec::IntoIter<&crate::MarkdownReviewComment> {
-        self.selected_target.map_or_else(
-            || Vec::new().into_iter(),
-            |target| self.review.comments_for_target(&self.document, target),
-        )
+        self.selected_target
+            .map_or_else(|| Vec::new().into_iter(), |target| self.review.comments_for_target(&self.document, target))
     }
 
     /// Moves through commentable targets, clamping at either end.
@@ -230,10 +208,7 @@ impl MarkdownReviewSession {
             self.selected_target = None;
             return None;
         }
-        let current = self
-            .selected_target
-            .map_or(0, MarkdownTargetId::index)
-            .min(count - 1);
+        let current = self.selected_target.map_or(0, MarkdownTargetId::index).min(count - 1);
         let index = if delta.is_negative() {
             current.saturating_sub(delta.unsigned_abs())
         } else {
@@ -246,12 +221,8 @@ impl MarkdownReviewSession {
 
     /// Selects the first or last target.
     pub fn select_boundary(&mut self, last: bool) -> Option<MarkdownTargetId> {
-        let target = if last {
-            self.document.targets().last()
-        } else {
-            self.document.targets().first()
-        }
-        .map(|target| target.id);
+        let target =
+            if last { self.document.targets().last() } else { self.document.targets().first() }.map(|target| target.id);
         self.selected_target = target;
         self.draft = None;
         target
@@ -279,14 +250,9 @@ impl MarkdownReviewSession {
         let current = self.selected_target.map(MarkdownTargetId::index);
         let headings = self.document.outline();
         let heading = if previous {
-            headings
-                .iter()
-                .rev()
-                .find(|heading| current.is_none_or(|index| heading.target_id.index() < index))
+            headings.iter().rev().find(|heading| current.is_none_or(|index| heading.target_id.index() < index))
         } else {
-            headings
-                .iter()
-                .find(|heading| current.is_none_or(|index| heading.target_id.index() > index))
+            headings.iter().find(|heading| current.is_none_or(|index| heading.target_id.index() > index))
         }?;
         self.selected_target = Some(heading.target_id);
         self.draft = None;
@@ -301,8 +267,7 @@ impl MarkdownReviewSession {
         let Some(anchor) = self.document.anchor_for_target(target) else {
             return false;
         };
-        let Some(context) = MarkdownCommentContext::from_target(&self.document, target, &anchor)
-        else {
+        let Some(context) = MarkdownCommentContext::from_target(&self.document, target, &anchor) else {
             return false;
         };
         let body = match editing {
@@ -319,9 +284,7 @@ impl MarkdownReviewSession {
             }
             None => String::new(),
         };
-        self.draft = Some(MarkdownCommentDraft::new(
-            target, anchor, context, body, editing,
-        ));
+        self.draft = Some(MarkdownCommentDraft::new(target, anchor, context, body, editing));
         true
     }
 
@@ -342,24 +305,18 @@ impl MarkdownReviewSession {
                 }
                 id
             }
-            None => self
-                .review
-                .add_comment_with_context(draft.anchor, draft.context, draft.body),
+            None => self.review.add_comment_with_context(draft.anchor, draft.context, draft.body),
         })
     }
 
     #[must_use]
     pub fn comment_id_at_selection(&self) -> Option<u64> {
         let anchor = self.selected_anchor()?;
-        self.review
-            .comments_for_anchor(&anchor)
-            .next_back()
-            .map(|comment| comment.id)
+        self.review.comments_for_anchor(&anchor).next_back().map(|comment| comment.id)
     }
 
     pub fn edit_comment_at_selection(&mut self) -> bool {
-        self.comment_id_at_selection()
-            .is_some_and(|id| self.begin_draft(Some(id)))
+        self.comment_id_at_selection().is_some_and(|id| self.begin_draft(Some(id)))
     }
 
     pub fn delete_comment_at_selection(&mut self) -> bool {
@@ -409,13 +366,8 @@ impl MarkdownReviewSession {
     /// # Errors
     ///
     /// Returns an error when a comment body is blank.
-    pub fn submit(
-        &self,
-        decision: MarkdownReviewDecision,
-    ) -> Result<MarkdownReviewEvent, MarkdownReviewError> {
-        Ok(MarkdownReviewEvent::Submit(
-            self.review.try_submission(decision)?,
-        ))
+    pub fn submit(&self, decision: MarkdownReviewDecision) -> Result<MarkdownReviewEvent, MarkdownReviewError> {
+        Ok(MarkdownReviewEvent::Submit(self.review.try_submission(decision)?))
     }
 
     /// Builds an explicit approval event.
@@ -450,11 +402,8 @@ impl MarkdownReviewSession {
     /// # Errors
     ///
     /// Returns an error when a comment body is blank.
-    pub fn request_changes_submission(
-        &self,
-    ) -> Result<MarkdownReviewSubmission, MarkdownReviewError> {
-        self.review
-            .try_submission(MarkdownReviewDecision::ChangesRequested)
+    pub fn request_changes_submission(&self) -> Result<MarkdownReviewSubmission, MarkdownReviewError> {
+        self.review.try_submission(MarkdownReviewDecision::ChangesRequested)
     }
 
     #[must_use]
@@ -484,10 +433,7 @@ mod tests {
     #[test]
     fn navigates_targets_and_headings() {
         let mut session = session("# One\n\nfirst\n\n## Two\n\nsecond\n");
-        assert_eq!(
-            session.selected_target_info().unwrap().kind,
-            MarkdownTargetKind::Heading
-        );
+        assert_eq!(session.selected_target_info().unwrap().kind, MarkdownTargetKind::Heading);
         assert_eq!(session.next_heading().unwrap().index(), 2);
         assert_eq!(session.next_heading(), None);
         assert_eq!(session.previous_heading().unwrap().index(), 0);

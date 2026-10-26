@@ -1,7 +1,7 @@
 use crate::style::{color, highlight_style};
 use clankerdiff_core::{
-    DiffDocument, DiffError, DiffPresentation, DiffTone, Fingerprint, PresentationOptions, RowKind,
-    ViewMode, parse_detached_git_diff,
+    DiffDocument, DiffError, DiffPresentation, DiffTone, Fingerprint, PresentationOptions, RowKind, ViewMode,
+    parse_detached_git_diff,
 };
 use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -20,23 +20,14 @@ impl DiffPreviewCache {
         self.entries.clear();
     }
 
-    pub fn render(
-        &mut self,
-        patch: &str,
-        theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
-    ) -> AnyElement {
+    pub fn render(&mut self, patch: &str, theme: &ReviewTheme, highlighter: &mut SyntaxHighlighter) -> AnyElement {
         match self.entry(patch) {
             Ok(presentation) => render_preview(presentation, theme, highlighter),
             Err(error) => div()
                 .flex()
                 .flex_col()
                 .text_color(color(theme.diff.foreground))
-                .child(
-                    div()
-                        .text_color(color(theme.diff.muted))
-                        .child(format!("Could not display patch: {error}")),
-                )
+                .child(div().text_color(color(theme.diff.muted)).child(format!("Could not display patch: {error}")))
                 .child(patch.to_owned())
                 .into_any_element(),
         }
@@ -45,24 +36,18 @@ impl DiffPreviewCache {
     /// The lines `patch` adds and removes, or `None` when it does not parse.
     pub fn stats(&mut self, patch: &str) -> Option<(usize, usize)> {
         let files = &self.entry(patch).as_ref().ok()?.document().files;
-        Some(files.iter().fold((0, 0), |(added, removed), file| {
-            (added + file.additions(), removed + file.deletions())
-        }))
+        Some(files.iter().fold((0, 0), |(added, removed), file| (added + file.additions(), removed + file.deletions())))
     }
 
     fn entry(&mut self, patch: &str) -> &Result<DiffPresentation, DiffError> {
         let id = Fingerprint::of([patch.as_bytes()]);
-        let index = self
-            .entries
-            .iter()
-            .position(|(cached, _)| *cached == id)
-            .unwrap_or_else(|| {
-                if self.entries.len() == MAX_CACHED_PATCHES {
-                    self.entries.pop_front();
-                }
-                self.entries.push_back((id, parse_patch(patch)));
-                self.entries.len() - 1
-            });
+        let index = self.entries.iter().position(|(cached, _)| *cached == id).unwrap_or_else(|| {
+            if self.entries.len() == MAX_CACHED_PATCHES {
+                self.entries.pop_front();
+            }
+            self.entries.push_back((id, parse_patch(patch)));
+            self.entries.len() - 1
+        });
         &self.entries[index].1
     }
 }
@@ -70,15 +55,8 @@ impl DiffPreviewCache {
 fn parse_patch(patch: &str) -> Result<DiffPresentation, DiffError> {
     let files = parse_detached_git_diff(patch.as_bytes())?;
     Ok(DiffPresentation::new(
-        Arc::new(DiffDocument {
-            repo_root: String::new(),
-            files,
-            ..DiffDocument::default()
-        }),
-        PresentationOptions {
-            view_mode: ViewMode::Unified,
-            ..PresentationOptions::default()
-        },
+        Arc::new(DiffDocument { repo_root: String::new(), files, ..DiffDocument::default() }),
+        PresentationOptions { view_mode: ViewMode::Unified, ..PresentationOptions::default() },
     ))
 }
 
@@ -97,17 +75,8 @@ fn render_preview(
             continue;
         };
         if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
-            let foreground = if row.kind == RowKind::FileHeader {
-                palette.foreground
-            } else {
-                palette.muted
-            };
-            view = view.child(
-                div()
-                    .px_1()
-                    .text_color(color(foreground))
-                    .child(cell.text.to_string()),
-            );
+            let foreground = if row.kind == RowKind::FileHeader { palette.foreground } else { palette.muted };
+            view = view.child(div().px_1().text_color(color(foreground)).child(cell.text.to_string()));
             continue;
         }
         let source = presentation.cell_context(row, cell);
@@ -120,12 +89,7 @@ fn render_preview(
                     .line(source.target_line)
                     .unwrap_or_default()
                     .iter()
-                    .map(|span| {
-                        (
-                            span.range.clone(),
-                            highlight_style(span.foreground, span.font_style),
-                        )
-                    })
+                    .map(|span| (span.range.clone(), highlight_style(span.foreground, span.font_style)))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -135,11 +99,7 @@ fn render_preview(
             _ => " ",
         };
         let tone = palette.tone(cell.tone);
-        let text = if cell.text.is_empty() {
-            " ".to_owned()
-        } else {
-            cell.text.to_string()
-        };
+        let text = if cell.text.is_empty() { " ".to_owned() } else { cell.text.to_string() };
         view = view.child(
             div()
                 .flex()
@@ -147,12 +107,7 @@ fn render_preview(
                 .min_w_0()
                 .px_1()
                 .bg(color(tone.background))
-                .child(
-                    div()
-                        .flex_none()
-                        .text_color(color(tone.foreground))
-                        .child(indicator),
-                )
+                .child(div().flex_none().text_color(color(tone.foreground)).child(indicator))
                 .child(
                     div()
                         .min_w_0()

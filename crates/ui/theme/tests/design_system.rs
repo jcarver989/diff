@@ -1,6 +1,5 @@
 use clankerdiff_theme::{
-    ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, SCRIM_ALPHA,
-    SelectionState,
+    ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, SCRIM_ALPHA, SelectionState,
 };
 
 #[test]
@@ -16,24 +15,13 @@ fn ui_palette_uses_stable_semantic_roles() {
 #[test]
 fn semantic_states_resolve_before_renderer_conversion() {
     let ui = ReviewTheme::default().ui;
-    let primary = ui.control_style(
-        ButtonVariant::Primary,
-        ControlState::new(InteractionState::Rest),
-    );
-    assert_eq!(
-        primary,
-        ui.control_style(
-            ButtonVariant::Primary,
-            ControlState::new(InteractionState::Hovered)
-        )
-    );
+    let primary = ui.control_style(ButtonVariant::Primary, ControlState::new(InteractionState::Rest));
+    assert_eq!(primary, ui.control_style(ButtonVariant::Primary, ControlState::new(InteractionState::Hovered)));
     assert_eq!(primary.background, Some(ui.accent));
     assert_eq!(primary.foreground, ui.accent_foreground);
 
-    let selected_hover = ui.control_style(
-        ButtonVariant::Ghost,
-        ControlState::new(InteractionState::Hovered).selected(true),
-    );
+    let selected_hover =
+        ui.control_style(ButtonVariant::Ghost, ControlState::new(InteractionState::Hovered).selected(true));
     assert_eq!(selected_hover.background, Some(ui.surface_selected));
     assert_eq!(selected_hover.foreground, ui.accent);
 

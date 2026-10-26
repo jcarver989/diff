@@ -1,9 +1,5 @@
-use clankerdiff_core::{
-    DiffReviewEvent, RepositoryAction, RowKind, ViewMode, testing::DocumentBuilder,
-};
-use clankerdiff_gpui::{
-    DiffViewer, DiffViewerEvent, ViewerPane, testing::DiffViewerHarnessBuilder,
-};
+use clankerdiff_core::{DiffReviewEvent, RepositoryAction, RowKind, ViewMode, testing::DocumentBuilder};
+use clankerdiff_gpui::{DiffViewer, DiffViewerEvent, ViewerPane, testing::DiffViewerHarnessBuilder};
 use gpui::{Context, Entity, Render, TestAppContext, Window, WindowOptions, div, prelude::*};
 
 struct TestRoot {
@@ -29,10 +25,7 @@ impl TestRoot {
             root.events.push(event.clone());
         })
         .detach();
-        Self {
-            viewer,
-            events: Vec::new(),
-        }
+        Self { viewer, events: Vec::new() }
     }
 }
 
@@ -44,10 +37,7 @@ impl Render for TestRoot {
 
 fn open_viewer(cx: &mut TestAppContext) -> gpui::WindowHandle<TestRoot> {
     cx.update(DiffViewer::bind_keys);
-    let window = cx.update(|cx| {
-        cx.open_window(WindowOptions::default(), |_, cx| cx.new(TestRoot::new))
-            .unwrap()
-    });
+    let window = cx.update(|cx| cx.open_window(WindowOptions::default(), |_, cx| cx.new(TestRoot::new)).unwrap());
     cx.run_until_parked();
     window
 }
@@ -56,14 +46,10 @@ fn open_viewer(cx: &mut TestAppContext) -> gpui::WindowHandle<TestRoot> {
 fn browse_shortcuts_navigate_rows_files_and_panes(cx: &mut TestAppContext) {
     let window = open_viewer(cx);
     let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
-    let first_row = viewer
-        .read_with(cx, |viewer, _| viewer.session().selected_row())
-        .unwrap();
+    let first_row = viewer.read_with(cx, |viewer, _| viewer.session().selected_row()).unwrap();
 
     cx.simulate_keystrokes(*window, "j");
-    let next_row = viewer
-        .read_with(cx, |viewer, _| viewer.session().selected_row())
-        .unwrap();
+    let next_row = viewer.read_with(cx, |viewer, _| viewer.session().selected_row()).unwrap();
     assert!(next_row > first_row);
 
     cx.simulate_keystrokes(*window, "h j");
@@ -73,22 +59,14 @@ fn browse_shortcuts_navigate_rows_files_and_panes(cx: &mut TestAppContext) {
     });
 
     cx.simulate_keystrokes(*window, "tab");
-    assert_eq!(
-        viewer.read_with(cx, |viewer, _| viewer.pane()),
-        ViewerPane::Diff
-    );
+    assert_eq!(viewer.read_with(cx, |viewer, _| viewer.pane()), ViewerPane::Diff);
 }
 
 #[gpui::test]
 fn enter_expands_diff_context_while_o_opens_source(cx: &mut TestAppContext) {
     let harness = DiffViewerHarnessBuilder {
         document: DocumentBuilder::new()
-            .changed_with_hunk_window(
-                "a.rs",
-                "before\nold\nafter\n",
-                "before\nnew\nafter\n",
-                2..=2,
-            )
+            .changed_with_hunk_window("a.rs", "before\nold\nafter\n", "before\nnew\nafter\n", 2..=2)
             .build(),
         ..Default::default()
     }
@@ -132,10 +110,7 @@ fn snapshot_replacement_remaps_sidebar_actions_by_selected_path(cx: &mut TestApp
     let window = open_viewer(cx);
     let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
     cx.simulate_keystrokes(*window, "h j");
-    assert_eq!(
-        viewer.read_with(cx, |viewer, _| viewer.selected_file()),
-        Some(1)
-    );
+    assert_eq!(viewer.read_with(cx, |viewer, _| viewer.selected_file()), Some(1));
     viewer.update(cx, |viewer, cx| {
         viewer.set_document(
             DocumentBuilder::new()
@@ -166,12 +141,7 @@ fn document_replacement_cancels_the_editor_and_session_draft(cx: &mut TestAppCon
     assert!(viewer.read_with(cx, |viewer, _| viewer.session().draft().is_some()));
 
     viewer.update(cx, |viewer, cx| {
-        viewer.set_document(
-            DocumentBuilder::new()
-                .changed("a.rs", "different\n", "DIFFERENT\n")
-                .build(),
-            cx,
-        );
+        viewer.set_document(DocumentBuilder::new().changed("a.rs", "different\n", "DIFFERENT\n").build(), cx);
         assert!(viewer.session().draft().is_none());
     });
 }
@@ -235,22 +205,18 @@ fn repository_shortcuts_emit_path_bulk_commit_and_discard_actions(cx: &mut TestA
                 DiffReviewEvent::RepositoryAction(RepositoryAction::StagePaths(paths))
                     if paths.len() == 1 && paths[0].as_str() == "a.rs"
             ));
-            assert!(root.events.contains(&DiffReviewEvent::RepositoryAction(
-                RepositoryAction::StageAll
-            )));
-            assert!(root.events.contains(&DiffReviewEvent::RepositoryAction(
-                RepositoryAction::UnstageAll
-            )));
+            assert!(root.events.contains(&DiffReviewEvent::RepositoryAction(RepositoryAction::StageAll)));
+            assert!(root.events.contains(&DiffReviewEvent::RepositoryAction(RepositoryAction::UnstageAll)));
             assert!(root.events.iter().any(|event| matches!(
                 event,
                 DiffReviewEvent::RepositoryAction(RepositoryAction::Discard { path, .. })
                     if path.as_str() == "a.rs"
             )));
-            assert!(root.events.contains(&DiffReviewEvent::RepositoryAction(
-                RepositoryAction::Commit {
+            assert!(
+                root.events.contains(&DiffReviewEvent::RepositoryAction(RepositoryAction::Commit {
                     message: "ship".to_owned(),
-                }
-            )));
+                }))
+            );
         })
         .unwrap();
 }
@@ -260,19 +226,14 @@ fn review_help_layout_and_host_event_shortcuts_are_contextual(cx: &mut TestAppCo
     let window = open_viewer(cx);
     let viewer = window.read_with(cx, |root, _| root.viewer.clone()).unwrap();
 
-    assert_eq!(
-        viewer.read_with(cx, |viewer, _| viewer.view_mode()),
-        ViewMode::Auto
-    );
+    assert_eq!(viewer.read_with(cx, |viewer, _| viewer.view_mode()), ViewMode::Auto);
     cx.simulate_keystrokes(*window, "v shift-/");
     viewer.read_with(cx, |viewer, _| {
         assert_eq!(viewer.view_mode(), ViewMode::Unified);
         assert!(viewer.shortcuts_open());
     });
 
-    let selected = viewer
-        .read_with(cx, |viewer, _| viewer.session().selected_row())
-        .unwrap();
+    let selected = viewer.read_with(cx, |viewer, _| viewer.session().selected_row()).unwrap();
     cx.simulate_keystrokes(*window, "j escape");
     viewer.read_with(cx, |viewer, _| {
         assert_eq!(viewer.session().selected_row(), Some(selected));
@@ -280,29 +241,16 @@ fn review_help_layout_and_host_event_shortcuts_are_contextual(cx: &mut TestAppCo
     });
 
     cx.simulate_keystrokes(*window, "v");
-    assert_eq!(
-        viewer.read_with(cx, |viewer, _| viewer.view_mode()),
-        ViewMode::Split
-    );
+    assert_eq!(viewer.read_with(cx, |viewer, _| viewer.view_mode()), ViewMode::Split);
     cx.simulate_keystrokes(*window, "shift-v");
-    assert_eq!(
-        viewer.read_with(cx, |viewer, _| viewer.view_mode()),
-        ViewMode::Auto
-    );
+    assert_eq!(viewer.read_with(cx, |viewer, _| viewer.view_mode()), ViewMode::Auto);
 
     cx.simulate_keystrokes(*window, "s y escape");
     window
         .read_with(cx, |root, _| {
-            assert!(matches!(
-                root.events.first(),
-                Some(DiffReviewEvent::SubmitReview(_))
-            ));
+            assert!(matches!(root.events.first(), Some(DiffReviewEvent::SubmitReview(_))));
             assert!(matches!(root.events.last(), Some(DiffReviewEvent::Cancel)));
-            assert_eq!(
-                root.events.len(),
-                2,
-                "copying an empty review remains a no-op"
-            );
+            assert_eq!(root.events.len(), 2, "copying an empty review remains a no-op");
         })
         .unwrap();
 }

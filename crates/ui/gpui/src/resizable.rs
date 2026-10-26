@@ -5,8 +5,8 @@ use crate::{
     tokens::{RESIZE_HANDLE_WIDTH, rem},
 };
 use gpui::{
-    AnyElement, App, ClickEvent, DragMoveEvent, ElementId, Empty, IntoElement, ParentElement,
-    Refineable, Rems, RenderOnce, StyleRefinement, Styled, Window, div, prelude::*, rems,
+    AnyElement, App, ClickEvent, DragMoveEvent, ElementId, Empty, IntoElement, ParentElement, Refineable, Rems,
+    RenderOnce, StyleRefinement, Styled, Window, div, prelude::*, rems,
 };
 
 type ResizeHandler = Box<dyn Fn(Rems, &mut Window, &mut App) + 'static>;
@@ -20,22 +20,12 @@ pub enum PanelSide {
 
 impl PanelSide {
     #[must_use]
-    pub fn toggle_button(
-        self,
-        id: impl Into<ElementId>,
-        open: bool,
-        name: &str,
-        theme: UiTheme,
-    ) -> IconButton {
+    pub fn toggle_button(self, id: impl Into<ElementId>, open: bool, name: &str, theme: UiTheme) -> IconButton {
         let icon = match self {
             Self::Left => IconName::PanelLeft,
             Self::Right => IconName::PanelRight,
         };
-        let label = if open {
-            format!("Hide {name}")
-        } else {
-            format!("Show {name}")
-        };
+        let label = if open { format!("Hide {name}") } else { format!("Show {name}") };
         IconButton::new(id, icon, label, theme)
     }
 }
@@ -120,9 +110,7 @@ impl RenderOnce for ResizablePanel {
         let (min_width, max_width) = (self.min_width, rems(self.max_width.0.max(self.min_width.0)));
         let selector = self.id.to_string();
         let handle_selector = format!("{selector}-resize-handle");
-        let drag = ResizeDrag {
-            panel: self.id.clone(),
-        };
+        let drag = ResizeDrag { panel: self.id.clone() };
         let panel = self.id.clone();
         let on_resize = self.on_resize;
         let on_reset = self.on_reset;

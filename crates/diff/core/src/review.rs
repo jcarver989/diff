@@ -1,8 +1,8 @@
 //! Structured review comments, reconciliation, and agent-facing output.
 
 use crate::{
-    CommitId, CommitStack, DiffDocument, DiffSide, FileStatus, Fingerprint, LineAnchor,
-    PatchLineKind, RepoPath, ReviewTarget,
+    CommitId, CommitStack, DiffDocument, DiffSide, FileStatus, Fingerprint, LineAnchor, PatchLineKind, RepoPath,
+    ReviewTarget,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -112,30 +112,24 @@ impl Review {
     }
 
     pub fn comments(&self) -> impl DoubleEndedIterator<Item = &ReviewComment> {
-        self.comments
-            .iter()
-            .filter(|comment| comment.target.commit() == self.target.commit())
+        self.comments.iter().filter(|comment| comment.target.commit() == self.target.commit())
     }
 
     #[must_use]
     pub fn targets_commits(&self) -> bool {
-        self.comments
-            .iter()
-            .any(|comment| comment.target.commit().is_some())
+        self.comments.iter().any(|comment| comment.target.commit().is_some())
     }
 
     /// Returns comments associated with a path.
     pub fn comments_for_file(&self, path: &RepoPath) -> impl Iterator<Item = &ReviewComment> {
-        self.comments()
-            .filter(move |comment| &comment.context.path == path || &comment.anchor.path == path)
+        self.comments().filter(move |comment| &comment.context.path == path || &comment.anchor.path == path)
     }
 
     pub fn comments_for_anchor<'a>(
         &'a self,
         anchor: &'a LineAnchor,
     ) -> impl DoubleEndedIterator<Item = &'a ReviewComment> {
-        self.comments()
-            .filter(move |comment| &comment.anchor == anchor)
+        self.comments().filter(move |comment| &comment.anchor == anchor)
     }
 
     /// Removes all comments.
@@ -146,10 +140,7 @@ impl Review {
     /// Reattaches comments to a replacement document and marks misses outdated.
     pub fn reconcile(&mut self, document: &DiffDocument) {
         self.target.clone_from(&document.target);
-        let wanted: HashSet<Fingerprint> = self
-            .comments()
-            .map(|comment| comment.anchor.content_fingerprint)
-            .collect();
+        let wanted: HashSet<Fingerprint> = self.comments().map(|comment| comment.anchor.content_fingerprint).collect();
         if wanted.is_empty() {
             return;
         }
@@ -162,9 +153,7 @@ impl Review {
                         if !wanted.contains(&fingerprint) {
                             continue;
                         }
-                        if let Some(anchor) =
-                            LineAnchor::for_line(file, *side, hunk_index, line_index)
-                        {
+                        if let Some(anchor) = LineAnchor::for_line(file, *side, hunk_index, line_index) {
                             candidates.entry(fingerprint).or_default().push(anchor);
                         }
                     }
@@ -196,10 +185,7 @@ impl Review {
 
     #[must_use]
     pub fn submission_with(&self, options: &AgentFeedbackOptions) -> ReviewSubmission {
-        ReviewSubmission {
-            comments: self.comments.clone(),
-            formatted: format_review(self, options),
-        }
+        ReviewSubmission { comments: self.comments.clone(), formatted: format_review(self, options) }
     }
 }
 
@@ -255,37 +241,22 @@ impl AgentFeedbackOptions {
     }
 }
 
-fn page_order<'a>(
-    comment: &'a ReviewComment,
-    commits: Option<&CommitStack>,
-) -> (bool, usize, Option<&'a CommitId>) {
+fn page_order<'a>(comment: &'a ReviewComment, commits: Option<&CommitStack>) -> (bool, usize, Option<&'a CommitId>) {
     let index = commits.and_then(|stack| stack.page_index(&comment.target));
-    (
-        comment.target.scope().is_some(),
-        index.unwrap_or(usize::MAX),
-        comment.target.commit(),
-    )
+    (comment.target.scope().is_some(), index.unwrap_or(usize::MAX), comment.target.commit())
 }
 
 #[must_use]
 pub fn format_review(review: &Review, options: &AgentFeedbackOptions) -> String {
-    let mut comments: Vec<&ReviewComment> = review
-        .comments
-        .iter()
-        .filter(|comment| options.include_outdated || !comment.outdated)
-        .collect();
+    let mut comments: Vec<&ReviewComment> =
+        review.comments.iter().filter(|comment| options.include_outdated || !comment.outdated).collect();
     let commits = options.commits.as_deref();
     let paged = review.targets_commits();
     comments.sort_by(|left, right| {
         page_order(left, commits)
             .cmp(&page_order(right, commits))
             .then_with(|| left.anchor.path.cmp(&right.anchor.path))
-            .then_with(|| {
-                left.anchor
-                    .line_number()
-                    .unwrap_or(0)
-                    .cmp(&right.anchor.line_number().unwrap_or(0))
-            })
+            .then_with(|| left.anchor.line_number().unwrap_or(0).cmp(&right.anchor.line_number().unwrap_or(0)))
             .then_with(|| left.anchor.side.cmp(&right.anchor.side))
             .then_with(|| left.id.cmp(&right.id))
     });
@@ -308,10 +279,7 @@ pub fn format_review(review: &Review, options: &AgentFeedbackOptions) -> String 
             DiffSide::Old => "removed",
             DiffSide::New => "added",
         };
-        let line = comment
-            .anchor
-            .line_number()
-            .map_or_else(|| "unknown".to_owned(), |number| number.to_string());
+        let line = comment.anchor.line_number().map_or_else(|| "unknown".to_owned(), |number| number.to_string());
         let _ = write!(
             out,
             "\n\n**Line {line} ({side}):** `{}`\n> {}",
@@ -366,10 +334,7 @@ mod tests {
             status: crate::FileStatus::Modified,
         });
         let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(
-            serde_json::from_str::<DiffReviewEvent>(&json).unwrap(),
-            event
-        );
+        assert_eq!(serde_json::from_str::<DiffReviewEvent>(&json).unwrap(), event);
     }
 
     #[test]
@@ -402,10 +367,7 @@ mod tests {
         review.add_comment_with_context(anchor(&before, DiffSide::New, 1), "target", "keep this");
 
         let after = FileDiff::from_texts("a.rs", "a\nb\n", "a\ninserted\ntarget\nb\n").unwrap();
-        review.reconcile(&DiffDocument {
-            files: vec![after],
-            ..DiffDocument::default()
-        });
+        review.reconcile(&DiffDocument { files: vec![after], ..DiffDocument::default() });
 
         let comment = review.comments().next().unwrap();
         assert!(!comment.outdated);
@@ -419,10 +381,7 @@ mod tests {
         let target = anchor(&file, DiffSide::New, 2);
         let mut review = Review::default();
         review.add_comment(target.clone(), "note");
-        review.reconcile(&DiffDocument {
-            files: vec![file],
-            ..DiffDocument::default()
-        });
+        review.reconcile(&DiffDocument { files: vec![file], ..DiffDocument::default() });
         let comment = review.comments().next().unwrap();
         assert!(!comment.outdated);
         assert_eq!(comment.anchor, target);
@@ -441,10 +400,7 @@ mod tests {
         review.reconcile(&DiffDocument::empty());
         let hidden = format_review(
             &review,
-            &AgentFeedbackOptions {
-                include_outdated: false,
-                ..AgentFeedbackOptions::default()
-            },
+            &AgentFeedbackOptions { include_outdated: false, ..AgentFeedbackOptions::default() },
         );
         assert!(!hidden.contains("second"));
     }

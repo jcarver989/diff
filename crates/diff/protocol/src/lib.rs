@@ -50,12 +50,7 @@ impl ReviewResponse {
     #[must_use]
     pub const fn protocol_version(&self) -> u32 {
         match self {
-            Self::Diff {
-                protocol_version, ..
-            }
-            | Self::Markdown {
-                protocol_version, ..
-            } => *protocol_version,
+            Self::Diff { protocol_version, .. } | Self::Markdown { protocol_version, .. } => *protocol_version,
         }
     }
 
@@ -82,11 +77,10 @@ impl ReviewResponse {
             Self::Markdown { submission, .. } => submission.is_some(),
         };
         match (self.outcome(), has_submission) {
-            (ReviewOutcome::Cancelled, false)
-            | (ReviewOutcome::Approved | ReviewOutcome::ChangesRequested, true) => Ok(()),
-            (ReviewOutcome::Cancelled, true) => {
-                Err(ProtocolValidationError::CancellationHasSubmission)
+            (ReviewOutcome::Cancelled, false) | (ReviewOutcome::Approved | ReviewOutcome::ChangesRequested, true) => {
+                Ok(())
             }
+            (ReviewOutcome::Cancelled, true) => Err(ProtocolValidationError::CancellationHasSubmission),
             (ReviewOutcome::Approved | ReviewOutcome::ChangesRequested, false) => {
                 Err(ProtocolValidationError::SubmittedWithoutSubmission)
             }
@@ -99,10 +93,7 @@ mod diff_scope {
     use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
     use std::str::FromStr;
 
-    #[expect(
-        clippy::trivially_copy_pass_by_ref,
-        reason = "serde with modules require this serializer signature"
-    )]
+    #[expect(clippy::trivially_copy_pass_by_ref, reason = "serde with modules require this serializer signature")]
     pub fn serialize<S>(scope: &DiffScope, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -187,9 +178,7 @@ impl UiKind {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ProtocolValidationError {
-    #[error(
-        "unsupported Clankerdiff protocol version {received}; this client supports version {supported}"
-    )]
+    #[error("unsupported Clankerdiff protocol version {received}; this client supports version {supported}")]
     UnsupportedVersion { received: u32, supported: u32 },
     #[error("a cancelled review must not contain a submission")]
     CancellationHasSubmission,
@@ -217,10 +206,7 @@ mod tests {
                 outcome: ReviewOutcome::Approved,
                 repository_root: PathBuf::from("/repo"),
                 scope: DiffScope::Both,
-                submission: Some(ReviewSubmission {
-                    comments: Vec::new(),
-                    formatted: "approved".into(),
-                }),
+                submission: Some(ReviewSubmission { comments: Vec::new(), formatted: "approved".into() }),
             },
             ReviewResponse::Markdown {
                 protocol_version: PROTOCOL_VERSION,
@@ -248,10 +234,7 @@ mod tests {
             scope: DiffScope::Both,
             submission: None,
         };
-        assert_eq!(
-            missing.validate(),
-            Err(ProtocolValidationError::SubmittedWithoutSubmission)
-        );
+        assert_eq!(missing.validate(), Err(ProtocolValidationError::SubmittedWithoutSubmission));
     }
 
     #[test]
@@ -270,9 +253,7 @@ mod tests {
         let newer = String::from_utf8(newer).unwrap().replacen(":1", ":2", 1);
         assert!(matches!(
             parse_response(newer.as_bytes()),
-            Err(ParseResponseError::Validation(
-                ProtocolValidationError::UnsupportedVersion { received: 2, .. }
-            ))
+            Err(ParseResponseError::Validation(ProtocolValidationError::UnsupportedVersion { received: 2, .. }))
         ));
     }
 }

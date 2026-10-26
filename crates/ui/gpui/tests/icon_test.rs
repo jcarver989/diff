@@ -11,10 +11,7 @@ fn a_spinner_redraws_at_most_ten_times_a_second(cx: &mut TestAppContext) {
 
     let redraws = redraws_over(cx, &renders, Duration::from_secs(1));
 
-    assert!(
-        (1..=10).contains(&redraws),
-        "redrew {redraws} times in a second"
-    );
+    assert!((1..=10).contains(&redraws), "redrew {redraws} times in a second");
 }
 
 #[gpui::test]
@@ -51,9 +48,7 @@ fn spinner(cx: &mut TestAppContext) -> (ComponentHarness, Rc<Cell<usize>>) {
     let counted = renders.clone();
     let harness = ComponentHarnessBuilder::default().build(cx, move |_, _| {
         counted.set(counted.get() + 1);
-        Icon::new(IconName::LoaderCircle, black())
-            .spin("spinner")
-            .into_any_element()
+        Icon::new(IconName::LoaderCircle, black()).spin("spinner").into_any_element()
     });
     (harness, renders)
 }

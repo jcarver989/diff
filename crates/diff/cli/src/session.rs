@@ -28,18 +28,14 @@ async fn run_session(
     let socket_path = directory.path().join("session.sock");
     let session_listener = UnixListener::bind(&socket_path)?;
     launch(&socket_path).map_err(SessionError::Launch)?;
-    let (stream, _) = timeout(Duration::from_secs(60), session_listener.accept())
-        .await
-        .map_err(|_| SessionError::Timeout)??;
+    let (stream, _) =
+        timeout(Duration::from_secs(60), session_listener.accept()).await.map_err(|_| SessionError::Timeout)??;
     let mut stream = stream.into_std()?;
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
     if read_request(&mut stream)? != SessionRequest::Bootstrap {
-        write_response(
-            &mut stream,
-            &SessionResponseRef::ProtocolError("expected bootstrap"),
-        )?;
+        write_response(&mut stream, &SessionResponseRef::ProtocolError("expected bootstrap"))?;
         return Err(SessionError::ServerStopped);
     }
     write_response(&mut stream, &SessionResponseRef::Bootstrap { url, target })?;

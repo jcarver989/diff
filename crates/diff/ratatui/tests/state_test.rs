@@ -5,8 +5,7 @@ use clankerdiff_core::{
     testing::{DocumentBuilder, commit_id},
 };
 use clankerdiff_ratatui::{
-    DiffReviewState, DiffReviewStatus, InputOutcome, KeyCode, KeyEvent, KeyModifiers,
-    ReviewCapabilities, ReviewInput,
+    DiffReviewState, DiffReviewStatus, InputOutcome, KeyCode, KeyEvent, KeyModifiers, ReviewCapabilities, ReviewInput,
 };
 use std::sync::Arc;
 
@@ -35,10 +34,7 @@ fn a_failure_without_a_document_is_fatal() {
 
     state.apply_client_state(&failed(None), &mut installed);
 
-    assert_eq!(
-        state.status(),
-        &DiffReviewStatus::Error("connection closed".to_owned())
-    );
+    assert_eq!(state.status(), &DiffReviewStatus::Error("connection closed".to_owned()));
 }
 
 #[test]
@@ -50,11 +46,7 @@ fn a_failure_after_a_document_is_a_background_error() {
     state.apply_client_state(&connected(Arc::clone(&snapshot)), &mut installed);
     state.apply_client_state(&failed(Some(snapshot)), &mut installed);
 
-    assert_eq!(
-        state.status(),
-        &DiffReviewStatus::Ready,
-        "the loaded document is retained"
-    );
+    assert_eq!(state.status(), &DiffReviewStatus::Ready, "the loaded document is retained");
     assert_eq!(state.repository_error(), Some("connection closed"));
 }
 
@@ -83,15 +75,9 @@ fn brackets_step_through_commits_and_back_to_the_working_tree() {
     install(&mut state, DiffScope::Staged.into());
     install(&mut state, commit_id(1).into());
     assert_eq!(emitted_target(&mut state, '['), None);
-    assert_eq!(
-        emitted_target(&mut state, ']'),
-        Some(ReviewTarget::Commit(commit_id(2)))
-    );
+    assert_eq!(emitted_target(&mut state, ']'), Some(ReviewTarget::Commit(commit_id(2))));
     install(&mut state, commit_id(2).into());
-    assert_eq!(
-        emitted_target(&mut state, ']'),
-        Some(ReviewTarget::WorkingTree(DiffScope::Staged))
-    );
+    assert_eq!(emitted_target(&mut state, ']'), Some(ReviewTarget::WorkingTree(DiffScope::Staged)));
 }
 
 fn connected(snapshot: Arc<DiffDocument>) -> ClientState {
@@ -122,10 +108,7 @@ fn document(target: impl Into<ReviewTarget>, version: &str) -> Arc<DiffDocument>
 }
 
 fn emitted_target(state: &mut DiffReviewState, key: char) -> Option<ReviewTarget> {
-    match state.handle_input(ReviewInput::Key(KeyEvent::new(
-        KeyCode::Char(key),
-        KeyModifiers::NONE,
-    ))) {
+    match state.handle_input(ReviewInput::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE))) {
         InputOutcome::Emitted(DiffReviewEvent::SetTarget(target)) => Some(target),
         _ => None,
     }

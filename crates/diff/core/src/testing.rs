@@ -1,6 +1,6 @@
 use crate::{
-    CommitId, CommitStack, CommitSummary, DiffDocument, DiffSide, FileDiff, FileStatus, Hunk,
-    PatchLine, RepoPath, ReviewTarget, SourceDocument, SourceResult, SourceUnavailable, StageState,
+    CommitId, CommitStack, CommitSummary, DiffDocument, DiffSide, FileDiff, FileStatus, Hunk, PatchLine, RepoPath,
+    ReviewTarget, SourceDocument, SourceResult, SourceUnavailable, StageState,
 };
 use std::sync::Arc;
 
@@ -47,14 +47,9 @@ impl DocumentBuilder {
 
     #[must_use]
     pub fn commit(mut self, subject: &str) -> Self {
-        let stack = self.commits.get_or_insert_with(|| CommitStack {
-            base_ref: "origin/main".to_owned(),
-            commits: Vec::new(),
-        });
-        stack.commits.push(CommitSummary {
-            id: commit_id(stack.commits.len() + 1),
-            subject: subject.to_owned(),
-        });
+        let stack =
+            self.commits.get_or_insert_with(|| CommitStack { base_ref: "origin/main".to_owned(), commits: Vec::new() });
+        stack.commits.push(CommitSummary { id: commit_id(stack.commits.len() + 1), subject: subject.to_owned() });
         self
     }
 
@@ -90,13 +85,7 @@ impl DocumentBuilder {
     ///
     /// Panics when `path` is not a valid repository-relative fixture path.
     #[must_use]
-    pub fn changed_with(
-        self,
-        path: &str,
-        old: &str,
-        new: &str,
-        customize: impl FnOnce(FileDiff) -> FileDiff,
-    ) -> Self {
+    pub fn changed_with(self, path: &str, old: &str, new: &str, customize: impl FnOnce(FileDiff) -> FileDiff) -> Self {
         let file = customize(FileDiff::from_texts(path, old, new).expect("valid fixture path"));
         self.file(file)
     }
@@ -110,10 +99,7 @@ impl DocumentBuilder {
     /// Adds an untracked text fixture.
     #[must_use]
     pub fn untracked(self, path: &str, new: &str) -> Self {
-        self.changed_with(path, "", new, |file| FileDiff {
-            status: FileStatus::Untracked,
-            ..file
-        })
+        self.changed_with(path, "", new, |file| FileDiff { status: FileStatus::Untracked, ..file })
     }
 
     /// Adds a text fixture with the requested staging state.
@@ -160,11 +146,8 @@ impl DocumentBuilder {
         let mut file = FileDiff::from_texts(path, old, new).expect("valid fixture path");
         let mut hunk = file.hunks.remove(0);
         hunk.lines.retain(|line| {
-            line.old_line_no
-                .is_some_and(|number| window.contains(&number))
-                || line
-                    .new_line_no
-                    .is_some_and(|number| window.contains(&number))
+            line.old_line_no.is_some_and(|number| window.contains(&number))
+                || line.new_line_no.is_some_and(|number| window.contains(&number))
         });
         let start = *window.start();
         let count = window.end().saturating_sub(start).saturating_add(1);
@@ -203,9 +186,8 @@ impl DocumentBuilder {
     #[must_use]
     pub fn generated(self, path: &str, lines: usize) -> Self {
         let stem = path.rsplit('/').next().unwrap_or(path).replace('.', "_");
-        let patch_lines: Vec<PatchLine> = (1..=lines)
-            .map(|line| PatchLine::added(format!("let {stem}_value_{line} = {line};"), line))
-            .collect();
+        let patch_lines: Vec<PatchLine> =
+            (1..=lines).map(|line| PatchLine::added(format!("let {stem}_value_{line} = {line};"), line)).collect();
         let path = fixture_path(path);
         self.file(FileDiff {
             old_path: None,
@@ -247,12 +229,7 @@ impl DocumentBuilder {
     /// Overrides one side's source result without changing patch metadata.
     /// Applied when the document is built, so it may precede or follow the file.
     #[must_use]
-    pub fn source(
-        mut self,
-        path: &str,
-        side: DiffSide,
-        result: Result<impl AsRef<str>, SourceUnavailable>,
-    ) -> Self {
+    pub fn source(mut self, path: &str, side: DiffSide, result: Result<impl AsRef<str>, SourceUnavailable>) -> Self {
         let result = result.and_then(|text| SourceDocument::new(text).map(Arc::new));
         self.overrides.push((fixture_path(path), side, result));
         self
@@ -327,11 +304,7 @@ pub fn patch_line() -> PatchLine {
 /// Panics if the built-in [`file_diff`] defaults become invalid.
 #[must_use]
 pub fn diff_document() -> DiffDocument {
-    DiffDocument {
-        repo_root: "/repo".to_owned(),
-        files: vec![file_diff()],
-        ..DiffDocument::default()
-    }
+    DiffDocument { repo_root: "/repo".to_owned(), files: vec![file_diff()], ..DiffDocument::default() }
 }
 
 fn fixture_path(path: &str) -> RepoPath {
@@ -345,37 +318,20 @@ mod tests {
     #[test]
     fn changed_with_applies_struct_update_overrides_and_preserves_sources() {
         let document = DocumentBuilder::new()
-            .changed_with("src/lib.rs", "old\n", "new\n", |file| FileDiff {
-                staged: StageState::Staged,
-                ..file
-            })
-            .source(
-                "src/lib.rs",
-                DiffSide::New,
-                Err::<&str, _>(SourceUnavailable::Binary),
-            )
+            .changed_with("src/lib.rs", "old\n", "new\n", |file| FileDiff { staged: StageState::Staged, ..file })
+            .source("src/lib.rs", DiffSide::New, Err::<&str, _>(SourceUnavailable::Binary))
             .build();
 
         let file = &document.files[0];
         assert_eq!(file.staged, StageState::Staged);
         assert_eq!(file.source_document(DiffSide::Old).unwrap().text(), "old\n");
-        assert_eq!(
-            file.source_unavailable(DiffSide::New),
-            Some(&SourceUnavailable::Binary)
-        );
+        assert_eq!(file.source_unavailable(DiffSide::New), Some(&SourceUnavailable::Binary));
     }
 
     #[test]
     fn low_level_factories_support_struct_update_syntax() {
-        let file = FileDiff {
-            binary: true,
-            hunks: Vec::new(),
-            ..file_diff()
-        };
-        let document = DiffDocument {
-            files: vec![file],
-            ..diff_document()
-        };
+        let file = FileDiff { binary: true, hunks: Vec::new(), ..file_diff() };
+        let document = DiffDocument { files: vec![file], ..diff_document() };
 
         assert!(document.files[0].binary);
     }
@@ -388,26 +344,15 @@ mod tests {
             .renamed("old.rs", "renamed.rs", "old\n", "new\n")
             .copied("source.rs", "copy.rs", "old\n", "new\n")
             .build();
-        let text = |index: usize, side| {
-            document.files[index]
-                .source_document(side)
-                .expect("fixture source")
-                .text()
-                .to_owned()
-        };
+        let text =
+            |index: usize, side| document.files[index].source_document(side).expect("fixture source").text().to_owned();
 
         assert_eq!(document.files[0].status, FileStatus::Deleted);
         assert_eq!(document.files[1].status, FileStatus::Untracked);
         assert_eq!(document.files[2].status, FileStatus::Renamed);
         assert_eq!(document.files[3].status, FileStatus::Copied);
-        assert_eq!(
-            document.files[0].source_unavailable(DiffSide::New),
-            Some(&SourceUnavailable::Absent)
-        );
-        assert_eq!(
-            document.files[1].source_unavailable(DiffSide::Old),
-            Some(&SourceUnavailable::Absent)
-        );
+        assert_eq!(document.files[0].source_unavailable(DiffSide::New), Some(&SourceUnavailable::Absent));
+        assert_eq!(document.files[1].source_unavailable(DiffSide::Old), Some(&SourceUnavailable::Absent));
         assert_eq!(text(1, DiffSide::New), "new\n");
         assert_eq!(text(2, DiffSide::Old), "old\n");
         assert_eq!(text(2, DiffSide::New), "new\n");

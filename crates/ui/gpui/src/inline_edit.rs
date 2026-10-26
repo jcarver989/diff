@@ -2,9 +2,7 @@ use super::{
     theme::UiTheme,
     tokens::{RADIUS_CONTROL, rem},
 };
-use gpui::{
-    App, AppContext, Entity, IntoElement, RenderOnce, SharedString, Window, div, prelude::*,
-};
+use gpui::{App, AppContext, Entity, IntoElement, RenderOnce, SharedString, Window, div, prelude::*};
 use gpui_base::input::{Enter, Escape, Input, InputState};
 
 type EditHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -38,12 +36,7 @@ impl InlineEdit {
 
     #[must_use]
     pub fn new(input: &Entity<InputState>, theme: UiTheme) -> Self {
-        Self {
-            input: input.clone(),
-            theme,
-            on_commit: None,
-            on_cancel: None,
-        }
+        Self { input: input.clone(), theme, on_commit: None, on_cancel: None }
     }
 
     #[must_use]
@@ -70,12 +63,8 @@ impl RenderOnce for InlineEdit {
             .border_1()
             .border_color(colors.accent)
             .bg(colors.canvas)
-            .when_some(self.on_commit, |edit, commit| {
-                edit.on_action(move |_: &Enter, window, cx| commit(window, cx))
-            })
-            .when_some(self.on_cancel, |edit, cancel| {
-                edit.on_action(move |_: &Escape, window, cx| cancel(window, cx))
-            })
+            .when_some(self.on_commit, |edit, commit| edit.on_action(move |_: &Enter, window, cx| commit(window, cx)))
+            .when_some(self.on_cancel, |edit, cancel| edit.on_action(move |_: &Escape, window, cx| cancel(window, cx)))
             .child(Input::new(&self.input))
     }
 }

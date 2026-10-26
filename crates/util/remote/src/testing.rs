@@ -17,46 +17,23 @@ struct State {
 }
 
 impl FakeRemotes {
-    pub fn add(
-        &self,
-        remote: &str,
-        id: &str,
-        state: InstanceState,
-        expires_at: Option<SystemTime>,
-    ) {
-        let instance = Instance {
-            id: id.to_owned(),
-            state,
-            expires_at,
-        };
-        self.lock()
-            .instances
-            .entry(remote.to_owned())
-            .or_default()
-            .push(instance);
+    pub fn add(&self, remote: &str, id: &str, state: InstanceState, expires_at: Option<SystemTime>) {
+        let instance = Instance { id: id.to_owned(), state, expires_at };
+        self.lock().instances.entry(remote.to_owned()).or_default().push(instance);
     }
 
     #[must_use]
     pub fn instances(&self, remote: &str) -> Vec<Instance> {
-        self.lock()
-            .instances
-            .get(remote)
-            .cloned()
-            .unwrap_or_default()
+        self.lock().instances.get(remote).cloned().unwrap_or_default()
     }
 
     #[must_use]
     pub fn state_of(&self, remote: &str, id: &str) -> Option<InstanceState> {
-        self.instances(remote)
-            .into_iter()
-            .find(|instance| instance.id == id)
-            .map(|instance| instance.state)
+        self.instances(remote).into_iter().find(|instance| instance.id == id).map(|instance| instance.state)
     }
 
     pub fn fail(&self, remote: &str, message: &str) {
-        self.lock()
-            .failures
-            .insert(remote.to_owned(), message.to_owned());
+        self.lock().failures.insert(remote.to_owned(), message.to_owned());
     }
 
     #[must_use]
@@ -86,31 +63,16 @@ impl Remotes for FakeRemotes {
     fn list(&self, remote: &RemoteSpec) -> Result<Vec<Instance>, RemoteError> {
         let mut state = self.check(remote)?;
         state.listings += 1;
-        let instances = state
-            .instances
-            .get(&remote.name)
-            .cloned()
-            .unwrap_or_default();
-        Ok(instances
-            .into_iter()
-            .filter(|instance| instance.state != InstanceState::Ended)
-            .collect())
+        let instances = state.instances.get(&remote.name).cloned().unwrap_or_default();
+        Ok(instances.into_iter().filter(|instance| instance.state != InstanceState::Ended).collect())
     }
 
     fn launch(&self, remote: &RemoteSpec) -> Result<String, RemoteError> {
         let mut state = self.check(remote)?;
         let id = format!("instance-{}", state.launches);
         state.launches += 1;
-        let instance = Instance {
-            id: id.clone(),
-            state: InstanceState::Running,
-            expires_at: None,
-        };
-        state
-            .instances
-            .entry(remote.name.clone())
-            .or_default()
-            .push(instance);
+        let instance = Instance { id: id.clone(), state: InstanceState::Running, expires_at: None };
+        state.instances.entry(remote.name.clone()).or_default().push(instance);
         Ok(id)
     }
 

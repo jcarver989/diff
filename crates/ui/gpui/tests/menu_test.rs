@@ -87,10 +87,7 @@ fn a_destructive_entry_past_a_separator_runs_its_action(cx: &mut TestAppContext)
             harness.click(cx, "actions")?;
             let rename = harness.bounds(cx, "rename").ok_or("missing rename")?;
             let delete = harness.bounds(cx, "delete").ok_or("missing delete")?;
-            assert!(
-                delete.top() > rename.bottom(),
-                "the separator sits between them"
-            );
+            assert!(delete.top() > rename.bottom(), "the separator sits between them");
             harness.click(cx, "delete")?;
             assert_eq!(chosen.get(), 1);
             Ok(())
@@ -108,12 +105,6 @@ fn menu(chosen: Rc<Cell<usize>>) -> gpui::AnyElement {
 
 fn menu_with(items: impl FnOnce() -> Vec<MenuItem> + 'static) -> gpui::AnyElement {
     let theme = UiTheme::new(&ReviewTheme::default());
-    with_menu(
-        "actions",
-        Button::new("actions", "Actions", theme),
-        MouseButton::Left,
-        move |_, _| items(),
-        &theme,
-    )
-    .into_any_element()
+    with_menu("actions", Button::new("actions", "Actions", theme), MouseButton::Left, move |_, _| items(), &theme)
+        .into_any_element()
 }

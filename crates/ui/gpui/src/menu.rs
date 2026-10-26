@@ -83,20 +83,8 @@ pub fn with_menu<T: Selectable + IntoElement + 'static>(
             let popover = cx.entity();
             let colors = theme.colors;
             let entries = items(window, cx).into_iter().map(move |MenuItem(entry)| {
-                let Entry::Action {
-                    selector,
-                    label,
-                    icon,
-                    destructive,
-                    action,
-                } = entry
-                else {
-                    return div()
-                        .my_1()
-                        .mx_1()
-                        .h_px()
-                        .bg(colors.border)
-                        .into_any_element();
+                let Entry::Action { selector, label, icon, destructive, action } = entry else {
+                    return div().my_1().mx_1().h_px().bg(colors.border).into_any_element();
                 };
                 let popover = popover.clone();
                 let tint = destructive.then_some(colors.destructive);
@@ -106,13 +94,7 @@ pub fn with_menu<T: Selectable + IntoElement + 'static>(
                         action(window, cx);
                     })
                     .children(icon.map(|icon| Icon::new(icon, tint.unwrap_or(colors.text_muted))))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .when_some(tint, gpui::Styled::text_color)
-                            .child(label),
-                    )
+                    .child(div().min_w_0().truncate().when_some(tint, gpui::Styled::text_color).child(label))
                     .into_any_element()
             });
             div()
