@@ -5,7 +5,7 @@ default:
 
 # Build and install the release clankerdiff binary into Cargo's bin directory.
 install:
-    cargo install --path crates/clankerdiff --locked --force --profile release
+    cargo install --path crates/diff/cli --locked --force --profile release
 
 tui:
     cargo run -p clankerdiff-ratatui --features crossterm-backend --example review
@@ -23,7 +23,7 @@ ensure_trunk_installed:
     fi
 
 web: ensure_trunk_installed
-    cd crates/diff-gpui-web && trunk serve
+    cd crates/diff/web && trunk serve
 
 check:
     cargo check --workspace --all-targets
@@ -71,7 +71,7 @@ wasm-check:
 
 # Build the release WASM and execute its smoke test in Chromium.
 web-test:
-    cd crates/diff-gpui-web && npm ci && npx playwright install chromium && npm test
+    cd crates/diff/web && npm ci && npx playwright install chromium && npm test
 
 # Exercise the remote backend, clients, and the headless CLI build.
 remote-test:

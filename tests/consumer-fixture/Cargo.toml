@@ -15,11 +15,11 @@ remote = ["embedded", "clankerdiff-client/websocket", "clankerdiff-server/websoc
 crossterm-backend = ["clankerdiff-ratatui/crossterm-backend"]
 
 [dependencies]
-clankerdiff-client = { path = "../../crates/diff-client", optional = true, default-features = false }
-clankerdiff-server = { path = "../../crates/diff-server", optional = true, default-features = false }
-clankerdiff-ratatui = { path = "../../crates/diff-ratatui", default-features = false }
-clankerdiff-git = { path = "../../crates/diff-git", optional = true }
-clankerdiff-watch = { path = "../../crates/diff-watch", optional = true }
+clankerdiff-client = { path = "../../crates/diff/client", optional = true, default-features = false }
+clankerdiff-server = { path = "../../crates/diff/server", optional = true, default-features = false }
+clankerdiff-ratatui = { path = "../../crates/diff/ratatui", default-features = false }
+clankerdiff-git = { path = "../../crates/diff/git", optional = true }
+clankerdiff-watch = { path = "../../crates/diff/watch", optional = true }
 ratatui = { version = "0.30.0", default-features = false, features = ["std", "layout-cache"] }
 tempfile = { version = "3.21.0", optional = true }
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"], optional = true }

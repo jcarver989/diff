@@ -54,7 +54,7 @@ updates:
       interval: weekly
     commit-message:
       prefix: "chore(deps):"
-    directory: /crates/diff-gpui-web
+    directory: /crates/diff/web
     cooldown:
       default-days: 7
   - package-ecosystem: rust-toolchain

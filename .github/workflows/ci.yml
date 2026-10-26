@@ -95,9 +95,9 @@ jobs:
       - name: Check the browser target
         run: just wasm-check
       - name: Install browser test dependencies
-        run: cd crates/diff-gpui-web && npm ci && npx playwright install --with-deps chromium
+        run: cd crates/diff/web && npm ci && npx playwright install --with-deps chromium
       - name: Run browser highlighting smoke test
-        run: cd crates/diff-gpui-web && npm test
+        run: cd crates/diff/web && npm test
 
   docs:
     name: Docs
