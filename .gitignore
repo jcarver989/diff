@@ -1,7 +1,14 @@
-/target
 /tests/consumer-fixture/target
 /tests/consumer-fixture/Cargo.lock
-**/*.rs.bk
-.DS_Store
 node_modules/
 dist/
+
+# framer:begin framer
+/.framer/target/
+# framer:end framer
+
+# framer:begin rust-monorepo
+/target
+**/*.rs.bk
+.DS_Store
+# framer:end rust-monorepo
