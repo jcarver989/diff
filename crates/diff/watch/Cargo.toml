@@ -23,14 +23,14 @@ test-support = []
 
 [dependencies]
 ignore.workspace = true
-clankerdiff-core = { version = "0.3.3", path = "../diff-core" }
-clankerdiff-git = { version = "0.3.3", path = "../diff-git" }
+clankerdiff-core.workspace = true
+clankerdiff-git.workspace = true
 notify.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
 clankerdiff-watch = { path = ".", features = ["test-support"] }
-clankerdiff-git = { path = "../diff-git", features = ["test-support"] }
+clankerdiff-git = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 tokio.workspace = true
