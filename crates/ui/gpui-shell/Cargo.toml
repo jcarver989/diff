@@ -15,7 +15,7 @@ script = ["gpui/test-support", "gpui_platform/test-support", "dep:image"]
 workspace = true
 
 [dependencies]
-clankerdiff-gpui-ui = { path = "../diff-gpui-ui" }
+clankerdiff-gpui-ui.workspace = true
 gpui.workspace = true
 gpui-base.workspace = true
 gpui_platform.workspace = true
