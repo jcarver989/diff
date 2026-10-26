@@ -17,6 +17,7 @@ members = [
     "crates/diff-watch",
     "crates/diff-client",
     "crates/diff-server",
+    "crates/diff-remote",
 ]
 exclude = ["patches/gpui"]
 resolver = "3"

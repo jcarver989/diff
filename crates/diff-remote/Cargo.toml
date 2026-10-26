@@ -1,0 +1,28 @@
+[package]
+name = "clankerdiff-remote"
+publish = false
+description = "Remote machines apps open terminals and agents on, defined by the commands that list, launch, change and reach them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+test-support = []
+
+[lints]
+workspace = true
+
+[dependencies]
+humantime = "2.3"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[test]]
+name = "inventory_test"
+required-features = ["test-support"]
