@@ -228,7 +228,6 @@ const fn stage_marker(state: clankerdiff_core::StageState) -> &'static str {
     }
 }
 
-#[expect(clippy::too_many_lines, reason = "visible-row rendering is kept together")]
 fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
     if area.is_empty() {
         return;
@@ -504,7 +503,7 @@ fn render_cell(
         } else {
             "↪".to_owned()
         };
-        let gutter = format!("{number:>width$} ", width = usize::from(geometry.gutter_width).saturating_sub(2),);
+        let gutter = format!("{number:>width$} ", width = usize::from(geometry.gutter_width).saturating_sub(2));
         let gutter_foreground = match tone {
             DiffTone::Added => context.theme.addition,
             DiffTone::Removed => context.theme.deletion,

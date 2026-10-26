@@ -1242,12 +1242,12 @@ fn pair_changed_block<'a>(removed: &'a [SplitSide<'a>], added: &'a [SplitSide<'a
     for op in TextDiff::from_slices(&old, &new).ops() {
         match *op {
             DiffOp::Equal { old_index, new_index, len } => {
-                align(old_index..old_index + len, new_index..new_index + len)
+                align(old_index..old_index + len, new_index..new_index + len);
             }
             DiffOp::Delete { old_index, old_len, .. } => align(old_index..old_index + old_len, 0..0),
             DiffOp::Insert { new_index, new_len, .. } => align(0..0, new_index..new_index + new_len),
             DiffOp::Replace { old_index, old_len, new_index, new_len } => {
-                align(old_index..old_index + old_len, new_index..new_index + new_len)
+                align(old_index..old_index + old_len, new_index..new_index + new_len);
             }
         }
     }

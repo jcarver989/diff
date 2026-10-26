@@ -419,7 +419,7 @@ pub(crate) fn event_tree(events: &[(Event<'static>, Range<usize>)]) -> Vec<Node>
     for (event, range) in events {
         match event {
             Event::Start(_) => {
-                stack.push(Node { event: Some(event.clone()), range: range.clone(), children: Vec::new() })
+                stack.push(Node { event: Some(event.clone()), range: range.clone(), children: Vec::new() });
             }
             Event::End(_) => {
                 if stack.len() > 1

@@ -532,7 +532,7 @@ impl DiffViewer {
         let (theme, ui) = (self.theme.clone(), self.ui_theme());
         self.theme_picker =
             Some(ThemePickerOverlay::open(&theme, ThemeChoice::catalog(), ui, window, cx, |viewer, event, _, cx| {
-                viewer.on_theme_picker_event(event, cx)
+                viewer.on_theme_picker_event(event, cx);
             }));
     }
 

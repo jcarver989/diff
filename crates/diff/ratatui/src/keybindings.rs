@@ -148,7 +148,6 @@ fn normalize_key(mut key: KeyEvent) -> KeyEvent {
 }
 
 #[must_use]
-#[expect(clippy::too_many_lines, reason = "Declarative table of default keybindings")]
 pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
     use BindingScope::{Any, Document, Navigation, SplitDocument};
     use DiffReviewCommand as C;

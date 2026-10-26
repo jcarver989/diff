@@ -213,7 +213,7 @@ fn write_review_response(response: &ReviewResponse, format: OutputFormat) -> Res
             match response {
                 ReviewResponse::Diff { submission: Some(submission), .. } => println!("{}", text_feedback(submission)),
                 ReviewResponse::Markdown { submission: Some(submission), .. } => {
-                    println!("{}", markdown_text_feedback(submission))
+                    println!("{}", markdown_text_feedback(submission));
                 }
                 ReviewResponse::Diff { submission: None, .. } | ReviewResponse::Markdown { submission: None, .. } => {}
             }
