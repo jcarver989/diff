@@ -1,10 +1,12 @@
 use clankerdiff_gpui_ui::{
-    prelude::{Button, ListRow, Modal, UiTheme},
+    prelude::{
+        Badge, Button, IconButton, IconName, ListRow, Modal, NoticeTone, SectionHeader, UiTheme,
+    },
     testing::ComponentHarnessBuilder,
     tokens::TREE_INDENT,
 };
 use clankerdiff_theme::ReviewTheme;
-use gpui::{IntoElement, ParentElement, TestAppContext, div, prelude::*, px};
+use gpui::{AnyElement, IntoElement, ParentElement, TestAppContext, div, prelude::*, px};
 use std::{cell::Cell, rc::Rc};
 
 #[gpui::test]
@@ -112,6 +114,113 @@ fn a_top_aligned_modal_is_dismissed_by_its_scrim_but_not_by_its_panel(cx: &mut T
             Ok(())
         },
     );
+}
+
+#[gpui::test]
+fn a_badge_is_a_row_tall_pill_beside_its_neighbours(cx: &mut TestAppContext) {
+    ComponentHarnessBuilder::default().run(
+        cx,
+        |_, _| {
+            div()
+                .flex()
+                .child(
+                    Badge::new("left", "1h 42m", theme())
+                        .icon(IconName::Timer)
+                        .tone(NoticeTone::Warning),
+                )
+                .child(Badge::new("right", "Suspended", theme()))
+                .into_any_element()
+        },
+        |harness, cx| {
+            let left = harness.bounds(cx, "left").ok_or("missing left badge")?;
+            let right = harness.bounds(cx, "right").ok_or("missing right badge")?;
+            assert_eq!(left.size.height, harness.rem_size(cx) * 1.25);
+            assert!(left.right() <= right.left(), "badges do not overlap");
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn clicking_a_section_header_toggles_it(cx: &mut TestAppContext) {
+    let toggles = Rc::new(Cell::new(0));
+    let (recorded, unused) = (toggles.clone(), Rc::new(Cell::new(0)));
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| section("cloud", &recorded, &unused, false),
+        |harness, cx| {
+            harness.click(cx, "cloud")?;
+            harness.click(cx, "cloud-toggle")?;
+            assert_eq!(toggles.get(), 2);
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn a_section_headers_actions_run_without_toggling_it(cx: &mut TestAppContext) {
+    let (toggles, actions) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+    let (toggle_count, action_count) = (toggles.clone(), actions.clone());
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| section("cloud", &toggle_count, &action_count, false),
+        |harness, cx| {
+            harness.hover(cx, "cloud")?;
+            harness.click(cx, "cloud-add")?;
+            assert_eq!((toggles.get(), actions.get()), (0, 1));
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn a_section_header_can_keep_its_actions_visible_without_hover(cx: &mut TestAppContext) {
+    let (toggles, actions) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+    let (toggle_count, action_count) = (toggles.clone(), actions.clone());
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| section("cloud", &toggle_count, &action_count, true),
+        |harness, cx| {
+            let badge = harness.bounds(cx, "cloud-badge").ok_or("missing badge")?;
+            let action = harness.bounds(cx, "cloud-add").ok_or("missing action")?;
+            assert!(
+                badge.right() <= action.left(),
+                "persistent actions reserve space beside the badge"
+            );
+            harness.click(cx, "cloud-add")?;
+            assert_eq!((toggles.get(), actions.get()), (0, 1));
+            harness.hover(cx, "cloud")?;
+            assert_eq!(harness.bounds(cx, "cloud-badge"), Some(badge));
+            assert_eq!(harness.bounds(cx, "cloud-add"), Some(action));
+            harness.click(cx, "cloud-add")?;
+            assert_eq!((toggles.get(), actions.get()), (0, 2));
+            Ok(())
+        },
+    );
+}
+
+fn section(
+    id: &'static str,
+    toggles: &Rc<Cell<usize>>,
+    actions: &Rc<Cell<usize>>,
+    always_visible: bool,
+) -> AnyElement {
+    let (toggles, actions) = (toggles.clone(), actions.clone());
+    div()
+        .w(px(240.0))
+        .child(
+            SectionHeader::new(id, "Cloud", true, theme())
+                .actions_always_visible(always_visible)
+                .icon(IconName::Cloud, theme().colors.info)
+                .detail("3f2a")
+                .badge(Badge::new(format!("{id}-badge"), "1h 42m", theme()))
+                .on_toggle(move |_, _, _| toggles.set(toggles.get() + 1))
+                .action(
+                    IconButton::new(format!("{id}-add"), IconName::Plus, "New tab", theme())
+                        .on_click(move |_, _, _| actions.set(actions.get() + 1)),
+                ),
+        )
+        .into_any_element()
 }
 
 fn theme() -> UiTheme {

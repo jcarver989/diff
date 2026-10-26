@@ -20,9 +20,9 @@ pub use interface_size::InterfaceSize;
 
 pub mod prelude {
     pub use super::components::{
-        ActionBar, Backdrop, Button, ButtonVariant, ControlSize, ControlState, Disclosure,
+        ActionBar, Backdrop, Badge, Button, ButtonVariant, ControlSize, ControlState, Disclosure,
         EmptyState, IconButton, InteractionState, ListRow, Modal, ModalSize, MutedText, NoticeTone,
-        Notification, SelectionState, Surface, SurfaceExt, Tooltip,
+        Notification, SectionHeader, SelectionState, Surface, SurfaceExt, Tooltip,
     };
     pub use super::dialog::{ConfirmDialog, ConfirmDialogEvent};
     pub use super::fonts::{CODE_FONT, UI_FONT};

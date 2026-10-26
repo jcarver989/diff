@@ -12,9 +12,9 @@ pub use clankerdiff_theme::{
     SelectionState,
 };
 use gpui::{
-    AnyElement, AnyView, App, ClickEvent, Context, Div, ElementId, IntoElement, ParentElement,
-    Refineable, Rems, Render, RenderOnce, Role, SharedString, Stateful, StyleRefinement, Window,
-    div, prelude::*,
+    AnyElement, AnyView, App, ClickEvent, Context, Div, ElementId, Hsla, IntoElement,
+    ParentElement, Refineable, Rems, Render, RenderOnce, Role, SharedString, Stateful,
+    StyleRefinement, Window, div, prelude::*,
 };
 use gpui_base::Selectable;
 
@@ -469,6 +469,239 @@ impl RenderOnce for Disclosure {
         row
     }
 }
+
+#[derive(IntoElement)]
+pub struct Badge {
+    id: SharedString,
+    label: SharedString,
+    tone: NoticeTone,
+    icon: Option<IconName>,
+    theme: UiTheme,
+}
+
+impl Badge {
+    #[must_use]
+    pub fn new(
+        id: impl Into<SharedString>,
+        label: impl Into<SharedString>,
+        theme: UiTheme,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            tone: NoticeTone::Neutral,
+            icon: None,
+            theme,
+        }
+    }
+
+    #[must_use]
+    pub const fn tone(mut self, tone: NoticeTone) -> Self {
+        self.tone = tone;
+        self
+    }
+
+    #[must_use]
+    pub const fn icon(mut self, icon: IconName) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+}
+
+impl RenderOnce for Badge {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let foreground = match self.tone {
+            NoticeTone::Neutral => self.theme.colors.text_secondary,
+            tone => self.theme.notice_style(tone).foreground,
+        };
+        let mut background = foreground;
+        background.a *= BADGE_TINT;
+        let selector = self.id.to_string();
+        div()
+            .debug_selector(move || selector)
+            .flex_none()
+            .h(rem(BADGE_HEIGHT))
+            .px_1p5()
+            .flex()
+            .items_center()
+            .gap_1()
+            .rounded_full()
+            .bg(background)
+            .text_color(foreground)
+            .typography(Typography::Caption)
+            .font_weight(gpui::FontWeight::MEDIUM)
+            .children(
+                self.icon
+                    .map(|icon| Icon::new(icon, foreground).size(tokens::ICON_SIZE_SMALL)),
+            )
+            .child(self.label)
+    }
+}
+
+#[derive(IntoElement)]
+pub struct SectionHeader {
+    id: SharedString,
+    title: SharedString,
+    expanded: bool,
+    theme: UiTheme,
+    icon: Option<(IconName, Hsla)>,
+    detail: Option<SharedString>,
+    badge: Option<Badge>,
+    actions: Vec<AnyElement>,
+    actions_always_visible: bool,
+    on_toggle: Option<ClickHandler>,
+}
+
+impl SectionHeader {
+    #[must_use]
+    pub fn new(
+        id: impl Into<SharedString>,
+        title: impl Into<SharedString>,
+        expanded: bool,
+        theme: UiTheme,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            expanded,
+            theme,
+            icon: None,
+            detail: None,
+            badge: None,
+            actions: Vec::new(),
+            actions_always_visible: false,
+            on_toggle: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn icon(mut self, icon: IconName, color: Hsla) -> Self {
+        self.icon = Some((icon, color));
+        self
+    }
+
+    #[must_use]
+    pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    #[must_use]
+    pub fn badge(mut self, badge: Badge) -> Self {
+        self.badge = Some(badge);
+        self
+    }
+
+    #[must_use]
+    pub fn action(mut self, action: impl IntoElement) -> Self {
+        self.actions.push(action.into_any_element());
+        self
+    }
+
+    #[must_use]
+    pub const fn actions_always_visible(mut self, always_visible: bool) -> Self {
+        self.actions_always_visible = always_visible;
+        self
+    }
+
+    #[must_use]
+    pub fn on_toggle(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_toggle = Some(Box::new(handler));
+        self
+    }
+}
+
+impl RenderOnce for SectionHeader {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let colors = self.theme.colors;
+        let selector = self.id.to_string();
+        let group = ListRow::hover_group(&selector);
+        let title_selector = format!("{selector}-title");
+        let has_actions = !self.actions.is_empty();
+        let badge = self.badge.map(|badge| {
+            div()
+                .flex_none()
+                .when(has_actions && !self.actions_always_visible, |badge| {
+                    badge.group_hover(group.clone(), |badge| badge.opacity(0.0))
+                })
+                .child(badge)
+        });
+        let mut disclosure = Disclosure::new(
+            SharedString::from(format!("{}-toggle", self.id)),
+            self.expanded,
+            self.theme,
+        )
+        .size_full()
+        .gap_1p5()
+        .children(self.icon.map(|(icon, color)| Icon::new(icon, color)))
+        .child(
+            div()
+                .flex_none()
+                .debug_selector(move || title_selector)
+                .typography(Typography::Label)
+                .text_color(colors.text)
+                .child(self.title),
+        )
+        .children(self.detail.map(|detail| {
+            div()
+                .min_w_0()
+                .truncate()
+                .typography(Typography::Caption)
+                .text_color(colors.text_muted)
+                .child(detail)
+        }))
+        .child(div().flex_1())
+        .children(badge);
+        if let Some(handler) = self.on_toggle {
+            disclosure = disclosure.on_toggle(handler);
+        }
+        div()
+            .id(self.id)
+            .group(group.clone())
+            .debug_selector(move || selector)
+            .relative()
+            .h(rem(tokens::ROW_HEIGHT))
+            .min_w_0()
+            .when(self.actions_always_visible, |header| {
+                header.flex().items_center()
+            })
+            .child(if self.actions_always_visible {
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(disclosure)
+                    .into_any_element()
+            } else {
+                disclosure.into_any_element()
+            })
+            .when(has_actions, |header| {
+                header.child(
+                    div()
+                        .flex_none()
+                        .h_full()
+                        .pr_0p5()
+                        .flex()
+                        .items_center()
+                        .when(!self.actions_always_visible, |actions| {
+                            actions
+                                .absolute()
+                                .top_0()
+                                .right_0()
+                                .opacity(0.0)
+                                .group_hover(group, |actions| actions.opacity(1.0))
+                        })
+                        .children(self.actions),
+                )
+            })
+    }
+}
+
+const BADGE_HEIGHT: f32 = 20.0;
+const BADGE_TINT: f32 = 0.16;
 
 /// Paints any element the way [`Surface`] paints itself, for panels that need their own layout.
 pub trait SurfaceExt: Styled + Sized {
