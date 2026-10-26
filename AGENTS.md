@@ -1,6 +1,18 @@
 # Diff
 
-This is a repository for Diff, a performant diff tool with comment support. The CLI runs in a TUI (ratatui) or Desktop (gpui), while the standalone Web frontend (gpui) supports hosted use cases.
+This repository holds reusable GPUI app building blocks and Diff, a performant diff tool with comment support built on them. Diff's CLI runs in a TUI (ratatui) or Desktop (gpui), while the standalone Web frontend (gpui) supports hosted use cases. Other apps (j-terminal, aether) consume the `util/` and `ui/` crates directly.
+
+## Layout
+
+Crates are grouped by domain under `crates/`:
+
+- `crates/util/`: general-purpose crates with no UI and no diff concepts (`fingerprint`, `remote`).
+- `crates/ui/`: themes, syntax highlighting and the GPUI design system and app shell (`theme`, `syntax`, `gpui`, `gpui-shell`).
+- `crates/diff/`: the diff and markdown review domain (`core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `gpui`, `ratatui`, `cli`, `desktop`, `web`).
+
+A crate may depend only on crates in its own domain or a lower one: `util` < `ui` < `diff`. `just layer-check` enforces this. Put new code in the lowest domain it fits; anything another app could use without diff concepts belongs in `ui/` or `util/`.
+
+Internal crates are declared once in the root `[workspace.dependencies]`; reference them with `.workspace = true`.
 
 ## Coding conventions
 
