@@ -1,0 +1,88 @@
+[package]
+name = "clankerdiff-ratatui"
+description = "Embeddable Ratatui diff review widget"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+test-support = []
+crossterm-backend = ["ratatui/crossterm", "dep:crossterm"]
+
+[lints]
+workspace = true
+
+[dependencies]
+bitflags.workspace = true
+crossterm = { workspace = true, optional = true }
+imbl.workspace = true
+similar.workspace = true
+thiserror.workspace = true
+clankerdiff-client.workspace = true
+clankerdiff-core.workspace = true
+clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-syntax.workspace = true
+clankerdiff-theme.workspace = true
+ratatui.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+clankerdiff-core = { workspace = true, features = ["test-support"] }
+clankerdiff-git.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[[test]]
+name = "markdown_review_component_test"
+path = "tests/markdown_review/component_test.rs"
+
+[[test]]
+name = "markdown_review_render_test"
+path = "tests/markdown_review/render_test.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "performance_contract"
+required-features = ["test-support"]
+
+[[example]]
+name = "review"
+required-features = ["crossterm-backend"]
+
+[[example]]
+name = "embedded_review"
+required-features = ["crossterm-backend"]
+
+[[example]]
+name = "markdown_review"
+required-features = ["crossterm-backend"]
+
+[[example]]
+name = "streaming_markdown"
+
+[[example]]
+name = "terminal_markdown"
+
+[[test]]
+name = "terminal_streaming"
+required-features = ["test-support"]
+
+[[test]]
+name = "testing_markdown_test"
+path = "tests/testing_markdown_test.rs"
+required-features = ["test-support"]
+
+[[bench]]
+name = "markdown"
+harness = false
+required-features = ["test-support"]
+
+[[bench]]
+name = "rendering"
+harness = false
+required-features = ["test-support"]

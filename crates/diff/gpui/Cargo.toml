@@ -1,0 +1,50 @@
+[package]
+name = "clankerdiff-gpui"
+publish = false
+description = "Reusable GPUI diff review component"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+test-support = ["clankerdiff-core/test-support", "clankerdiff-gpui-ui/test-support", "gpui/test-support", "gpui-base/test-support"]
+
+[lints]
+workspace = true
+
+[dependencies]
+clankerdiff-client.workspace = true
+clankerdiff-core.workspace = true
+clankerdiff-gpui-ui.workspace = true
+clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-syntax.workspace = true
+clankerdiff-theme.workspace = true
+gpui.workspace = true
+gpui-base.workspace = true
+
+[[test]]
+name = "keyboard"
+required-features = ["test-support"]
+
+[[test]]
+name = "diff_view_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "rendered"
+required-features = ["test-support"]
+
+[[test]]
+name = "comment_editor_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "markdown_viewer_test"
+required-features = ["test-support"]
+
+[dev-dependencies]
+clankerdiff-core = { workspace = true, features = ["test-support"] }
+gpui = { workspace = true, features = ["test-support"] }
+gpui_platform.workspace = true

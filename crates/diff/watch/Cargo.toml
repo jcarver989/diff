@@ -1,0 +1,36 @@
+[package]
+name = "clankerdiff-watch"
+description = "Native filesystem watching and coalesced Git snapshot publication"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[test]]
+name = "notify_file_watcher_tests"
+path = "tests/file_watcher/notify_file_watcher_tests.rs"
+
+[[test]]
+name = "fake_file_watcher_tests"
+path = "tests/file_watcher/fake_file_watcher_tests.rs"
+
+[lints]
+workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+ignore.workspace = true
+clankerdiff-core.workspace = true
+clankerdiff-git.workspace = true
+notify.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+clankerdiff-watch = { path = ".", features = ["test-support"] }
+clankerdiff-git = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+tokio.workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "clankerdiff-theme"
+description = "Renderer-neutral themes and palettes for Diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+arborium-theme.workspace = true
+clankerdiff-fingerprint.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

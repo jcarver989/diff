@@ -1,0 +1,22 @@
+[package]
+name = "clankerdiff-protocol"
+description = "Versioned subprocess and live session protocols for Clankerdiff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-channel.workspace = true
+clankerdiff-core.workspace = true
+clankerdiff-markdown = { workspace = true, features = ["review"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+clankerdiff-core = { workspace = true, features = ["test-support"] }

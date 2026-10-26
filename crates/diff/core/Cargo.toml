@@ -1,0 +1,26 @@
+[package]
+name = "clankerdiff-core"
+description = "Renderer-independent diff and code review domain model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+test-support = []
+
+[lints]
+workspace = true
+
+[dependencies]
+clankerdiff-fingerprint.workspace = true
+clankerdiff-theme.workspace = true
+diffy.workspace = true
+serde.workspace = true
+similar.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true

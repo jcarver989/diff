@@ -1,0 +1,91 @@
+{
+  "files": {
+    ".config/nextest.toml": {
+      "kind": "managed"
+    },
+    ".github/workflows/ci.yml": {
+      "kind": "managed"
+    },
+    ".github/workflows/release-plz.yml": {
+      "kind": "managed"
+    },
+    ".gitignore": {
+      "kind": "blocks",
+      "ids": [
+        "framer",
+        "rust-monorepo"
+      ]
+    },
+    ".tool-versions": {
+      "kind": "managed"
+    },
+    "Cargo.toml": {
+      "kind": "toml",
+      "keys": [
+        "workspace.resolver",
+        "workspace.members",
+        "workspace.exclude",
+        "workspace.package.edition",
+        "workspace.package.license",
+        "workspace.package.repository",
+        "workspace.package.rust-version",
+        "workspace.lints",
+        "profile.dev",
+        "profile.dist",
+        "workspace.dependencies.gpui",
+        "workspace.dependencies.gpui_platform",
+        "workspace.dependencies.gpui-base",
+        "patch.crates-io.gpui-pre",
+        "workspace.dependencies.gpui_web",
+        "workspace.dependencies.clankerdiff-fingerprint.path",
+        "workspace.dependencies.clankerdiff-remote.path",
+        "workspace.dependencies.clankerdiff-theme.path",
+        "workspace.dependencies.clankerdiff-syntax.path",
+        "workspace.dependencies.clankerdiff-gpui-ui.path",
+        "workspace.dependencies.clankerdiff-gpui-shell.path",
+        "workspace.dependencies.clankerdiff-core.path",
+        "workspace.dependencies.clankerdiff-protocol.path",
+        "workspace.dependencies.clankerdiff-client.path",
+        "workspace.dependencies.clankerdiff-git.path",
+        "workspace.dependencies.clankerdiff-watch.path",
+        "workspace.dependencies.clankerdiff-server.path",
+        "workspace.dependencies.clankerdiff-markdown.path",
+        "workspace.dependencies.clankerdiff-gpui.path",
+        "workspace.dependencies.clankerdiff-ratatui.path",
+        "workspace.dependencies.clankerdiff-gpui-desktop.path"
+      ]
+    },
+    "clippy.toml": {
+      "kind": "managed"
+    },
+    "dist-workspace.toml": {
+      "kind": "managed"
+    },
+    "justfile": {
+      "kind": "blocks",
+      "ids": [
+        "rust-monorepo"
+      ]
+    },
+    "release-plz.toml": {
+      "kind": "toml",
+      "keys": [
+        "workspace.release_always",
+        "workspace.git_release_enable",
+        "workspace.git_tag_name",
+        "workspace.pr_branch_prefix",
+        "workspace.pr_name",
+        "workspace.dependencies_update",
+        "workspace.release",
+        "workspace.git_only",
+        "workspace.publish"
+      ]
+    },
+    "rust-toolchain.toml": {
+      "kind": "managed"
+    },
+    "rustfmt.toml": {
+      "kind": "managed"
+    }
+  }
+}

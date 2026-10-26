@@ -1,0 +1,34 @@
+[package]
+name = "clankerdiff-gpui-desktop"
+publish = false
+description = "Native desktop shell for the GPUI diff viewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.dist]
+dist = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clankerdiff-core.workspace = true
+clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-theme.workspace = true
+clankerdiff-client = { workspace = true, features = ["websocket"] }
+clankerdiff-server.workspace = true
+clankerdiff-gpui.workspace = true
+clankerdiff-gpui-shell.workspace = true
+gpui.workspace = true
+gpui-base.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

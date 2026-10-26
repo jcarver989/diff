@@ -1,0 +1,25 @@
+[package]
+name = "clankerdiff-markdown"
+description = "Portable semantic Markdown parsing and review state"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+review = ["dep:clankerdiff-core"]
+
+[lints]
+workspace = true
+
+[dependencies]
+clankerdiff-core = { workspace = true, optional = true }
+clankerdiff-fingerprint.workspace = true
+pulldown-cmark.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
