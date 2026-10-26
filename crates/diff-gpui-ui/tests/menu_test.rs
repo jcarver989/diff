@@ -1,5 +1,5 @@
 use clankerdiff_gpui_ui::{
-    prelude::{Button, MenuItem, UiTheme, with_menu},
+    prelude::{Button, IconName, MenuItem, UiTheme, with_menu},
     testing::ComponentHarnessBuilder,
 };
 use clankerdiff_theme::ReviewTheme;
@@ -57,6 +57,42 @@ fn a_closed_menu_builds_no_entries(cx: &mut TestAppContext) {
             assert_eq!(builds.get(), 0, "a closed menu builds no entries");
             harness.click(cx, "actions")?;
             assert!(builds.get() > 0, "an open menu builds its entries");
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn a_destructive_entry_past_a_separator_runs_its_action(cx: &mut TestAppContext) {
+    cx.update(gpui_base::init);
+    let chosen = Rc::new(Cell::new(0));
+    let recorded = chosen.clone();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            let recorded = recorded.clone();
+            menu_with(move || {
+                vec![
+                    MenuItem::new("rename", "Rename", |_, _| {}),
+                    MenuItem::separator(),
+                    MenuItem::new("delete", "Delete", move |_, _| {
+                        recorded.set(recorded.get() + 1);
+                    })
+                    .icon(IconName::X)
+                    .destructive(),
+                ]
+            })
+        },
+        |harness, cx| {
+            harness.click(cx, "actions")?;
+            let rename = harness.bounds(cx, "rename").ok_or("missing rename")?;
+            let delete = harness.bounds(cx, "delete").ok_or("missing delete")?;
+            assert!(
+                delete.top() > rename.bottom(),
+                "the separator sits between them"
+            );
+            harness.click(cx, "delete")?;
+            assert_eq!(chosen.get(), 1);
             Ok(())
         },
     );
