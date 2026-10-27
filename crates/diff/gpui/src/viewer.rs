@@ -6,7 +6,7 @@ use crate::{
     DiffViewerEvent, ThemeChanged, ViewModeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
     commits::CommitPickerOverlay,
-    definition_card::DefinitionCard,
+    definition_card::HoverCard,
     style::color,
     ui::{
         prelude::{
@@ -18,11 +18,11 @@ use crate::{
 };
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, LineAnchor, PresentedCell,
-    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SourceDocument, SourceLocation,
-    ViewMode, ViewportAnchor,
+    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SourceDocument, ViewMode,
+    ViewportAnchor,
 };
 use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
-use clankerdiff_symbols::{SymbolCache, SymbolIndex, SymbolReference};
+use clankerdiff_symbols::{NameHints, SymbolCache, SymbolIndex};
 use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter, empty_spans};
 use clankerdiff_theme::{ReviewTheme, ThemeChoice};
 use gpui::{
@@ -150,12 +150,6 @@ enum RepositoryPrompt {
 
 pub use clankerdiff_core::FocusPane as ViewerPane;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NameHints {
-    pub(crate) origin: SourceLocation,
-    pub(crate) names: Vec<SymbolReference>,
-}
-
 struct SidebarLayout {
     width: Rems,
     preferred_width: Option<Rems>,
@@ -203,7 +197,7 @@ pub struct DiffViewer {
     pub(crate) name_hints: Option<NameHints>,
     pub(crate) links_visible: bool,
     symbols: SymbolCache,
-    pub(crate) card: Option<DefinitionCard>,
+    pub(crate) card: Option<HoverCard>,
     pub(crate) card_timer: Option<Task<()>>,
 }
 

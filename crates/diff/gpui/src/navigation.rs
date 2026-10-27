@@ -9,19 +9,16 @@ use crate::{
         tokens::{self, RADIUS_CONTROL, RADIUS_INNER, ROW_HEIGHT},
     },
     viewer::{
-        CancelNameHints, CloseDefinition, GoToDefinition, NameHints, NavigateBack, NavigateForward, NextDefinition,
-        PickName,
+        CancelNameHints, CloseDefinition, GoToDefinition, NavigateBack, NavigateForward, NextDefinition, PickName,
     },
 };
 use clankerdiff_core::{DiffReviewCommand, DiffSide, SourceLocation};
-use clankerdiff_symbols::{Definition, SymbolReference};
+use clankerdiff_symbols::{Definition, Lookup, SymbolReference};
 use gpui::{
     AnyElement, Context, Div, HighlightStyle, Hsla, InteractiveText, KeyDownEvent, Modifiers, ModifiersChangedEvent,
     MouseButton, SharedString, StyledText, UnderlineStyle, WeakEntity, Window, combine_highlights, div, prelude::*, px,
 };
 use std::{ops::Range, rc::Rc};
-
-const HINT_KEYS: [&str; 9] = ["a", "s", "d", "f", "g", "h", "j", "k", "l"];
 
 impl DiffViewer {
     pub(crate) fn navigate(&mut self, command: DiffReviewCommand, cx: &mut Context<Self>) -> bool {
@@ -40,26 +37,25 @@ impl DiffViewer {
     }
 
     pub(crate) fn pick_name(&mut self, _: &PickName, _: &mut Window, cx: &mut Context<Self>) {
+        self.clear_name_hints(cx);
+        self.close_card(cx);
+        self.show_definition_at_selection(cx);
+    }
+
+    pub(crate) fn show_definition_at_selection(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(origin) = self.session().selected_source_line() else {
-            return;
+            return false;
         };
-        let mut names: Vec<SymbolReference> = Vec::new();
-        for reference in self.symbols().references_at(&origin) {
-            if !names.iter().any(|existing| existing.name == reference.name) {
-                names.push(reference.clone());
+        match Lookup::at(&self.symbols(), origin) {
+            Some(Lookup::Card(card)) => self.show_card(card, Hold::Pinned, cx),
+            Some(Lookup::Hints(hints)) => {
+                self.name_hints = Some(hints);
+                self.remeasure_row(self.name_hint_row());
+                cx.notify();
             }
+            None => return false,
         }
-        if let [reference] = names.as_slice() {
-            self.show_definition(origin, &reference.clone(), Hold::Pinned, cx);
-            return;
-        }
-        if names.is_empty() {
-            return;
-        }
-        names.truncate(HINT_KEYS.len());
-        self.name_hints = Some(NameHints { origin, names });
-        self.remeasure_row(self.name_hint_row());
-        cx.notify();
+        true
     }
 
     pub(crate) fn cancel_name_hints(&mut self, _: &CancelNameHints, _: &mut Window, cx: &mut Context<Self>) {
@@ -81,18 +77,12 @@ impl DiffViewer {
         if event.keystroke.modifiers.modified() {
             return;
         }
-        let Some(reference) = HINT_KEYS
-            .iter()
-            .position(|key| *key == event.keystroke.key)
-            .and_then(|index| hints.names.get(index))
-            .cloned()
-        else {
+        let Some(card) = event.keystroke.key.parse().ok().and_then(|key| hints.pick(key)) else {
             return;
         };
-        let origin = hints.origin.clone();
         cx.stop_propagation();
         self.clear_name_hints(cx);
-        self.show_definition(origin, &reference, Hold::Pinned, cx);
+        self.show_card(card, Hold::Pinned, cx);
     }
 
     pub(crate) fn close_definition(&mut self, _: &CloseDefinition, _: &mut Window, cx: &mut Context<Self>) {
@@ -157,7 +147,11 @@ impl DiffViewer {
     fn line_marks(&self, location: &SourceLocation) -> LineMarks {
         let hinted = self.name_hints.as_ref().filter(|hints| &hints.origin == location);
         LineMarks {
-            card: self.card.as_ref().filter(|card| &card.origin == location).map(|card| card.columns.clone()),
+            card: self
+                .card
+                .as_ref()
+                .filter(|hover| &hover.card.origin == location)
+                .map(|hover| hover.card.columns.clone()),
             hinted: hinted
                 .map(|hints| hints.names.iter().map(|reference| reference.name.clone()).collect())
                 .unwrap_or_default(),
@@ -179,7 +173,7 @@ impl DiffViewer {
     }
 
     fn card_at(&self, location: &SourceLocation) -> bool {
-        self.card.as_ref().is_some_and(|card| &card.origin == location)
+        self.card.as_ref().is_some_and(|hover| &hover.card.origin == location)
     }
 
     fn hover_line(
@@ -210,7 +204,7 @@ impl DiffViewer {
         let theme = self.ui_theme();
         let colors = theme.colors;
         let palette = &self.theme().diff;
-        let entries = hints.names.iter().zip(HINT_KEYS).map(|(SymbolReference { name, .. }, key)| {
+        let entries = hints.keyed().map(|(key, SymbolReference { name, .. })| {
             div()
                 .flex()
                 .items_center()
@@ -222,7 +216,7 @@ impl DiffViewer {
                         .bg(colors.warning)
                         .text_color(colors.canvas)
                         .typography(Typography::Code)
-                        .child(key),
+                        .child(key.to_string()),
                 )
                 .child(div().typography(Typography::Code).text_color(colors.text).child(name.clone()))
         });

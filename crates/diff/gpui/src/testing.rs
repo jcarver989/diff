@@ -251,7 +251,7 @@ impl DiffViewerHarness {
 
     #[must_use]
     pub fn definition_card_name(&self, cx: &TestAppContext) -> Option<String> {
-        self.read(cx, |viewer, _| viewer.card.as_ref().map(|card| card.name.clone()))
+        self.read(cx, |viewer, _| viewer.card.as_ref().map(|hover| hover.card.name.clone()))
     }
 
     pub fn hover_name(

@@ -9,7 +9,7 @@ use crate::{
 };
 use clankerdiff_core::{DiffReviewCommand, SourceDocument, SourceLocation};
 use clankerdiff_markdown::{MarkdownBlock, MarkdownBlockKind, parse_markdown, rendered_text};
-use clankerdiff_symbols::{Definition, SymbolReference};
+use clankerdiff_symbols::{Definition, DefinitionCard, SymbolReference};
 use gpui::{
     AnyElement, App, Context, MouseDownEvent, Pixels, SharedString, StyledText, anchored, deferred, div, font,
     prelude::*, px,
@@ -27,23 +27,20 @@ pub(crate) enum Hold {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DefinitionCard {
-    pub(crate) origin: SourceLocation,
-    pub(crate) name: String,
-    pub(crate) columns: Range<usize>,
+pub(crate) struct HoverCard {
+    pub(crate) card: DefinitionCard,
     hold: Hold,
     token_hovered: bool,
     card_hovered: bool,
-    choice: usize,
 }
 
-impl DefinitionCard {
+impl HoverCard {
     fn lingering(&self) -> bool {
         self.hold == Hold::Hover && !self.token_hovered && !self.card_hovered
     }
 
     pub(crate) fn shows(&self, origin: &SourceLocation, columns: &Range<usize>) -> bool {
-        &self.origin == origin && &self.columns == columns
+        self.card.shows(origin, columns)
     }
 }
 
@@ -55,16 +52,12 @@ impl DiffViewer {
         hold: Hold,
         cx: &mut Context<Self>,
     ) {
+        self.show_card(DefinitionCard::new(origin, reference), hold, cx);
+    }
+
+    pub(crate) fn show_card(&mut self, card: DefinitionCard, hold: Hold, cx: &mut Context<Self>) {
         self.card_timer = None;
-        self.card = Some(DefinitionCard {
-            origin,
-            name: reference.name.clone(),
-            columns: reference.span.columns.clone(),
-            hold,
-            token_hovered: hold == Hold::Hover,
-            card_hovered: false,
-            choice: 0,
-        });
+        self.card = Some(HoverCard { card, hold, token_hovered: hold == Hold::Hover, card_hovered: false });
         cx.notify();
     }
 
@@ -92,7 +85,7 @@ impl DiffViewer {
     }
 
     fn schedule_card_hide(&mut self, cx: &mut Context<Self>) {
-        if !self.card.as_ref().is_some_and(DefinitionCard::lingering) {
+        if !self.card.as_ref().is_some_and(HoverCard::lingering) {
             self.card_timer = None;
             return;
         }
@@ -100,7 +93,7 @@ impl DiffViewer {
             cx.background_executor().timer(CARD_HIDE_DELAY).await;
             let _ = viewer.update(cx, |viewer, cx| {
                 viewer.card_timer = None;
-                if viewer.card.as_ref().is_some_and(DefinitionCard::lingering) {
+                if viewer.card.as_ref().is_some_and(HoverCard::lingering) {
                     viewer.close_card(cx);
                 }
             });
@@ -121,14 +114,11 @@ impl DiffViewer {
     }
 
     pub(crate) fn jump_to_card_choice(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(choice) = self.card.as_ref().map(|card| card.choice) else {
+        let index = self.symbols();
+        let Some(target) = self.card.as_ref().and_then(|hover| hover.card.target(&index)) else {
             return false;
         };
-        let definitions = self.card_definitions();
-        let Some(target) = definitions.get(choice).or_else(|| definitions.first()) else {
-            return false;
-        };
-        let command = DiffReviewCommand::JumpTo(target.location.clone());
+        let command = DiffReviewCommand::JumpTo(target);
         if !self.command_enabled(&command) {
             return false;
         }
@@ -138,24 +128,18 @@ impl DiffViewer {
     }
 
     pub(crate) fn cycle_card_choice(&mut self, cx: &mut Context<Self>) {
-        let count = self.card_definitions().len();
-        if let Some(card) = self.card.as_mut().filter(|_| count > 1) {
-            card.choice = (card.choice + 1) % count;
-            card.hold = Hold::Pinned;
+        let index = self.symbols();
+        if let Some(hover) = self.card.as_mut()
+            && hover.card.cycle(&index)
+        {
+            hover.hold = Hold::Pinned;
             cx.notify();
         }
     }
 
-    fn card_definitions(&mut self) -> Vec<Definition> {
-        let Some(card) = self.card.clone() else {
-            return Vec::new();
-        };
-        self.symbols().definitions(&card.name, Some(&card.origin)).into_iter().cloned().collect()
-    }
-
     #[expect(clippy::cast_precision_loss, reason = "a column offset is far below f32's exact integer range")]
     pub(crate) fn render_card_anchor(&mut self, text: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let card = self.card.clone()?;
+        let card = self.card.as_ref()?.card.clone();
         let preceding = text.get(..card.columns.start).map_or(0, |prefix| prefix.chars().count());
         let left = self.code_advance(cx) * preceding as f32;
         let line_height = rem(CODE_ROW_HEIGHT);
@@ -185,18 +169,18 @@ impl DiffViewer {
     fn render_card(&mut self, card: &DefinitionCard, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.ui_theme();
         let colors = theme.colors;
-        let definitions = self.card_definitions();
-        let uses = format!("{} in this diff", uses_label(self.symbols().uses(&card.name).len()));
-        let definition = definitions.get(card.choice).or_else(|| definitions.first()).cloned();
-        let head = match &definition {
-            Some(definition) => self.render_signature(definition),
+        let index = self.symbols();
+        let choice = card.choice(&index);
+        let uses = format!("{} in this diff", uses_label(index.uses(&card.name).len()));
+        let head = match choice {
+            Some(choice) => self.render_signature(choice.definition),
             None => div()
                 .typography(Typography::Body)
                 .text_color(colors.text_secondary)
                 .child(format!("No definition of {} in this diff", card.name))
                 .into_any_element(),
         };
-        let docs = definition.as_ref().and_then(|definition| definition.docs.as_deref()).map(|docs| {
+        let docs = choice.and_then(|choice| choice.definition.docs.as_deref()).map(|docs| {
             let colors = InlineColors::new(self.theme(), &theme);
             let document = parse_markdown(docs);
             div()
@@ -217,11 +201,12 @@ impl DiffViewer {
                         .map(|(index, block)| doc_block(index, block, colors, theme.colors.surface_hover)),
                 )
         });
-        let place = definition.as_ref().map(|definition| {
-            let location = format!("{}:{}", definition.location.path, definition.location.line_number);
-            match definitions.len() {
+        let place = choice.map(|choice| {
+            let location = choice.definition.location.clone();
+            let location = format!("{}:{}", location.path, location.line_number);
+            match choice.count {
                 0 | 1 => location,
-                count => format!("{location} · {} of {count}", card.choice.min(count - 1) + 1),
+                count => format!("{location} · {} of {count}", choice.position + 1),
             }
         });
         let meta = div()
