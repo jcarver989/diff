@@ -5,7 +5,8 @@ use clankerdiff_core::{
     testing::{DocumentBuilder, commit_id},
 };
 use clankerdiff_ratatui::{
-    DiffReviewState, DiffReviewStatus, InputOutcome, KeyCode, KeyEvent, KeyModifiers, ReviewCapabilities, ReviewInput,
+    DiffReviewState, DiffReviewStatus, InputOutcome, InteractionPhase, KeyCode, KeyEvent, KeyModifiers,
+    ReviewCapabilities, ReviewInput,
 };
 use std::sync::Arc;
 
@@ -80,6 +81,40 @@ fn brackets_step_through_commits_and_back_to_the_working_tree() {
     assert_eq!(emitted_target(&mut state, ']'), Some(ReviewTarget::WorkingTree(DiffScope::Staged)));
 }
 
+#[test]
+fn braces_jump_to_the_first_commit_and_the_working_tree() {
+    let mut state = DiffReviewState::new(document(commit_id(2), "first"));
+    assert_eq!(emitted_target(&mut state, '{'), Some(ReviewTarget::Commit(commit_id(1))));
+    assert_eq!(emitted_target(&mut state, '}'), Some(ReviewTarget::WorkingTree(DiffScope::Both)));
+}
+
+#[test]
+fn the_commit_picker_opens_on_the_current_page_and_chooses_with_the_keyboard() {
+    let mut state = DiffReviewState::new(document(commit_id(2), "first"));
+    assert_eq!(emitted_target(&mut state, 'p'), None);
+    assert_eq!(state.interaction_phase(), InteractionPhase::CommitPicker);
+    assert_eq!(emitted_target(&mut state, 'k'), None);
+    assert_eq!(emitted_target(&mut state, ']'), None);
+    assert_eq!(state.interaction_phase(), InteractionPhase::CommitPicker);
+    assert_eq!(key_target(&mut state, KeyCode::Enter), Some(ReviewTarget::Commit(commit_id(1))));
+    assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
+
+    emitted_target(&mut state, 'p');
+    assert_eq!(emitted_target(&mut state, '3'), Some(ReviewTarget::WorkingTree(DiffScope::Both)));
+    assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
+
+    emitted_target(&mut state, 'p');
+    assert_eq!(key_target(&mut state, KeyCode::Esc), None);
+    assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
+}
+
+#[test]
+fn reviews_without_commits_have_no_picker() {
+    let mut state = DiffReviewState::new(DocumentBuilder::new().changed("a.rs", "old", "new").build());
+    assert!(!state.handle_input(ReviewInput::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE))).is_consumed());
+    assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
+}
+
 fn connected(snapshot: Arc<DiffDocument>) -> ClientState {
     ClientState {
         snapshot: Some(snapshot),
@@ -109,6 +144,13 @@ fn document(target: impl Into<ReviewTarget>, version: &str) -> Arc<DiffDocument>
 
 fn emitted_target(state: &mut DiffReviewState, key: char) -> Option<ReviewTarget> {
     match state.handle_input(ReviewInput::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE))) {
+        InputOutcome::Emitted(DiffReviewEvent::SetTarget(target)) => Some(target),
+        _ => None,
+    }
+}
+
+fn key_target(state: &mut DiffReviewState, key: KeyCode) -> Option<ReviewTarget> {
+    match state.handle_input(ReviewInput::Key(KeyEvent::new(key, KeyModifiers::NONE))) {
         InputOutcome::Emitted(DiffReviewEvent::SetTarget(target)) => Some(target),
         _ => None,
     }

@@ -223,6 +223,9 @@ pub(crate) trait ReviewWidget {
     fn handle_prompt_key(&mut self, _key: KeyEvent) -> InputOutcome<Self::Event> {
         InputOutcome::Consumed
     }
+    fn handle_picker_key(&mut self, _key: KeyEvent) -> InputOutcome<Self::Event> {
+        InputOutcome::Consumed
+    }
     fn paste_prompt(&mut self, _text: &str) {}
 }
 
@@ -288,6 +291,11 @@ fn handle_key<T: ReviewWidget>(state: &mut T, key: KeyEvent) -> Result<InputOutc
                 KeyCode::End | KeyCode::Char('G') => ReviewCommand::MoveTheme(isize::MAX),
                 _ => return Ok(InputOutcome::Consumed),
             }
+        }
+        InteractionPhase::CommitPicker => {
+            let outcome = state.handle_picker_key(key);
+            state.mark_dirty();
+            return Ok(outcome);
         }
         InteractionPhase::RepositoryPrompt => {
             let outcome = state.handle_prompt_key(key);

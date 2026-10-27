@@ -69,6 +69,7 @@ tokio = { version = "1.47.1", features = ["fs", "io-util", "macros", "net", "pro
 tree-sitter = "0.27.0"
 unicode-width = "0.2.2"
 unicode-segmentation = "1.13.3"
+web-time = "1.1.0"
 serde_json = { version = "1.0.151", features = ["alloc"] }
 shlex = "2.0.1"
 tempfile = "3.21.0"

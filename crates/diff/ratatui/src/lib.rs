@@ -6,6 +6,7 @@ mod annotation;
 mod annotation_layout;
 mod color;
 mod commands;
+mod commit_picker;
 #[cfg(feature = "crossterm-backend")]
 mod crossterm_adapter;
 pub mod diff;

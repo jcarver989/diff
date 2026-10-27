@@ -8,7 +8,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::Style,
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Widget},
+    widgets::{Block, Borders, Clear, List, ListState, Paragraph, StatefulWidget, Widget},
 };
 
 pub(crate) const ACTION_BAR_HEIGHT: u16 = 1;
@@ -20,14 +20,19 @@ pub(crate) struct FrameRegions {
 }
 
 pub(crate) struct AppFrame<'a> {
-    title: &'a str,
+    title: Line<'a>,
+    trailing_title: Option<Line<'a>>,
     borders: bool,
     footer: bool,
     theme: &'a RatatuiTheme,
 }
 impl<'a> AppFrame<'a> {
-    pub(crate) const fn new(title: &'a str, borders: bool, theme: &'a RatatuiTheme) -> Self {
-        Self { title, borders, footer: true, theme }
+    pub(crate) fn new(title: impl Into<Line<'a>>, borders: bool, theme: &'a RatatuiTheme) -> Self {
+        Self { title: title.into(), trailing_title: None, borders, footer: true, theme }
+    }
+    pub(crate) fn trailing_title(mut self, title: Option<Line<'a>>) -> Self {
+        self.trailing_title = title;
+        self
     }
     pub(crate) const fn footer(mut self, footer: bool) -> Self {
         self.footer = footer;
@@ -37,10 +42,14 @@ impl<'a> AppFrame<'a> {
     pub(crate) fn render(self, area: Rect, buffer: &mut Buffer) -> FrameRegions {
         buffer.set_style(area, Style::new().fg(self.theme.ui.text).bg(self.theme.ui.canvas));
         let inner = if self.borders {
-            let block = Block::new()
+            let padded = |line: Line<'a>| Line::from([vec![Span::raw(" ")], line.spans, vec![Span::raw(" ")]].concat());
+            let mut block = Block::new()
                 .borders(Borders::ALL)
-                .title(format!(" {} ", self.title))
+                .title(padded(self.title))
                 .border_style(Style::new().fg(self.theme.ui.accent));
+            if let Some(trailing) = self.trailing_title {
+                block = block.title_top(padded(trailing).right_aligned());
+            }
             let inner = block.inner(area);
             block.render(area, buffer);
             inner
@@ -137,6 +146,33 @@ impl<'a> Modal<'a> {
         let inner = block.inner(popup);
         block.render(popup, buffer);
         inner
+    }
+}
+
+pub(crate) struct ModalList<'a> {
+    modal: Modal<'a>,
+    selected: usize,
+    theme: &'a RatatuiTheme,
+}
+impl<'a> ModalList<'a> {
+    pub(crate) const HIGHLIGHT: &'static str = "› ";
+
+    pub(crate) const fn new(modal: Modal<'a>, selected: usize, theme: &'a RatatuiTheme) -> Self {
+        Self { modal, selected, theme }
+    }
+
+    pub(crate) fn render<'l>(self, area: Rect, buffer: &mut Buffer, rows: impl FnOnce(usize) -> Vec<Line<'l>>) {
+        let popup = self.modal.render(area, buffer);
+        if popup.is_empty() {
+            return;
+        }
+        let width = usize::from(popup.width).saturating_sub(Self::HIGHLIGHT.chars().count());
+        let list = List::new(rows(width))
+            .style(self.theme.ui.selection_style(SelectionState::None))
+            .highlight_style(self.theme.ui.selection_style(SelectionState::Selected))
+            .highlight_symbol(Self::HIGHLIGHT);
+        let mut state = ListState::default().with_selected(Some(self.selected));
+        StatefulWidget::render(list, popup, buffer, &mut state);
     }
 }
 

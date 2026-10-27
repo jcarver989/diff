@@ -67,7 +67,7 @@ impl StatefulWidget for MarkdownReviewWidget {
         state.clear_hit_regions();
         let theme = RatatuiTheme::from(&state.theme);
         let regions =
-            AppFrame::new(&self.title, self.borders, &theme).footer(state.options.footer).render(area, buffer);
+            AppFrame::new(self.title.as_str(), self.borders, &theme).footer(state.options.footer).render(area, buffer);
         if regions.body.is_empty() {
             state.dirty = false;
             return;

@@ -2,8 +2,9 @@ use crate::{
     DiffReviewCommand, DiffReviewEvent, DiffReviewState, DiffReviewStatus, FocusPane, InputOutcome, InteractionPhase,
     KeyBinding, KeyEvent, NavigationPane, ReviewCommand, keybindings, theme_picker::ThemePicker,
 };
-use clankerdiff_core::{CommandContext, RepositoryAction, ReviewCapabilities};
+use clankerdiff_core::{CommandContext, CommitPicker, RepositoryAction, ReviewCapabilities};
 use std::sync::Arc;
+use web_time::{Duration, SystemTime, UNIX_EPOCH};
 
 impl DiffReviewState {
     #[must_use]
@@ -43,6 +44,7 @@ impl DiffReviewState {
             source_view: self.session.source_view().is_some(),
             navigation_available: !matches!(self.options.navigation, NavigationPane::Hidden | NavigationPane::Width(0)),
             themes_available: !self.theme_choices.is_empty(),
+            commits_available: self.session.commits().is_some(),
         }
     }
 
@@ -191,8 +193,18 @@ impl DiffReviewState {
                     self.session.submission().formatted,
                 ));
             }
-            C::SetScope(_) | C::CycleScope | C::StepTarget(_) => {
+            C::SetScope(_) | C::CycleScope | C::StepTarget(_) | C::GoToPage(_) => {
+                self.commit_picker = None;
+                self.mark_dirty();
                 return self.session.target_event(&command).map_or(InputOutcome::Ignored, InputOutcome::Emitted);
+            }
+            C::OpenCommitPicker => {
+                self.commit_picker = self.session.commit_pages(since_epoch()).and_then(CommitPicker::new);
+            }
+            C::MoveCommitPicker(delta) => {
+                if let Some(picker) = self.commit_picker.as_mut() {
+                    picker.move_by(delta);
+                }
             }
             C::Refresh => return InputOutcome::Emitted(DiffReviewEvent::Refresh),
             C::StageAll => {
@@ -239,6 +251,7 @@ impl DiffReviewState {
                     self.request_follow();
                 }
                 InteractionPhase::Help => self.help = false,
+                InteractionPhase::CommitPicker => self.commit_picker = None,
                 InteractionPhase::RepositoryPrompt => self.repository_prompt = None,
                 InteractionPhase::ThemePicker => {
                     if let Some(picker) = self.theme_picker.take() {
@@ -282,4 +295,8 @@ impl DiffReviewState {
         self.mark_dirty();
         InputOutcome::Consumed
     }
+}
+
+fn since_epoch() -> Duration {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default()
 }

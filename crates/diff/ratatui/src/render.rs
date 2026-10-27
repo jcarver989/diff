@@ -4,6 +4,7 @@ use crate::{
     DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme, RepositoryOperationStatus,
     annotation::render_annotation_line,
     color::page_color,
+    commit_picker::render_commit_picker,
     patch_layout::{PatchContentLayout, PatchVisualRow},
     state::{HitLayout, RepositoryPrompt},
     style::{diff_indicator, file_status_color, syntax_style},
@@ -13,7 +14,8 @@ use crate::{
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
 use clankerdiff_core::{
-    DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PresentedCell, PresentedRow, RowKind, ViewMode,
+    DiffScope, DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PageLabel, PresentedCell, PresentedRow, RowKind,
+    ViewMode,
 };
 use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -75,11 +77,9 @@ impl StatefulWidget for DiffReviewWidget {
         state.hit_layout = HitLayout::default();
         state.visible_rows.clear();
         let theme = RatatuiTheme::from(&state.theme);
-        let title = match state.session().page_title() {
-            Some(page) => format!("{} · {page}", self.title),
-            None => self.title,
-        };
-        let regions = AppFrame::new(&title, self.borders, &theme)
+        let title = frame_title(&self.title, state, &theme);
+        let regions = AppFrame::new(title, self.borders, &theme)
+            .trailing_title(diff_summary(state, &theme))
             .footer(state.options.footer || state.repository_prompt.is_some())
             .render(area, buffer);
         let body = regions.body;
@@ -89,11 +89,55 @@ impl StatefulWidget for DiffReviewWidget {
         if state.help {
             render_help(area, buffer, state, &theme);
         }
+        if let Some(picker) = &state.commit_picker {
+            render_commit_picker(area, buffer, picker, &theme);
+        }
         if let Some(picker) = &state.theme_picker {
             render_theme_picker(area, buffer, picker, &theme);
         }
         state.dirty = false;
     }
+}
+
+fn frame_title<'a>(title: &'a str, state: &DiffReviewState, theme: &RatatuiTheme) -> Line<'a> {
+    let muted = Style::new().fg(theme.ui.text_muted);
+    let separator = || Span::styled(" · ", muted);
+    let mut spans = vec![Span::raw(title)];
+    if let Some(label) = state.session().page_label().filter(PageLabel::is_paged) {
+        spans.push(separator());
+        let subject = label.subject();
+        if let Some(short_id) = label.short_id() {
+            spans.push(Span::styled(short_id.to_owned(), if subject.is_some() { muted } else { Style::new() }));
+            spans.extend(subject.map(|_| Span::raw(" ")));
+        }
+        spans.extend(subject.map(|subject| Span::raw(subject.to_owned())));
+        if let Some(position) = label.position_label() {
+            spans.extend([separator(), Span::styled(position, muted)]);
+        }
+    }
+    if let Some(selected) = state.target().scope() {
+        let raised = Style::new().fg(theme.ui.text).bg(theme.ui.surface_selected).add_modifier(Modifier::BOLD);
+        spans.push(separator());
+        spans.extend(
+            DiffScope::ALL.map(|scope| {
+                Span::styled(format!(" {} ", scope.title()), if scope == selected { raised } else { muted })
+            }),
+        );
+    }
+    Line::from(spans)
+}
+
+fn diff_summary(state: &DiffReviewState, theme: &RatatuiTheme) -> Option<Line<'static>> {
+    let document = state.document();
+    if !matches!(state.status, DiffReviewStatus::Ready) || document.files.is_empty() {
+        return None;
+    }
+    let stat = document.line_stat();
+    Some(Line::from(vec![
+        Span::styled(format!("+{}", stat.added), Style::new().fg(theme.addition)),
+        Span::raw(" "),
+        Span::styled(format!("-{}", stat.deleted), Style::new().fg(theme.deletion)),
+    ]))
 }
 
 fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
