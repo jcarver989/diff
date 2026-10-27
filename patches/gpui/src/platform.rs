@@ -977,7 +977,6 @@ pub trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn is_simple_fullscreen(&self) -> bool {
         false
     }
-    #[cfg(target_os = "macos")]
     fn set_traffic_light_position(&self, _position: Point<Pixels>) {}
     fn show_character_palette(&self) {}
     fn titlebar_double_click(&self, _is_resizable: bool, _is_minimizable: bool) {}
