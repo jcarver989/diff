@@ -1922,6 +1922,7 @@ dependencies = [
  "gpui-base",
  "gpui-pre",
  "gpui-pre-platform",
+ "web-time",
 ]
 
 [[package]]
@@ -2040,6 +2041,7 @@ dependencies = [
  "tokio",
  "unicode-segmentation",
  "unicode-width",
+ "web-time",
 ]
 
 [[package]]

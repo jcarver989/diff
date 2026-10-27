@@ -157,6 +157,7 @@ impl DesktopApp {
                 }
                 run_loop::stop(cx);
             }
+            (DiffClientEvent::ReviewChanged { .. }, _) => {}
         }
     }
 

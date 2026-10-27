@@ -25,3 +25,9 @@ fn parses_and_renders_scopes() -> Result<(), ParseDiffScopeError> {
     assert_eq!(DiffScope::Both.next(), DiffScope::Unstaged);
     Ok(())
 }
+
+#[test]
+fn scopes_list_in_cycle_order_with_titles() {
+    assert_eq!(DiffScope::ALL.map(DiffScope::title), ["Unstaged", "Staged", "Both"]);
+    assert_eq!(DiffScope::ALL.map(DiffScope::next), [DiffScope::Staged, DiffScope::Both, DiffScope::Unstaged]);
+}

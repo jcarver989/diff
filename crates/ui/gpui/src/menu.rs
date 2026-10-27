@@ -1,5 +1,5 @@
 use crate::{
-    components::ListRow,
+    components::{ListRow, SurfaceExt},
     icon::{Icon, IconName},
     theme::UiTheme,
     tokens::{self, rem},
@@ -100,14 +100,10 @@ pub fn with_menu<T: Selectable + IntoElement + 'static>(
             div()
                 .debug_selector(move || menu_selector)
                 .w(rem(tokens::MENU_WIDTH))
-                .p_1()
+                .p(rem(tokens::FLOATING_INSET))
                 .flex()
                 .flex_col()
-                .rounded(rem(tokens::RADIUS_CONTAINER))
-                .border_1()
-                .border_color(colors.border)
-                .bg(colors.surface)
-                .shadow_lg()
+                .floating(theme)
                 .children(entries)
         })
 }

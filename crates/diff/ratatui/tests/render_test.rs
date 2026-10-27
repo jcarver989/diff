@@ -1,5 +1,7 @@
 #[cfg(feature = "test-support")]
-use clankerdiff_core::{DiffDocument, DiffScope, DiffSide, Layout, RowKind, testing::commit_id};
+use clankerdiff_core::{
+    CommitSummary, DiffDocument, DiffScope, DiffSide, Layout, LineStat, RowKind, testing::commit_id,
+};
 use clankerdiff_core::{ViewMode, testing::DocumentBuilder};
 #[cfg(feature = "test-support")]
 use clankerdiff_ratatui::{
@@ -11,7 +13,7 @@ use clankerdiff_ratatui::{DiffReviewState, DiffReviewWidget, NavigationPane, Rev
 #[cfg(feature = "test-support")]
 use clankerdiff_theme::{ReviewTheme, Rgba};
 #[cfg(feature = "test-support")]
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier};
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 use std::error::Error;
 #[cfg(feature = "test-support")]
@@ -75,7 +77,8 @@ fn source_round_trip_restores_an_independently_scrolled_viewport() {
         assert_eq!(harness.state().scroll_offset(), scroll);
         assert_eq!(harness.state().session().selected_row(), selected);
         if width == 110 {
-            assert_eq!(harness.buffer(), &expected);
+            let below_title = usize::from(width);
+            assert_eq!(harness.buffer().content[below_title..], expected.content[below_title..]);
         }
     }
 }
@@ -564,13 +567,79 @@ fn commit_pages_title_the_frame_and_show_only_their_comments() -> Result<(), Box
     let anchor = harness.state().session().selected_anchor().ok_or("missing anchor")?;
     harness.state_mut().review_mut().add_comment(anchor, "commit note");
     harness.draw();
-    harness.assert_contains("Diff Review · 1/2 · Commit 0000001 · Add parser");
+    harness.assert_contains("Diff Review · 0000001 Add parser · 1/2 ");
+    assert!(!harness.row_text(0).contains("Staged"));
     harness.assert_contains("commit note");
 
     harness.state_mut().set_document(builder.target(DiffScope::Both).build());
     harness.draw();
-    harness.assert_contains("2/2 · Uncommitted changes (both)");
+    harness.assert_contains("Diff Review · Uncommitted changes · 2/2 ·  Unstaged  Staged  Both ");
     assert!(!harness.text().contains("commit note"));
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn the_frame_title_ends_with_the_colored_change_totals() {
+    let document = DocumentBuilder::new().changed("a.rs", "old\n", "new\nmore\n").changed("b.rs", "x\n", "").build();
+    let mut harness = ReviewHarness::new(document, 100, 14);
+    harness.draw();
+    let title = harness.row_text(0);
+    assert!(title.ends_with(" +2 -2 ┐"), "{title}");
+    assert!(!title.contains("files changed"));
+    let theme = harness.state().theme().clone();
+    assert_eq!(foreground_of(&harness, "+2"), Some(page_color(&theme, theme.diff.addition)));
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn the_frame_title_raises_the_selected_scope_without_a_commit_stack() -> Result<(), Box<dyn Error>> {
+    let document = DocumentBuilder::new().target(DiffScope::Staged).changed("a.rs", "old", "new").build();
+    let mut harness = ReviewHarness::new(document, 100, 14);
+    harness.draw();
+    let title = harness.row_text(0);
+    assert!(title.contains("Diff Review ·  Unstaged  Staged  Both "), "{title}");
+    let bold = |label: &str| -> Result<bool, Box<dyn Error>> {
+        let column = title.find(label).ok_or(label.to_owned())?;
+        let column = u16::try_from(title[..column].chars().count())?;
+        Ok(harness.buffer()[(column, 0)].modifier.contains(Modifier::BOLD))
+    };
+    assert!(bold("Staged ")?);
+    assert!(!bold("Unstaged")?);
+    assert!(!bold("Both")?);
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn the_commit_picker_lists_every_page_with_its_counts() -> Result<(), Box<dyn Error>> {
+    let document = DocumentBuilder::new()
+        .commit_with("Add parser", |commit| CommitSummary {
+            stat: Some(LineStat { added: 149, deleted: 12, files: 3 }),
+            ..commit
+        })
+        .commit("Wire the parser into the session")
+        .target(commit_id(2))
+        .changed("a.rs", "old", "new")
+        .build();
+    let mut harness = ReviewHarness::new(document, 100, 14);
+    harness.state_mut().handle_command(DiffReviewCommand::Focus(FocusPane::Diff));
+    let anchor = harness.state().session().selected_anchor().ok_or("missing anchor")?;
+    harness.state_mut().review_mut().add_comment(anchor, "note");
+    harness.state_mut().handle_command(DiffReviewCommand::OpenCommitPicker);
+    harness.draw();
+    harness.assert_contains("Commits");
+    harness.assert_contains("○ 1 0000001      Add parser");
+    harness.assert_contains("+149 −12");
+    harness.assert_contains("● 2 0000002      Wire the parser into the session");
+    let current = harness.text().lines().find(|line| line.contains("● 2")).ok_or("missing current row")?.to_owned();
+    let comments = current.find("1✎").ok_or("missing comment count")?;
+    assert!(comments < current.find("+1 −1").ok_or("missing stat")?, "{current}");
+    let theme = harness.state().theme().clone();
+    assert_eq!(foreground_of(&harness, "+149"), Some(page_color(&theme, theme.diff.addition)));
+    assert_eq!(foreground_of(&harness, "−12"), Some(page_color(&theme, theme.diff.deletion)));
+    harness.assert_contains("◌ 3 working tree Uncommitted changes");
+    harness.assert_contains("Enter open");
     Ok(())
 }
 
@@ -604,4 +673,15 @@ fn continuous_harness(builder: DocumentBuilder) -> ReviewHarness {
     state.handle_command(DiffReviewCommand::Focus(FocusPane::Diff));
     harness.draw();
     harness
+}
+
+#[cfg(feature = "test-support")]
+fn foreground_of(harness: &ReviewHarness, text: &str) -> Option<Color> {
+    let buffer = harness.buffer();
+    (buffer.area.top()..buffer.area.bottom()).find_map(|row| {
+        let line = buffer_row(buffer, row);
+        let start = line.find(text)?;
+        let column = u16::try_from(line[..start].chars().count()).ok()?;
+        Some(buffer[(column, row)].fg)
+    })
 }

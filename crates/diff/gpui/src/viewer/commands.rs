@@ -11,6 +11,8 @@ impl DiffViewer {
     pub fn command_context(&self) -> CommandContext {
         let phase = if self.theme_picker.is_some() {
             InteractionPhase::ThemePicker
+        } else if self.commit_picker.is_some() {
+            InteractionPhase::CommitPicker
         } else if self.repository_prompt.is_some() {
             InteractionPhase::RepositoryPrompt
         } else if self.shortcuts_open {
@@ -25,6 +27,7 @@ impl DiffViewer {
             capabilities: self.capabilities,
             repository_pending: self.repository_pending,
             themes_available: self.options.themes,
+            commits_available: self.session.commits().is_some(),
             source_view: self.session.source_view().is_some(),
             ..CommandContext::default()
         }
@@ -190,11 +193,21 @@ impl DiffViewer {
                 cx.emit(DiffViewerEvent::RepositoryAction(action));
                 return true;
             }
-            command @ (C::SetScope(_) | C::CycleScope | C::StepTarget(_)) => {
+            command @ (C::SetScope(_) | C::CycleScope | C::StepTarget(_) | C::GoToPage(_)) => {
+                let closed = self.commit_picker.take().is_some();
+                cx.notify();
                 let Some(event) = self.session.target_event(&command) else {
-                    return false;
+                    return closed;
                 };
                 cx.emit(event);
+                return true;
+            }
+            C::OpenCommitPicker => self.open_commit_picker(window, cx),
+            C::MoveCommitPicker(delta) => {
+                let Some(picker) = self.commit_picker.as_ref() else {
+                    return false;
+                };
+                picker.move_highlight(delta, cx);
                 return true;
             }
             C::Refresh => {
@@ -260,6 +273,7 @@ impl DiffViewer {
                     return self.update_theme_picker(cx, ThemePicker::cancel);
                 }
                 InteractionPhase::RepositoryPrompt => self.clear_repository_prompt(),
+                InteractionPhase::CommitPicker => self.commit_picker = None,
                 InteractionPhase::Help => self.shortcuts_open = false,
             },
             C::Review(R::ShowHelp) => self.shortcuts_open = true,

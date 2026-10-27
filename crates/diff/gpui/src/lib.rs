@@ -7,6 +7,7 @@ mod annotation;
 mod client_view;
 mod comment_editor;
 mod comments;
+mod commits;
 mod diff_preview;
 mod diff_view;
 mod markdown_viewer;
@@ -46,9 +47,9 @@ pub use markdown_viewer::{
 pub use viewer::{
     ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse, CommitChanges, ConfirmDiscard,
     CopyReview, CycleScope, DeleteComment, DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap,
-    ExpandGapAll, ExpandOrOpen, FirstItem, FocusDiff, FocusFiles, HideShortcuts, LastItem, NextCommit, NextFile,
-    NextHunk, NextItem, PageDown, PageUp, PreviousCommit, PreviousFile, PreviousHunk, PreviousItem, Refresh,
-    SelectNewSide, SelectOldSide, ShowShortcuts, ShowThemePicker, StageAll, SubmitComment, SubmitReview,
-    ToggleAllFilesCollapsed, ToggleFileCollapsed, ToggleFullFile, ToggleLayout, TogglePane, ToggleSidebar,
-    ToggleSourceView, ToggleStage, UndoComment, UnstageAll, UseAutoLayout, ViewerPane,
+    ExpandGapAll, ExpandOrOpen, FirstCommit, FirstItem, FocusDiff, FocusFiles, HideShortcuts, LastCommit, LastItem,
+    NextCommit, NextFile, NextHunk, NextItem, PageDown, PageUp, PreviousCommit, PreviousFile, PreviousHunk,
+    PreviousItem, Refresh, SelectNewSide, SelectOldSide, ShowCommitPicker, ShowShortcuts, ShowThemePicker, StageAll,
+    SubmitComment, SubmitReview, ToggleAllFilesCollapsed, ToggleFileCollapsed, ToggleFullFile, ToggleLayout,
+    TogglePane, ToggleSidebar, ToggleSourceView, ToggleStage, UndoComment, UnstageAll, UseAutoLayout, ViewerPane,
 };

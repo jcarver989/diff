@@ -7,8 +7,8 @@ use crate::{
 };
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, RepositoryAction, RevealAmount,
-    Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, ViewMode, ViewportAnchor,
+    CommitPicker, DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, RepositoryAction,
+    RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, ViewMode, ViewportAnchor,
 };
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
@@ -115,6 +115,7 @@ pub struct DiffReviewState {
     pub(crate) help: bool,
     pub(crate) help_scroll: usize,
     pub(crate) theme_picker: Option<ThemePicker>,
+    pub(crate) commit_picker: Option<CommitPicker>,
     pub(crate) repository_prompt: Option<RepositoryPrompt>,
     pub(crate) repository_status: RepositoryOperationStatus,
     pub(crate) background_error: Option<String>,
@@ -163,6 +164,7 @@ impl DiffReviewState {
             help: false,
             help_scroll: 0,
             theme_picker: None,
+            commit_picker: None,
             repository_prompt: None,
             repository_status: RepositoryOperationStatus::Idle,
             background_error: None,

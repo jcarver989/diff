@@ -67,7 +67,6 @@ impl RenderOnce for ListScrollbar {
             .h_full()
             .flex_shrink_0()
             .relative()
-            .bg(colors.canvas)
             .on_mouse_down(MouseButton::Left, move |event: &MouseDownEvent, window, cx| {
                 set_offset_from_pointer(&click_list, event.position.y, thumb_height / 2.0, min_thumb_height);
                 cx.stop_propagation();
@@ -92,12 +91,13 @@ impl RenderOnce for ListScrollbar {
                     .debug_selector(move || thumb_selector)
                     .absolute()
                     .top(thumb_top)
-                    .w_full()
+                    .right(rem(SCROLLBAR_INSET))
+                    .w(rem(SCROLLBAR_THUMB_WIDTH))
                     .h(thumb_height)
                     .rounded_full()
                     .cursor_pointer()
-                    .bg(colors.text_muted)
-                    .hover(move |thumb| thumb.bg(colors.accent))
+                    .bg(colors.text_muted.opacity(THUMB_REST_OPACITY))
+                    .hover(move |thumb| thumb.bg(colors.text_muted))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_drag(drag, |drag, click_offset, _, cx| {
                         drag.start(click_offset.y);
@@ -107,6 +107,10 @@ impl RenderOnce for ListScrollbar {
             .into_any_element()
     }
 }
+
+const SCROLLBAR_THUMB_WIDTH: f32 = 6.0;
+const SCROLLBAR_INSET: f32 = 3.0;
+const THUMB_REST_OPACITY: f32 = 0.4;
 
 struct ScrollbarDrag {
     scrollbar: ElementId,

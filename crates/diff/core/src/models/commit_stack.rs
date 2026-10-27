@@ -1,10 +1,24 @@
 use super::{CommitId, DiffScope, ReviewTarget};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineStat {
+    pub added: usize,
+    pub deleted: usize,
+    #[serde(default)]
+    pub files: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitSummary {
     pub id: CommitId,
     pub subject: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stat: Option<LineStat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

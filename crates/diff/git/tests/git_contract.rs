@@ -1,8 +1,8 @@
 //! Contracts between `clankerdiff-git`, the real Git executable, and `clankerdiff-core`.
 
 use clankerdiff_core::{
-    CommitStack, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath, RepositoryAction,
-    ReviewTarget, SourceResult, SourceUnavailable, StageState,
+    CommitStack, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, LineStat, PatchLineKind, RepoPath,
+    RepositoryAction, ReviewTarget, SourceResult, SourceUnavailable, StageState,
 };
 use clankerdiff_git::{
     GitError, GitRepository, MAX_SOURCE_FILE_BYTES,
@@ -610,7 +610,7 @@ async fn commit_stacks_list_branch_commits_since_the_default_branch() -> Result<
     let repo = RepoFixtureBuilder::new().file("a.txt", "one\n").committed().build();
     repo.git(&["checkout", "-b", "feature"]);
     repo.write("a.txt", "two\n");
-    let first = repo.commit("First change");
+    let first = repo.commit("First change\n\nExplains the change\nover two lines.");
     repo.write("a.txt", "three\n");
     let second = repo.commit("Second change");
     let stack = || async { repo.repository().await.commit_stack().await };
@@ -620,6 +620,10 @@ async fn commit_stacks_list_branch_commits_since_the_default_branch() -> Result<
     assert_eq!(local.base_ref, "main");
     assert_eq!(ids(&local), [first.clone(), second.clone()]);
     assert_eq!(local.commits[0].subject, "First change");
+    assert_eq!(local.commits[0].body, "Explains the change\nover two lines.");
+    assert_eq!(local.commits[1].body, "");
+    assert_eq!(local.commits[0].stat, Some(LineStat { added: 1, deleted: 1, files: 1 }));
+    assert!(local.commits[0].committed_at.is_some_and(|time| time > 0));
 
     repo.git(&["update-ref", "refs/remotes/origin/trunk", &first.to_string()]);
     repo.git(&["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"]);

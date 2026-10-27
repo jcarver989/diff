@@ -12,6 +12,8 @@ const NAVIGATION: Shortcuts = &[
     ("g / G, Home / End", "first / last item"),
     ("PgUp / PgDn", "move a page"),
     ("[ / ]", "previous / next commit"),
+    ("{ / }", "first commit / uncommitted changes"),
+    ("p", "pick commit (↑ / ↓, Enter, Esc)"),
     ("o", "toggle source / diff"),
     ("Enter", "expand context / open file"),
     ("O", "expand all context"),

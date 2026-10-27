@@ -12,6 +12,7 @@ pub enum Typography {
     Heading,
     Display,
     Code,
+    Reading,
 }
 
 impl Typography {
@@ -22,6 +23,7 @@ impl Typography {
             Self::Small | Self::Label => 12.0,
             Self::Body | Self::BodyStrong | Self::Code => 13.0,
             Self::Title => 14.0,
+            Self::Reading => 15.0,
             Self::Heading => 16.0,
             Self::Display => 20.0,
         }
@@ -32,7 +34,7 @@ impl Typography {
         match self {
             Self::Caption | Self::Small | Self::Label => 16.0,
             Self::Body | Self::BodyStrong | Self::Title | Self::Code => 20.0,
-            Self::Heading => 24.0,
+            Self::Heading | Self::Reading => 24.0,
             Self::Display => 28.0,
         }
     }
@@ -40,7 +42,7 @@ impl Typography {
     #[must_use]
     pub const fn weight(self) -> FontWeight {
         match self {
-            Self::Caption | Self::Small | Self::Body | Self::Code => FontWeight::NORMAL,
+            Self::Caption | Self::Small | Self::Body | Self::Code | Self::Reading => FontWeight::NORMAL,
             Self::Label | Self::BodyStrong | Self::Title => FontWeight::MEDIUM,
             Self::Heading | Self::Display => FontWeight::SEMIBOLD,
         }

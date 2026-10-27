@@ -123,6 +123,33 @@ fn theme_documents_require_current_schema_and_complete_ui() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn sage_layers_chrome_canvas_and_elevated_surfaces() -> TestResult {
+    let ui = ReviewTheme::sage()?.ui;
+    let lightness = |color: Rgba| u32::from(color.r) + u32::from(color.g) + u32::from(color.b);
+    assert!(lightness(ui.chrome) < lightness(ui.input));
+    assert!(lightness(ui.input) < lightness(ui.canvas));
+    assert!(lightness(ui.canvas) < lightness(ui.elevated));
+    assert!(lightness(ui.border_subtle) < lightness(ui.border));
+    Ok(())
+}
+
+#[test]
+fn palettes_without_layer_tokens_derive_them_from_their_roles() -> TestResult {
+    let mut document: Value = serde_json::from_slice(&ReviewTheme::sage()?.to_bytes()?)?;
+    let ui = document["ui"].as_object_mut().ok_or("missing ui object")?;
+    for role in ["chrome", "elevated", "input", "border_subtle"] {
+        ui.remove(role).ok_or("missing layer token")?;
+    }
+    let ui = ReviewTheme::from_bytes(ReviewTheme::sage()?.id().clone(), &serde_json::to_vec(&document)?)?.ui;
+    assert_eq!(ui.chrome, ui.surface);
+    assert_eq!(ui.input, ui.canvas);
+    assert_ne!(ui.elevated, ui.canvas);
+    assert_ne!(ui.border_subtle, ui.border);
+    assert_readable("derived sage", ui);
+    Ok(())
+}
+
 fn assert_readable(id: &str, ui: UiPalette) {
     for (role, foreground) in [
         ("text", ui.text),
@@ -138,10 +165,16 @@ fn assert_readable(id: &str, ui: UiPalette) {
             ("surface", ui.surface),
             ("hover", ui.surface_hover),
             ("selected", ui.surface_selected),
+            ("chrome", ui.chrome),
+            ("input", ui.input),
         ] {
             let ratio = contrast(foreground.over(background), background);
             assert!(ratio >= 4.5, "{id}: {role} on {surface} = {ratio}");
         }
+    }
+    for (role, foreground) in [("text", ui.text), ("secondary", ui.text_secondary)] {
+        let ratio = contrast(foreground, ui.elevated);
+        assert!(ratio >= 4.5, "{id}: {role} on elevated = {ratio}");
     }
     assert!(contrast(ui.text, ui.canvas) > contrast(ui.text_secondary, ui.canvas), "{id}");
     assert!(contrast(ui.text_secondary, ui.canvas) > contrast(ui.text_muted, ui.canvas), "{id}");

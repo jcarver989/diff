@@ -5,10 +5,14 @@
     "surface": {"r":13,"g":17,"b":16,"a":255},
     "surface_hover": {"r":34,"g":46,"b":45,"a":255},
     "surface_selected": {"r":32,"g":44,"b":45,"a":255},
+    "chrome": {"r":3,"g":4,"b":4,"a":255},
+    "elevated": {"r":37,"g":42,"b":38,"a":255},
+    "input": {"r":9,"g":12,"b":11,"a":255},
     "text": {"r":212,"g":221,"b":214,"a":255},
     "text_secondary": {"r":156,"g":165,"b":160,"a":255},
     "text_muted": {"r":92,"g":112,"b":104,"a":255},
     "border": {"r":70,"g":78,"b":78,"a":255},
+    "border_subtle": {"r":37,"g":45,"b":44,"a":255},
     "accent": {"r":143,"g":188,"b":176,"a":255},
     "accent_foreground": {"r":0,"g":0,"b":0,"a":255},
     "info": {"r":130,"g":177,"b":204,"a":255},
@@ -36,9 +40,9 @@
     "link": {"r":130,"g":177,"b":204,"a":255},
     "quote": {"r":160,"g":180,"b":168,"a":255},
     "inline_code": {"r":212,"g":221,"b":214,"a":255},
-    "inline_code_background": {"r":57,"g":73,"b":73,"a":255},
+    "inline_code_background": {"r":30,"g":37,"b":37,"a":255},
     "code": {"r":212,"g":221,"b":214,"a":255},
-    "code_background": {"r":13,"g":17,"b":16,"a":255}
+    "code_background": {"r":17,"g":22,"b":22,"a":255}
   },
   "syntax": {
     "attribute": {"foreground":{"r":196,"g":167,"b":231,"a":255}},

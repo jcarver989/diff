@@ -4,7 +4,7 @@ use crate::{
     interaction::{self, ReviewWidget},
     state::{RepositoryOperationStatus, RepositoryPrompt},
 };
-use clankerdiff_core::{CommentDraft, DiffReviewEvent, RepositoryAction};
+use clankerdiff_core::{CommentDraft, CommitPicker, DiffReviewEvent, RepositoryAction};
 #[cfg(feature = "crossterm-backend")]
 use crossterm::event::Event;
 use ratatui::layout::Position;
@@ -22,6 +22,8 @@ impl DiffReviewState {
     pub fn interaction_phase(&self) -> InteractionPhase {
         if self.theme_picker.is_some() {
             InteractionPhase::ThemePicker
+        } else if self.commit_picker.is_some() {
+            InteractionPhase::CommitPicker
         } else if self.repository_prompt.is_some() {
             InteractionPhase::RepositoryPrompt
         } else if self.help {
@@ -97,9 +99,33 @@ impl ReviewWidget for DiffReviewState {
     fn handle_prompt_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
         self.handle_repository_prompt_key(key)
     }
+    fn handle_picker_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
+        self.handle_commit_picker_key(key)
+    }
 }
 
 impl DiffReviewState {
+    fn handle_commit_picker_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
+        if !interaction::is_plain_key(key) {
+            return InputOutcome::Consumed;
+        }
+        let highlighted = self.commit_picker.as_ref().map_or(0, CommitPicker::highlighted);
+        let command = match key.code {
+            KeyCode::Esc | KeyCode::Char('q' | 'p') => ReviewCommand::Cancel.into(),
+            KeyCode::Enter => DiffReviewCommand::GoToPage(highlighted),
+            KeyCode::Up | KeyCode::Char('k') => DiffReviewCommand::MoveCommitPicker(-1),
+            KeyCode::Down | KeyCode::Char('j') => DiffReviewCommand::MoveCommitPicker(1),
+            KeyCode::Home | KeyCode::Char('g') => DiffReviewCommand::MoveCommitPicker(isize::MIN),
+            KeyCode::End | KeyCode::Char('G') => DiffReviewCommand::MoveCommitPicker(isize::MAX),
+            KeyCode::Char(digit @ '1'..='9') => {
+                DiffReviewCommand::GoToPage(digit.to_digit(10).map_or(0, |digit| digit as usize - 1))
+            }
+            _ => return InputOutcome::Consumed,
+        };
+        let outcome = self.handle_command(command);
+        if outcome.is_consumed() { outcome } else { InputOutcome::Consumed }
+    }
+
     fn handle_repository_prompt_key(&mut self, key: KeyEvent) -> InputOutcome<DiffReviewEvent> {
         if key.code == KeyCode::Esc {
             return self.handle_command(ReviewCommand::Cancel);

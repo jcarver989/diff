@@ -1,6 +1,9 @@
 use crate::{
     style,
-    ui::prelude::{Typography, TypographyExt, rem},
+    ui::{
+        prelude::{Typography, TypographyExt, rem},
+        tokens::RADIUS_CONTROL,
+    },
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
@@ -36,7 +39,7 @@ pub(crate) struct CommentEditor {
 
 impl CommentEditor {
     pub(crate) fn new(body: String, theme: ReviewTheme, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::with_placeholder(body, theme, "Leave a comment…", window, cx)
+        Self::with_placeholder(body, theme, "Leave a comment…  Enter saves, Esc cancels", window, cx)
     }
 
     pub(crate) fn with_placeholder(
@@ -133,7 +136,7 @@ impl Render for CommentEditor {
             .w_full()
             .typography(Typography::Body)
             .p_3()
-            .rounded_md()
+            .rounded(rem(RADIUS_CONTROL))
             .border_1()
             .border_color(style::color(if focused { palette.accent } else { palette.border }))
             .bg(style::color(palette.background))

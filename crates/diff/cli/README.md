@@ -49,7 +49,7 @@ Note: `CLANKERDIFF_TUI_COMMAND` changes based on your terminal of choice. In the
 
 **Commit by commit**
 
-On a branch, the review pages through each commit since it diverged from `origin/HEAD` (or `origin/main`, `origin/master`, `main`, `master`), followed by your uncommitted changes. Press `[` / `]` to move between pages; comments on commits are grouped by commit in the feedback. Add `--commits` to start on the oldest commit, like a pull request.
+On a branch, the review pages through each commit since it diverged from `origin/HEAD` (or `origin/main`, `origin/master`, `main`, `master`), followed by your uncommitted changes. Press `[` / `]` to move between pages, `{` / `}` to jump to the first commit or your uncommitted changes, or `p` to pick a page from a list; comments on commits are grouped by commit in the feedback. Add `--commits` to start on the oldest commit, like a pull request.
 
 ```bash
 clankerdiff review . --ui desktop --scope both --format json --commits
@@ -96,6 +96,8 @@ comments and addresses them. Press `y` to copy the feedback instead.
 | `↑` / `↓` or `j` / `k` | Navigate |
 | `Tab` | Switch between files and diff |
 | `]` / `[` | Next / previous commit |
+| `{` / `}` | First commit / uncommitted changes |
+| `p` | Pick a commit from a list |
 | `c` | Comment on the selected line |
 | `e` / `x` | Edit / delete a comment |
 | `s` / `y` | Submit / copy feedback (in the diff pane) |

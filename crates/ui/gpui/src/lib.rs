@@ -22,7 +22,7 @@ pub mod prelude {
     pub use super::components::{
         ActionBar, Backdrop, Badge, Button, ButtonVariant, ControlSize, ControlState, Disclosure, EmptyState,
         IconButton, InteractionState, ListRow, Modal, ModalSize, MutedText, NoticeTone, Notification, SectionHeader,
-        SelectionState, Surface, SurfaceExt, Tooltip,
+        Segment, SegmentedControl, SelectionState, Surface, SurfaceExt, Tooltip,
     };
     pub use super::dialog::{ConfirmDialog, ConfirmDialogEvent};
     pub use super::fonts::{CODE_FONT, UI_FONT};
@@ -30,7 +30,8 @@ pub mod prelude {
     pub use super::inline_edit::InlineEdit;
     pub use super::menu::{MenuItem, with_menu};
     pub use super::picker::{
-        PickerItem, PickerList, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent, ThemePickerOverlay,
+        PickerDetail, PickerItem, PickerList, PickerMarker, SearchPicker, SearchPickerEvent, ThemePicker,
+        ThemePickerEvent, ThemePickerOverlay,
     };
     pub use super::resizable::{PanelSide, ResizablePanel};
     pub use super::scrollbar::ListScrollbar;

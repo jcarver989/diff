@@ -12,6 +12,17 @@ pub enum DiffScope {
 }
 
 impl DiffScope {
+    pub const ALL: [Self; 3] = [Self::Unstaged, Self::Staged, Self::Both];
+
+    #[must_use]
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Unstaged => "Unstaged",
+            Self::Staged => "Staged",
+            Self::Both => "Both",
+        }
+    }
+
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {

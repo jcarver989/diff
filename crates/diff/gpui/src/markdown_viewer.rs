@@ -3,7 +3,7 @@
 mod chrome;
 mod commands;
 mod document;
-mod inline;
+pub(crate) mod inline;
 mod rows;
 
 use crate::{
@@ -359,7 +359,9 @@ impl MarkdownReviewer {
                 InteractionPhase::ThemePicker => "themes",
                 InteractionPhase::Help => "help",
                 InteractionPhase::Draft => "draft",
-                InteractionPhase::Browse | InteractionPhase::RepositoryPrompt => "browse",
+                InteractionPhase::Browse | InteractionPhase::CommitPicker | InteractionPhase::RepositoryPrompt => {
+                    "browse"
+                }
             },
         );
         key_context

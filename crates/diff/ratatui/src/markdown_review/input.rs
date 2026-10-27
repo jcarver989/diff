@@ -207,7 +207,9 @@ impl MarkdownReviewState {
                             self.apply_theme(picker.cancel());
                         }
                     }
-                    InteractionPhase::RepositoryPrompt => return Ok(InputOutcome::Ignored),
+                    InteractionPhase::CommitPicker | InteractionPhase::RepositoryPrompt => {
+                        return Ok(InputOutcome::Ignored);
+                    }
                 }
                 self.mark_dirty();
             }

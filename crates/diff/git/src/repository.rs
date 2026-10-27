@@ -3,7 +3,7 @@
 use crate::{GitError, command, command::CatFileBatch, path};
 use clankerdiff_core::{
     CommitId, CommitStack, CommitSummary, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Fingerprint,
-    RepoPath, RepositoryAction, ReviewTarget, SourceDocument, SourceResult, SourceUnavailable, UntrackedFile,
+    LineStat, RepoPath, RepositoryAction, ReviewTarget, SourceDocument, SourceResult, SourceUnavailable, UntrackedFile,
     parse_porcelain_v1_z,
 };
 use std::{
@@ -191,7 +191,16 @@ impl GitRepository {
         let log = command::run(
             &self.root,
             "list branch commits",
-            ["log", "--reverse", "--first-parent", "-z", "--format=%H%x1f%s", "--max-count=200", &range, "--"],
+            [
+                "log",
+                "--reverse",
+                "--first-parent",
+                "--numstat",
+                "--format=%x1e%H%x1f%ct%x1f%s%x1f%b%x1d",
+                "--max-count=200",
+                &range,
+                "--",
+            ],
         )
         .await;
         match log {
@@ -736,15 +745,30 @@ fn has_side(file: &FileDiff, side: DiffSide) -> bool {
 
 fn parse_commit_log(output: &[u8]) -> Result<Vec<CommitSummary>, GitError> {
     output
-        .split(|byte| *byte == 0)
+        .split(|byte| *byte == 0x1e)
         .filter(|record| !record.is_empty())
         .map(|record| {
             let record = String::from_utf8_lossy(record);
-            let record = record.trim_start_matches('\n');
-            let (id, subject) = record.split_once('\u{1f}').unwrap_or((record, ""));
-            Ok(CommitSummary { id: CommitId::new(id)?, subject: subject.to_owned() })
+            let (message, numstat) = record.split_once('\u{1d}').unwrap_or((&record, ""));
+            let mut fields = message.splitn(4, '\u{1f}');
+            let id = fields.next().unwrap_or_default();
+            let committed_at = fields.next().and_then(|time| time.parse().ok());
+            let subject = fields.next().unwrap_or_default().to_owned();
+            let body = fields.next().unwrap_or_default().trim().to_owned();
+            let stat = numstat.lines().filter_map(parse_numstat).fold(LineStat::default(), |stat, (added, deleted)| {
+                LineStat { added: stat.added + added, deleted: stat.deleted + deleted, files: stat.files + 1 }
+            });
+            Ok(CommitSummary { id: CommitId::new(id)?, subject, body, stat: Some(stat), committed_at })
         })
         .collect()
+}
+
+fn parse_numstat(line: &str) -> Option<(usize, usize)> {
+    let mut fields = line.split('\t');
+    let added = fields.next()?;
+    let deleted = fields.next()?;
+    fields.next()?;
+    Some((added.parse().unwrap_or(0), deleted.parse().unwrap_or(0)))
 }
 
 fn resolve_blob(

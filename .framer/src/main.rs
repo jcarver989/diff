@@ -2,6 +2,7 @@ use diff_framer::{CRATES, GpuiApp};
 use framer::Project;
 use framer::github::Step;
 use framer::rust::{Level, Lints};
+use framer::toml_edit::{Array, InlineTable, Value};
 use framer_presets::{Ci, CompilingJob, Dist, Release, ReleasePlz, Rust, RustMonorepo, Rustfmt, Tools, Workspace};
 use std::process::ExitCode;
 
@@ -20,6 +21,7 @@ fn main() -> ExitCode {
     let mut project = Project::new();
     project.apply(monorepo);
     project.apply(gpui);
+    project.toml("clippy.toml").set("disallowed-methods", disallowed_radii());
     project.synth()
 }
 
@@ -35,6 +37,27 @@ fn lints() -> Lints {
     Lints::clippy_pedantic()
         .allow_clippy(["missing_errors_doc", "missing_panics_doc"])
         .rust("unsafe_code", Level::Forbid)
+}
+
+fn disallowed_radii() -> Array {
+    let reason = "use a radius token from clankerdiff_gpui_ui::tokens, or rounded_full() for a capsule";
+    let mut paths = ["", "_t", "_b", "_l", "_r", "_tl", "_tr", "_bl", "_br"]
+        .into_iter()
+        .flat_map(|side| {
+            ["xs", "sm", "md", "lg", "xl", "2xl", "3xl"].map(move |size| format!("gpui::Styled::rounded{side}_{size}"))
+        })
+        .map(|path| {
+            let mut entry = InlineTable::new();
+            entry.insert("path", path.into());
+            entry.insert("reason", reason.into());
+            let mut entry = Value::InlineTable(entry);
+            entry.decor_mut().set_prefix("\n    ");
+            entry
+        })
+        .collect::<Array>();
+    paths.set_trailing("\n");
+    paths.set_trailing_comma(true);
+    paths
 }
 
 fn rustfmt() -> Rustfmt {

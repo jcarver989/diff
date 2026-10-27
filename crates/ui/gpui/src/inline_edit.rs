@@ -1,6 +1,6 @@
 use super::{
     theme::UiTheme,
-    tokens::{RADIUS_CONTROL, rem},
+    tokens::{RADIUS_INNER, rem},
 };
 use gpui::{App, AppContext, Entity, IntoElement, RenderOnce, SharedString, Window, div, prelude::*};
 use gpui_base::input::{Enter, Escape, Input, InputState};
@@ -59,7 +59,7 @@ impl RenderOnce for InlineEdit {
             .w_full()
             .min_w_0()
             .px_1()
-            .rounded(rem(RADIUS_CONTROL))
+            .rounded(rem(RADIUS_INNER))
             .border_1()
             .border_color(colors.accent)
             .bg(colors.canvas)
