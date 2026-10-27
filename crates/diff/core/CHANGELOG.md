@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.4.0...clankerdiff-core-v0.5.0) - 2026-10-27
+
+### Added
+
+- commit picker with previews for paging through branch commits ([#109](https://github.com/jcarver989/diff/pull/109))
+
 ## [0.4.0](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.3.3...clankerdiff-core-v0.4.0) - 2026-10-26
 
 ### Other
