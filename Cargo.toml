@@ -4,7 +4,7 @@ exclude = ["patches/gpui"]
 resolver = "3"
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
@@ -21,21 +21,21 @@ inherits = "release"
 lto = "thin"
 
 [workspace.dependencies]
-clankerdiff-fingerprint = { version = "0.4.0", path = "crates/util/fingerprint" }
+clankerdiff-fingerprint = { version = "0.5.0", path = "crates/util/fingerprint" }
 clankerdiff-remote = { path = "crates/util/remote" }
-clankerdiff-theme = { version = "0.4.0", path = "crates/ui/theme" }
-clankerdiff-syntax = { version = "0.4.0", path = "crates/ui/syntax" }
+clankerdiff-theme = { version = "0.5.0", path = "crates/ui/theme" }
+clankerdiff-syntax = { version = "0.5.0", path = "crates/ui/syntax" }
 clankerdiff-gpui-ui = { path = "crates/ui/gpui" }
 clankerdiff-gpui-shell = { path = "crates/ui/gpui-shell" }
-clankerdiff-core = { version = "0.4.0", path = "crates/diff/core" }
-clankerdiff-protocol = { version = "0.4.0", path = "crates/diff/protocol" }
-clankerdiff-client = { version = "0.4.0", path = "crates/diff/client", default-features = false }
-clankerdiff-git = { version = "0.4.0", path = "crates/diff/git" }
-clankerdiff-watch = { version = "0.4.0", path = "crates/diff/watch" }
-clankerdiff-server = { version = "0.4.0", path = "crates/diff/server" }
-clankerdiff-markdown = { version = "0.4.0", path = "crates/diff/markdown" }
+clankerdiff-core = { version = "0.5.0", path = "crates/diff/core" }
+clankerdiff-protocol = { version = "0.5.0", path = "crates/diff/protocol" }
+clankerdiff-client = { version = "0.5.0", path = "crates/diff/client", default-features = false }
+clankerdiff-git = { version = "0.5.0", path = "crates/diff/git" }
+clankerdiff-watch = { version = "0.5.0", path = "crates/diff/watch" }
+clankerdiff-server = { version = "0.5.0", path = "crates/diff/server" }
+clankerdiff-markdown = { version = "0.5.0", path = "crates/diff/markdown" }
 clankerdiff-gpui = { path = "crates/diff/gpui" }
-clankerdiff-ratatui = { version = "0.4.0", path = "crates/diff/ratatui" }
+clankerdiff-ratatui = { version = "0.5.0", path = "crates/diff/ratatui" }
 clankerdiff-gpui-desktop = { path = "crates/diff/desktop" }
 
 async-channel = "2.5.0"
