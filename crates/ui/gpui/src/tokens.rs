@@ -20,8 +20,10 @@ pub const RESIZE_HANDLE_WIDTH: f32 = 6.0;
 pub const SCROLLBAR_WIDTH: f32 = 12.0;
 pub const SCROLLBAR_MIN_THUMB_HEIGHT: f32 = 32.0;
 
-pub const RADIUS_CONTROL: f32 = 4.0;
-pub const RADIUS_CONTAINER: f32 = 8.0;
+pub const RADIUS_ROW: f32 = 8.0;
+pub const RADIUS_CARD: f32 = 12.0;
+pub const RADIUS_FLOATING: f32 = 16.0;
+pub const FLOATING_INSET: f32 = RADIUS_FLOATING - RADIUS_ROW;
 
 pub const CONTROL_PADDING_X_SMALL: f32 = 8.0;
 pub const CONTROL_PADDING_X_MEDIUM: f32 = 12.0;

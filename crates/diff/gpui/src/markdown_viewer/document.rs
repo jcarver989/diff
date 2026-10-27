@@ -7,7 +7,10 @@ use crate::{
     annotation::add_comment_button,
     comments::{CommentCard, CommentComposer, CommentThread, comment_dismiss_button},
     style,
-    ui::prelude::{CODE_FONT, EmptyState, IconButton, IconName, NoticeTone, Typography, TypographyExt, color, rem},
+    ui::{
+        prelude::{CODE_FONT, EmptyState, IconButton, IconName, NoticeTone, Typography, TypographyExt, color, rem},
+        tokens::{RADIUS_CARD, RADIUS_ROW},
+    },
 };
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownInline, MarkdownTableAlignment, MarkdownTargetId};
@@ -20,7 +23,6 @@ const LIST_INDENT: f32 = 22.0;
 const ADD_BUTTON_SIZE: f32 = 18.0;
 const BLOCK_PADDING_Y: f32 = 4.0;
 const CODE_HEADER_HEIGHT: f32 = 32.0;
-const CODE_RADIUS: f32 = 8.0;
 const PROSE: TextScale = TextScale::new(15.0, 24.0);
 const CODE: TextScale = TextScale::new(13.0, 20.0);
 
@@ -130,7 +132,7 @@ impl MarkdownReviewer {
             div()
                 .px_2()
                 .py(rem(BLOCK_PADDING_Y))
-                .rounded_md()
+                .rounded(rem(RADIUS_ROW))
                 .text_size(rem(PROSE.size))
                 .line_height(rem(PROSE.line_height))
         };
@@ -194,7 +196,7 @@ impl MarkdownReviewer {
             .border_l_1()
             .border_r_1()
             .border_color(self.ui.colors.border)
-            .when(last, |line| line.pb_2().border_b_1().rounded_b(rem(CODE_RADIUS)))
+            .when(last, |line| line.pb_2().border_b_1().rounded_b(rem(RADIUS_CARD)))
             .child(self.code_line_text(code, line))
     }
 
@@ -215,8 +217,8 @@ impl MarkdownReviewer {
             .border_r_1()
             .border_b_1()
             .border_color(colors.border)
-            .when(first, |row| row.border_t_1().rounded_t(rem(6.0)))
-            .when(last, |row| row.rounded_b(rem(6.0)))
+            .when(first, |row| row.border_t_1().rounded_t(rem(RADIUS_CARD)))
+            .when(last, |row| row.rounded_b(rem(RADIUS_CARD)))
             .when(header, |row| row.bg(colors.surface).font_weight(FontWeight::SEMIBOLD))
             .children(cells.iter().enumerate().map(|(column, cell)| {
                 let alignment = alignments.get(column).copied().unwrap_or(MarkdownTableAlignment::None);
@@ -255,8 +257,8 @@ impl MarkdownReviewer {
             .border_l_1()
             .border_r_1()
             .border_color(colors.border)
-            .rounded_t(rem(CODE_RADIUS))
-            .when(code.lines.is_empty(), |header| header.border_b_1().rounded_b(rem(CODE_RADIUS)))
+            .rounded_t(rem(RADIUS_CARD))
+            .when(code.lines.is_empty(), |header| header.border_b_1().rounded_b(rem(RADIUS_CARD)))
             .typography(Typography::Caption)
             .text_color(colors.text_muted)
             .child(code.language.clone().unwrap_or_else(|| "code".to_owned()))

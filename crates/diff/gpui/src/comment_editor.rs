@@ -1,6 +1,9 @@
 use crate::{
     style,
-    ui::prelude::{Typography, TypographyExt, rem},
+    ui::{
+        prelude::{Typography, TypographyExt, rem},
+        tokens::RADIUS_ROW,
+    },
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
@@ -133,7 +136,7 @@ impl Render for CommentEditor {
             .w_full()
             .typography(Typography::Body)
             .p_3()
-            .rounded_md()
+            .rounded(rem(RADIUS_ROW))
             .border_1()
             .border_color(style::color(if focused { palette.accent } else { palette.border }))
             .bg(style::color(palette.background))

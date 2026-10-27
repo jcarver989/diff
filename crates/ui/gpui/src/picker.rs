@@ -248,7 +248,7 @@ impl RenderOnce for PickerList {
             .when_some(self.max_height, gpui::Styled::max_h)
             .overflow_y_scroll()
             .when_some(self.scroll, |list, scroll| list.track_scroll(&scroll))
-            .p_1()
+            .p(rem(tokens::FLOATING_INSET))
             .flex()
             .flex_col()
             .children(rows)
@@ -514,7 +514,7 @@ impl Render for SearchPicker {
                 .items_center()
                 .gap_2()
                 .border_b_1()
-                .border_color(colors.border)
+                .border_color(colors.border_subtle)
                 .child(Icon::new(IconName::Search, colors.text_muted))
                 .child(div().flex_1().min_w_0().child(Input::new(input)))
         });
@@ -541,8 +541,7 @@ impl Render for SearchPicker {
             .flex_col()
             .overflow_hidden()
             .occlude()
-            .surface(self.theme)
-            .shadow_lg()
+            .floating(self.theme)
             .typography(Typography::Body)
             .capture_action(cx.listener(|this, _: &MoveUp, _, cx| {
                 this.move_highlight(-1, cx);
@@ -582,7 +581,7 @@ impl Render for SearchPicker {
                     .flex()
                     .items_center()
                     .border_t_1()
-                    .border_color(colors.border)
+                    .border_color(colors.border_subtle)
                     .typography(Typography::Caption)
                     .text_color(colors.text_muted)
                     .child(footer)

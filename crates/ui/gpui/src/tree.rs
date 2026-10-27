@@ -128,7 +128,7 @@ impl RenderOnce for TreeRow {
             .flex()
             .items_center()
             .gap_1()
-            .rounded(rem(tokens::RADIUS_CONTROL))
+            .rounded(rem(tokens::RADIUS_ROW))
             .typography(Typography::Body)
             .text_color(self.label_color.unwrap_or(colors.text))
             .when(self.selected, |row| row.bg(colors.surface_selected))

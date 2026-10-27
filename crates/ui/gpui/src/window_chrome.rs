@@ -74,7 +74,7 @@ pub fn decorate(
         .min_h_0()
         .min_w_0()
         .overflow_hidden()
-        .border_color(theme.colors.border)
+        .border_color(theme.colors.border_subtle)
         .when(!tiling.top, |element| element.border_t(BORDER_SIZE))
         .when(!tiling.bottom, |element| element.border_b(BORDER_SIZE))
         .when(!tiling.left, |element| element.border_l(BORDER_SIZE))
@@ -128,7 +128,7 @@ fn title_bar(
         .w_full()
         .flex()
         .items_center()
-        .bg(theme.colors.surface)
+        .bg(theme.colors.chrome)
         .text_color(theme.colors.text)
         .child(window_button_group(theme, left_controls, is_maximized))
         .child(

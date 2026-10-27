@@ -9,7 +9,7 @@ use crate::{
         prelude::{
             Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography, TypographyExt, rem,
         },
-        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT, RADIUS_CONTROL},
+        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT, RADIUS_ROW},
     },
 };
 use clankerdiff_core::{
@@ -159,7 +159,7 @@ impl DiffViewer {
                 .items_center()
                 .gap(rem(2.0))
                 .p(rem(1.0))
-                .rounded(rem(RADIUS_CONTROL + 1.0))
+                .rounded_full()
                 .border_1()
                 .border_color(theme.colors.border)
                 .children(options.map(|(id, mode, icon, label)| {
@@ -252,7 +252,7 @@ impl DiffViewer {
                     .items_center()
                     .gap_2()
                     .px_3()
-                    .rounded_md()
+                    .rounded(rem(RADIUS_ROW))
                     .border_1()
                     .border_color(style::color(if selected { palette.accent } else { palette.border }))
                     .bg(style::color(surface))

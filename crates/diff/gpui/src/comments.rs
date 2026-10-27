@@ -1,8 +1,11 @@
 //! Shared comment presentation components.
 
 use crate::comment_editor::CommentEditor;
-use clankerdiff_gpui_ui::prelude::{
-    Button, ButtonVariant, ControlSize, IconButton, IconName, Surface, Typography, TypographyExt, UiTheme,
+use clankerdiff_gpui_ui::{
+    prelude::{
+        Button, ButtonVariant, ControlSize, IconButton, IconName, Surface, Typography, TypographyExt, UiTheme, rem,
+    },
+    tokens::RADIUS_CARD,
 };
 use gpui::{
     AnyElement, App, ClickEvent, Context, ElementId, Entity, IntoElement, MouseButton, RenderOnce, SharedString,
@@ -118,7 +121,7 @@ impl RenderOnce for CommentThread {
             .w_full()
             .flex()
             .flex_col()
-            .rounded_md()
+            .rounded(rem(RADIUS_CARD))
             .border_1()
             .border_color(self.theme.colors.border)
             .overflow_hidden()

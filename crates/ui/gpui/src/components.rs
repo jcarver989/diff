@@ -178,7 +178,7 @@ impl RenderOnce for Button {
                 .items_center()
                 .gap_1()
                 .map(|element| if self.full_width { element.w_full() } else { element.justify_center() })
-                .rounded(rem(tokens::RADIUS_CONTROL))
+                .rounded_full()
                 .typography(typography)
                 .when(self.keyboard_focusable && !disabled, |element| {
                     element.focusable().tab_stop(true).focus_visible(move |style| {
@@ -275,7 +275,7 @@ impl RenderOnce for IconButton {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(rem(tokens::RADIUS_CONTROL))
+            .rounded_full()
             .cursor_pointer()
             .when(self.selected, |button| button.bg(colors.surface_selected))
             .hover(move |button| button.bg(colors.surface_hover))
@@ -311,7 +311,7 @@ impl Render for Tooltip {
         div()
             .px_2()
             .py_1()
-            .rounded(rem(tokens::RADIUS_CONTAINER))
+            .rounded(rem(tokens::RADIUS_ROW))
             .border_1()
             .border_color(colors.border)
             .bg(colors.surface)
@@ -382,7 +382,7 @@ impl RenderOnce for Disclosure {
             .items_center()
             .gap_2()
             .px_1()
-            .rounded(rem(tokens::RADIUS_CONTROL))
+            .rounded(rem(tokens::RADIUS_ROW))
             .cursor_pointer()
             .hover(move |row| row.bg(colors.surface_hover))
             .focus_visible(move |row| row.bg(colors.surface_hover))
@@ -600,10 +600,29 @@ const BADGE_TINT: f32 = 0.16;
 pub trait SurfaceExt: Styled + Sized {
     #[must_use]
     fn surface(self, theme: UiTheme) -> Self {
-        self.rounded(rem(tokens::RADIUS_CONTAINER))
+        self.rounded(rem(tokens::RADIUS_CARD)).border_1().border_color(theme.colors.border).bg(theme.colors.surface)
+    }
+
+    #[must_use]
+    fn elevated(self, theme: UiTheme) -> Self {
+        self.rounded(rem(tokens::RADIUS_CARD))
             .border_1()
-            .border_color(theme.colors.border)
+            .border_color(theme.colors.border_subtle)
+            .bg(theme.colors.elevated)
+    }
+
+    #[must_use]
+    fn floating(self, theme: UiTheme) -> Self {
+        self.rounded(rem(tokens::RADIUS_FLOATING))
+            .border_1()
+            .border_color(theme.colors.border_subtle)
             .bg(theme.colors.surface)
+            .shadow_xl()
+    }
+
+    #[must_use]
+    fn capsule(self, theme: UiTheme) -> Self {
+        self.rounded_full().border_1().border_color(theme.colors.border_subtle).bg(theme.colors.surface).shadow_sm()
     }
 }
 
@@ -750,7 +769,7 @@ impl RenderOnce for ListRow {
                 .flex()
                 .items_center()
                 .gap_2()
-                .rounded(rem(tokens::RADIUS_CONTROL))
+                .rounded(rem(tokens::RADIUS_ROW))
                 .typography(Typography::Body),
             style,
             hover,
@@ -939,13 +958,9 @@ impl RenderOnce for Modal {
                 .max_h_full()
                 .min_h_0()
                 .p_4()
-                .rounded(rem(tokens::RADIUS_CONTAINER))
                 .flex()
                 .flex_col()
-                .border_1()
-                .border_color(colors.border)
-                .bg(colors.surface)
-                .shadow_lg()
+                .floating(self.theme)
                 .typography(Typography::Body)
                 .child(
                     div()
@@ -1048,7 +1063,7 @@ impl RenderOnce for Notification {
         div()
             .w_full()
             .p_3()
-            .rounded(rem(tokens::RADIUS_CONTAINER))
+            .rounded(rem(tokens::RADIUS_CARD))
             .border_1()
             .border_color(style.foreground)
             .bg(self.theme.colors.surface)
