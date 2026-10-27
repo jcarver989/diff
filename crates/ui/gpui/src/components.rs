@@ -207,7 +207,9 @@ pub struct IconButton {
     id: ElementId,
     icon: IconName,
     label: SharedString,
+    icon_size: f32,
     selected: bool,
+    disabled: bool,
     keyboard_focusable: bool,
     theme: UiTheme,
     on_click: Option<ClickHandler>,
@@ -220,7 +222,9 @@ impl IconButton {
             id: id.into(),
             icon,
             label: label.into(),
+            icon_size: tokens::ICON_SIZE,
             selected: false,
+            disabled: false,
             keyboard_focusable: false,
             theme,
             on_click: None,
@@ -228,8 +232,20 @@ impl IconButton {
     }
 
     #[must_use]
+    pub const fn icon_size(mut self, size: f32) -> Self {
+        self.icon_size = size;
+        self
+    }
+
+    #[must_use]
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    #[must_use]
+    pub const fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 
@@ -264,6 +280,8 @@ impl RenderOnce for IconButton {
         let label = self.label.clone();
         let theme = self.theme;
         let color = if self.selected { colors.text } else { colors.text_muted };
+        let enabled = !self.disabled;
+        let icon = Icon::new(self.icon, color).size(self.icon_size);
         div()
             .id(self.id)
             .group(group.clone())
@@ -276,20 +294,152 @@ impl RenderOnce for IconButton {
             .items_center()
             .justify_center()
             .rounded_full()
-            .cursor_pointer()
             .when(self.selected, |button| button.bg(colors.surface_selected))
-            .hover(move |button| button.bg(colors.surface_hover))
-            .when(self.keyboard_focusable, |button| {
+            .when(!enabled, |button| button.opacity(0.4))
+            .when(enabled, |button| {
+                button
+                    .cursor_pointer()
+                    .hover(move |button| button.bg(colors.surface_hover))
+                    .tooltip(Tooltip::text(label, theme))
+            })
+            .when(self.keyboard_focusable && enabled, |button| {
                 button.focusable().tab_stop(true).focus_visible(move |style| style.bg(colors.surface_selected))
             })
-            .tooltip(Tooltip::text(label, theme))
-            .when_some(self.on_click, |button, handler| {
+            .when_some(self.on_click.filter(|_| enabled), |button, handler| {
                 button.on_click(move |event, window, cx| {
                     cx.stop_propagation();
                     handler(event, window, cx);
                 })
             })
-            .child(Icon::new(self.icon, color).group_hover(group, colors.text))
+            .child(if enabled { icon.group_hover(group, colors.text) } else { icon })
+    }
+}
+
+pub struct Segment {
+    id: ElementId,
+    label: SharedString,
+    icon: Option<IconName>,
+    selected: bool,
+    disabled: bool,
+    on_click: Option<ClickHandler>,
+}
+
+impl Segment {
+    #[must_use]
+    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
+        Self { id: id.into(), label: label.into(), icon: None, selected: false, disabled: false, on_click: None }
+    }
+
+    #[must_use]
+    pub fn icon(id: impl Into<ElementId>, icon: IconName, label: impl Into<SharedString>) -> Self {
+        Self { icon: Some(icon), ..Self::new(id, label) }
+    }
+
+    #[must_use]
+    pub const fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    #[must_use]
+    pub const fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    #[must_use]
+    pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_click = Some(Box::new(handler));
+        self
+    }
+}
+
+#[derive(IntoElement)]
+pub struct SegmentedControl {
+    id: SharedString,
+    theme: UiTheme,
+    segments: Vec<Segment>,
+    embedded: bool,
+}
+
+impl SegmentedControl {
+    #[must_use]
+    pub fn new(id: impl Into<SharedString>, theme: UiTheme) -> Self {
+        Self { id: id.into(), theme, segments: Vec::new(), embedded: false }
+    }
+
+    #[must_use]
+    pub const fn embedded(mut self) -> Self {
+        self.embedded = true;
+        self
+    }
+
+    #[must_use]
+    pub fn segments(mut self, segments: impl IntoIterator<Item = Segment>) -> Self {
+        self.segments.extend(segments);
+        self
+    }
+}
+
+impl RenderOnce for SegmentedControl {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let theme = self.theme;
+        let colors = theme.colors;
+        let selector = self.id.to_string();
+        div()
+            .id(self.id)
+            .debug_selector(move || selector)
+            .role(Role::Group)
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_0p5()
+            .map(|control| {
+                if self.embedded {
+                    control.h_full().py_0p5()
+                } else {
+                    control.h(rem(tokens::ROW_HEIGHT)).p_0p5().capsule(theme)
+                }
+            })
+            .typography(Typography::Small)
+            .children(self.segments.into_iter().map(|segment| {
+                let selector = segment.id.to_string();
+                let group: SharedString = format!("{selector}-hover").into();
+                let enabled = !segment.disabled;
+                let foreground = if segment.selected { colors.text } else { colors.text_muted };
+                let padding = if segment.icon.is_some() {
+                    tokens::CONTROL_PADDING_X_SMALL
+                } else {
+                    tokens::CONTROL_PADDING_X_MEDIUM
+                };
+                div()
+                    .id(segment.id)
+                    .group(group.clone())
+                    .debug_selector(move || selector)
+                    .role(Role::Button)
+                    .aria_label(segment.label.clone())
+                    .aria_selected(segment.selected)
+                    .h_full()
+                    .px(rem(padding))
+                    .flex()
+                    .items_center()
+                    .rounded_full()
+                    .text_color(foreground)
+                    .when(segment.selected, |segment| segment.bg(colors.surface_selected).shadow_xs())
+                    .when(!enabled, |segment| segment.opacity(0.4))
+                    .when(enabled && !segment.selected, |segment| {
+                        segment.cursor_pointer().hover(move |segment| segment.text_color(colors.text))
+                    })
+                    .when_some(segment.on_click.filter(|_| enabled), |element, handler| element.on_click(handler))
+                    .map(|element| match segment.icon {
+                        Some(icon) => element.tooltip(Tooltip::text(segment.label, theme)).child(if enabled {
+                            Icon::new(icon, foreground).group_hover(group, colors.text)
+                        } else {
+                            Icon::new(icon, foreground)
+                        }),
+                        None => element.child(segment.label),
+                    })
+            }))
     }
 }
 

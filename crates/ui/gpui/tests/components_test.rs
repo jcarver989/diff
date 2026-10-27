@@ -1,11 +1,17 @@
 use clankerdiff_gpui_ui::{
-    prelude::{Badge, Button, IconButton, IconName, ListRow, Modal, NoticeTone, SectionHeader, UiTheme},
+    prelude::{
+        Badge, Button, IconButton, IconName, ListRow, Modal, NoticeTone, SectionHeader, Segment, SegmentedControl,
+        UiTheme,
+    },
     testing::ComponentHarnessBuilder,
     tokens::TREE_INDENT,
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{AnyElement, IntoElement, ParentElement, TestAppContext, div, prelude::*, px};
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 #[gpui::test]
 fn a_full_width_button_spans_its_container(cx: &mut TestAppContext) {
@@ -162,6 +168,34 @@ fn a_section_header_can_keep_its_actions_visible_without_hover(cx: &mut TestAppC
             assert_eq!(harness.bounds(cx, "cloud-add"), Some(action));
             harness.click(cx, "cloud-add")?;
             assert_eq!((toggles.get(), actions.get()), (0, 2));
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn a_segmented_control_reports_enabled_choices_only(cx: &mut TestAppContext) {
+    let chosen = Rc::new(RefCell::new(Vec::new()));
+    let recorded = chosen.clone();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            SegmentedControl::new("scope", theme())
+                .segments([("left", false, false), ("middle", true, false), ("right", false, true)].map(
+                    |(id, selected, disabled)| {
+                        let chosen = recorded.clone();
+                        Segment::new(id, id)
+                            .selected(selected)
+                            .disabled(disabled)
+                            .on_click(move |_, _, _| chosen.borrow_mut().push(id))
+                    },
+                ))
+                .into_any_element()
+        },
+        |harness, cx| {
+            harness.click(cx, "left")?;
+            harness.click(cx, "right")?;
+            assert_eq!(*chosen.borrow(), vec!["left"]);
             Ok(())
         },
     );
