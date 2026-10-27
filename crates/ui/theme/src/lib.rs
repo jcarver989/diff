@@ -180,16 +180,20 @@ impl DiffPalette {
 pub const SCRIM_ALPHA: u8 = 184;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(from = "UiPaletteDocument")]
 pub struct UiPalette {
     pub canvas: Rgba,
     pub surface: Rgba,
     pub surface_hover: Rgba,
     pub surface_selected: Rgba,
+    pub chrome: Rgba,
+    pub elevated: Rgba,
+    pub input: Rgba,
     pub text: Rgba,
     pub text_secondary: Rgba,
     pub text_muted: Rgba,
     pub border: Rgba,
+    pub border_subtle: Rgba,
     pub accent: Rgba,
     pub accent_foreground: Rgba,
     pub info: Rgba,
@@ -198,6 +202,58 @@ pub struct UiPalette {
     pub destructive: Rgba,
     pub destructive_foreground: Rgba,
     pub scrim: Rgba,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UiPaletteDocument {
+    canvas: Rgba,
+    surface: Rgba,
+    surface_hover: Rgba,
+    surface_selected: Rgba,
+    chrome: Option<Rgba>,
+    elevated: Option<Rgba>,
+    input: Option<Rgba>,
+    text: Rgba,
+    text_secondary: Rgba,
+    text_muted: Rgba,
+    border: Rgba,
+    border_subtle: Option<Rgba>,
+    accent: Rgba,
+    accent_foreground: Rgba,
+    info: Rgba,
+    positive: Rgba,
+    warning: Rgba,
+    destructive: Rgba,
+    destructive_foreground: Rgba,
+    scrim: Rgba,
+}
+
+impl From<UiPaletteDocument> for UiPalette {
+    fn from(document: UiPaletteDocument) -> Self {
+        Self {
+            chrome: document.chrome.unwrap_or(document.surface),
+            elevated: document.elevated.unwrap_or(document.surface_hover),
+            input: document.input.unwrap_or(document.canvas),
+            border_subtle: document.border_subtle.unwrap_or_else(|| document.border.mix(document.canvas, 128)),
+            canvas: document.canvas,
+            surface: document.surface,
+            surface_hover: document.surface_hover,
+            surface_selected: document.surface_selected,
+            text: document.text,
+            text_secondary: document.text_secondary,
+            text_muted: document.text_muted,
+            border: document.border,
+            accent: document.accent,
+            accent_foreground: document.accent_foreground,
+            info: document.info,
+            positive: document.positive,
+            warning: document.warning,
+            destructive: document.destructive,
+            destructive_foreground: document.destructive_foreground,
+            scrim: document.scrim,
+        }
+    }
 }
 
 /// Semantic intent shared by renderer-native action controls.
@@ -348,16 +404,20 @@ impl UiPalette {
 
 impl UiPalette {
     #[must_use]
-    pub const fn colors(&self) -> [Rgba; 16] {
+    pub const fn colors(&self) -> [Rgba; 20] {
         [
             self.canvas,
             self.surface,
             self.surface_hover,
             self.surface_selected,
+            self.chrome,
+            self.elevated,
+            self.input,
             self.text,
             self.text_secondary,
             self.text_muted,
             self.border,
+            self.border_subtle,
             self.accent,
             self.accent_foreground,
             self.info,
