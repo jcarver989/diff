@@ -1,11 +1,13 @@
 use crate::style::{color, highlight_style};
+use crate::ui::icon::{Icon, IconName};
+use crate::ui::tokens::{ICON_SIZE_SMALL, RADIUS_CARD, rem};
 use clankerdiff_core::{
     DiffDocument, DiffError, DiffPresentation, DiffTone, Fingerprint, PresentationOptions, RowKind, ViewMode,
     parse_detached_git_diff,
 };
 use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
-use gpui::{AnyElement, StyledText, div, prelude::*};
+use gpui::{AnyElement, Div, FontWeight, StyledText, div, prelude::*, px};
 use std::{collections::VecDeque, sync::Arc};
 
 const MAX_CACHED_PATCHES: usize = 32;
@@ -66,7 +68,8 @@ fn render_preview(
     highlighter: &mut SyntaxHighlighter,
 ) -> AnyElement {
     let palette = &theme.diff;
-    let mut view = div().flex().flex_col().min_w_0();
+    let mut view = div().flex().flex_col().gap_2().min_w_0();
+    let mut card: Option<Div> = None;
     for row in presentation.rows(0..presentation.row_count()) {
         if row.kind == RowKind::ExpandGap {
             continue;
@@ -74,9 +77,14 @@ fn render_preview(
         let Some(cell) = row.primary_cell() else {
             continue;
         };
+        if row.kind == RowKind::FileHeader {
+            view = view.children(card.take());
+            card = Some(file_card(theme).child(file_header(&cell.text, theme)));
+            continue;
+        }
+        let rows = card.take().unwrap_or_else(|| file_card(theme));
         if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
-            let foreground = if row.kind == RowKind::FileHeader { palette.foreground } else { palette.muted };
-            view = view.child(div().px_1().text_color(color(foreground)).child(cell.text.to_string()));
+            card = Some(rows.child(div().px_2().text_color(color(palette.muted)).child(cell.text.to_string())));
             continue;
         }
         let source = presentation.cell_context(row, cell);
@@ -99,23 +107,63 @@ fn render_preview(
             _ => " ",
         };
         let tone = palette.tone(cell.tone);
+        let changed = matches!(cell.tone, DiffTone::Added | DiffTone::Removed);
         let text = if cell.text.is_empty() { " ".to_owned() } else { cell.text.to_string() };
-        view = view.child(
-            div()
-                .flex()
-                .items_start()
-                .min_w_0()
-                .px_1()
-                .bg(color(tone.background))
-                .child(div().flex_none().text_color(color(tone.foreground)).child(indicator))
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex_1()
-                        .text_color(color(palette.foreground))
-                        .child(StyledText::new(text).with_highlights(highlights)),
-                ),
+        card = Some(
+            rows.child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap_1()
+                    .min_w_0()
+                    .px_2()
+                    .border_l(px(CHANGE_BAR_WIDTH))
+                    .border_color(if changed { color(tone.foreground) } else { gpui::transparent_black() })
+                    .bg(color(tone.background))
+                    .child(div().flex_none().text_color(color(tone.foreground)).child(indicator))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .text_color(color(palette.foreground))
+                            .child(StyledText::new(text).with_highlights(highlights)),
+                    ),
+            ),
         );
     }
-    view.into_any_element()
+    view.children(card).into_any_element()
+}
+
+const CHANGE_BAR_WIDTH: f32 = 2.0;
+
+fn file_card(theme: &ReviewTheme) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .min_w_0()
+        .overflow_hidden()
+        .rounded(rem(RADIUS_CARD))
+        .border_1()
+        .border_color(color(theme.ui.border_subtle))
+        .bg(color(theme.diff.background))
+}
+
+fn file_header(path: &str, theme: &ReviewTheme) -> Div {
+    let (directory, name) = match path.rsplit_once('/') {
+        Some((directory, name)) if !path.contains('→') => (Some(directory.to_owned()), name.to_owned()),
+        _ => (None, path.to_owned()),
+    };
+    let muted = color(theme.diff.muted);
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .min_w_0()
+        .px_3()
+        .py_2()
+        .border_b_1()
+        .border_color(color(theme.ui.border_subtle))
+        .child(Icon::new(IconName::File, muted).size(ICON_SIZE_SMALL))
+        .child(div().flex_none().font_weight(FontWeight::MEDIUM).text_color(color(theme.diff.foreground)).child(name))
+        .children(directory.map(|directory| div().min_w_0().truncate().text_color(muted).child(directory)))
 }
