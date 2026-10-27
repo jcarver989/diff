@@ -563,13 +563,13 @@ fn viewer_builder() -> DiffViewerHarnessBuilder {
 #[gpui::test]
 fn hiding_the_file_tree_gives_its_room_to_the_diff(cx: &mut TestAppContext) {
     DiffViewerHarnessBuilder::default().with_window_size(1_000.0, 700.0).run(cx, |harness, cx| {
-        let expanded = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing toggle in the file tree")?;
+        let expanded = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing toggle with the tree open")?;
         harness.click(cx, "diff-sidebar-toggle")?;
         assert!(harness.bounds(cx, "diff-sidebar").is_none());
         assert!(harness.read(cx, |viewer, _| viewer.sidebar_collapsed()));
         let pane = harness.bounds(cx, "diff-pane").ok_or("missing diff pane")?;
         assert_eq!(pane.size.width, px(1_000.0));
-        let collapsed = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing toggle in the diff toolbar")?;
+        let collapsed = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing toggle with the tree hidden")?;
         assert_eq!(collapsed.origin.x, expanded.origin.x);
         harness.click(cx, "diff-sidebar-toggle")?;
         assert!(harness.bounds(cx, "diff-sidebar").is_some());

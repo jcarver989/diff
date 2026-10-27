@@ -12,6 +12,7 @@ use std::sync::Arc;
 pub enum DiffClientEvent {
     Command(DiffReviewEvent),
     Submit(ReviewSubmission),
+    ReviewChanged { comments: usize },
     Cancel,
 }
 
@@ -21,6 +22,7 @@ pub struct DiffClientView {
     state: Option<ClientState>,
     installed: Option<Arc<DiffDocument>>,
     viewer: Option<Entity<DiffViewer>>,
+    comments: usize,
     pending: bool,
     subscriptions: Vec<Subscription>,
 }
@@ -33,7 +35,16 @@ impl DiffClientView {
 
     #[must_use]
     pub const fn with_options(theme: ReviewTheme, options: DiffViewerOptions) -> Self {
-        Self { theme, options, state: None, installed: None, viewer: None, pending: false, subscriptions: Vec::new() }
+        Self {
+            theme,
+            options,
+            state: None,
+            installed: None,
+            viewer: None,
+            comments: 0,
+            pending: false,
+            subscriptions: Vec::new(),
+        }
     }
 
     #[must_use]
@@ -104,6 +115,13 @@ impl DiffClientView {
             }),
             cx.subscribe(&viewer, |_, _, event: &ViewModeChanged, cx| {
                 cx.emit(*event);
+            }),
+            cx.observe(&viewer, |this, viewer, cx| {
+                let comments = viewer.read(cx).review().len();
+                if comments != this.comments {
+                    this.comments = comments;
+                    cx.emit(DiffClientEvent::ReviewChanged { comments });
+                }
             }),
         ]);
         self.viewer = Some(viewer);

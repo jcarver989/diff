@@ -359,7 +359,9 @@ impl MarkdownReviewer {
                 InteractionPhase::ThemePicker => "themes",
                 InteractionPhase::Help => "help",
                 InteractionPhase::Draft => "draft",
-                InteractionPhase::Browse | InteractionPhase::RepositoryPrompt => "browse",
+                InteractionPhase::Browse | InteractionPhase::CommitPicker | InteractionPhase::RepositoryPrompt => {
+                    "browse"
+                }
             },
         );
         key_context

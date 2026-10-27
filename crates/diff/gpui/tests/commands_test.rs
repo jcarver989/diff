@@ -379,6 +379,22 @@ fn a_viewer_without_themes_offers_no_theme_picker(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_viewer_without_a_review_bar_still_submits_from_the_keyboard(cx: &mut TestAppContext) {
+    let harness = DiffViewerHarnessBuilder {
+        options: DiffViewerOptions { review_bar: false, ..DiffViewerOptions::default() },
+        ..DiffViewerHarnessBuilder::default()
+    }
+    .with_comments(["rename this"])
+    .build(cx);
+    assert!(harness.bounds(cx, "submit-review").is_none(), "the host offers the review's actions");
+    assert!(harness.bounds(cx, "cancel-review").is_none());
+
+    harness.simulate_keystrokes(cx, "s");
+
+    assert!(matches!(harness.events(cx).last(), Some(DiffReviewEvent::SubmitReview(_))));
+}
+
+#[gpui::test]
 fn clicking_outside_the_theme_picker_cancels_its_preview(cx: &mut TestAppContext) {
     let harness = DiffViewerHarnessBuilder::default().build(cx);
     let original = harness.read(cx, |viewer, _| viewer.theme().id().clone());

@@ -5,6 +5,7 @@ mod commands;
 use crate::{
     DiffViewerEvent, ThemeChanged, ViewModeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
+    commits::CommitPickerOverlay,
     style::color,
     ui::{
         prelude::{
@@ -87,6 +88,9 @@ actions!(
         CycleScope,
         NextCommit,
         PreviousCommit,
+        FirstCommit,
+        LastCommit,
+        ShowCommitPicker,
         CommitChanges,
         DiscardChanges,
         ConfirmDiscard,
@@ -105,6 +109,7 @@ pub struct DiffViewerOptions {
     /// Maximum number of syntax-highlight cache entries.
     pub highlight_cache_capacity: usize,
     pub themes: bool,
+    pub review_bar: bool,
     pub view_mode: ViewMode,
 }
 
@@ -115,6 +120,7 @@ impl Default for DiffViewerOptions {
             auto_split_width: rem(900.0),
             highlight_cache_capacity: 512,
             themes: true,
+            review_bar: true,
             view_mode: ViewMode::Auto,
         }
     }
@@ -151,6 +157,7 @@ pub struct DiffViewer {
     session: ReviewSession,
     capabilities: ReviewCapabilities,
     theme_picker: Option<ThemePickerOverlay>,
+    pub(crate) commit_picker: Option<CommitPickerOverlay>,
     theme: ReviewTheme,
     highlighter: SyntaxHighlighter,
     pub(crate) options: DiffViewerOptions,
@@ -203,6 +210,7 @@ impl DiffViewer {
             session,
             capabilities: ReviewCapabilities::default(),
             theme_picker: None,
+            commit_picker: None,
             theme,
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
@@ -289,6 +297,9 @@ impl DiffViewer {
             KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
             KeyBinding::new("]", NextCommit, Some(BROWSE)),
             KeyBinding::new("[", PreviousCommit, Some(BROWSE)),
+            KeyBinding::new("shift-[", FirstCommit, Some(BROWSE)),
+            KeyBinding::new("shift-]", LastCommit, Some(BROWSE)),
+            KeyBinding::new("p", ShowCommitPicker, Some(BROWSE)),
             KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
             KeyBinding::new("escape", HideShortcuts, Some(SHORTCUTS)),
             KeyBinding::new("shift-/", HideShortcuts, Some(SHORTCUTS)),
@@ -433,6 +444,9 @@ impl DiffViewer {
     }
 
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
+        if self.session.commits() != document.commits.as_ref() {
+            self.commit_picker = None;
+        }
         self.sidebar_tree.rebuild(&document);
         self.change_layout(|session| {
             session.set_document(document);
@@ -1245,6 +1259,18 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::StepTarget(-1), window, cx);
     }
 
+    fn first_commit(&mut self, _: &FirstCommit, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::GoToPage(0), window, cx);
+    }
+
+    fn last_commit(&mut self, _: &LastCommit, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::GoToPage(usize::MAX), window, cx);
+    }
+
+    fn show_commit_picker(&mut self, _: &ShowCommitPicker, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::OpenCommitPicker, window, cx);
+    }
+
     fn toggle_layout(&mut self, _: &ToggleLayout, window: &mut Window, cx: &mut Context<Self>) {
         self.handle_command(DiffReviewCommand::ToggleLayout, window, cx);
     }
@@ -1378,6 +1404,8 @@ impl Render for DiffViewer {
         }
         let mode = if self.theme_picker.is_some() {
             "themes"
+        } else if self.commit_picker.is_some() {
+            "commits"
         } else if self.shortcuts_open {
             "shortcuts"
         } else if matches!(self.repository_prompt, Some(RepositoryPrompt::Discard { .. })) {
@@ -1427,6 +1455,9 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::cycle_scope))
             .on_action(cx.listener(Self::next_commit))
             .on_action(cx.listener(Self::previous_commit))
+            .on_action(cx.listener(Self::first_commit))
+            .on_action(cx.listener(Self::last_commit))
+            .on_action(cx.listener(Self::show_commit_picker))
             .on_action(cx.listener(Self::toggle_layout))
             .on_action(cx.listener(Self::use_auto_layout))
             .on_action(cx.listener(Self::expand_gap_action))
@@ -1464,9 +1495,10 @@ impl Render for DiffViewer {
             .text_color(color(palette.foreground))
             .font_family(UI_FONT)
             .typography(Typography::Body)
+            .child(self.render_toolbar(window, cx))
             .map(|viewer| {
                 if self.document().files.is_empty() {
-                    return viewer.child(self.render_clean(cx));
+                    return viewer.child(self.render_clean());
                 }
                 viewer
                     .child(
@@ -1477,10 +1509,11 @@ impl Render for DiffViewer {
                             .overflow_hidden()
                             .flex()
                             .children((!self.sidebar.collapsed).then(|| self.render_sidebar(cx)))
-                            .child(self.render_diff(window, cx)),
+                            .child(self.render_diff(cx)),
                     )
-                    .child(self.render_review_bar(cx))
+                    .when(self.options.review_bar, |viewer| viewer.child(self.render_review_bar(cx)))
             })
+            .children(self.render_commit_picker(cx))
             .when(self.shortcuts_open, |viewer| viewer.child(self.render_shortcuts()))
             .when_some(self.theme_picker.as_ref(), |viewer, picker| viewer.child(picker.render(self.ui_theme())))
             .when(self.repository_prompt.is_some(), |viewer| viewer.child(self.render_repository_prompt()))

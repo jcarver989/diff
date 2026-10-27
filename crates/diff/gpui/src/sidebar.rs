@@ -5,7 +5,7 @@ use crate::{
         prelude::{
             CODE_FONT, IconButton, IconName, PanelSide, ResizablePanel, TreeRow, Typography, TypographyExt, rem,
         },
-        tokens::{BAR_HEIGHT, CHECKBOX_SIZE},
+        tokens::CHECKBOX_SIZE,
     },
     viewer::{MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH},
 };
@@ -136,28 +136,6 @@ impl DiffViewer {
             })
             .bg(colors.surface)
             .when(self.pane == ViewerPane::Files, |panel| panel.border_color(colors.accent))
-            .child(
-                div()
-                    .h(rem(BAR_HEIGHT))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .border_b_1()
-                    .border_color(colors.border)
-                    .child(self.render_sidebar_toggle(cx))
-                    .child(div().typography(Typography::Label).text_color(colors.text_secondary).child("Changed files"))
-                    .child(
-                        div()
-                            .px_1p5()
-                            .rounded_full()
-                            .bg(colors.surface_selected)
-                            .typography(Typography::Caption)
-                            .text_color(colors.text_muted)
-                            .child(self.document().files.len().to_string()),
-                    ),
-            )
             .child(rows)
     }
 

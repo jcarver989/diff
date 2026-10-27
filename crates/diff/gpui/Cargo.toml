@@ -23,9 +23,14 @@ clankerdiff-syntax.workspace = true
 clankerdiff-theme.workspace = true
 gpui.workspace = true
 gpui-base.workspace = true
+web-time.workspace = true
 
 [[test]]
 name = "keyboard"
+required-features = ["test-support"]
+
+[[test]]
+name = "client_view_test"
 required-features = ["test-support"]
 
 [[test]]
