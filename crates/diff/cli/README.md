@@ -100,6 +100,8 @@ comments and addresses them. Press `y` to copy the feedback instead.
 | `p` | Pick a commit from a list |
 | `c` | Comment on the selected line |
 | `e` / `x` | Edit / delete a comment |
+| `D` | Show the definition of a name on the selected line (`Enter` jumps to it) |
+| `Ctrl-O` / `Ctrl-P` | Back / forward after a jump (`Ctrl-I` forward in the desktop app) |
 | `s` / `y` | Submit / copy feedback (in the diff pane) |
 | `t` | Change theme |
 | `?` | Show all shortcuts |

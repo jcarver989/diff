@@ -197,6 +197,7 @@ impl DiffViewer {
                 cx.emit(DiffViewerEvent::RepositoryAction(action));
                 return true;
             }
+            C::ShowDefinition => return self.show_definition_at_selection(cx),
             command @ (C::JumpTo(_) | C::NavigateBack | C::NavigateForward) => return self.navigate(command, cx),
             command @ (C::SetScope(_) | C::CycleScope | C::StepTarget(_) | C::GoToPage(_)) => {
                 let closed = self.commit_picker.take().is_some();

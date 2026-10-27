@@ -138,6 +138,7 @@ pub enum DiffReviewCommand {
     BeginCommit,
     BeginDiscard,
     RepositoryAction(RepositoryAction),
+    ShowDefinition,
     JumpTo(SourceLocation),
     NavigateBack,
     NavigateForward,

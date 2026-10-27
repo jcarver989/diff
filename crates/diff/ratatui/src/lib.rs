@@ -9,6 +9,7 @@ mod commands;
 mod commit_picker;
 #[cfg(feature = "crossterm-backend")]
 mod crossterm_adapter;
+mod definition_card;
 pub mod diff;
 mod diff_commands;
 mod diff_preview;

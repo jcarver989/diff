@@ -5,6 +5,7 @@ use crate::{
     annotation::render_annotation_line,
     color::page_color,
     commit_picker::render_commit_picker,
+    definition_card::hints_footer,
     patch_layout::{PatchContentLayout, PatchVisualRow},
     state::{HitLayout, RepositoryPrompt},
     style::{diff_indicator, file_status_color, syntax_style},
@@ -17,6 +18,7 @@ use clankerdiff_core::{
     DiffScope, DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PageLabel, PresentedCell, PresentedRow, RowKind,
     ViewMode,
 };
+use clankerdiff_symbols::Lookup;
 use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
 use ratatui::{
@@ -86,6 +88,7 @@ impl StatefulWidget for DiffReviewWidget {
         let footer = regions.footer;
         render_body(body, buffer, state, &theme);
         render_footer(footer, buffer, state, &theme);
+        state.render_definition_card(buffer, &theme);
         if state.help {
             render_help(area, buffer, state, &theme);
         }
@@ -642,6 +645,8 @@ fn render_footer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, t
     );
     let hint = if matches!(state.repository_status, RepositoryOperationStatus::Pending) {
         "Git operation in progress…".to_owned()
+    } else if let Some(Lookup::Hints(hints)) = &state.lookup {
+        hints_footer(hints)
     } else if state.session.draft().is_some() {
         "[Enter] save  [Shift-Enter] newline  [Esc] cancel".to_owned()
     } else {

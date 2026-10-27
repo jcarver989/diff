@@ -36,10 +36,8 @@ impl DiffViewer {
         self.presentation().row_showing_source(&self.name_hints.as_ref()?.origin)
     }
 
-    pub(crate) fn pick_name(&mut self, _: &PickName, _: &mut Window, cx: &mut Context<Self>) {
-        self.clear_name_hints(cx);
-        self.close_card(cx);
-        self.show_definition_at_selection(cx);
+    pub(crate) fn pick_name(&mut self, _: &PickName, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(DiffReviewCommand::ShowDefinition, window, cx);
     }
 
     pub(crate) fn show_definition_at_selection(&mut self, cx: &mut Context<Self>) -> bool {

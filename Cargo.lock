@@ -2030,6 +2030,7 @@ dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
  "clankerdiff-markdown",
+ "clankerdiff-symbols",
  "clankerdiff-syntax",
  "clankerdiff-theme",
  "criterion",
