@@ -19,6 +19,7 @@ clankerdiff-client.workspace = true
 clankerdiff-core.workspace = true
 clankerdiff-gpui-ui.workspace = true
 clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-symbols.workspace = true
 clankerdiff-syntax.workspace = true
 clankerdiff-theme.workspace = true
 gpui.workspace = true
@@ -53,3 +54,11 @@ required-features = ["test-support"]
 clankerdiff-core = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 gpui_platform.workspace = true
+
+[[test]]
+name = "navigation_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "definition_card_test"
+required-features = ["test-support"]

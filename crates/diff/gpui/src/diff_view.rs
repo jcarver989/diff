@@ -3,6 +3,7 @@ use crate::{
     annotation::add_comment_button,
     comment_editor::CommentEditor,
     comments::{CommentCard, CommentComposer, CommentCount, CommentThread, comment_dismiss_button},
+    navigation::line_key,
     style::{self, stat_badges},
     ui::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
@@ -21,6 +22,7 @@ use gpui::{
     Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString, Stateful, StyledText,
     Window, div, list, prelude::*, px,
 };
+use std::ops::Range;
 
 const CHANGE_INDICATOR_WIDTH: f32 = 4.0;
 const GUTTER_WIDTH: f32 = 52.0;
@@ -246,11 +248,15 @@ impl DiffViewer {
     }
 
     fn render_file_divider(
-        &self,
+        &mut self,
         file_index: usize,
         placement: FileDividerPlacement,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        let symbol_path = match placement {
+            FileDividerPlacement::Sticky => self.render_symbol_path(file_index, cx),
+            FileDividerPlacement::Inline => None,
+        };
         let palette = &self.theme().diff;
         let surface = self.theme().ui.surface;
         let file = &self.document().files[file_index];
@@ -304,6 +310,7 @@ impl DiffViewer {
                             .text_color(style::color(palette.foreground))
                             .child(file.path.file_name().to_owned()),
                     )
+                    .children(symbol_path)
                     .child(
                         div()
                             .min_w_0()
@@ -512,6 +519,9 @@ impl DiffViewer {
                 element = element.child(self.render_comment_dialog(index, row, side, editor, cx));
             }
         }
+        if self.name_hint_row() == Some(index) {
+            element = element.children(self.render_name_hints());
+        }
         element.into_any_element()
     }
 
@@ -538,10 +548,16 @@ impl DiffViewer {
 
         let text: SharedString = cell.text.to_string().into();
         let highlights = self.highlight_cell(row, cell);
-        let styled = StyledText::new(text).with_highlights(highlights.iter().map(|span| {
-            let style: HighlightStyle = style::highlight_style(span.foreground, span.font_style);
-            (span.range.clone(), style)
-        }));
+        let highlights: Vec<(Range<usize>, HighlightStyle)> = highlights
+            .iter()
+            .map(|span| (span.range.clone(), style::highlight_style(span.foreground, span.font_style)))
+            .collect();
+        let location = self.presentation().source_location(row, cell);
+        let text_selector = location.as_ref().map(|location| format!("code:{}", line_key(location)));
+        let styled = match location {
+            Some(location) => self.render_line_text(location, text, highlights, cx),
+            None => StyledText::new(text).with_highlights(highlights).into_any_element(),
+        };
         let tone = cell.tone;
         let tone_background = palette.tone(tone).background;
         let commentable = cell.patch_source.is_some();
@@ -585,7 +601,15 @@ impl DiffViewer {
                     .when_some(indicator_color, |indicator, color| indicator.bg(style::color(color))),
             )
             .child(self.render_comment_gutter(index, side, cell, commentable, hover_group, cx))
-            .child(div().min_w_0().flex_1().overflow_hidden().whitespace_normal().child(styled))
+            .child(
+                div()
+                    .when_some(text_selector, |text, selector| text.debug_selector(move || selector))
+                    .min_w_0()
+                    .flex_1()
+                    .overflow_hidden()
+                    .whitespace_normal()
+                    .child(styled),
+            )
             .when(comments != 0, |value| value.child(CommentCount::new(comments, &self.ui_theme())))
             .into_any_element()
     }
