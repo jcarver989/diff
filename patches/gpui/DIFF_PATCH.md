@@ -10,7 +10,7 @@ Only `src/elements/list.rs` changes runtime behavior. SVG test font paths use th
 bundled `test-assets`, and example/test targets are omitted from the vendored
 manifest. All other source matches the published snapshot.
 
-The three scrolling changes below remain absent from this snapshot. When upgrading,
+The four scrolling changes below remain absent from this snapshot. When upgrading,
 compare against the published package and run both regression tests before
 removing or carrying them forward.
 
@@ -36,10 +36,16 @@ notch, to a fixed 20px. The patch adds `ListState::set_wheel_line_height` so Dif
 can scroll by its own code rows, which scale with the interface size. The default
 stays 20px, and pixel-based input such as a trackpad is unchanged.
 
+Upstream measures the scrollbar's range without the list's padding, while drags
+clamp against the padded range, so dragging a padded list's thumb to the bottom
+never reaches the end and never resumes following its tail. The patch adds the
+padding to `max_offset_for_scrollbar`.
+
 The regression tests
 `test_uniform_height_hint_survives_width_invalidation`,
-`test_scrollbar_drag_release_preserves_fraction_after_height_growth` and
-`test_wheel_line_height_scales_line_scrolling_only` cover these behaviors.
+`test_scrollbar_drag_release_preserves_fraction_after_height_growth`,
+`test_wheel_line_height_scales_line_scrolling_only` and
+`test_scrollbar_range_includes_list_padding` cover these behaviors.
 
 Run the regressions independently of the workspace with:
 
@@ -53,6 +59,9 @@ cargo test --manifest-path patches/gpui/Cargo.toml \
 cargo test --manifest-path patches/gpui/Cargo.toml \
   --config "patch.crates-io.gpui-pre.path=\"$PWD/patches/gpui\"" \
   --features test-support --lib test_wheel_line_height_scales_line_scrolling_only
+cargo test --manifest-path patches/gpui/Cargo.toml \
+  --config "patch.crates-io.gpui-pre.path=\"$PWD/patches/gpui\"" \
+  --features test-support --lib test_scrollbar_range_includes_list_padding
 ```
 
 ## Textarea compatibility

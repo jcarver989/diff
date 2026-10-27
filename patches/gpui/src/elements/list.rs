@@ -913,10 +913,11 @@ impl StateInner {
 
     fn max_scroll_offset(&self) -> Pixels {
         let bounds = self.last_layout_bounds.unwrap_or_default();
+        let padding = self.last_padding.unwrap_or_default();
         let height = self
             .scrollbar_drag_start_height
             .unwrap_or_else(|| self.items.summary().height);
-        (height - bounds.size.height).max(px(0.))
+        (height + padding.top + padding.bottom - bounds.size.height).max(px(0.))
     }
 
     fn visible_range(
@@ -2866,6 +2867,44 @@ mod test {
 
         assert_eq!(state.max_offset_for_scrollbar().y, px(800.));
         assert_eq!(state.scroll_px_offset_for_scrollbar().y, px(-400.));
+    }
+
+    #[gpui::test]
+    fn test_scrollbar_range_includes_list_padding(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+
+        // 10 items × 50px = 500px of rows and 40px of padding, in a 200px viewport.
+        let state = ListState::new(10, crate::ListAlignment::Bottom, px(0.))
+            .with_uniform_item_height(px(50.));
+        state.set_follow_mode(FollowMode::Tail);
+
+        struct TestView(ListState);
+        impl Render for TestView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                list(self.0.clone(), |_, _, _| div().h(px(50.)).w_full().into_any())
+                    .w_full()
+                    .h_full()
+                    .pb(px(40.))
+            }
+        }
+
+        let view = cx.update(|_, cx| cx.new(|_| TestView(state.clone())));
+        let draw = |cx: &mut crate::VisualTestContext| {
+            cx.draw(point(px(0.), px(0.)), size(px(100.), px(200.)), |_, _| {
+                view.clone().into_any_element()
+            });
+        };
+        draw(cx);
+        assert_eq!(state.max_offset_for_scrollbar().y, px(340.));
+
+        state.scrollbar_drag_started();
+        state.set_offset_from_scrollbar(point(px(0.), px(-100.)));
+        assert!(!state.is_following_tail());
+        state.set_offset_from_scrollbar(point(px(0.), -state.max_offset_for_scrollbar().y));
+        state.scrollbar_drag_ended();
+        draw(cx);
+
+        assert!(state.is_following_tail(), "dragging to the end of the padded range follows again");
     }
 
     #[gpui::test]
