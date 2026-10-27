@@ -1,7 +1,7 @@
-use super::{DiffSide, Hunk, PatchLine, RepoPath, patch_derivation::derive_patch};
+use super::{DiffSide, Hunk, PatchLine, PatchLineKind, RepoPath, patch_derivation::derive_patch};
 use crate::{DiffError, Fingerprint, RepoPathError, SourceDocument, SourceResult, SourceUnavailable};
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, ffi::OsStr, path::Path, sync::Arc};
+use std::{borrow::Cow, collections::BTreeSet, ffi::OsStr, path::Path, sync::Arc};
 
 const FILE_CONTENT_DOMAIN: &[u8] = b"diff-file-content-v1";
 
@@ -267,5 +267,22 @@ impl FileDiff {
     #[must_use]
     pub fn line(&self, hunk: usize, line: usize) -> Option<&PatchLine> {
         self.hunks.get(hunk)?.lines.get(line)
+    }
+
+    #[must_use]
+    pub fn changed_lines(&self, side: DiffSide) -> BTreeSet<usize> {
+        let kind = match side {
+            DiffSide::Old => PatchLineKind::Removed,
+            DiffSide::New => PatchLineKind::Added,
+        };
+        self.hunks
+            .iter()
+            .flat_map(|hunk| &hunk.lines)
+            .filter(|line| line.kind == kind)
+            .filter_map(|line| match side {
+                DiffSide::Old => line.old_line_no,
+                DiffSide::New => line.new_line_no,
+            })
+            .collect()
     }
 }

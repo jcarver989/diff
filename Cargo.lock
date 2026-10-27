@@ -1917,6 +1917,7 @@ dependencies = [
  "clankerdiff-core",
  "clankerdiff-gpui-ui",
  "clankerdiff-markdown",
+ "clankerdiff-symbols",
  "clankerdiff-syntax",
  "clankerdiff-theme",
  "gpui-base",
@@ -2071,6 +2072,14 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tokio-util",
+]
+
+[[package]]
+name = "clankerdiff-symbols"
+version = "0.5.0"
+dependencies = [
+ "clankerdiff-core",
+ "clankerdiff-syntax",
 ]
 
 [[package]]

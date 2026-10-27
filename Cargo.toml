@@ -76,6 +76,9 @@ tempfile = "3.21.0"
 wasm-bindgen = "0.2.120"
 web-sys = "0.3.97"
 
+[workspace.dependencies.clankerdiff-symbols]
+path = "crates/diff/symbols"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

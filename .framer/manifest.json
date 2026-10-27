@@ -50,6 +50,7 @@
         "workspace.dependencies.clankerdiff-watch.path",
         "workspace.dependencies.clankerdiff-server.path",
         "workspace.dependencies.clankerdiff-markdown.path",
+        "workspace.dependencies.clankerdiff-symbols.path",
         "workspace.dependencies.clankerdiff-gpui.path",
         "workspace.dependencies.clankerdiff-ratatui.path",
         "workspace.dependencies.clankerdiff-gpui-desktop.path"
