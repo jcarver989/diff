@@ -1,11 +1,11 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, Layout, LineAnchor, RevealAmount,
-    ReviewSession, ReviewTarget, RowKind, ViewMode,
+    CommitKind, CommitPage, CommitSummary, CommitTitle, DiffDocument, DiffReviewCommand, DiffReviewEvent, DiffScope,
+    DiffSide, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession, ReviewTarget, RowKind, ViewMode,
     testing::{DocumentBuilder, commit_id},
 };
-use std::{error::Error, sync::Arc};
+use std::{error::Error, sync::Arc, time::Duration};
 
 #[test]
 fn source_side_follows_file_status() -> Result<(), Box<dyn Error>> {
@@ -408,7 +408,10 @@ fn working_tree_comments_survive_scope_changes() -> Result<(), Box<dyn Error>> {
 #[test]
 fn navigation_steps_through_commits_and_remembers_the_scope() {
     let mut session = ReviewSession::new(page(DiffScope::Staged, "a.rs", "new"));
-    assert_eq!(session.page_title().as_deref(), Some("3/3 · Uncommitted changes (staged)"));
+    assert_eq!(
+        session.page_label().map(|label| label.to_string()).as_deref(),
+        Some("3/3 · Uncommitted changes (staged)")
+    );
     assert_eq!(session.stepped_target(1), None);
     assert_eq!(session.stepped_target(-1), Some(ReviewTarget::Commit(commit_id(2))));
 
@@ -430,6 +433,75 @@ fn navigation_steps_through_commits_and_remembers_the_scope() {
 
     session.set_document(page(commit_id(2), "a.rs", "new"));
     assert_eq!(session.stepped_target(1), Some(ReviewTarget::WorkingTree(DiffScope::Staged)));
+}
+
+#[test]
+fn pages_can_be_opened_directly() {
+    let session = ReviewSession::new(page(commit_id(1), "a.rs", "new"));
+    assert_eq!(session.page_target(0), None);
+    assert_eq!(session.page_target(1), Some(ReviewTarget::Commit(commit_id(2))));
+    assert_eq!(session.page_target(usize::MAX), Some(ReviewTarget::WorkingTree(DiffScope::Both)));
+    assert_eq!(
+        session.target_event(&DiffReviewCommand::GoToPage(2)),
+        Some(DiffReviewEvent::SetTarget(DiffScope::Both.into()))
+    );
+    let unpaged = ReviewSession::new(DocumentBuilder::new().changed("a.rs", "old", "new").build());
+    assert_eq!(unpaged.page_target(0), None);
+    assert_eq!(unpaged.commit_pages(Duration::ZERO), None);
+}
+
+#[test]
+fn commit_pages_describe_each_commit_and_the_working_tree() -> Result<(), Box<dyn Error>> {
+    let now = Duration::from_hours(240);
+    let document = DocumentBuilder::new()
+        .commit_with("feat(core): add the first page (#12)", |commit| CommitSummary {
+            body: "Why it matters.\n\nSigned-off-by: A <a@example.com>".to_owned(),
+            stat: Some(LineStat { added: 12, deleted: 3, files: 2 }),
+            committed_at: Some(7 * 86_400),
+            ..commit
+        })
+        .commit("Second")
+        .target(commit_id(2))
+        .changed("a.rs", "old\n", "new\nmore\n")
+        .build();
+    let mut session = ReviewSession::new(document.clone());
+    let anchor = LineAnchor::for_line(&document.files[0], DiffSide::New, 0, 1).ok_or("anchor")?;
+    session.review_mut().add_comment(anchor, "second commit");
+
+    let pages = session.commit_pages(now).ok_or("pages")?;
+    let summary = |page: &CommitPage| {
+        (page.number, page.id_label().to_owned(), page.stat, page.age.clone(), page.comments, page.current)
+    };
+    assert_eq!(
+        pages.iter().map(summary).collect::<Vec<_>>(),
+        [
+            (
+                1,
+                "0000001".to_owned(),
+                Some(LineStat { added: 12, deleted: 3, files: 2 }),
+                Some("3d".to_owned()),
+                0,
+                false
+            ),
+            (2, "0000002".to_owned(), Some(LineStat { added: 2, deleted: 1, files: 1 }), None, 1, true),
+            (3, "working tree".to_owned(), None, None, 0, false),
+        ]
+    );
+    assert_eq!(
+        pages[0].title,
+        CommitTitle {
+            kind: Some(CommitKind::Feature),
+            scope: Some("core".to_owned()),
+            summary: "Add the first page".to_owned(),
+            pull_request: Some(12),
+        }
+    );
+    assert_eq!(pages[0].body, "Why it matters.");
+    assert_eq!((pages[1].title.kind, pages[1].title.summary.as_str(), pages[1].body.as_str()), (None, "Second", ""));
+    assert_eq!(pages[2].subject, "Uncommitted changes");
+    assert_eq!(pages[2].title.summary, "Uncommitted changes");
+    assert!(pages[2].is_working_tree());
+    Ok(())
 }
 
 #[test]

@@ -1,11 +1,11 @@
 use crate::{
-    AgentFeedbackOptions, CommitStack, ContentProjection, DiffDocument, DiffPresentation, DiffReviewCommand,
-    DiffReviewEvent, DiffScope, DiffSide, GapId, Layout, LineAnchor, PresentationOptions, PresentedCell, PresentedRow,
-    RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind, SourceLocation, ViewMode,
-    presentation::retained_expansions,
+    AgentFeedbackOptions, CommitPage, CommitStack, CommitTitle, ContentProjection, DiffDocument, DiffPresentation,
+    DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, GapId, Layout, LineAnchor, PageLabel, PresentationOptions,
+    PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind, SourceLocation,
+    UNCOMMITTED_CHANGES, ViewMode, commit_description, commit_picker::format_age, presentation::retained_expansions,
 };
 use serde::{Deserialize, Serialize};
-use std::{ops::Range, sync::Arc};
+use std::{ops::Range, sync::Arc, time::Duration};
 
 const EXPAND_STEP: usize = 20;
 
@@ -200,8 +200,52 @@ impl ReviewSession {
     }
 
     #[must_use]
-    pub fn page_title(&self) -> Option<String> {
-        self.commits().map(|commits| self.target().title(Some(commits)))
+    pub fn page_label(&self) -> Option<PageLabel> {
+        self.commits().map(|commits| self.target().label(Some(commits)))
+    }
+
+    #[must_use]
+    pub fn commit_pages(&self, since_epoch: Duration) -> Option<Vec<CommitPage>> {
+        let commits = self.commits()?;
+        let current = commits.page_index(self.target());
+        let now = since_epoch.as_secs();
+        let working_tree = ReviewTarget::WorkingTree(self.scope);
+        let pages = commits
+            .commits
+            .iter()
+            .map(|commit| (ReviewTarget::Commit(commit.id.clone()), Some(commit)))
+            .chain([(working_tree, None)])
+            .enumerate()
+            .map(|(index, (target, commit))| {
+                let is_current = current == Some(index);
+                let stat =
+                    commit.and_then(|commit| commit.stat).or_else(|| is_current.then(|| self.document.line_stat()));
+                let subject = commit.map_or(UNCOMMITTED_CHANGES, |commit| commit.subject.as_str());
+                CommitPage {
+                    number: index + 1,
+                    short_id: commit.map(|commit| commit.id.short().to_owned()),
+                    subject: subject.to_owned(),
+                    title: CommitTitle::parse(subject),
+                    body: commit.map(|commit| commit_description(&commit.body)).unwrap_or_default(),
+                    stat,
+                    age: commit
+                        .and_then(|commit| commit.committed_at)
+                        .and_then(|time| u64::try_from(time).ok())
+                        .map(|time| format_age(now.saturating_sub(time))),
+                    comments: self.review.count_for(&target),
+                    current: is_current,
+                    target,
+                }
+            })
+            .collect();
+        Some(pages)
+    }
+
+    #[must_use]
+    pub fn page_target(&self, index: usize) -> Option<ReviewTarget> {
+        let commits = self.commits()?;
+        let index = index.min(commits.page_count() - 1);
+        (commits.page_index(self.target()) != Some(index)).then(|| commits.page(index, self.scope)).flatten()
     }
 
     #[must_use]
@@ -218,6 +262,7 @@ impl ReviewSession {
             DiffReviewCommand::SetScope(scope) => ReviewTarget::WorkingTree(*scope),
             DiffReviewCommand::CycleScope => ReviewTarget::WorkingTree(self.scope.next()),
             DiffReviewCommand::StepTarget(delta) => self.stepped_target(*delta)?,
+            DiffReviewCommand::GoToPage(index) => self.page_target(*index)?,
             _ => return None,
         };
         Some(DiffReviewEvent::SetTarget(target))

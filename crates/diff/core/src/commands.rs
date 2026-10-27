@@ -16,6 +16,7 @@ pub enum InteractionPhase {
     Draft,
     Help,
     ThemePicker,
+    CommitPicker,
     RepositoryPrompt,
 }
 
@@ -46,6 +47,7 @@ pub struct CommandContext {
     pub source_view: bool,
     pub navigation_available: bool,
     pub themes_available: bool,
+    pub commits_available: bool,
 }
 
 impl Default for CommandContext {
@@ -58,6 +60,7 @@ impl Default for CommandContext {
             source_view: false,
             navigation_available: true,
             themes_available: false,
+            commits_available: false,
         }
     }
 }
@@ -125,6 +128,9 @@ pub enum DiffReviewCommand {
     SetScope(DiffScope),
     CycleScope,
     StepTarget(isize),
+    GoToPage(usize),
+    OpenCommitPicker,
+    MoveCommitPicker(isize),
     Refresh,
     ToggleStage,
     StageAll,
@@ -166,13 +172,21 @@ impl DiffReviewCommand {
         if let Self::Review(command) = self {
             return command.enabled(context);
         }
+        let paging = context.capabilities.scope && !context.repository_pending;
+        if context.phase == InteractionPhase::CommitPicker {
+            return match self {
+                Self::MoveCommitPicker(_) => true,
+                Self::GoToPage(_) => paging,
+                _ => false,
+            };
+        }
         if context.phase != InteractionPhase::Browse {
             return false;
         }
         let capability = match self {
-            Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) => {
-                context.capabilities.scope && !context.repository_pending
-            }
+            Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) | Self::GoToPage(_) => paging,
+            Self::OpenCommitPicker => paging && context.commits_available,
+            Self::MoveCommitPicker(_) => false,
             Self::Refresh => context.capabilities.refresh && !context.repository_pending,
             Self::ToggleStage
             | Self::StageAll
@@ -187,6 +201,14 @@ impl DiffReviewCommand {
         };
         capability
             && (context.document_ready
-                || matches!(self, Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) | Self::Refresh))
+                || matches!(
+                    self,
+                    Self::SetScope(_)
+                        | Self::CycleScope
+                        | Self::StepTarget(_)
+                        | Self::GoToPage(_)
+                        | Self::OpenCommitPicker
+                        | Self::Refresh
+                ))
     }
 }

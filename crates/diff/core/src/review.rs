@@ -116,6 +116,11 @@ impl Review {
     }
 
     #[must_use]
+    pub fn count_for(&self, target: &ReviewTarget) -> usize {
+        self.comments.iter().filter(|comment| comment.target.commit() == target.commit()).count()
+    }
+
+    #[must_use]
     pub fn targets_commits(&self) -> bool {
         self.comments.iter().any(|comment| comment.target.commit().is_some())
     }
@@ -269,7 +274,7 @@ pub fn format_review(review: &Review, options: &AgentFeedbackOptions) -> String 
         if paged && page != Some(comment.target.commit()) {
             page = Some(comment.target.commit());
             current = None;
-            let _ = write!(out, "\n\n## {}", comment.target.title(commits));
+            let _ = write!(out, "\n\n## {}", comment.target.label(commits));
         }
         if current != Some(&comment.anchor.path) {
             current = Some(&comment.anchor.path);

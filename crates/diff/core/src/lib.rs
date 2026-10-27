@@ -1,5 +1,6 @@
 pub mod anchor;
 pub mod commands;
+pub mod commit_picker;
 pub mod content;
 pub mod error;
 pub mod file_tree;
@@ -16,6 +17,7 @@ pub mod testing;
 pub use anchor::LineAnchor;
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError, SourceSequenceId, join_lines};
 pub use commands::{CommandContext, DiffReviewCommand, FocusPane, InteractionPhase, ReviewCapabilities, ReviewCommand};
+pub use commit_picker::{CommitPage, CommitPicker, format_age};
 pub use content::{
     MAX_SOURCE_FILE_BYTES, MAX_SOURCE_FILE_LINES, SourceDocument, SourceLineRef, SourceLocation, SourceResult,
     SourceUnavailable,
@@ -24,8 +26,9 @@ pub use error::{CommitIdError, DiffError, ParseDiffScopeError, RepoPathError};
 pub use file_tree::{FileTree, FileTreeEntry, tree_order};
 pub use models as model;
 pub use models::{
-    CommitId, CommitStack, CommitSummary, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, Hunk, LineStat,
-    ModeChange, PatchLine, PatchLineKind, RepoPath, ReviewTarget, StageState,
+    CommitId, CommitKind, CommitStack, CommitSummary, CommitTitle, DiffDocument, DiffScope, DiffSide, FileDiff,
+    FileStatus, Hunk, LineStat, ModeChange, PageKind, PageLabel, PatchLine, PatchLineKind, RepoPath, ReviewTarget,
+    StageState, UNCOMMITTED_CHANGES, commit_description,
 };
 pub use parser::{
     GitStatusEntry, UntrackedFile, parse_detached_git_diff, parse_git_diff, parse_git_diff_with_path_mapper,

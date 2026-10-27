@@ -91,3 +91,23 @@ fn unavailable_navigation_and_themes_do_not_disable_document_commands() {
     assert!(!ReviewCommand::OpenThemePicker.enabled(&context));
     assert!(ReviewCommand::OpenThemePicker.enabled(&CommandContext { themes_available: true, ..context }));
 }
+
+#[test]
+fn the_commit_picker_needs_commits_and_owns_the_keyboard_while_open() {
+    assert!(!DiffReviewCommand::OpenCommitPicker.enabled(&CommandContext::default()));
+    let browse = CommandContext { commits_available: true, ..CommandContext::default() };
+    assert!(DiffReviewCommand::OpenCommitPicker.enabled(&browse));
+    assert!(DiffReviewCommand::GoToPage(0).enabled(&browse));
+    assert!(!DiffReviewCommand::MoveCommitPicker(1).enabled(&browse));
+
+    let open = CommandContext { phase: InteractionPhase::CommitPicker, ..browse };
+    for command in [DiffReviewCommand::MoveCommitPicker(1), DiffReviewCommand::GoToPage(2)] {
+        assert!(command.enabled(&open));
+    }
+    for command in [DiffReviewCommand::OpenCommitPicker, DiffReviewCommand::StepTarget(1), DiffReviewCommand::StageAll]
+    {
+        assert!(!command.enabled(&open));
+    }
+    assert!(ReviewCommand::Cancel.enabled(&open));
+    assert!(!DiffReviewCommand::GoToPage(0).enabled(&CommandContext { repository_pending: true, ..open }));
+}
