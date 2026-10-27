@@ -11,7 +11,7 @@ mod patch_line;
 mod repo_path;
 mod review_target;
 
-pub use commit_stack::{CommitStack, CommitSummary};
+pub use commit_stack::{CommitStack, CommitSummary, LineStat};
 pub use diff_document::DiffDocument;
 pub use diff_scope::DiffScope;
 pub use diff_side::DiffSide;

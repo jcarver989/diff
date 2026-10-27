@@ -46,10 +46,28 @@ impl DocumentBuilder {
     }
 
     #[must_use]
-    pub fn commit(mut self, subject: &str) -> Self {
+    pub fn commits_since(mut self, base_ref: &str) -> Self {
+        let stack = self.commits.get_or_insert_with(|| CommitStack { base_ref: String::new(), commits: Vec::new() });
+        base_ref.clone_into(&mut stack.base_ref);
+        self
+    }
+
+    #[must_use]
+    pub fn commit(self, subject: &str) -> Self {
+        self.commit_with(subject, std::convert::identity)
+    }
+
+    #[must_use]
+    pub fn commit_with(mut self, subject: &str, customize: impl FnOnce(CommitSummary) -> CommitSummary) -> Self {
         let stack =
             self.commits.get_or_insert_with(|| CommitStack { base_ref: "origin/main".to_owned(), commits: Vec::new() });
-        stack.commits.push(CommitSummary { id: commit_id(stack.commits.len() + 1), subject: subject.to_owned() });
+        stack.commits.push(customize(CommitSummary {
+            id: commit_id(stack.commits.len() + 1),
+            subject: subject.to_owned(),
+            body: String::new(),
+            stat: None,
+            committed_at: None,
+        }));
         self
     }
 
