@@ -8,17 +8,20 @@ use crate::{
     DiffViewer, DiffViewerEvent, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions,
     ui::{InterfaceSize, testing::ViewHarness, tokens::BASE_SIZE},
 };
-use clankerdiff_core::{DiffDocument, DiffReviewCommand, Review, ReviewCommand, ViewMode, testing::DocumentBuilder};
+use clankerdiff_core::{
+    DiffDocument, DiffReviewCommand, Review, ReviewCommand, SourceLocation, ViewMode, testing::DocumentBuilder,
+};
 use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReview, MarkdownReviewCommand, MarkdownReviewEvent, MarkdownTargetId,
 };
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
-    App, Bounds, Context, ElementInputHandler, Entity, EventEmitter, Focusable, InputHandler, ListOffset, Pixels,
-    Render, TestAppContext, Window, WindowBounds, WindowOptions, point, prelude::*, px, size,
+    App, Bounds, Capslock, Context, ElementInputHandler, Entity, EventEmitter, Focusable, InputHandler, ListOffset,
+    Modifiers, ModifiersChangedEvent, MouseMoveEvent, Pixels, Point, Render, TestAppContext, Window, WindowBounds,
+    WindowOptions, point, prelude::*, px, size,
 };
 use gpui_base::input::TextareaState;
-use std::{error::Error, ops::Deref, sync::Arc};
+use std::{error::Error, ops::Deref, sync::Arc, time::Duration};
 
 /// A high-level integration harness around a rendered GPUI view and the host events it emits.
 pub struct Harness<T: 'static, U: 'static>(ViewHarness<T, U>);
@@ -218,6 +221,62 @@ impl DiffViewerHarness {
         self.read(cx, |viewer, cx| {
             viewer.comment_editor.as_ref().and_then(|editor| editor.read(cx).input().read(cx).text_bounds())
         })
+    }
+
+    pub fn settle(&self, cx: &mut TestAppContext) {
+        cx.executor().advance_clock(Duration::from_millis(500));
+        cx.run_until_parked();
+        self.draw(cx);
+    }
+
+    pub fn select_line(&self, cx: &mut TestAppContext, location: &SourceLocation) -> Result<(), Box<dyn Error>> {
+        let row = self
+            .read(cx, |viewer, _| viewer.presentation().row_showing_source(location))
+            .ok_or("line is not visible")?;
+        self.dispatch_command(cx, DiffReviewCommand::SelectRow(row))?
+            .then_some(())
+            .ok_or_else(|| "line can't be selected".into())
+    }
+
+    #[must_use]
+    pub fn selected_line(&self, cx: &TestAppContext) -> Option<SourceLocation> {
+        self.read(cx, |viewer, _| viewer.session().selected_source_line())
+    }
+
+    pub fn hold_secondary(&self, cx: &mut TestAppContext, held: bool) {
+        let modifiers = if held { Modifiers::secondary_key() } else { Modifiers::default() };
+        self.simulate_event(cx, ModifiersChangedEvent { modifiers, capslock: Capslock::default() });
+        self.draw(cx);
+    }
+
+    #[must_use]
+    pub fn definition_card_name(&self, cx: &TestAppContext) -> Option<String> {
+        self.read(cx, |viewer, _| viewer.card.as_ref().map(|hover| hover.card.name.clone()))
+    }
+
+    pub fn hover_name(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+        name: &str,
+    ) -> Result<Point<Pixels>, Box<dyn Error>> {
+        self.hold_secondary(cx, true);
+        let bounds = self.bounds(cx, selector).ok_or(selector)?;
+        let y = bounds.top() + px(6.0);
+        let mut x = bounds.left() + px(1.0);
+        while x < bounds.right() {
+            let position = point(x, y);
+            self.simulate_event(
+                cx,
+                MouseMoveEvent { position, pressed_button: None, modifiers: Modifiers::secondary_key() },
+            );
+            self.draw(cx);
+            if self.definition_card_name(cx).as_deref() == Some(name) {
+                return Ok(position);
+            }
+            x += px(2.0);
+        }
+        Err(format!("{name} is not under {selector}").into())
     }
 
     #[must_use]

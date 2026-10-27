@@ -72,6 +72,9 @@ impl ReviewWidget for DiffReviewState {
         }
     }
     fn handle_browse_key(&mut self, key: KeyEvent) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
+        if let Some(outcome) = self.handle_lookup_key(key) {
+            return Ok(outcome);
+        }
         Ok(self.command_for_key(key).map_or(InputOutcome::Ignored, |command| self.handle_command(command)))
     }
     fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
@@ -175,6 +178,7 @@ impl DiffReviewState {
 
     fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
         let position = Position::new(mouse.column, mouse.row);
+        self.lookup = None;
         match mouse.kind {
             MouseEventKind::ScrollUp => self.scroll_at(position, -1),
             MouseEventKind::ScrollDown => self.scroll_at(position, 1),

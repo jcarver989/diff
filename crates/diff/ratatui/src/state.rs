@@ -10,6 +10,7 @@ use clankerdiff_core::{
     CommitPicker, DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, RepositoryAction,
     RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, ViewMode, ViewportAnchor,
 };
+use clankerdiff_symbols::{Lookup, SymbolCache, SymbolIndex};
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
 use ratatui::layout::{Position, Rect};
@@ -116,6 +117,8 @@ pub struct DiffReviewState {
     pub(crate) help_scroll: usize,
     pub(crate) theme_picker: Option<ThemePicker>,
     pub(crate) commit_picker: Option<CommitPicker>,
+    pub(crate) lookup: Option<Lookup>,
+    symbols: SymbolCache,
     pub(crate) repository_prompt: Option<RepositoryPrompt>,
     pub(crate) repository_status: RepositoryOperationStatus,
     pub(crate) background_error: Option<String>,
@@ -165,6 +168,8 @@ impl DiffReviewState {
             help_scroll: 0,
             theme_picker: None,
             commit_picker: None,
+            lookup: None,
+            symbols: SymbolCache::default(),
             repository_prompt: None,
             repository_status: RepositoryOperationStatus::Idle,
             background_error: None,
@@ -225,6 +230,16 @@ impl DiffReviewState {
     #[must_use]
     pub const fn presentation(&self) -> &DiffPresentation {
         self.session.presentation()
+    }
+
+    /// Returns the open name hints or definition card, if any.
+    #[must_use]
+    pub const fn lookup(&self) -> Option<&Lookup> {
+        self.lookup.as_ref()
+    }
+
+    pub(crate) fn symbols(&mut self) -> Arc<SymbolIndex> {
+        self.symbols.index(self.session.document())
     }
 
     /// Returns the current load status.
@@ -338,6 +353,7 @@ impl DiffReviewState {
     fn install_document(&mut self, document: Arc<DiffDocument>) {
         let bookmark = matches!(self.status, DiffReviewStatus::Ready).then(|| self.viewport_bookmark()).flatten();
         self.session.set_document(document);
+        self.lookup = None;
         self.status = DiffReviewStatus::Ready;
         self.cursor_position = None;
         self.mark_dirty();

@@ -6,7 +6,7 @@ const GPUI_VERSION: &str = "=0.3.7";
 const GPUI_BASE_VERSION: &str = "=0.7.0";
 const GPUI_PLATFORM_FEATURES: [&str; 4] = ["font-kit", "runtime_shaders", "wayland", "x11"];
 
-pub const CRATES: [(&str, &str); 16] = [
+pub const CRATES: [(&str, &str); 17] = [
     ("clankerdiff-fingerprint", "crates/util/fingerprint"),
     ("clankerdiff-remote", "crates/util/remote"),
     ("clankerdiff-theme", "crates/ui/theme"),
@@ -20,6 +20,7 @@ pub const CRATES: [(&str, &str); 16] = [
     ("clankerdiff-watch", "crates/diff/watch"),
     ("clankerdiff-server", "crates/diff/server"),
     ("clankerdiff-markdown", "crates/diff/markdown"),
+    ("clankerdiff-symbols", "crates/diff/symbols"),
     ("clankerdiff-gpui", "crates/diff/gpui"),
     ("clankerdiff-ratatui", "crates/diff/ratatui"),
     ("clankerdiff-gpui-desktop", "crates/diff/desktop"),

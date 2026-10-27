@@ -40,6 +40,11 @@ release = true
 publish = true
 
 [[package]]
+name = "clankerdiff-symbols"
+release = true
+publish = true
+
+[[package]]
 name = "clankerdiff-ratatui"
 release = true
 publish = true

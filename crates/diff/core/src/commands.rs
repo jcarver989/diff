@@ -1,4 +1,4 @@
-use crate::{DiffScope, DiffSide, RepositoryAction, RevealAmount, ViewMode};
+use crate::{DiffScope, DiffSide, RepositoryAction, RevealAmount, SourceLocation, ViewMode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +138,10 @@ pub enum DiffReviewCommand {
     BeginCommit,
     BeginDiscard,
     RepositoryAction(RepositoryAction),
+    ShowDefinition,
+    JumpTo(SourceLocation),
+    NavigateBack,
+    NavigateForward,
 }
 
 impl From<ReviewCommand> for DiffReviewCommand {

@@ -24,6 +24,7 @@ thiserror.workspace = true
 clankerdiff-client.workspace = true
 clankerdiff-core.workspace = true
 clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-symbols.workspace = true
 clankerdiff-syntax.workspace = true
 clankerdiff-theme.workspace = true
 ratatui.workspace = true
@@ -86,4 +87,8 @@ required-features = ["test-support"]
 [[bench]]
 name = "rendering"
 harness = false
+required-features = ["test-support"]
+
+[[test]]
+name = "definition_card_test"
 required-features = ["test-support"]

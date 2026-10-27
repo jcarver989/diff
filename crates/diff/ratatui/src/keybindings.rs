@@ -197,6 +197,7 @@ pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
         (K::Char('}'), C::GoToPage(usize::MAX), "uncommitted changes", Any),
         (K::Char('p'), C::OpenCommitPicker, "pick commit", Any),
         (K::Char('r'), C::Refresh, "refresh", Any),
+        (K::Char('D'), C::ShowDefinition, "show definition", Document),
         (K::Char('?'), ReviewCommand::ShowHelp.into(), "help", Any),
         (K::Left, C::SelectSide(DiffSide::Old), "old side", SplitDocument),
         (K::Right, C::SelectSide(DiffSide::New), "new side", SplitDocument),
@@ -207,11 +208,11 @@ pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
             KeyBinding::new(KeyEvent::new(key, KeyModifiers::NONE), command, label).with_scope(scope)
         })
         .collect();
-    bindings.push(KeyBinding::new(
-        KeyEvent::new(K::Char('g'), KeyModifiers::CONTROL),
-        ReviewCommand::Cancel.into(),
-        "cancel",
-    ));
+    bindings.extend([
+        KeyBinding::new(K::ctrl('g'), ReviewCommand::Cancel.into(), "cancel"),
+        KeyBinding::new(K::ctrl('o'), C::NavigateBack, "back"),
+        KeyBinding::new(K::ctrl('p'), C::NavigateForward, "forward"),
+    ]);
     bindings
 }
 

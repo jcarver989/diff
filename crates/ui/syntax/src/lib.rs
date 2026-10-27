@@ -4,6 +4,7 @@ mod highlight;
 mod incremental;
 mod language;
 mod spans;
+mod symbols;
 
 pub use clankerdiff_fingerprint::Fingerprint;
 pub use clankerdiff_theme::{FontStyle, HighlightSpan, Rgba, SyntaxStyle, SyntaxTheme};
@@ -14,3 +15,4 @@ pub use highlight::{
 };
 pub use incremental::SyntaxWorkStats;
 pub use language::{LanguageHint, resolve_language};
+pub use symbols::{LineSpan, SymbolDefinition, SymbolExtractor, SymbolKind, SymbolReference, SymbolTags};

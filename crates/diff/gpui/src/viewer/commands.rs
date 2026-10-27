@@ -40,6 +40,8 @@ impl DiffViewer {
             && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
             && match command {
                 DiffReviewCommand::StepTarget(delta) => self.session.stepped_target(*delta).is_some(),
+                DiffReviewCommand::NavigateBack => self.session.back_location().is_some(),
+                DiffReviewCommand::NavigateForward => self.session.forward_location().is_some(),
                 _ => true,
             }
     }
@@ -65,6 +67,8 @@ impl DiffViewer {
         if !self.command_enabled(&command) {
             return false;
         }
+        self.clear_name_hints(cx);
+        self.close_card(cx);
         match command {
             C::Focus(pane) => {
                 if self.pane == pane {
@@ -193,6 +197,8 @@ impl DiffViewer {
                 cx.emit(DiffViewerEvent::RepositoryAction(action));
                 return true;
             }
+            C::ShowDefinition => return self.show_definition_at_selection(cx),
+            command @ (C::JumpTo(_) | C::NavigateBack | C::NavigateForward) => return self.navigate(command, cx),
             command @ (C::SetScope(_) | C::CycleScope | C::StepTarget(_) | C::GoToPage(_)) => {
                 let closed = self.commit_picker.take().is_some();
                 cx.notify();

@@ -19,6 +19,9 @@ const NAVIGATION: Shortcuts = &[
     ("O", "expand all context"),
     ("f", "toggle all diff context"),
     ("z / Z", "collapse / expand file or all files"),
+    ("⌘/Ctrl-hover, Shift-D", "show definition (Enter go, Tab next, Esc close)"),
+    ("⌘/Ctrl-click", "go to definition"),
+    ("Ctrl-O / Ctrl-I", "back / forward after a jump"),
 ];
 const GIT: Shortcuts = &[
     ("Space", "stage / unstage file or directory"),

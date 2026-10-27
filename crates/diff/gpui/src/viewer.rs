@@ -6,6 +6,7 @@ use crate::{
     DiffViewerEvent, ThemeChanged, ViewModeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
     commits::CommitPickerOverlay,
+    definition_card::HoverCard,
     style::color,
     ui::{
         prelude::{
@@ -17,14 +18,16 @@ use crate::{
 };
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, LineAnchor, PresentedCell,
-    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, ViewMode, ViewportAnchor,
+    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SourceDocument, ViewMode,
+    ViewportAnchor,
 };
 use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
+use clankerdiff_symbols::{NameHints, SymbolCache, SymbolIndex};
 use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter, empty_spans};
 use clankerdiff_theme::{ReviewTheme, ThemeChoice};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, ListAlignment, ListOffset,
-    ListState, Pixels, Rems, ScrollHandle, Subscription, Window, actions, div, prelude::*, px, rems,
+    ListState, Pixels, Rems, ScrollHandle, Subscription, Task, Window, actions, div, prelude::*, px, rems,
 };
 use std::sync::Arc;
 
@@ -95,7 +98,14 @@ actions!(
         DiscardChanges,
         ConfirmDiscard,
         CancelRepositoryPrompt,
-        Cancel
+        Cancel,
+        PickName,
+        CancelNameHints,
+        CloseDefinition,
+        GoToDefinition,
+        NextDefinition,
+        NavigateBack,
+        NavigateForward
     ]
 );
 
@@ -153,6 +163,7 @@ struct DiffViewportBookmark {
 
 /// Shared GPUI diff review view.
 ///
+#[expect(clippy::struct_excessive_bools, reason = "View flags toggle independently")]
 pub struct DiffViewer {
     session: ReviewSession,
     capabilities: ReviewCapabilities,
@@ -183,6 +194,11 @@ pub struct DiffViewer {
     background_error: Option<String>,
     repository_pending: bool,
     focus_handle: Option<gpui::FocusHandle>,
+    pub(crate) name_hints: Option<NameHints>,
+    pub(crate) links_visible: bool,
+    symbols: SymbolCache,
+    pub(crate) card: Option<HoverCard>,
+    pub(crate) card_timer: Option<Task<()>>,
 }
 
 impl DiffViewer {
@@ -236,6 +252,11 @@ impl DiffViewer {
             background_error: None,
             repository_pending: false,
             focus_handle: None,
+            name_hints: None,
+            links_visible: false,
+            symbols: SymbolCache::default(),
+            card: None,
+            card_timer: None,
         };
         viewer.sync_diff_list();
         viewer
@@ -250,6 +271,10 @@ impl DiffViewer {
         const FILES: &str = "DiffViewer && mode == browse && pane == files";
         const DRAFT: &str = "DiffViewer && mode == draft";
         const SHORTCUTS: &str = "DiffViewer && mode == shortcuts";
+        const CARD: &str = "DiffViewer && mode == browse && card";
+        const CARD_ACTIVATION: &str =
+            "DiffViewer && mode == browse && card && !CommentDismissControl && !StageCheckbox";
+        const HINTS: &str = "DiffViewer && mode == hints";
         cx.bind_keys([
             KeyBinding::new("down", NextItem, Some(BROWSE)),
             KeyBinding::new("j", NextItem, Some(BROWSE)),
@@ -317,6 +342,13 @@ impl DiffViewer {
             KeyBinding::new("escape", CancelComment, Some(DRAFT)),
             KeyBinding::new("cmd-shift-c", CopyReview, Some(BROWSE)),
             KeyBinding::new("cmd-shift-enter", SubmitReview, Some(BROWSE)),
+            KeyBinding::new("shift-d", PickName, Some(DIFF)),
+            KeyBinding::new("ctrl-o", NavigateBack, Some(BROWSE)),
+            KeyBinding::new("ctrl-i", NavigateForward, Some(BROWSE)),
+            KeyBinding::new("escape", CloseDefinition, Some(CARD)),
+            KeyBinding::new("enter", GoToDefinition, Some(CARD_ACTIVATION)),
+            KeyBinding::new("tab", NextDefinition, Some(CARD_ACTIVATION)),
+            KeyBinding::new("escape", CancelNameHints, Some(HINTS)),
         ]);
         SearchPicker::bind_keys(cx);
     }
@@ -447,6 +479,9 @@ impl DiffViewer {
         if self.session.commits() != document.commits.as_ref() {
             self.commit_picker = None;
         }
+        self.name_hints = None;
+        self.card = None;
+        self.card_timer = None;
         self.sidebar_tree.rebuild(&document);
         self.change_layout(|session| {
             session.set_document(document);
@@ -863,7 +898,7 @@ impl DiffViewer {
         }
     }
 
-    fn remeasure_row(&self, row_index: Option<usize>) {
+    pub(crate) fn remeasure_row(&self, row_index: Option<usize>) {
         if let Some(item) = row_index.and_then(|row| self.list_item(row)) {
             self.diff_list_state.remeasure_items(item..item + 1);
         }
@@ -953,6 +988,24 @@ impl DiffViewer {
         self.handle_command(DiffReviewCommand::ToggleAllFilesCollapsed, window, cx);
     }
 
+    pub(crate) fn symbols(&mut self) -> Arc<SymbolIndex> {
+        self.symbols.index(self.session.document())
+    }
+
+    pub(crate) fn highlight_source_line(
+        &mut self,
+        path: &str,
+        source: &SourceDocument,
+        line_number: usize,
+    ) -> Arc<[HighlightSpan]> {
+        self.highlighter
+            .with_theme(&self.theme.syntax)
+            .highlight_document(source.content_id(), LanguageHint::Path(path), || source.text())
+            .ok()
+            .and_then(|highlights| highlights.line_shared(line_number.saturating_sub(1)))
+            .unwrap_or_else(empty_spans)
+    }
+
     pub(crate) fn highlight_cell(&mut self, row: &PresentedRow, cell: &PresentedCell) -> Arc<[HighlightSpan]> {
         let source = self.session.presentation().cell_context(row, cell);
         self.highlighter
@@ -978,7 +1031,7 @@ impl DiffViewer {
         }
     }
 
-    fn reveal_selected_row(&self) {
+    pub(crate) fn reveal_selected_row(&self) {
         let Some(item) = self.session.selected_row().and_then(|row| self.list_item(row)) else {
             return;
         };
@@ -1414,6 +1467,8 @@ impl Render for DiffViewer {
             "repository-commit"
         } else if self.comment_editor.is_some() {
             "draft"
+        } else if self.name_hints.is_some() {
+            "hints"
         } else {
             "browse"
         };
@@ -1427,6 +1482,9 @@ impl Render for DiffViewer {
         key_context.set("mode", mode);
         key_context.set("pane", pane);
         key_context.set("layout", layout);
+        if self.card.is_some() {
+            key_context.add("card");
+        }
         div()
             .debug_selector(|| "diff-viewer".to_owned())
             .key_context(key_context)
@@ -1487,6 +1545,15 @@ impl Render for DiffViewer {
             .on_action(cx.listener(Self::show_theme_picker))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::pick_name))
+            .on_action(cx.listener(Self::cancel_name_hints))
+            .on_action(cx.listener(Self::close_definition))
+            .on_action(cx.listener(Self::go_to_definition))
+            .on_action(cx.listener(Self::next_definition))
+            .on_action(cx.listener(Self::navigate_back))
+            .on_action(cx.listener(Self::navigate_forward))
+            .on_modifiers_changed(cx.listener(Self::modifiers_changed))
+            .on_key_down(cx.listener(Self::name_hint_key))
             .size_full()
             .relative()
             .flex()

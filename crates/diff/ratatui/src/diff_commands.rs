@@ -78,6 +78,9 @@ impl DiffReviewState {
         if !self.command_enabled(&command) {
             return InputOutcome::Ignored;
         }
+        if self.lookup.take().is_some() {
+            self.mark_dirty();
+        }
         match command {
             C::Focus(pane) => self.focus = pane,
             C::ToggleFocus => {
@@ -215,6 +218,17 @@ impl DiffReviewState {
             }
             C::RepositoryAction(action) => {
                 return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(action));
+            }
+            C::ShowDefinition => {
+                if !self.show_definition_at_selection() {
+                    return InputOutcome::Ignored;
+                }
+            }
+            C::JumpTo(_) | C::NavigateBack | C::NavigateForward => {
+                if self.session.apply_navigation(command) != Some(true) {
+                    return InputOutcome::Ignored;
+                }
+                self.request_follow();
             }
             C::Review(R::BeginComment | R::EditComment) => {
                 let started = if command == C::Review(R::BeginComment) {
