@@ -74,11 +74,7 @@ fn index() -> Arc<SymbolIndex> {
     let document = DocumentBuilder::new()
         .changed("lib/util.rs", "", "fn helper() {}\n")
         .changed("src/a/util.rs", "", "fn helper() {}\nfn build() {}\n")
-        .changed(
-            "src/main.rs",
-            "",
-            "fn main() {\n    let cache = Cache::build();\n    helper();\n    helper();\n\n}\n",
-        )
+        .changed("src/main.rs", "", "fn main() {\n    let cache = Cache::build();\n    helper();\n    helper();\n\n}\n")
         .build();
     SymbolCache::default().index(&document)
 }
