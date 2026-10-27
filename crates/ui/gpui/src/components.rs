@@ -398,7 +398,14 @@ impl RenderOnce for SegmentedControl {
                 if self.embedded {
                     control.h_full().py_0p5()
                 } else {
-                    control.h(rem(tokens::ROW_HEIGHT)).p_0p5().capsule(theme)
+                    control
+                        .h(rem(tokens::ROW_HEIGHT))
+                        .p_1()
+                        .rounded(rem(tokens::RADIUS_CONTROL))
+                        .border_1()
+                        .border_color(colors.border_subtle)
+                        .bg(colors.surface)
+                        .shadow_sm()
                 }
             })
             .typography(Typography::Small)
@@ -423,7 +430,7 @@ impl RenderOnce for SegmentedControl {
                     .px(rem(padding))
                     .flex()
                     .items_center()
-                    .rounded_full()
+                    .rounded(rem(tokens::RADIUS_INNER))
                     .text_color(foreground)
                     .when(segment.selected, |segment| segment.bg(colors.surface_selected).shadow_xs())
                     .when(!enabled, |segment| segment.opacity(0.4))
@@ -461,7 +468,7 @@ impl Render for Tooltip {
         div()
             .px_2()
             .py_1()
-            .rounded(rem(tokens::RADIUS_ROW))
+            .rounded(rem(tokens::RADIUS_CONTROL))
             .border_1()
             .border_color(colors.border)
             .bg(colors.surface)
@@ -532,7 +539,7 @@ impl RenderOnce for Disclosure {
             .items_center()
             .gap_2()
             .px_1()
-            .rounded(rem(tokens::RADIUS_ROW))
+            .rounded(rem(tokens::RADIUS_INNER))
             .cursor_pointer()
             .hover(move |row| row.bg(colors.surface_hover))
             .focus_visible(move |row| row.bg(colors.surface_hover))
@@ -750,12 +757,12 @@ const BADGE_TINT: f32 = 0.16;
 pub trait SurfaceExt: Styled + Sized {
     #[must_use]
     fn surface(self, theme: UiTheme) -> Self {
-        self.rounded(rem(tokens::RADIUS_CARD)).border_1().border_color(theme.colors.border).bg(theme.colors.surface)
+        self.rounded(rem(tokens::RADIUS_CONTROL)).border_1().border_color(theme.colors.border).bg(theme.colors.surface)
     }
 
     #[must_use]
     fn elevated(self, theme: UiTheme) -> Self {
-        self.rounded(rem(tokens::RADIUS_CARD))
+        self.rounded(rem(tokens::RADIUS_CONTROL))
             .border_1()
             .border_color(theme.colors.border_subtle)
             .bg(theme.colors.elevated)
@@ -768,11 +775,6 @@ pub trait SurfaceExt: Styled + Sized {
             .border_color(theme.colors.border_subtle)
             .bg(theme.colors.surface)
             .shadow_xl()
-    }
-
-    #[must_use]
-    fn capsule(self, theme: UiTheme) -> Self {
-        self.rounded_full().border_1().border_color(theme.colors.border_subtle).bg(theme.colors.surface).shadow_sm()
     }
 }
 
@@ -920,7 +922,7 @@ impl RenderOnce for ListRow {
                 .flex()
                 .items_center()
                 .gap_2()
-                .rounded(rem(tokens::RADIUS_ROW))
+                .rounded(rem(tokens::RADIUS_INNER))
                 .typography(Typography::Body),
             style,
             hover,
@@ -1214,7 +1216,7 @@ impl RenderOnce for Notification {
         div()
             .w_full()
             .p_3()
-            .rounded(rem(tokens::RADIUS_CARD))
+            .rounded(rem(tokens::RADIUS_CONTROL))
             .border_1()
             .border_color(style.foreground)
             .bg(self.theme.colors.surface)

@@ -1,6 +1,6 @@
 use crate::style::{color, highlight_style};
 use crate::ui::icon::{Icon, IconName};
-use crate::ui::tokens::{ICON_SIZE_SMALL, RADIUS_CARD, rem};
+use crate::ui::tokens::{ICON_SIZE_SMALL, RADIUS_CONTROL, rem};
 use clankerdiff_core::{
     DiffDocument, DiffError, DiffPresentation, DiffTone, Fingerprint, PresentationOptions, RowKind, ViewMode,
     parse_detached_git_diff,
@@ -142,7 +142,7 @@ fn file_card(theme: &ReviewTheme) -> Div {
         .flex_col()
         .min_w_0()
         .overflow_hidden()
-        .rounded(rem(RADIUS_CARD))
+        .rounded(rem(RADIUS_CONTROL))
         .border_1()
         .border_color(color(theme.ui.border_subtle))
         .bg(color(theme.diff.background))

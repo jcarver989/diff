@@ -5,7 +5,7 @@ use clankerdiff_gpui_ui::{
     prelude::{
         Button, ButtonVariant, ControlSize, IconButton, IconName, Surface, Typography, TypographyExt, UiTheme, rem,
     },
-    tokens::RADIUS_CARD,
+    tokens::RADIUS_CONTROL,
 };
 use gpui::{
     AnyElement, App, ClickEvent, Context, ElementId, Entity, IntoElement, MouseButton, RenderOnce, SharedString,
@@ -121,7 +121,7 @@ impl RenderOnce for CommentThread {
             .w_full()
             .flex()
             .flex_col()
-            .rounded(rem(RADIUS_CARD))
+            .rounded(rem(RADIUS_CONTROL))
             .border_1()
             .border_color(self.theme.colors.border)
             .overflow_hidden()

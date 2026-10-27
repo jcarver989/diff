@@ -9,7 +9,7 @@ use crate::{
     style,
     ui::{
         prelude::{CODE_FONT, EmptyState, IconButton, IconName, NoticeTone, Typography, TypographyExt, color, rem},
-        tokens::{RADIUS_CARD, RADIUS_ROW},
+        tokens::{RADIUS_CONTROL, RADIUS_INNER},
     },
 };
 use clankerdiff_core::ReviewCommand;
@@ -132,7 +132,7 @@ impl MarkdownReviewer {
             div()
                 .px_2()
                 .py(rem(BLOCK_PADDING_Y))
-                .rounded(rem(RADIUS_ROW))
+                .rounded(rem(RADIUS_INNER))
                 .text_size(rem(PROSE.size))
                 .line_height(rem(PROSE.line_height))
         };
@@ -196,7 +196,7 @@ impl MarkdownReviewer {
             .border_l_1()
             .border_r_1()
             .border_color(self.ui.colors.border)
-            .when(last, |line| line.pb_2().border_b_1().rounded_b(rem(RADIUS_CARD)))
+            .when(last, |line| line.pb_2().border_b_1().rounded_b(rem(RADIUS_CONTROL)))
             .child(self.code_line_text(code, line))
     }
 
@@ -217,8 +217,8 @@ impl MarkdownReviewer {
             .border_r_1()
             .border_b_1()
             .border_color(colors.border)
-            .when(first, |row| row.border_t_1().rounded_t(rem(RADIUS_CARD)))
-            .when(last, |row| row.rounded_b(rem(RADIUS_CARD)))
+            .when(first, |row| row.border_t_1().rounded_t(rem(RADIUS_CONTROL)))
+            .when(last, |row| row.rounded_b(rem(RADIUS_CONTROL)))
             .when(header, |row| row.bg(colors.surface).font_weight(FontWeight::SEMIBOLD))
             .children(cells.iter().enumerate().map(|(column, cell)| {
                 let alignment = alignments.get(column).copied().unwrap_or(MarkdownTableAlignment::None);
@@ -257,8 +257,8 @@ impl MarkdownReviewer {
             .border_l_1()
             .border_r_1()
             .border_color(colors.border)
-            .rounded_t(rem(RADIUS_CARD))
-            .when(code.lines.is_empty(), |header| header.border_b_1().rounded_b(rem(RADIUS_CARD)))
+            .rounded_t(rem(RADIUS_CONTROL))
+            .when(code.lines.is_empty(), |header| header.border_b_1().rounded_b(rem(RADIUS_CONTROL)))
             .typography(Typography::Caption)
             .text_color(colors.text_muted)
             .child(code.language.clone().unwrap_or_else(|| "code".to_owned()))
