@@ -407,6 +407,10 @@ fn query(
     (spans, injections)
 }
 
+pub(crate) fn grammar_language(language: &str) -> Option<Language> {
+    grammar_spec(language).map(|(language, ..)| language)
+}
+
 fn grammar_spec(language: &str) -> Option<(Language, &'static str, &'static str)> {
     macro_rules! grammar {
         ($module:ident) => {{
