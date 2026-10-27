@@ -8,7 +8,7 @@ use gpui::{
 use std::ops::Range;
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct InlineColors {
+pub(crate) struct InlineColors {
     link: Hsla,
     code: Hsla,
     code_background: Hsla,
@@ -16,7 +16,7 @@ pub(super) struct InlineColors {
 }
 
 impl InlineColors {
-    pub(super) fn new(theme: &ReviewTheme, ui: &UiTheme) -> Self {
+    pub(crate) fn new(theme: &ReviewTheme, ui: &UiTheme) -> Self {
         let markdown = &theme.markdown;
         Self {
             link: color(markdown.link),
@@ -27,7 +27,7 @@ impl InlineColors {
     }
 }
 
-pub(super) fn inline_text(id: impl Into<ElementId>, content: &[MarkdownInline], colors: InlineColors) -> AnyElement {
+pub(crate) fn inline_text(id: impl Into<ElementId>, content: &[MarkdownInline], colors: InlineColors) -> AnyElement {
     let mut builder =
         Builder { colors, text: String::new(), highlights: Vec::new(), code: Vec::new(), links: Vec::new() };
     builder.children(content, Marks::NONE);

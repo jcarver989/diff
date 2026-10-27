@@ -1,7 +1,7 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffDocument, DiffReviewEvent, DiffScope, InteractionPhase, ReviewTarget,
+    CommitSummary, DiffDocument, DiffReviewEvent, DiffScope, InteractionPhase, LineStat, ReviewTarget,
     testing::{DocumentBuilder, commit_id},
 };
 use clankerdiff_gpui::testing::{DiffViewerHarness, DiffViewerHarnessBuilder};
@@ -258,6 +258,42 @@ fn a_long_commit_picker_scrolls_to_the_working_tree_and_selects_it(cx: &mut Test
         harness.simulate_keystrokes(cx, "enter");
         assert!(harness.bounds(cx, "commit-picker").is_none());
         assert_eq!(harness.events(cx), vec![DiffReviewEvent::SetTarget(DiffScope::Both.into())]);
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn the_picker_previews_the_highlighted_commit_beside_the_list(cx: &mut TestAppContext) {
+    let document = DocumentBuilder::new()
+        .commit_with("feat(core): add parser", |commit| CommitSummary {
+            body: "Explains why the parser exists.".to_owned(),
+            stat: Some(LineStat { added: 3, deleted: 1, files: 1 }),
+            ..commit
+        })
+        .commit("Wire parser")
+        .target(commit_id(1))
+        .changed("src/lib.rs", "old\n", "new\n")
+        .build();
+    paged(document).with_window_size(1400.0, 800.0).run(cx, |harness, cx| {
+        harness.simulate_keystrokes(cx, "p");
+        let list = harness.bounds(cx, "commit-picker-list").ok_or("missing list")?;
+        let preview = harness.bounds(cx, "commit-picker-preview").ok_or("missing preview")?;
+        let eyebrow = harness.bounds(cx, "commit-preview-eyebrow").ok_or("missing eyebrow")?;
+        let title = harness.bounds(cx, "commit-preview-title").ok_or("missing title")?;
+        let body = harness.bounds(cx, "commit-preview-body").ok_or("missing body")?;
+        let facts = harness.bounds(cx, "commit-preview-facts").ok_or("missing facts")?;
+        assert!(list.right() <= preview.left());
+        assert!(eyebrow.bottom() <= title.top() && title.bottom() <= body.top() && body.bottom() <= facts.top());
+        assert!((preview.bottom() - facts.bottom()).abs() < px(1.0), "facts pin to the bottom of the preview");
+        assert!(harness.bounds(cx, "commit-preview-change-bar").is_some());
+        assert!(harness.bounds(cx, "commit-picker-page-1-marker").is_some());
+
+        harness.simulate_keystrokes(cx, "down");
+        assert!(harness.bounds(cx, "commit-preview-title").is_some());
+        assert!(harness.bounds(cx, "commit-preview-body").is_none());
+        assert!(harness.bounds(cx, "commit-preview-change-bar").is_none());
+        let facts = harness.bounds(cx, "commit-preview-facts").ok_or("missing facts")?;
+        assert!((preview.bottom() - facts.bottom()).abs() < px(1.0));
         Ok(())
     });
 }

@@ -3,7 +3,7 @@
 mod chrome;
 mod commands;
 mod document;
-mod inline;
+pub(crate) mod inline;
 mod rows;
 
 use crate::{
