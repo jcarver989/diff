@@ -1,6 +1,6 @@
 use crate::{
     CommitId, CommitStack, CommitSummary, DiffDocument, DiffSide, FileDiff, FileStatus, Hunk, PatchLine, RepoPath,
-    ReviewTarget, SourceDocument, SourceResult, SourceUnavailable, StageState,
+    RepoPathError, ReviewTarget, SourceDocument, SourceLocation, SourceResult, SourceUnavailable, StageState,
 };
 use std::sync::Arc;
 
@@ -278,6 +278,10 @@ impl DocumentBuilder {
             files,
         })
     }
+}
+
+pub fn location(path: &str, line_number: usize) -> Result<SourceLocation, RepoPathError> {
+    Ok(SourceLocation { path: RepoPath::new(path)?, side: DiffSide::New, line_number })
 }
 
 #[must_use]

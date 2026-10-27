@@ -24,3 +24,7 @@ thiserror.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 tempfile.workspace = true
+
+[[test]]
+name = "session_navigation_test"
+path = "tests/session/navigation_test.rs"

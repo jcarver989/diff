@@ -216,6 +216,12 @@ impl DiffReviewState {
             C::RepositoryAction(action) => {
                 return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(action));
             }
+            C::JumpTo(_) | C::NavigateBack | C::NavigateForward => {
+                if self.session.apply_navigation(command) != Some(true) {
+                    return InputOutcome::Ignored;
+                }
+                self.request_follow();
+            }
             C::Review(R::BeginComment | R::EditComment) => {
                 let started = if command == C::Review(R::BeginComment) {
                     self.session.begin_draft(None)

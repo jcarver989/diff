@@ -4,8 +4,11 @@ use crate::{
     PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind, SourceLocation,
     UNCOMMITTED_CHANGES, ViewMode, commit_description, commit_picker::format_age, presentation::retained_expansions,
 };
+use navigation::Navigation;
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, sync::Arc, time::Duration};
+
+mod navigation;
 
 const EXPAND_STEP: usize = 20;
 
@@ -138,6 +141,7 @@ pub struct ReviewSession {
     projection_revision: u64,
     pending_source_restore: Option<SourceLocation>,
     diff_return: Option<SelectionBookmark>,
+    navigation: Navigation,
 }
 
 impl ReviewSession {
@@ -158,6 +162,7 @@ impl ReviewSession {
             projection_revision: 0,
             pending_source_restore: None,
             diff_return: None,
+            navigation: Navigation::default(),
         };
         session.review.reconcile(&session.document);
         session.selected_file = session.presentation.file_order().first().copied().unwrap_or(0);
@@ -501,7 +506,8 @@ impl ReviewSession {
     /// Replaces the complete immutable document while preserving review and view
     /// state, including gap expansions for files whose content did not change.
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
-        if document.target != self.document.target {
+        let target_changed = document.target != self.document.target;
+        if target_changed {
             self.draft = None;
         }
         if let Some(scope) = document.target.scope() {
@@ -527,6 +533,7 @@ impl ReviewSession {
         if self.pending_source_restore.as_ref().is_some_and(|location| document.file_index(&location.path).is_none()) {
             self.pending_source_restore = None;
         }
+        self.navigation.document_changed(&document, target_changed);
         self.document = document;
         self.rebuild();
     }
