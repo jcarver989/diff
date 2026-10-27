@@ -8,8 +8,8 @@ use super::{
 };
 use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeSelection};
 use gpui::{
-    App, Context, Div, Entity, EventEmitter, FocusHandle, Hsla, IntoElement, KeyBinding, NoAction, ParentElement, Rems,
-    RenderOnce, ScrollHandle, SharedString, Subscription, Window, div, prelude::*, relative,
+    AnyElement, App, Context, Div, Entity, EventEmitter, FocusHandle, Hsla, IntoElement, KeyBinding, NoAction,
+    ParentElement, Rems, RenderOnce, ScrollHandle, SharedString, Subscription, Window, div, prelude::*, relative,
 };
 use gpui_base::input::{Enter, Escape, Input, InputEvent, InputState, MoveDown, MoveUp};
 use nucleo_matcher::{
@@ -18,7 +18,11 @@ use nucleo_matcher::{
 };
 use std::{cmp::Reverse, rc::Rc, sync::Arc};
 
-type ChooseHandler = Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
+type PositionHandler = Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
+type PreviewRenderer = Rc<dyn Fn(usize, &mut Window, &mut App) -> AnyElement + 'static>;
+
+const MARKER_SIZE: f32 = 7.0;
+const PENDING_MARKER_SIZE: f32 = 8.0;
 
 pub const CONTEXT: &str = "SearchPicker";
 
@@ -85,10 +89,17 @@ impl From<SharedString> for PickerDetail {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PickerMarker {
+    Dot(Hsla),
+    Pending,
+}
+
 #[derive(Debug, Clone)]
 pub struct PickerItem {
     id: SharedString,
     label: SharedString,
+    marker: Option<PickerMarker>,
     icon: Option<IconName>,
     group: Option<SharedString>,
     prefix: Option<SharedString>,
@@ -105,6 +116,7 @@ impl PickerItem {
         Self {
             id: id.into(),
             label: label.into(),
+            marker: None,
             icon: None,
             group: None,
             prefix: None,
@@ -114,6 +126,12 @@ impl PickerItem {
             disabled: false,
             checked: false,
         }
+    }
+
+    #[must_use]
+    pub const fn marker(mut self, marker: PickerMarker) -> Self {
+        self.marker = Some(marker);
+        self
     }
 
     #[must_use]
@@ -185,7 +203,8 @@ pub struct PickerList {
     empty: SharedString,
     max_height: Option<Rems>,
     scroll: Option<ScrollHandle>,
-    on_choose: Option<ChooseHandler>,
+    on_choose: Option<PositionHandler>,
+    on_hover: Option<PositionHandler>,
     checkable: bool,
     widest_prefix: Option<SharedString>,
 }
@@ -202,6 +221,7 @@ impl PickerList {
             max_height: None,
             scroll: None,
             on_choose: None,
+            on_hover: None,
             checkable: false,
             widest_prefix: None,
         }
@@ -257,6 +277,12 @@ impl PickerList {
         self.on_choose = Some(Rc::new(handler));
         self
     }
+
+    #[must_use]
+    pub fn on_hover(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
+        self.on_hover = Some(Rc::new(handler));
+        self
+    }
 }
 
 impl RenderOnce for PickerList {
@@ -303,6 +329,7 @@ impl RenderOnce for PickerList {
                 SelectionState::None
             };
             let on_choose = self.on_choose.clone().filter(|_| !item.disabled);
+            let on_hover = self.on_hover.clone().filter(|_| !item.disabled);
             let label_selector = format!("{id}-{}-label", item.id);
             let subtitle_selector = format!("{id}-{}-subtitle", item.id);
             rows.push(
@@ -311,7 +338,12 @@ impl RenderOnce for PickerList {
                     .when_some(on_choose, |row, choose| {
                         row.on_click(move |_, window, cx| choose(&position, window, cx))
                     })
-                    .when(checkable, |row| row.child(check_slot(item.checked, &colors)))
+                    .when_some(on_hover, |row, hover| {
+                        row.on_mouse_move(move |_, window, cx| hover(&position, window, cx))
+                    })
+                    .children(
+                        item.marker.map(|marker| marker_slot(marker, format!("{id}-{}-marker", item.id), &colors)),
+                    )
                     .children(item.icon.map(|icon| Icon::new(icon, colors.text_muted)))
                     .children(widest_prefix.clone().map(|widest| prefix_slot(widest, item.prefix, &colors)))
                     .child(
@@ -332,6 +364,9 @@ impl RenderOnce for PickerList {
                             })),
                     )
                     .when(!item.details.is_empty(), |row| row.child(details(item.details, &colors)))
+                    .when(checkable, |row| {
+                        row.child(check_slot(item.checked, format!("{id}-{}-check", item.id), &colors))
+                    })
                     .into_any_element(),
             );
         }
@@ -351,14 +386,42 @@ impl RenderOnce for PickerList {
     }
 }
 
-fn check_slot(checked: bool, colors: &UiColors) -> Div {
+fn check_slot(checked: bool, selector: String, colors: &UiColors) -> Div {
     div()
+        .debug_selector(move || selector)
         .flex_none()
         .size(rem(tokens::ICON_SIZE))
         .flex()
         .items_center()
         .justify_center()
-        .when(checked, |slot| slot.child(Icon::new(IconName::Check, colors.text_muted).size(tokens::ICON_SIZE_SMALL)))
+        .when(checked, |slot| slot.child(Icon::new(IconName::Check, colors.accent).size(tokens::ICON_SIZE_SMALL)))
+}
+
+impl PickerMarker {
+    #[must_use]
+    pub fn dot(self, colors: &UiColors) -> Div {
+        match self {
+            Self::Dot(color) => div().flex_none().size(rem(MARKER_SIZE)).rounded_full().bg(color),
+            Self::Pending => div()
+                .flex_none()
+                .size(rem(PENDING_MARKER_SIZE))
+                .rounded_full()
+                .border_1()
+                .border_dashed()
+                .border_color(colors.text_muted),
+        }
+    }
+}
+
+fn marker_slot(marker: PickerMarker, selector: String, colors: &UiColors) -> Div {
+    div()
+        .debug_selector(move || selector)
+        .flex_none()
+        .size(rem(tokens::ICON_SIZE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(marker.dot(colors))
 }
 
 fn prefix_slot(widest: SharedString, prefix: Option<SharedString>, colors: &UiColors) -> Div {
@@ -414,6 +477,7 @@ pub struct SearchPicker {
     width: Option<Rems>,
     height: Option<Rems>,
     max_list_height: Option<Rems>,
+    preview: Option<PreviewRenderer>,
     focus_handle: FocusHandle,
     needs_focus: bool,
     scroll: ScrollHandle,
@@ -447,6 +511,7 @@ impl SearchPicker {
             width: None,
             height: None,
             max_list_height: None,
+            preview: None,
             focus_handle: cx.focus_handle(),
             needs_focus: true,
             scroll: ScrollHandle::new(),
@@ -524,6 +589,12 @@ impl SearchPicker {
     }
 
     #[must_use]
+    pub fn preview(mut self, render: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static) -> Self {
+        self.preview = Some(Rc::new(render));
+        self
+    }
+
+    #[must_use]
     pub fn highlight(mut self, index: usize) -> Self {
         if let Some(position) = self.matches.iter().position(|&matched| matched == index) {
             self.highlighted = position;
@@ -594,9 +665,19 @@ impl SearchPicker {
     }
 
     fn set_highlighted_position(&mut self, position: usize, cx: &mut Context<Self>) {
+        self.scroll.scroll_to_item(position);
+        self.update_highlight(position, cx);
+    }
+
+    fn hover(&mut self, position: usize, cx: &mut Context<Self>) {
+        if position != self.highlighted {
+            self.update_highlight(position, cx);
+        }
+    }
+
+    fn update_highlight(&mut self, position: usize, cx: &mut Context<Self>) {
         let before = self.highlighted_item();
         self.highlighted = position;
-        self.scroll.scroll_to_item(position);
         if let Some(index) = self.highlighted_item().filter(|&index| Some(index) != before) {
             cx.emit(SearchPickerEvent::Highlighted(index));
         }
@@ -621,6 +702,37 @@ impl SearchPicker {
         if let Some(&index) = self.matches.get(position).filter(|&&index| !self.items[index].disabled) {
             cx.emit(SearchPickerEvent::Chose(index));
         }
+    }
+}
+
+impl SearchPicker {
+    fn render_content(&self, list: PickerList, preview: Option<AnyElement>) -> Div {
+        let colors = self.theme.colors;
+        let has_preview = preview.is_some();
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .child(
+                div()
+                    .when(has_preview, |column| {
+                        column
+                            .flex_none()
+                            .w(rem(tokens::PICKER_PREVIEW_LIST_WIDTH))
+                            .border_r_1()
+                            .border_color(colors.border_subtle)
+                    })
+                    .when(!has_preview, |column| column.flex_1().min_w_0())
+                    .min_h_0()
+                    .when_some(self.max_list_height, gpui::Styled::max_h)
+                    .flex()
+                    .flex_col()
+                    .child(list),
+            )
+            .children(preview.map(|preview| {
+                let selector = format!("{}-preview", self.id);
+                div().debug_selector(move || selector).flex_1().min_w_0().min_h_0().flex().flex_col().child(preview)
+            }))
     }
 }
 
@@ -653,6 +765,9 @@ impl Render for SearchPicker {
                 .child(Icon::new(IconName::Search, colors.text_muted))
                 .child(div().flex_1().min_w_0().child(Input::new(input)))
         });
+        let preview = self.preview.clone().map(|render| {
+            self.highlighted_item().map_or_else(|| div().into_any_element(), |index| render(index, window, cx))
+        });
         let body = if let Some(status) = self.status.clone() {
             PickerList::new(id.clone(), self.theme).empty(status)
         } else {
@@ -663,6 +778,7 @@ impl Render for SearchPicker {
                 .empty(self.empty.clone())
                 .track_scroll(&self.scroll)
                 .on_choose(cx.listener(|this, position: &usize, _, cx| this.choose(*position, cx)))
+                .on_hover(cx.listener(|this, position: &usize, _, cx| this.hover(*position, cx)))
         };
         div()
             .id(id.clone())
@@ -700,15 +816,7 @@ impl Render for SearchPicker {
                     .child(title)
             }))
             .children(search)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .when_some(self.max_list_height, gpui::Styled::max_h)
-                    .flex()
-                    .flex_col()
-                    .child(body),
-            )
+            .child(self.render_content(body, preview))
             .children(self.footer.clone().map(|footer| {
                 div()
                     .flex_none()

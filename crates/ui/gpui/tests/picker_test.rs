@@ -2,14 +2,19 @@ use clankerdiff_gpui_ui::{
     InterfaceSize,
     picker::fuzzy_filter,
     prelude::{
-        IconName, PickerDetail, PickerItem, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent, Typography,
-        UiTheme,
+        IconName, PickerDetail, PickerItem, PickerMarker, SearchPicker, SearchPickerEvent, ThemePicker,
+        ThemePickerEvent, Typography, UiTheme,
     },
     testing::ViewHarness,
-    tokens::{BASE_SIZE, FLOATING_INSET, PICKER_LIST_HEIGHT, POPOVER_WIDTH, ROW_HEIGHT, rem},
+    tokens::{
+        BASE_SIZE, FLOATING_INSET, PICKER_LIST_HEIGHT, PICKER_PREVIEW_HEIGHT, PICKER_PREVIEW_WIDTH, POPOVER_WIDTH,
+        ROW_HEIGHT, rem,
+    },
 };
 use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeId};
-use gpui::{AppContext, Context, TestAppContext, Window, WindowOptions, px};
+use gpui::{
+    AppContext, Context, InteractiveElement, IntoElement, ParentElement, TestAppContext, Window, WindowOptions, div, px,
+};
 use std::sync::Arc;
 
 #[test]
@@ -86,6 +91,90 @@ fn prefixes_form_a_column_and_details_can_be_searched(cx: &mut TestAppContext) {
         harness.simulate_input(cx, "+12");
         assert!(harness.bounds(cx, "picker-draft").is_none());
         assert!(harness.bounds(cx, "picker-parser").is_some());
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn markers_lead_the_label_and_checks_trail_it_in_shared_columns(cx: &mut TestAppContext) {
+    search_picker(cx, |_, cx| {
+        let theme = theme();
+        let items = vec![
+            PickerItem::new("done", "Done").marker(PickerMarker::Dot(theme.colors.accent)).checked(true),
+            PickerItem::new("draft", "Draft").marker(PickerMarker::Pending),
+        ];
+        SearchPicker::new("picker", items, theme, cx)
+    })
+    .run(cx, |harness, cx| {
+        let marker = harness.bounds(cx, "picker-done-marker").ok_or("missing marker")?;
+        let label = harness.bounds(cx, "picker-done-label").ok_or("missing label")?;
+        let check = harness.bounds(cx, "picker-done-check").ok_or("missing check")?;
+        let draft_label = harness.bounds(cx, "picker-draft-label").ok_or("missing draft label")?;
+        let draft_check = harness.bounds(cx, "picker-draft-check").ok_or("missing draft check slot")?;
+        assert!(marker.right() <= label.left());
+        assert!(label.right() <= check.left());
+        assert_eq!(label.left(), draft_label.left());
+        assert_eq!(check.left(), draft_check.left());
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn a_preview_sits_beside_the_list_and_follows_the_highlight(cx: &mut TestAppContext) {
+    search_picker(cx, |_, cx| {
+        let items = vec![PickerItem::new("alpha", "Alpha"), PickerItem::new("beta", "Beta")];
+        SearchPicker::new("picker", items, theme(), cx)
+            .width(rem(PICKER_PREVIEW_WIDTH))
+            .height(rem(PICKER_PREVIEW_HEIGHT))
+            .preview(|index, _, _| {
+                div()
+                    .debug_selector(move || format!("preview-{index}"))
+                    .child(format!("Item {index}"))
+                    .into_any_element()
+            })
+    })
+    .run(cx, |harness, cx| {
+        let list = harness.bounds(cx, "picker-list").ok_or("missing list")?;
+        let preview = harness.bounds(cx, "picker-preview").ok_or("missing preview")?;
+        assert!(list.right() <= preview.left());
+        assert!(harness.bounds(cx, "preview-0").is_some());
+        harness.update(cx, |picker, cx| picker.move_highlight(1, cx));
+        harness.draw(cx);
+        assert!(harness.bounds(cx, "preview-0").is_none());
+        assert!(harness.bounds(cx, "preview-1").is_some());
+        assert_eq!(harness.events(cx), vec![SearchPickerEvent::Highlighted(1)]);
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn hovering_an_item_highlights_it_and_updates_the_preview(cx: &mut TestAppContext) {
+    search_picker(cx, |_, cx| {
+        let items = vec![
+            PickerItem::new("alpha", "Alpha"),
+            PickerItem::new("beta", "Beta").disabled(true),
+            PickerItem::new("gamma", "Gamma"),
+        ];
+        SearchPicker::new("picker", items, theme(), cx)
+            .width(rem(PICKER_PREVIEW_WIDTH))
+            .height(rem(PICKER_PREVIEW_HEIGHT))
+            .preview(|index, _, _| {
+                div()
+                    .debug_selector(move || format!("preview-{index}"))
+                    .child(format!("Item {index}"))
+                    .into_any_element()
+            })
+    })
+    .run(cx, |harness, cx| {
+        harness.hover(cx, "picker-gamma")?;
+        harness.draw(cx);
+        assert!(harness.bounds(cx, "preview-0").is_none());
+        assert!(harness.bounds(cx, "preview-2").is_some());
+        harness.hover(cx, "picker-beta")?;
+        harness.draw(cx);
+        assert!(harness.bounds(cx, "preview-2").is_some());
+        harness.hover(cx, "picker-alpha")?;
+        assert_eq!(harness.events(cx), vec![SearchPickerEvent::Highlighted(2), SearchPickerEvent::Highlighted(0)]);
         Ok(())
     });
 }

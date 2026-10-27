@@ -11,12 +11,13 @@ pub use clankerdiff_theme::{
     ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone, SelectionState,
 };
 use gpui::{
-    AnyElement, AnyView, App, ClickEvent, Context, Div, ElementId, Hsla, IntoElement, ParentElement, Refineable, Rems,
-    Render, RenderOnce, Role, SharedString, Stateful, StyleRefinement, Window, div, prelude::*,
+    AnyElement, AnyView, App, ClickEvent, Context, Div, ElementId, Hsla, IntoElement, MouseMoveEvent, ParentElement,
+    Refineable, Rems, Render, RenderOnce, Role, SharedString, Stateful, StyleRefinement, Window, div, prelude::*,
 };
 use gpui_base::Selectable;
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type MouseMoveHandler = Box<dyn Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static>;
 type DismissHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 
 /// Applies a resolved semantic style and the shared hover and click
@@ -844,12 +845,21 @@ pub struct ListRow {
     depth: usize,
     children: Vec<AnyElement>,
     on_click: Option<ClickHandler>,
+    on_mouse_move: Option<MouseMoveHandler>,
 }
 
 impl ListRow {
     #[must_use]
     pub fn new(id: impl Into<ElementId>, theme: UiTheme) -> Self {
-        Self { id: id.into(), theme, state: SelectionState::None, depth: 0, children: Vec::new(), on_click: None }
+        Self {
+            id: id.into(),
+            theme,
+            state: SelectionState::None,
+            depth: 0,
+            children: Vec::new(),
+            on_click: None,
+            on_mouse_move: None,
+        }
     }
     /// The hover group of the row with `id`.
     #[must_use]
@@ -882,6 +892,11 @@ impl ListRow {
         self.on_click = Some(Box::new(handler));
         self
     }
+    #[must_use]
+    pub fn on_mouse_move(mut self, handler: impl Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_mouse_move = Some(Box::new(handler));
+        self
+    }
 }
 
 impl Selectable for ListRow {
@@ -909,6 +924,7 @@ impl RenderOnce for ListRow {
             style
         };
         let selector = self.id.to_string();
+        let disabled = self.state == SelectionState::Disabled;
         interactive(
             div()
                 .id(self.id)
@@ -926,9 +942,10 @@ impl RenderOnce for ListRow {
                 .typography(Typography::Body),
             style,
             hover,
-            self.state == SelectionState::Disabled,
+            disabled,
             self.on_click,
         )
+        .when_some(self.on_mouse_move.filter(|_| !disabled), |row, handler| row.on_mouse_move(handler))
         .children(self.children)
     }
 }
