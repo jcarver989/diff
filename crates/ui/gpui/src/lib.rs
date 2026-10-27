@@ -30,7 +30,8 @@ pub mod prelude {
     pub use super::inline_edit::InlineEdit;
     pub use super::menu::{MenuItem, with_menu};
     pub use super::picker::{
-        PickerItem, PickerList, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent, ThemePickerOverlay,
+        PickerDetail, PickerItem, PickerList, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent,
+        ThemePickerOverlay,
     };
     pub use super::resizable::{PanelSide, ResizablePanel};
     pub use super::scrollbar::ListScrollbar;

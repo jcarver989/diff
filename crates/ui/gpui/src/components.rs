@@ -912,6 +912,7 @@ impl RenderOnce for ListRow {
                 .id(self.id)
                 .group(Self::hover_group(&selector))
                 .debug_selector(move || selector)
+                .flex_shrink_0()
                 .min_h(rem(tokens::ROW_HEIGHT))
                 .w_full()
                 .pl(indent(self.depth))

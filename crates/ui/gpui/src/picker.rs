@@ -1,13 +1,14 @@
 use super::{
     components::{Backdrop, ListRow, SelectionState, SurfaceExt},
+    fonts::CODE_FONT,
     icon::{Icon, IconName},
-    theme::UiTheme,
+    theme::{UiColors, UiTheme},
     tokens::{self, rem},
     typography::{Typography, TypographyExt},
 };
 use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeSelection};
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, IntoElement, KeyBinding, NoAction, ParentElement, Rems,
+    App, Context, Div, Entity, EventEmitter, FocusHandle, Hsla, IntoElement, KeyBinding, NoAction, ParentElement, Rems,
     RenderOnce, ScrollHandle, SharedString, Subscription, Window, div, prelude::*, relative,
 };
 use gpui_base::input::{Enter, Escape, Input, InputEvent, InputState, MoveDown, MoveUp};
@@ -41,12 +42,58 @@ pub fn fuzzy_filter<T: AsRef<str>>(query: &str, keys: impl IntoIterator<Item = T
 }
 
 #[derive(Debug, Clone)]
+pub struct PickerDetail {
+    text: SharedString,
+    color: Option<Hsla>,
+    code: bool,
+}
+
+impl PickerDetail {
+    #[must_use]
+    pub fn new(text: impl Into<SharedString>) -> Self {
+        Self { text: text.into(), color: None, code: false }
+    }
+
+    #[must_use]
+    pub const fn color(mut self, color: Hsla) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    #[must_use]
+    pub const fn code(mut self) -> Self {
+        self.code = true;
+        self
+    }
+}
+
+impl From<&'static str> for PickerDetail {
+    fn from(text: &'static str) -> Self {
+        Self::new(text)
+    }
+}
+
+impl From<String> for PickerDetail {
+    fn from(text: String) -> Self {
+        Self::new(text)
+    }
+}
+
+impl From<SharedString> for PickerDetail {
+    fn from(text: SharedString) -> Self {
+        Self::new(text)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PickerItem {
     id: SharedString,
     label: SharedString,
     icon: Option<IconName>,
     group: Option<SharedString>,
-    detail: Option<SharedString>,
+    prefix: Option<SharedString>,
+    subtitle: Option<SharedString>,
+    details: Vec<PickerDetail>,
     keywords: Option<SharedString>,
     disabled: bool,
     checked: bool,
@@ -60,7 +107,9 @@ impl PickerItem {
             label: label.into(),
             icon: None,
             group: None,
-            detail: None,
+            prefix: None,
+            subtitle: None,
+            details: Vec::new(),
             keywords: None,
             disabled: false,
             checked: false,
@@ -80,8 +129,20 @@ impl PickerItem {
     }
 
     #[must_use]
-    pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
-        self.detail = Some(detail.into());
+    pub fn prefix(mut self, prefix: impl Into<SharedString>) -> Self {
+        self.prefix = Some(prefix.into());
+        self
+    }
+
+    #[must_use]
+    pub fn subtitle(mut self, subtitle: impl Into<SharedString>) -> Self {
+        self.subtitle = Some(subtitle.into());
+        self
+    }
+
+    #[must_use]
+    pub fn detail(mut self, detail: impl Into<PickerDetail>) -> Self {
+        self.details.push(detail.into());
         self
     }
 
@@ -104,9 +165,11 @@ impl PickerItem {
     }
 
     fn match_text(&self) -> String {
-        [Some(&self.label), self.detail.as_ref(), self.keywords.as_ref()]
+        [self.prefix.as_ref(), Some(&self.label), self.subtitle.as_ref()]
             .into_iter()
             .flatten()
+            .chain(self.details.iter().map(|detail| &detail.text))
+            .chain(self.keywords.as_ref())
             .map(SharedString::as_ref)
             .collect::<Vec<&str>>()
             .join(" ")
@@ -123,6 +186,8 @@ pub struct PickerList {
     max_height: Option<Rems>,
     scroll: Option<ScrollHandle>,
     on_choose: Option<ChooseHandler>,
+    checkable: bool,
+    widest_prefix: Option<SharedString>,
 }
 
 impl PickerList {
@@ -137,12 +202,29 @@ impl PickerList {
             max_height: None,
             scroll: None,
             on_choose: None,
+            checkable: false,
+            widest_prefix: None,
         }
     }
 
     #[must_use]
     pub fn items(mut self, items: impl IntoIterator<Item = PickerItem>) -> Self {
+        let items: Vec<PickerItem> = items.into_iter().collect();
+        self = self.align_with(&items);
         self.items.extend(items);
+        self
+    }
+
+    #[must_use]
+    pub fn align_with<'a>(mut self, items: impl IntoIterator<Item = &'a PickerItem>) -> Self {
+        for item in items {
+            self.checkable |= item.checked;
+            if let Some(prefix) = &item.prefix
+                && self.widest_prefix.as_ref().is_none_or(|widest| widest.chars().count() < prefix.chars().count())
+            {
+                self.widest_prefix = Some(prefix.clone());
+            }
+        }
         self
     }
 
@@ -191,6 +273,8 @@ impl RenderOnce for PickerList {
         }
         let id = self.id;
         let theme = self.theme;
+        let checkable = self.checkable;
+        let widest_prefix = self.widest_prefix;
         let mut previous_group = None;
         let mut rows = Vec::new();
         for (position, item) in self.items.into_iter().enumerate() {
@@ -219,24 +303,35 @@ impl RenderOnce for PickerList {
                 SelectionState::None
             };
             let on_choose = self.on_choose.clone().filter(|_| !item.disabled);
+            let label_selector = format!("{id}-{}-label", item.id);
+            let subtitle_selector = format!("{id}-{}-subtitle", item.id);
             rows.push(
                 ListRow::new(format!("{id}-{}", item.id), theme)
                     .state(state)
                     .when_some(on_choose, |row, choose| {
                         row.on_click(move |_, window, cx| choose(&position, window, cx))
                     })
+                    .when(checkable, |row| row.child(check_slot(item.checked, &colors)))
                     .children(item.icon.map(|icon| Icon::new(icon, colors.text_muted)))
-                    .child(div().flex_1().min_w_0().truncate().child(item.label))
-                    .children(item.detail.map(|detail| {
+                    .children(widest_prefix.clone().map(|widest| prefix_slot(widest, item.prefix, &colors)))
+                    .child(
                         div()
-                            .flex_none()
-                            .max_w(relative(0.5))
-                            .truncate()
-                            .typography(Typography::Small)
-                            .text_color(colors.text_muted)
-                            .child(detail)
-                    }))
-                    .when(item.checked, |row| row.child(Icon::new(IconName::Check, colors.text_muted)))
+                            .flex_1()
+                            .min_w_0()
+                            .when(item.subtitle.is_some(), gpui::Styled::py_1)
+                            .flex()
+                            .flex_col()
+                            .child(div().debug_selector(move || label_selector).truncate().child(item.label))
+                            .children(item.subtitle.map(|subtitle| {
+                                div()
+                                    .debug_selector(move || subtitle_selector)
+                                    .truncate()
+                                    .typography(Typography::Small)
+                                    .text_color(colors.text_muted)
+                                    .child(subtitle)
+                            })),
+                    )
+                    .when(!item.details.is_empty(), |row| row.child(details(item.details, &colors)))
                     .into_any_element(),
             );
         }
@@ -254,6 +349,46 @@ impl RenderOnce for PickerList {
             .children(rows)
             .into_any_element()
     }
+}
+
+fn check_slot(checked: bool, colors: &UiColors) -> Div {
+    div()
+        .flex_none()
+        .size(rem(tokens::ICON_SIZE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .when(checked, |slot| slot.child(Icon::new(IconName::Check, colors.text_muted).size(tokens::ICON_SIZE_SMALL)))
+}
+
+fn prefix_slot(widest: SharedString, prefix: Option<SharedString>, colors: &UiColors) -> Div {
+    div()
+        .flex_none()
+        .relative()
+        .typography(Typography::Code)
+        .text_color(colors.text_muted)
+        .child(div().invisible().child(widest))
+        .children(prefix.map(|prefix| div().absolute().top_0().left_0().child(prefix)))
+}
+
+fn details(details: Vec<PickerDetail>, colors: &UiColors) -> Div {
+    div()
+        .flex_none()
+        .max_w(relative(0.5))
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .flex()
+        .items_center()
+        .gap_2()
+        .typography(Typography::Small)
+        .text_color(colors.text_muted)
+        .children(details.into_iter().map(|detail| {
+            div()
+                .flex_none()
+                .when(detail.code, |detail| detail.font_family(CODE_FONT))
+                .when_some(detail.color, gpui::Styled::text_color)
+                .child(detail.text)
+        }))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -522,6 +657,7 @@ impl Render for SearchPicker {
             PickerList::new(id.clone(), self.theme).empty(status)
         } else {
             PickerList::new(id.clone(), self.theme)
+                .align_with(&self.items)
                 .items(self.matches.iter().map(|&index| self.items[index].clone()))
                 .highlighted(Some(self.highlighted))
                 .empty(self.empty.clone())

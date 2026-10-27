@@ -275,6 +275,16 @@ impl<T: Render + EventEmitter<U>, U: Clone + 'static> ViewHarness<T, U> {
         Self { driver: WindowDriver::new(window), window, view }
     }
 
+    pub fn run(
+        &self,
+        cx: &mut TestAppContext,
+        test: impl FnOnce(&Self, &mut TestAppContext) -> Result<(), Box<dyn Error>>,
+    ) {
+        if let Err(error) = test(self, cx) {
+            panic!("{error}");
+        }
+    }
+
     #[must_use]
     pub fn events(&self, cx: &TestAppContext) -> Vec<U> {
         self.window.read_with(cx, |root, _| root.events.clone()).expect("read recorded GPUI events")
