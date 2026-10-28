@@ -41,7 +41,7 @@ impl DiffReviewState {
             capabilities: self.capabilities,
             repository_pending: self.repository_pending(),
             document_ready: matches!(self.status, DiffReviewStatus::Ready),
-            source_view: self.session.source_view().is_some(),
+            source_view: self.session.shows_source(),
             navigation_available: !matches!(self.options.navigation, NavigationPane::Hidden | NavigationPane::Width(0)),
             themes_available: !self.theme_choices.is_empty(),
             commits_available: self.session.commits().is_some(),
@@ -78,7 +78,7 @@ impl DiffReviewState {
         if !self.command_enabled(&command) {
             return InputOutcome::Ignored;
         }
-        if self.lookup.take().is_some() {
+        if self.names.close() {
             self.mark_dirty();
         }
         match command {
@@ -229,6 +229,7 @@ impl DiffReviewState {
                     return InputOutcome::Ignored;
                 }
                 self.request_follow();
+                self.names.navigated(&mut self.session, self.capabilities.lookups);
             }
             C::Review(R::BeginComment | R::EditComment) => {
                 let started = if command == C::Review(R::BeginComment) {

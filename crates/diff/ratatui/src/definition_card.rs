@@ -1,9 +1,13 @@
 use crate::{
-    DiffReviewCommand, DiffReviewEvent, DiffReviewState, InputOutcome, KeyCode, KeyEvent, RatatuiTheme,
-    interaction::is_plain_key, syntax::highlighted_line, ui::SelectionState,
+    DiffReviewCommand, DiffReviewEvent, DiffReviewState, InputOutcome, KeyCode, KeyEvent, MarkdownLayoutOptions,
+    MarkdownRenderer, RatatuiTheme,
+    interaction::is_plain_key,
+    markdown::{MarkdownOptions, parse_markdown},
+    syntax::highlighted_line,
+    ui::SelectionState,
 };
-use clankerdiff_core::SourceDocument;
-use clankerdiff_symbols::{Definition, DefinitionCard, Lookup, NameHints, SymbolIndex};
+use clankerdiff_core::{LookupReply, RepoPath, SourceLocation};
+use clankerdiff_symbols::{Activation, CardContent, DefinitionCard, Mark, NameHints, NamePick, Settled};
 use clankerdiff_syntax::LanguageHint;
 use ratatui::{
     buffer::Buffer,
@@ -12,51 +16,98 @@ use ratatui::{
     text::Line,
     widgets::{Block, Clear, Padding, Paragraph, Widget},
 };
+use std::{ops::Range, sync::Arc};
 
 const CARD_MIN_WIDTH: u16 = 40;
 const CARD_MAX_WIDTH: u16 = 88;
 const CARD_INDENT: u16 = 2;
+const CARD_CHROME: u16 = 4;
 const DOC_LINES: usize = 12;
+
+pub(crate) type NameMarks = (SourceLocation, Vec<(Range<usize>, Mark)>);
 
 impl DiffReviewState {
     pub(crate) fn show_definition_at_selection(&mut self) -> bool {
         let Some(origin) = self.session.selected_source_line() else {
             return false;
         };
-        self.lookup = Lookup::at(&self.symbols(), origin);
-        self.lookup.is_some()
+        let index = self.symbols();
+        self.names.open_at(origin, &self.session, &index, self.capabilities.lookups)
     }
 
     pub(crate) fn handle_lookup_key(&mut self, key: KeyEvent) -> Option<InputOutcome<DiffReviewEvent>> {
         let index = self.symbols();
-        let cancel = key.code == KeyCode::Esc || key == KeyCode::ctrl('g');
-        match self.lookup.as_mut()? {
-            Lookup::Hints(hints) => {
-                let picked = match key.code {
-                    KeyCode::Char(character) if is_plain_key(key) => hints.pick(character),
-                    _ => None,
-                };
-                self.lookup = picked.map(Lookup::Card);
+        let enabled = self.capabilities.lookups;
+        let Some(pick) = self.names.pick() else {
+            let back = key.code == KeyCode::Esc && self.session.in_reference();
+            return back.then(|| self.handle_command(DiffReviewCommand::NavigateBack));
+        };
+        if matches!(pick, NamePick::Hints(_)) {
+            let picked = match key.code {
+                KeyCode::Char(character) if is_plain_key(key) => {
+                    self.names.pick_hint(character, &self.session, enabled)
+                }
+                _ => false,
+            };
+            if !picked {
+                self.names.close();
             }
-            Lookup::Card(_) if cancel => self.lookup = None,
-            Lookup::Card(card) if key.code == KeyCode::Tab => {
-                card.cycle(&index);
-            }
-            Lookup::Card(card) if key.code == KeyCode::Enter => {
-                let target = card.target(&index);
-                self.lookup = None;
-                if let Some(target) = target {
+        } else if key.code == KeyCode::Esc || key == KeyCode::ctrl('g') {
+            self.names.close();
+        } else if key.code == KeyCode::Tab {
+            self.names.cycle(&index);
+        } else if key.code == KeyCode::Enter {
+            match self.names.activate(&index) {
+                Activation::Wait => {}
+                Activation::Jump(target) => {
+                    self.names.close();
                     return Some(self.handle_command(DiffReviewCommand::JumpTo(target)));
                 }
+                Activation::Idle => {
+                    self.names.close();
+                }
             }
-            Lookup::Card(_) => return None,
+        } else {
+            return None;
         }
         self.mark_dirty();
         Some(InputOutcome::Consumed)
     }
 
+    pub fn lookup_finished(&mut self, reply: LookupReply) {
+        self.mark_dirty();
+        let index = self.symbols();
+        match self.names.finish(reply, &mut self.session, &index) {
+            Settled::Jump(target) => {
+                self.names.close();
+                let _ = self.handle_command(DiffReviewCommand::JumpTo(target));
+            }
+            Settled::Opened => self.request_follow(),
+            Settled::Ignored | Settled::Redraw => {}
+        }
+    }
+
+    pub(crate) fn reference_status(&self) -> Option<String> {
+        self.session.reference_status()
+    }
+
+    pub(crate) fn name_marks(&mut self) -> Option<NameMarks> {
+        let index = self.symbols();
+        let origin = self.names.pick()?.origin().clone();
+        let marks = self.names.marks(&origin, index.references_at(&origin));
+        Some((origin, marks))
+    }
+
+    pub(crate) fn symbol_path(&mut self, top: usize) -> Vec<String> {
+        let presentation = self.presentation();
+        let side = self.session.selected_side();
+        let location =
+            presentation.row(top).and_then(|row| presentation.source_location_from(row.file_index, top, side));
+        location.map_or_else(Vec::new, |location| self.symbols().path_names(&location))
+    }
+
     pub(crate) fn render_definition_card(&mut self, buffer: &mut Buffer, theme: &RatatuiTheme) {
-        let Some(Lookup::Card(card)) = self.lookup.clone() else {
+        let Some(card) = self.names.card().cloned() else {
             return;
         };
         let area = self.hit_layout.patch;
@@ -64,12 +115,14 @@ impl DiffReviewState {
             return;
         }
         let index = self.symbols();
-        let lines = self.card_lines(&card, &index, theme);
+        let content = card.content(&index);
+        let width = area.width.min(CARD_MAX_WIDTH).saturating_sub(CARD_CHROME);
+        let lines = self.card_lines(&content, width, theme);
         let popup = placement(area, self.origin_rows(&card), &lines);
-        let hint = match card.choice(&index) {
-            Some(choice) if choice.count > 1 => " Enter go · Tab next · Esc close ",
-            Some(_) => " Enter go · Esc close ",
-            None => " Esc close ",
+        let hint = match (content.can_jump, content.can_cycle) {
+            (true, true) => " Enter go · Tab next · Esc close ",
+            (true, false) => " Enter go · Esc close ",
+            (false, _) => " Esc close ",
         };
         Clear.render(popup, buffer);
         let block = Block::bordered()
@@ -90,53 +143,47 @@ impl DiffReviewState {
         (top <= bottom).then_some((top, bottom))
     }
 
-    fn card_lines(&mut self, card: &DefinitionCard, index: &SymbolIndex, theme: &RatatuiTheme) -> Vec<Line<'static>> {
+    fn card_lines(&mut self, content: &CardContent<'_>, width: u16, theme: &RatatuiTheme) -> Vec<Line<'static>> {
         let muted = Style::new().fg(theme.ui.text_muted);
-        let uses = format!("{} in this diff", uses_label(index.uses(&card.name).len()));
-        let Some(choice) = card.choice(index) else {
-            return vec![
-                Line::styled(format!("No definition of {} in this diff", card.name), muted),
-                Line::styled(uses, muted),
-            ];
-        };
-        let mut lines = self.signature_lines(choice.definition, theme);
-        if let Some(docs) = &choice.definition.docs {
-            lines.push(Line::default());
-            let mut docs = docs.lines();
-            let text = Style::new().fg(theme.ui.text_secondary);
-            lines.extend(docs.by_ref().take(DOC_LINES).map(|line| Line::styled(line.to_owned(), text)));
-            if docs.next().is_some() {
+        let mut lines: Vec<Line<'static>> =
+            content.message.iter().map(|message| Line::styled(message.clone(), muted)).collect();
+        if let Some((path, code)) = &content.code {
+            lines.extend(self.code_lines(path, code, theme));
+        }
+        if let Some(docs) = content.docs {
+            if !lines.is_empty() {
+                lines.push(Line::default());
+            }
+            let docs = self.doc_lines(docs, width);
+            lines.extend(docs.iter().take(DOC_LINES).cloned());
+            if docs.len() > DOC_LINES {
                 lines.push(Line::styled("…", muted));
             }
         }
-        let location = &choice.definition.location;
-        let position = match choice.count {
-            0 | 1 => String::new(),
-            count => format!(" · {} of {count}", choice.position + 1),
+        if content.code.is_some() || content.docs.is_some() {
+            lines.push(Line::default());
+        }
+        let footer = match &content.place {
+            Some(place) => format!("{place} · {}", content.uses),
+            None => content.uses.clone(),
         };
-        lines.push(Line::default());
-        lines.push(Line::styled(format!("{}:{}{position} · {uses}", location.path, location.line_number), muted));
+        lines.push(Line::styled(footer, muted));
         lines
     }
 
-    fn signature_lines(&mut self, definition: &Definition, theme: &RatatuiTheme) -> Vec<Line<'static>> {
+    fn doc_lines(&mut self, docs: &str, width: u16) -> Arc<[Line<'static>]> {
+        let document = parse_markdown(docs, MarkdownOptions { intra_doc_links: true });
+        let options = MarkdownLayoutOptions { width, heading_markers: false, ..MarkdownLayoutOptions::default() };
+        MarkdownRenderer::new().render_lines(&document, options, &self.theme, &mut self.highlighter)
+    }
+
+    fn code_lines(&mut self, path: &RepoPath, code: &str, theme: &RatatuiTheme) -> Vec<Line<'static>> {
         let base = theme.ui.selection_style(SelectionState::None).fg(theme.ui.text);
-        let Ok(source) = SourceDocument::new(&definition.signature) else {
-            return vec![Line::styled(definition.signature.clone(), base)];
-        };
-        let highlights = self
-            .highlighter
+        self.highlighter
             .with_theme(&self.theme.syntax)
-            .highlight_document(source.content_id(), LanguageHint::Path(definition.location.path.as_str()), || {
-                source.text()
-            })
-            .ok();
-        (1..=source.line_count())
-            .map(|line_number| {
-                let text = source.line(line_number).unwrap_or_default();
-                let spans = highlights.as_ref().and_then(|highlights| highlights.line_shared(line_number - 1));
-                highlighted_line(text, spans.as_deref().unwrap_or_default(), base)
-            })
+            .highlight_lines(LanguageHint::Path(path.as_str()), code)
+            .into_iter()
+            .map(|(line, spans)| highlighted_line(line, &spans, base))
             .collect()
     }
 }
@@ -148,7 +195,10 @@ pub(crate) fn hints_footer(hints: &NameHints) -> String {
 
 fn placement(area: Rect, origin: Option<(u16, u16)>, lines: &[Line<'_>]) -> Rect {
     let content = lines.iter().map(Line::width).max().unwrap_or(0);
-    let width = u16::try_from(content + 4).unwrap_or(u16::MAX).clamp(CARD_MIN_WIDTH, CARD_MAX_WIDTH).min(area.width);
+    let width = u16::try_from(content + usize::from(CARD_CHROME))
+        .unwrap_or(u16::MAX)
+        .clamp(CARD_MIN_WIDTH, CARD_MAX_WIDTH)
+        .min(area.width);
     let height = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX).min(area.height);
     let x = area.x + area.width.saturating_sub(width).min(CARD_INDENT);
     let y = match origin {
@@ -157,8 +207,4 @@ fn placement(area: Rect, origin: Option<(u16, u16)>, lines: &[Line<'_>]) -> Rect
         _ => area.bottom().saturating_sub(height),
     };
     Rect::new(x, y, width, height)
-}
-
-fn uses_label(count: usize) -> String {
-    if count == 1 { "1 use".to_owned() } else { format!("{count} uses") }
 }

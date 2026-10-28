@@ -2,7 +2,6 @@
 
 use crate::color::{composite_color, native_color, page_color};
 use clankerdiff_core::{DiffTone, FileStatus};
-use clankerdiff_theme::FontStyle;
 use clankerdiff_theme::{
     ButtonVariant, ControlState, ModalSize, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle, UiPalette,
 };
@@ -158,14 +157,6 @@ pub(crate) fn diff_indicator(tone: DiffTone, theme: &ReviewTheme, base: Style) -
         DiffTone::Context | DiffTone::Meta => (" ", theme.diff.gutter),
     };
     Span::styled(symbol, base.fg(page_color(theme, foreground)))
-}
-
-pub(crate) fn syntax_style(foreground: Rgba, font: FontStyle, background: Color) -> Style {
-    let mut modifiers = Modifier::empty();
-    modifiers.set(Modifier::BOLD, font.bold);
-    modifiers.set(Modifier::ITALIC, font.italic);
-    modifiers.set(Modifier::UNDERLINED, font.underline);
-    Style::new().fg(native_color(foreground, background)).bg(background).add_modifier(modifiers)
 }
 
 pub(crate) const fn file_status_color(status: FileStatus, theme: &RatatuiTheme) -> Color {
