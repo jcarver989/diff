@@ -2,11 +2,9 @@
 
 use async_channel::{Receiver, Sender, bounded};
 use clankerdiff_client::{
-    ClientError, ClientMessageTransport, ClientSubscription,
+    ClientError, ClientMessageTransport, ClientOptions, ClientSubscription, DiffClient,
     protocol::{client::ClientCommand, server::ServerMessage},
 };
-#[cfg(feature = "websocket")]
-use clankerdiff_client::{ClientOptions, DiffClient};
 use clankerdiff_git::testing::{RepoFixture, RepoFixtureBuilder};
 use clankerdiff_protocol::shared::{RemoteError, RemoteErrorCode};
 #[cfg(feature = "websocket")]
@@ -31,6 +29,12 @@ impl TestServer {
     pub async fn open(repo: RepoFixture) -> Result<Self, Box<dyn Error>> {
         let server = DiffServer::open(repo.repository().await.root(), ServerOptions::default()).await?;
         Ok(Self { repo, server })
+    }
+
+    pub async fn client(&self) -> Result<DiffClient, Box<dyn Error>> {
+        let client = DiffClient::from_transport(self.server.connect()?, ClientOptions::default()).await?;
+        client.subscribe().wait_until(WAIT, |state| state.snapshot.is_some()).await?;
+        Ok(client)
     }
 
     #[cfg(feature = "websocket")]
