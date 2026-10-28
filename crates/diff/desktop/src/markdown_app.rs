@@ -29,10 +29,8 @@ impl MarkdownDesktopApp {
         let theme = ThemeStore::user().theme(window_appearance(window));
         let reviewer = cx.new(|cx| {
             let mut reviewer = MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default());
-            reviewer.set_capabilities(
-                ReviewCapabilities { repository: false, refresh: false, scope: false, submit: true, clipboard: true },
-                cx,
-            );
+            reviewer
+                .set_capabilities(ReviewCapabilities { submit: true, clipboard: true, ..ReviewCapabilities::NONE }, cx);
             reviewer
         });
         let subscription =

@@ -1,4 +1,4 @@
-use crate::{DiffScope, DiffSide, RepositoryAction, RevealAmount, SourceLocation, ViewMode};
+use crate::{DiffScope, DiffSide, RepositoryAction, RevealAmount, TargetLocation, ViewMode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,11 +29,18 @@ pub struct ReviewCapabilities {
     pub scope: bool,
     pub submit: bool,
     pub clipboard: bool,
+    #[serde(default)]
+    pub lookups: bool,
+}
+
+impl ReviewCapabilities {
+    pub const NONE: Self =
+        Self { repository: false, refresh: false, scope: false, submit: false, clipboard: false, lookups: false };
 }
 
 impl Default for ReviewCapabilities {
     fn default() -> Self {
-        Self { repository: true, refresh: true, scope: true, submit: true, clipboard: true }
+        Self { repository: true, refresh: true, scope: true, submit: true, clipboard: true, lookups: false }
     }
 }
 
@@ -139,7 +146,7 @@ pub enum DiffReviewCommand {
     BeginDiscard,
     RepositoryAction(RepositoryAction),
     ShowDefinition,
-    JumpTo(SourceLocation),
+    JumpTo(TargetLocation),
     NavigateBack,
     NavigateForward,
 }
