@@ -58,7 +58,7 @@ impl ClientState {
                 Self { connection: ConnectionState::Failed(ClientError::Remote(error.clone())), ..self }
                     .with_capabilities()
             }
-            Event::RequestResult(_) => self,
+            Event::RequestResult(_) | Event::Lookup { .. } => self,
         }
     }
 

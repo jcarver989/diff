@@ -7,7 +7,11 @@ use clankerdiff_client::{
         shared::{DocumentUpdate, Event, FileEntry, LIVE_PROTOCOL_VERSION},
     },
 };
-use clankerdiff_core::{DiffScope, FileDiff, Review, ReviewTarget, testing::DocumentBuilder};
+use clankerdiff_core::{
+    DefinitionRequest, DiffScope, FileDiff, Fingerprint, Lookup, LookupAnswer, LookupReply, LookupRequest, Review,
+    ReviewTarget,
+    testing::{DocumentBuilder, ResolutionBuilder, external, location},
+};
 use std::{error::Error, sync::Arc, time::Duration};
 use tokio::time::timeout;
 
@@ -98,6 +102,40 @@ async fn one_operation_runs_at_a_time_and_scope_settles_with_its_document() -> R
         ReviewTarget::WorkingTree(DiffScope::Staged)
     );
     client.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn lookups_are_answered_while_a_request_runs() -> Result<(), Box<dyn Error>> {
+    let (client, server) = connected().await?;
+    server.send(document(DiffScope::Both)).await?;
+    let refreshing = client.clone();
+    let refresh = tokio::spawn(async move { refreshing.refresh().await });
+    assert!(matches!(server.recv().await?, ClientCommand::Refresh));
+
+    let looking = client.clone();
+    let request = DefinitionRequest { at: location("a", 1)?, column: 0, content: Fingerprint::default() };
+    let sent = Lookup { token: 3, request: request.clone().into() };
+    let answer = tokio::spawn(async move { looking.lookup(sent).await });
+    let ClientCommand::Lookup { id, request: received } = server.recv().await? else {
+        return Err("expected a lookup".into());
+    };
+    assert_eq!(received, LookupRequest::Definition(request.clone()));
+    let resolution = ResolutionBuilder::new().target("a", 1).build();
+    server.send(Event::Lookup { id, result: Ok(LookupAnswer::Definition(resolution.clone())) }).await?;
+    assert_eq!(timeout(WAIT, answer).await??, LookupReply::Definition { token: 3, request, resolution });
+    assert!(!refresh.is_finished());
+
+    let looking = client.clone();
+    let path = external(1, "std · alloc/src/sync.rs");
+    let source = Lookup { token: 4, request: LookupRequest::Source(path.clone()) };
+    let pending = tokio::spawn(async move { looking.lookup(source).await });
+    assert!(matches!(server.recv().await?, ClientCommand::Lookup { .. }));
+    drop(server);
+    let LookupReply::Source { token: 4, path: answered, result: Err(_) } = timeout(WAIT, pending).await?? else {
+        return Err("expected a failed source".into());
+    };
+    assert_eq!(answered, path);
     Ok(())
 }
 

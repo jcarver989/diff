@@ -7,7 +7,8 @@ mod state;
 pub mod transport;
 
 pub use clankerdiff_core::{
-    DiffDocument, DiffReviewEvent, DiffScope, RepositoryAction, ReviewCapabilities, ReviewTarget,
+    DiffDocument, DiffReviewEvent, DiffScope, Lookup, LookupAnswer, LookupReply, LookupRequest, RepositoryAction,
+    ReviewCapabilities, ReviewTarget,
 };
 pub use client::{ClientSubscription, DiffClient};
 pub use error::ClientError;
