@@ -4,4 +4,4 @@ mod lookup;
 
 pub use clankerdiff_syntax::{SymbolKind, SymbolReference};
 pub use index::{Definition, SymbolCache, SymbolChange, SymbolIndex, SymbolUse};
-pub use lookup::{Choice, DefinitionCard, HINT_KEYS, Lookup, NameHints};
+pub use lookup::{Activation, CardContent, DefinitionCard, HINT_KEYS, Mark, NameHints, NameLookup, NamePick, Settled};

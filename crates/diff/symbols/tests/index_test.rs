@@ -51,12 +51,10 @@ fn definitions_nearest_the_origin_rank_first_and_carry_signatures_and_docs() -> 
 }
 
 #[test]
-fn path_at_lists_enclosing_definitions_outermost_first() -> Result<(), Box<dyn Error>> {
+fn path_names_list_enclosing_definitions_outermost_first() -> Result<(), Box<dyn Error>> {
     let index = index();
-    let path = index.path_at(&location("src/lib.rs", DiffSide::New, 8)?);
-    let names: Vec<_> = path.iter().map(|definition| (definition.name.as_str(), definition.kind)).collect();
-    assert_eq!(names, [("Cache", SymbolKind::Implementation), ("build", SymbolKind::Method)]);
-    assert_eq!(index.path_at(&location("src/lib.rs", DiffSide::New, 4)?).len(), 0);
+    assert_eq!(index.path_names(&location("src/lib.rs", DiffSide::New, 8)?), ["Cache", "build"]);
+    assert_eq!(index.path_names(&location("src/lib.rs", DiffSide::New, 4)?), [""; 0]);
     Ok(())
 }
 
