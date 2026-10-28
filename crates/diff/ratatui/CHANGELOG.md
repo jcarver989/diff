@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.5.0...clankerdiff-ratatui-v0.6.0) - 2026-10-28
+
+### Added
+
+- look up definitions outside the diff through language servers ([#112](https://github.com/jcarver989/diff/pull/112))
+- symbol navigation with definition cards in desktop and TUI ([#110](https://github.com/jcarver989/diff/pull/110))
+
 ## [0.5.0](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.4.0...clankerdiff-ratatui-v0.5.0) - 2026-10-27
 
 ### Added

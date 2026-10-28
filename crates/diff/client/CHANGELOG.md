@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/jcarver989/diff/compare/clankerdiff-client-v0.5.0...clankerdiff-client-v0.6.0) - 2026-10-28
+
+### Added
+
+- look up definitions outside the diff through language servers ([#112](https://github.com/jcarver989/diff/pull/112))
+
 ## [0.4.0](https://github.com/jcarver989/diff/compare/clankerdiff-client-v0.3.3...clankerdiff-client-v0.4.0) - 2026-10-26
 
 ### Other
