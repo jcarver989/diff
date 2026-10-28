@@ -5,7 +5,7 @@ use crate::{
     preferences::{ThemeStore, ViewModeStore},
 };
 use clankerdiff_client::DiffClient;
-use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, DiffScope, ReviewSubmission};
+use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, DiffScope, Lookup, LookupReply, ReviewSubmission};
 use clankerdiff_gpui::{
     DiffClientEvent, DiffClientView, DiffViewerOptions, NextCommit, PreviousCommit, StageAll, ThemeChanged, UnstageAll,
     ViewModeChanged,
@@ -157,8 +157,24 @@ impl DesktopApp {
                 }
                 run_loop::stop(cx);
             }
+            (DiffClientEvent::Lookup(lookup), _) => self.lookup(lookup.clone(), cx),
             (DiffClientEvent::ReviewChanged { .. }, _) => {}
         }
+    }
+
+    fn lookup(&mut self, lookup: Lookup, cx: &mut Context<Self>) {
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        let request = lookup.clone();
+        let operation = runtime::spawn(cx, async move { client.lookup(request).await });
+        cx.spawn(async move |this, cx| {
+            let reply = operation
+                .await
+                .unwrap_or_else(|error| LookupReply::new(lookup, Err(format!("background task failed: {error}"))));
+            let _ = this.update(cx, |this, cx| this.view.update(cx, |view, cx| view.lookup_finished(reply, cx)));
+        })
+        .detach();
     }
 
     fn command(&mut self, event: DiffReviewEvent, cx: &mut Context<Self>) {
