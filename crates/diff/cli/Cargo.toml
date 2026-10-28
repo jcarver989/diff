@@ -30,6 +30,7 @@ clap.workspace = true
 crossterm.workspace = true
 clankerdiff-core.workspace = true
 clankerdiff-git.workspace = true
+clankerdiff-lspd = { workspace = true, features = ["daemon"] }
 clankerdiff-markdown = { workspace = true, features = ["review"] }
 clankerdiff-theme.workspace = true
 clankerdiff-gpui-desktop = { workspace = true, optional = true }
