@@ -59,6 +59,22 @@ fn jumping_outside_the_diff_waits_for_the_source_then_shows_it_read_only() -> Re
 }
 
 #[test]
+fn navigating_back_from_a_reference_shows_the_whole_diff_again() -> Result<(), Box<dyn Error>> {
+    let mut session = session();
+    let diff_rows = session.presentation().row_count();
+    assert!(session.jump_to(location("src/main.rs", 2)?));
+    let outside = TargetLocation { path: external(4, "std · alloc/src/sync.rs"), side: DiffSide::New, line_number: 2 };
+    assert!(session.jump_to(outside.clone()));
+    assert!(session.open_reference(&outside.path, source(UTIL)));
+    let reference_revision = session.projection_revision();
+    assert!(session.navigate_back());
+    assert_ne!(session.projection_revision(), reference_revision);
+    assert_eq!(session.presentation().row_count(), diff_rows);
+    assert_eq!(session.visible_range(), 0..diff_rows);
+    Ok(())
+}
+
+#[test]
 fn leaving_a_reference_for_another_file_returns_to_the_diff() -> Result<(), Box<dyn Error>> {
     let mut session = session();
     let origin = location("src/main.rs", 2)?;

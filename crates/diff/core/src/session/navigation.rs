@@ -241,6 +241,7 @@ impl ReviewSession {
             self.projection.set_source_view(None);
             self.reference = None;
             self.diff_return = None;
+            self.rebuild();
         }
         let Some(file_index) = self.file_index(&location.path) else {
             return false;
