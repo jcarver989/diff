@@ -219,16 +219,14 @@ fn python_go_and_typescript_docs_follow_their_conventions() -> Result<(), Syntax
 }
 
 #[test]
-fn rustdoc_links_link_definitions_and_hidden_example_lines_are_tidied() -> Result<(), SyntaxError> {
+fn rustdoc_examples_hide_their_hidden_lines() -> Result<(), SyntaxError> {
     let tags = extract(
         "src/lib.rs",
-        "/// Shared pointer. See [`Rc`], [Weak] and [`clone`][clone], or [the book](https://doc.rust-lang.org).\n/// Indexing `a[0]` and x[i] stay put.\n///\n/// ```\n/// # use std::sync::Arc;\n/// let shared = Arc::new(5);\n/// #\n/// ```\n///\n/// ```text\n/// # kept\n/// ```\n///\n/// [clone]: Arc::clone\npub struct Arc;\n",
+        "/// Shared pointer, see [`Rc`].\n///\n/// ```\n/// # use std::sync::Arc;\n/// let shared = Arc::new(5);\n/// #\n/// ```\n///\n/// ```text\n/// # kept\n/// ```\npub struct Arc;\n",
     )?;
     assert_eq!(
         documented(&tags)[0].2,
-        Some(
-            "Shared pointer. See `Rc`, Weak and `clone`, or [the book](https://doc.rust-lang.org).\nIndexing `a[0]` and x[i] stay put.\n\n```\nlet shared = Arc::new(5);\n```\n\n```text\n# kept\n```"
-        )
+        Some("Shared pointer, see [`Rc`].\n\n```\nlet shared = Arc::new(5);\n```\n\n```text\n# kept\n```")
     );
     Ok(())
 }

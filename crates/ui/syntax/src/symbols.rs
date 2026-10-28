@@ -337,24 +337,22 @@ fn render_docs(item: Node<'_>, comments: &BTreeMap<usize, Node<'_>>, source: &st
 }
 
 fn tidy_docs(docs: &str, rust: bool) -> String {
-    let mut lines = Vec::new();
-    let mut fence: Option<(&str, bool)> = None;
-    for line in docs.lines() {
-        let trimmed = line.trim_start();
-        if let Some((marker, hides_lines)) = fence {
-            if trimmed.starts_with(marker) {
-                fence = None;
-            } else if hides_lines && (trimmed == "#" || trimmed.starts_with("# ")) {
-                continue;
-            }
-            lines.push(line.to_owned());
-        } else if let Some(marker) = fence_marker(trimmed) {
-            fence = Some((marker, rust && is_rust_fence(&trimmed[marker.len()..])));
-            lines.push(line.to_owned());
-        } else if !is_link_definition(trimmed) {
-            lines.push(unwrap_doc_links(line));
-        }
+    if !rust {
+        return docs.trim().to_owned();
     }
+    let mut fence: Option<(&str, bool)> = None;
+    let lines: Vec<&str> = docs
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            match fence {
+                Some((marker, _)) if trimmed.starts_with(marker) => fence = None,
+                Some((_, hides)) => return !(hides && (trimmed == "#" || trimmed.starts_with("# "))),
+                None => fence = fence_marker(trimmed).map(|marker| (marker, is_rust_fence(&trimmed[marker.len()..]))),
+            }
+            true
+        })
+        .collect();
     lines.join("\n").trim().to_owned()
 }
 
@@ -372,104 +370,49 @@ fn is_rust_fence(info: &str) -> bool {
         .all(|token| token == "rust" || token.starts_with("edition") || RUSTDOC_FENCE_ATTRIBUTES.contains(&token))
 }
 
-fn is_link_definition(line: &str) -> bool {
-    line.strip_prefix('[')
-        .and_then(|rest| rest.split_once("]:"))
-        .is_some_and(|(label, target)| !label.is_empty() && !label.contains(']') && !target.trim().is_empty())
-}
-
-fn unwrap_doc_links(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(index) = rest.find(['`', '[']) {
-        out.push_str(&rest[..index]);
-        rest = &rest[index..];
-        if rest.starts_with('`') {
-            let span = code_span_len(rest);
-            out.push_str(&rest[..span]);
-            rest = &rest[span..];
-            continue;
-        }
-        let follows_word = out.chars().next_back().is_some_and(|last| last.is_alphanumeric() || last == '_');
-        if let Some((text, consumed)) = doc_link(rest).filter(|_| !follows_word) {
-            out.push_str(text);
-            rest = &rest[consumed..];
-        } else {
-            out.push('[');
-            rest = &rest[1..];
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-fn code_span_len(text: &str) -> usize {
-    let ticks = text.len() - text.trim_start_matches('`').len();
-    text[ticks..].find(&text[..ticks]).map_or(ticks, |end| ticks + end + ticks)
-}
-
-fn doc_link(text: &str) -> Option<(&str, usize)> {
-    let close = bracket_end(text)?;
-    let label = &text[1..close];
-    let after = &text[close + 1..];
-    if after.starts_with('(') {
-        return None;
-    }
-    if after.starts_with('[') {
-        let reference = bracket_end(after)?;
-        return Some((label, close + 1 + reference + 1));
-    }
-    let code = label.len() > 1 && label.starts_with('`') && label.ends_with('`');
-    let path = label.chars().next().is_some_and(char::is_alphabetic)
-        && label.chars().all(|character| character.is_alphanumeric() || "_:.<>!()".contains(character));
-    (code || path).then_some((label, close + 1))
-}
-
-fn bracket_end(text: &str) -> Option<usize> {
-    let mut index = 1;
-    while let Some(character) = text[index..].chars().next() {
-        match character {
-            ']' => return Some(index),
-            '[' => return None,
-            '`' => index += code_span_len(&text[index..]),
-            _ => index += character.len_utf8(),
-        }
-    }
-    None
-}
-
 fn clean_comment(text: &str) -> String {
-    let trimmed = text.trim();
-    if let Some(line) = trimmed.strip_prefix("//") {
-        let line = line.trim_start_matches('/');
-        return line.strip_prefix(' ').unwrap_or(line).to_owned();
+    let text = text.trim();
+    if let Some(line) = line_comment(text) {
+        return line.to_owned();
     }
-    let block = trimmed
-        .strip_prefix("/**")
-        .or_else(|| trimmed.strip_prefix("/*"))
-        .map(|body| body.strip_suffix("*/").unwrap_or(body));
-    let body = block.unwrap_or(text);
-    let indent = body
+    block_comment(text).unwrap_or_else(|| dedent(text)).trim().to_owned()
+}
+
+fn line_comment(text: &str) -> Option<&str> {
+    let body = text.strip_prefix("//")?;
+    let body = body.strip_prefix('!').unwrap_or_else(|| body.trim_start_matches('/'));
+    Some(body.strip_prefix(' ').unwrap_or(body))
+}
+
+fn block_comment(text: &str) -> Option<String> {
+    let body = text.strip_prefix("/*")?;
+    let body = body.strip_suffix("*/").unwrap_or(body);
+    let body = body.strip_prefix('*').unwrap_or(body);
+    let lines: Vec<&str> = body
+        .lines()
+        .map(|line| {
+            let line = line.trim();
+            let line = line.strip_prefix('*').unwrap_or(line);
+            line.strip_prefix(' ').unwrap_or(line)
+        })
+        .collect();
+    Some(lines.join("\n"))
+}
+
+fn dedent(text: &str) -> String {
+    let indent = text
         .lines()
         .skip(1)
         .filter(|line| !line.trim().is_empty())
         .map(|line| line.len() - line.trim_start().len())
         .min()
         .unwrap_or(0);
-    body.lines()
+    let lines: Vec<&str> = text
+        .lines()
         .enumerate()
-        .map(|(index, line)| match block {
-            Some(_) => {
-                let line = line.trim();
-                line.strip_prefix('*').map_or(line, |rest| rest.strip_prefix(' ').unwrap_or(rest))
-            }
-            None if index == 0 => line.trim(),
-            None => line.get(indent..).unwrap_or_default().trim_end(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_owned()
+        .map(|(index, line)| if index == 0 { line } else { line.get(indent..).unwrap_or_default().trim_end() })
+        .collect();
+    lines.join("\n")
 }
 
 fn span(node: Node<'_>) -> LineSpan {
