@@ -538,6 +538,16 @@ impl ReviewTheme {
     }
 
     #[must_use]
+    pub const fn hinted_name(&self) -> Rgba {
+        Rgba { a: 71, ..self.ui.warning }
+    }
+
+    #[must_use]
+    pub const fn carded_name(&self) -> Rgba {
+        Rgba { a: 56, ..self.diff.accent }
+    }
+
+    #[must_use]
     pub fn appearance(&self) -> Appearance {
         let canvas = self.ui.canvas;
         let luminance = 0.2126 * f32::from(canvas.r) + 0.7152 * f32::from(canvas.g) + 0.0722 * f32::from(canvas.b);
