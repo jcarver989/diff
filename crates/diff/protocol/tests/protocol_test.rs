@@ -1,6 +1,7 @@
 use clankerdiff_core::{
-    DiffDocument, DiffScope, RepositoryAction, Review, ReviewTarget, SourceUnavailable, StageState,
-    testing::{DocumentBuilder, commit_id},
+    DefinitionRequest, DiffDocument, DiffScope, Fingerprint, LookupAnswer, LookupRequest, RepositoryAction, Resolution,
+    Review, ReviewTarget, SourceUnavailable, StageState,
+    testing::{DocumentBuilder, ResolutionBuilder, commit_id, external, location, source},
 };
 use clankerdiff_protocol::{
     client::{ClientCommand, DocumentCache},
@@ -19,6 +20,15 @@ fn commands_and_events_round_trip() -> Result<(), Box<dyn Error>> {
         ClientCommand::Refresh,
         ClientCommand::Submit(Review::default().submission()),
         ClientCommand::Cancel,
+        ClientCommand::Lookup {
+            id: 7,
+            request: LookupRequest::Definition(DefinitionRequest {
+                at: location("src/main.rs", 3)?,
+                column: 4,
+                content: Fingerprint::of(["fn main() {}"]),
+            }),
+        },
+        ClientCommand::Lookup { id: 8, request: LookupRequest::Source(external(1, "std · alloc/src/sync.rs")) },
     ] {
         let decoded = ClientCommand::decode(&message.encode()?)?;
         assert_eq!(format!("{decoded:?}"), format!("{message:?}"));
@@ -33,6 +43,17 @@ fn commands_and_events_round_trip() -> Result<(), Box<dyn Error>> {
         Event::RequestResult(Ok(())),
         Event::Health { error: None },
         Event::Error(RemoteError::new(RemoteErrorCode::Watcher, "stopped")),
+        Event::Lookup {
+            id: 7,
+            result: Ok(ResolutionBuilder::new()
+                .target("src/lib.rs", 9)
+                .preview("pub fn build() -> u32")
+                .hover("```rust\npub fn build() -> u32\n```\nBuilds 🦀")
+                .answer()),
+        },
+        Event::Lookup { id: 8, result: Ok(LookupAnswer::Definition(Resolution::default())) },
+        Event::Lookup { id: 9, result: Ok(LookupAnswer::Source(source("fn util() {}\n"))) },
+        Event::Lookup { id: 10, result: Err(RemoteError::new(RemoteErrorCode::Busy, "too many lookups")) },
     ] {
         let decoded = ServerMessage::decode(&message.encode()?)?;
         assert_eq!(format!("{decoded:?}"), format!("{message:?}"));
@@ -176,7 +197,7 @@ fn document_updates_reuse_unchanged_files() -> Result<(), Box<dyn Error>> {
     let received = cache.apply(&second)?;
     assert_eq!(received.target, ReviewTarget::WorkingTree(DiffScope::Staged));
     assert_eq!(received.files.len(), 2);
-    assert_eq!(LIVE_PROTOCOL_VERSION, 3);
+    assert_eq!(LIVE_PROTOCOL_VERSION, 4);
     Ok(())
 }
 

@@ -1,5 +1,5 @@
 use crate::shared::{ProtocolError, decode_json, encode_json};
-use clankerdiff_core::{RepositoryAction, ReviewSubmission, ReviewTarget};
+use clankerdiff_core::{LookupRequest, RepositoryAction, ReviewSubmission, ReviewTarget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +10,7 @@ pub enum ClientCommand {
     Refresh,
     Submit(ReviewSubmission),
     Cancel,
+    Lookup { id: u64, request: LookupRequest },
 }
 
 impl ClientCommand {
