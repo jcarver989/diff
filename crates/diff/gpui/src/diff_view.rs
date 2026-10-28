@@ -3,7 +3,7 @@ use crate::{
     annotation::add_comment_button,
     comment_editor::CommentEditor,
     comments::{CommentCard, CommentComposer, CommentCount, CommentThread, comment_dismiss_button},
-    navigation::line_key,
+    navigation::{HISTORY_BUTTONS, line_key},
     style::{self, stat_badges},
     ui::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
@@ -11,7 +11,7 @@ use crate::{
             Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Segment, SegmentedControl,
             Typography, TypographyExt, rem,
         },
-        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT, ICON_BUTTON_SIZE, RADIUS_CONTROL, ROW_HEIGHT},
+        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT, ICON_BUTTON_SIZE, ICON_SIZE, RADIUS_CONTROL, ROW_HEIGHT},
     },
 };
 use clankerdiff_core::{
@@ -145,8 +145,13 @@ impl DiffViewer {
 
     pub(crate) fn toolbar_leading_spacer(&self) -> Option<Div> {
         let count = self.toolbar_leading_count();
-        (count > 0)
-            .then(|| toolbar_leading_group().children((0..count).map(|_| div().flex_none().w(rem(ICON_BUTTON_SIZE)))))
+        let slot = || div().flex_none().w(rem(ICON_BUTTON_SIZE));
+        (count > 0).then(|| {
+            toolbar_leading_group()
+                .children((0..count).map(|_| slot()))
+                .child(toolbar_divider())
+                .children((0..HISTORY_BUTTONS).map(|_| slot()))
+        })
     }
 
     fn render_toolbar_leading(&self, cx: &mut Context<Self>) -> Option<Div> {
@@ -154,7 +159,11 @@ impl DiffViewer {
             return None;
         }
         Some(
-            toolbar_leading_group().child(self.render_sidebar_toggle(cx)).children(self.render_collapse_all_button(cx)),
+            toolbar_leading_group()
+                .child(self.render_sidebar_toggle(cx))
+                .children(self.render_collapse_all_button(cx))
+                .child(toolbar_divider().bg(self.ui_theme().colors.border_subtle))
+                .children(self.render_history_buttons(cx)),
         )
     }
 
@@ -243,7 +252,7 @@ impl DiffViewer {
         if !self.session().is_file_collapsed(file_index) {
             return 0;
         }
-        let path = &self.document().files[file_index].path;
+        let path = &self.presentation().document().files[file_index].path;
         self.review().comments().filter(|comment| &comment.anchor.path == path).count()
     }
 
@@ -259,7 +268,7 @@ impl DiffViewer {
         };
         let palette = &self.theme().diff;
         let surface = self.theme().ui.surface;
-        let file = &self.document().files[file_index];
+        let file = &self.presentation().document().files[file_index];
         let selected = self.file_header_selected(file_index);
         let comments = self.collapsed_comment_count(file_index);
         let directory = file.path.directory().map(|directory| format!("{directory}/"));
@@ -774,6 +783,10 @@ impl DiffViewer {
 
 fn toolbar_leading_group() -> Div {
     div().flex_none().flex().items_center().gap_0p5()
+}
+
+fn toolbar_divider() -> Div {
+    div().flex_none().w_px().h(rem(ICON_SIZE)).mx_1()
 }
 
 #[cfg(test)]

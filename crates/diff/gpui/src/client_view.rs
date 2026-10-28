@@ -3,7 +3,7 @@ use crate::{
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use clankerdiff_client::{ClientState, ConnectionState};
-use clankerdiff_core::{DiffDocument, DiffReviewCommand, DiffReviewEvent, ReviewSubmission};
+use clankerdiff_core::{DiffDocument, DiffReviewCommand, DiffReviewEvent, Lookup, LookupReply, ReviewSubmission};
 use clankerdiff_theme::ReviewTheme;
 use gpui::{AnyElement, ClipboardItem, Context, Entity, EventEmitter, Subscription, Window, div, prelude::*};
 use std::sync::Arc;
@@ -11,6 +11,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub enum DiffClientEvent {
     Command(DiffReviewEvent),
+    Lookup(Lookup),
     Submit(ReviewSubmission),
     ReviewChanged { comments: usize },
     Cancel,
@@ -85,6 +86,12 @@ impl DiffClientView {
         }
     }
 
+    pub fn lookup_finished(&mut self, reply: LookupReply, cx: &mut Context<Self>) {
+        if let Some(viewer) = &self.viewer {
+            viewer.update(cx, |viewer, cx| viewer.lookup_finished(reply, cx));
+        }
+    }
+
     pub fn clear_review(&mut self, cx: &mut Context<Self>) {
         if let Some(viewer) = &self.viewer {
             viewer.update(cx, DiffViewer::clear_review);
@@ -136,6 +143,7 @@ impl DiffClientView {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             }
             DiffReviewEvent::Cancel => cx.emit(DiffClientEvent::Cancel),
+            DiffReviewEvent::Lookup(lookup) => cx.emit(DiffClientEvent::Lookup(lookup)),
             event @ (DiffReviewEvent::RepositoryAction(_)
             | DiffReviewEvent::SetTarget(_)
             | DiffReviewEvent::Refresh) => self.send(event, cx),
