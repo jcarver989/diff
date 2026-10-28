@@ -6,7 +6,7 @@ use clankerdiff_markdown::{
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub(super) struct DocumentRow {
+pub(crate) struct DocumentRow {
     pub target: Option<MarkdownTargetId>,
     pub depth: u16,
     pub gap: f32,
@@ -20,7 +20,7 @@ impl DocumentRow {
 }
 
 #[derive(Debug, Clone)]
-pub(super) enum RowKind {
+pub(crate) enum RowKind {
     Heading {
         level: u8,
         content: Vec<MarkdownInline>,
@@ -56,7 +56,7 @@ pub(super) enum RowKind {
 }
 
 #[derive(Debug)]
-pub(super) struct CodeSource {
+pub(crate) struct CodeSource {
     pub language: Option<String>,
     pub info: Arc<str>,
     pub lines: Vec<String>,
@@ -64,7 +64,7 @@ pub(super) struct CodeSource {
     pub source_id: Fingerprint,
 }
 
-pub(super) fn document_rows(blocks: &[MarkdownBlock]) -> Vec<DocumentRow> {
+pub(crate) fn document_rows(blocks: &[MarkdownBlock]) -> Vec<DocumentRow> {
     let mut rows = Vec::new();
     for block in blocks {
         push_block(block, 0, &mut rows);

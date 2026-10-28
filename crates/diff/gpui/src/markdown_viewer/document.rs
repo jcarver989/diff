@@ -1,30 +1,20 @@
 use super::{
     MarkdownReviewer,
-    inline::inline_text,
-    rows::{CodeSource, DocumentRow, RowKind},
+    content::{BLOCK_PADDING_Y, CODE, CODE_HEADER_HEIGHT, MarkdownContent, PROSE, heading_scale},
+    rows::{DocumentRow, RowKind},
 };
 use crate::{
     annotation::add_comment_button,
     comments::{CommentCard, CommentComposer, CommentThread, comment_dismiss_button},
-    style,
-    ui::{
-        prelude::{CODE_FONT, EmptyState, IconButton, IconName, NoticeTone, Typography, TypographyExt, color, rem},
-        tokens::{RADIUS_CONTROL, RADIUS_INNER},
-    },
+    ui::prelude::{EmptyState, NoticeTone, rem},
 };
 use clankerdiff_core::ReviewCommand;
-use clankerdiff_markdown::{MarkdownFocusPane, MarkdownInline, MarkdownTableAlignment, MarkdownTargetId};
-use clankerdiff_syntax::LanguageHint;
-use gpui::{AnyElement, ClipboardItem, Context, Div, FontWeight, Rems, SharedString, StyledText, div, prelude::*, px};
+use clankerdiff_markdown::{MarkdownFocusPane, MarkdownTargetId};
+use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 const COLUMN_WIDTH: f32 = 780.0;
 const GUTTER_WIDTH: f32 = 28.0;
-const LIST_INDENT: f32 = 22.0;
 const ADD_BUTTON_SIZE: f32 = 18.0;
-const BLOCK_PADDING_Y: f32 = 4.0;
-const CODE_HEADER_HEIGHT: f32 = 32.0;
-const PROSE: TextScale = TextScale::new(15.0, 24.0);
-const CODE: TextScale = TextScale::new(13.0, 20.0);
 
 impl MarkdownReviewer {
     pub(super) fn render_document(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -45,15 +35,36 @@ impl MarkdownReviewer {
                     self.ui,
                 )))
             })
-            .children(self.rows.iter().enumerate().map(|(index, row)| self.render_row(index, row, cx)))
+            .children({
+                let mut highlighter = self.highlighter.borrow_mut();
+                let mut content = MarkdownContent {
+                    theme: &self.theme,
+                    ui: &self.ui,
+                    inline: self.inline,
+                    highlighter: &mut highlighter,
+                    copy: self.capabilities.clipboard,
+                    compact: false,
+                };
+                self.rows
+                    .iter()
+                    .enumerate()
+                    .map(|(index, row)| self.render_row(&mut content, index, row, cx))
+                    .collect::<Vec<_>>()
+            })
     }
 
-    fn render_row(&self, index: usize, row: &DocumentRow, cx: &mut Context<Self>) -> AnyElement {
+    fn render_row(
+        &self,
+        content: &mut MarkdownContent<'_>,
+        index: usize,
+        row: &DocumentRow,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let colors = self.ui.colors;
         let selected = row.target.is_some() && row.target == self.session.selected_target();
         let group: SharedString = format!("markdown-row-{index}").into();
-        let block = self
-            .render_block(row)
+        let block = content
+            .block(row)
             .id("markdown-block")
             .when(selected, |block| block.bg(colors.surface_selected))
             .when_some(row.target, |block, target| {
@@ -82,7 +93,7 @@ impl MarkdownReviewer {
                     .max_w(rem(COLUMN_WIDTH))
                     .flex()
                     .child(self.render_gutter(row, selected, group, cx))
-                    .child(div().flex_1().min_w_0().pl(indent(row)).flex().flex_col().child(block).when_some(
+                    .child(div().flex_1().min_w_0().pl(content.indent(row)).flex().flex_col().child(block).when_some(
                         row.target,
                         |column, target| {
                             column.children(self.render_thread(target, cx)).children(self.render_composer(target, cx))
@@ -125,146 +136,6 @@ impl MarkdownReviewer {
             })
     }
 
-    fn render_block(&self, row: &DocumentRow) -> Div {
-        let colors = self.ui.colors;
-        let markdown = &self.theme.markdown;
-        let prose = || {
-            div()
-                .px_2()
-                .py(rem(BLOCK_PADDING_Y))
-                .rounded(rem(RADIUS_INNER))
-                .text_size(rem(PROSE.size))
-                .line_height(rem(PROSE.line_height))
-        };
-        let text = |content: &[MarkdownInline]| inline_text("markdown-text", content, self.inline);
-        match &row.kind {
-            RowKind::Heading { level, content } => {
-                let scale = heading_scale(*level);
-                prose()
-                    .text_size(rem(scale.size))
-                    .line_height(rem(scale.line_height))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(color(markdown.heading))
-                    .child(text(content))
-            }
-            RowKind::Paragraph { content } => prose().child(text(content)),
-            RowKind::ListItem { marker, content } => prose()
-                .py(rem(1.0))
-                .flex()
-                .gap_2()
-                .child(div().min_w(rem(14.0)).flex_shrink_0().text_color(colors.text_muted).child(marker.clone()))
-                .child(div().flex_1().min_w_0().child(text(content))),
-            RowKind::Quote { rows } => div().px_2().child(
-                div()
-                    .pl_2()
-                    .border_l_2()
-                    .border_color(color(markdown.quote))
-                    .text_color(colors.text_secondary)
-                    .flex()
-                    .flex_col()
-                    .children(rows.iter().enumerate().map(|(index, row)| {
-                        div()
-                            .id(("markdown-quote-row", index))
-                            .pt(rem(row.gap))
-                            .pl(indent(row))
-                            .child(self.render_block(row))
-                    })),
-            ),
-            RowKind::CodeHeader { code } => self.render_code_header(code),
-            RowKind::CodeLine { code, index } => self.render_code_line(code, *index),
-            RowKind::TableRow { cells, alignments, header, first, last } => {
-                self.render_table_row(cells, alignments, *header, *first, *last)
-            }
-            RowKind::Rule => div().py_3().child(div().h(px(1.0)).bg(colors.border)),
-            RowKind::Html { content } => {
-                prose().typography(Typography::Code).text_color(colors.text_muted).child(text(content))
-            }
-        }
-    }
-
-    fn render_code_line(&self, code: &CodeSource, line: usize) -> Div {
-        let markdown = &self.theme.markdown;
-        let last = line + 1 == code.lines.len();
-        div()
-            .px_4()
-            .min_h(rem(CODE.line_height))
-            .font_family(CODE_FONT)
-            .text_size(rem(CODE.size))
-            .line_height(rem(CODE.line_height))
-            .text_color(color(markdown.code))
-            .bg(color(markdown.code_background))
-            .border_l_1()
-            .border_r_1()
-            .border_color(self.ui.colors.border)
-            .when(last, |line| line.pb_2().border_b_1().rounded_b(rem(RADIUS_CONTROL)))
-            .child(self.code_line_text(code, line))
-    }
-
-    fn render_table_row(
-        &self,
-        cells: &[Vec<MarkdownInline>],
-        alignments: &[MarkdownTableAlignment],
-        header: bool,
-        first: bool,
-        last: bool,
-    ) -> Div {
-        let colors = self.ui.colors;
-        div()
-            .flex()
-            .text_size(rem(14.0))
-            .line_height(rem(20.0))
-            .border_l_1()
-            .border_r_1()
-            .border_b_1()
-            .border_color(colors.border)
-            .when(first, |row| row.border_t_1().rounded_t(rem(RADIUS_CONTROL)))
-            .when(last, |row| row.rounded_b(rem(RADIUS_CONTROL)))
-            .when(header, |row| row.bg(colors.surface).font_weight(FontWeight::SEMIBOLD))
-            .children(cells.iter().enumerate().map(|(column, cell)| {
-                let alignment = alignments.get(column).copied().unwrap_or(MarkdownTableAlignment::None);
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .px_3()
-                    .py_1p5()
-                    .when(column > 0, |cell| cell.border_l_1().border_color(colors.border))
-                    .map(|cell| match alignment {
-                        MarkdownTableAlignment::Center => cell.text_center(),
-                        MarkdownTableAlignment::Right => cell.text_right(),
-                        MarkdownTableAlignment::None | MarkdownTableAlignment::Left => cell,
-                    })
-                    .child(inline_text(("markdown-cell", column), cell, self.inline))
-            }))
-    }
-
-    fn render_code_header(&self, code: &CodeSource) -> Div {
-        let colors = self.ui.colors;
-        let markdown = &self.theme.markdown;
-        let copy = self.capabilities.clipboard.then(|| {
-            let text = code.text.clone();
-            IconButton::new("markdown-copy-code", IconName::Copy, "Copy code", self.ui)
-                .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.to_string())))
-        });
-        div()
-            .h(rem(CODE_HEADER_HEIGHT))
-            .pl_4()
-            .pr_1()
-            .flex()
-            .items_center()
-            .justify_between()
-            .bg(color(markdown.code_background))
-            .border_t_1()
-            .border_l_1()
-            .border_r_1()
-            .border_color(colors.border)
-            .rounded_t(rem(RADIUS_CONTROL))
-            .when(code.lines.is_empty(), |header| header.border_b_1().rounded_b(rem(RADIUS_CONTROL)))
-            .typography(Typography::Caption)
-            .text_color(colors.text_muted)
-            .child(code.language.clone().unwrap_or_else(|| "code".to_owned()))
-            .children(copy)
-    }
-
     fn render_thread(&self, target: MarkdownTargetId, cx: &mut Context<Self>) -> Option<Div> {
         let theme = self.ui;
         let cards = self
@@ -300,41 +171,6 @@ impl MarkdownReviewer {
             ),
         )
     }
-
-    fn code_line_text(&self, code: &CodeSource, index: usize) -> StyledText {
-        let text = code.lines.get(index).cloned().unwrap_or_default();
-        let highlighted = self
-            .highlighter
-            .borrow_mut()
-            .with_theme(&self.theme.syntax)
-            .highlight_document(code.source_id, LanguageHint::InfoString(&code.info), || code.text.clone())
-            .unwrap_or_default();
-        let spans = highlighted.line(index).unwrap_or_default().to_vec();
-        StyledText::new(text).with_highlights(
-            spans.into_iter().map(|span| (span.range, style::highlight_style(span.foreground, span.font_style))),
-        )
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct TextScale {
-    size: f32,
-    line_height: f32,
-}
-
-impl TextScale {
-    const fn new(size: f32, line_height: f32) -> Self {
-        Self { size, line_height }
-    }
-}
-
-const fn heading_scale(level: u8) -> TextScale {
-    match level {
-        1 => TextScale::new(26.0, 34.0),
-        2 => TextScale::new(21.0, 30.0),
-        3 => TextScale::new(17.0, 26.0),
-        _ => PROSE,
-    }
 }
 
 fn first_line_center(kind: &RowKind) -> f32 {
@@ -347,8 +183,4 @@ fn first_line_center(kind: &RowKind) -> f32 {
         RowKind::TableRow { .. } => 6.0 + 10.0,
         RowKind::Paragraph { .. } | RowKind::Html { .. } | RowKind::Rule => BLOCK_PADDING_Y + PROSE.line_height / 2.0,
     }
-}
-
-fn indent(row: &DocumentRow) -> Rems {
-    rem(LIST_INDENT * f32::from(row.depth))
 }
