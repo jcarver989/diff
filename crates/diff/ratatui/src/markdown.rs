@@ -14,12 +14,12 @@ pub use clankerdiff_markdown::{
     Fingerprint, FingerprintError, MarkdownAnchor, MarkdownBlock, MarkdownBlockAnchor, MarkdownBlockKind,
     MarkdownCodeBlock, MarkdownCodeLine, MarkdownCodeLineAnchor, MarkdownCommentContext, MarkdownCommentDraft,
     MarkdownDocument, MarkdownFocusPane, MarkdownHeading, MarkdownInline, MarkdownLineRange, MarkdownListItem,
-    MarkdownParseStats, MarkdownReview, MarkdownReviewCommand, MarkdownReviewComment, MarkdownReviewDecision,
-    MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSession, MarkdownReviewSubmission, MarkdownSourceRole,
-    MarkdownSourceStyle, MarkdownStream, MarkdownStreamChanges, MarkdownStreamIdentity, MarkdownStreamUpdate,
-    MarkdownTable, MarkdownTableAlignment, MarkdownTableCell, MarkdownTableRow, MarkdownTarget, MarkdownTargetId,
-    MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review, parse_markdown,
-    rendered_text, resolve_anchor,
+    MarkdownOptions, MarkdownParseStats, MarkdownReview, MarkdownReviewCommand, MarkdownReviewComment,
+    MarkdownReviewDecision, MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSession, MarkdownReviewSubmission,
+    MarkdownSourceRole, MarkdownSourceStyle, MarkdownStream, MarkdownStreamChanges, MarkdownStreamIdentity,
+    MarkdownStreamUpdate, MarkdownTable, MarkdownTableAlignment, MarkdownTableCell, MarkdownTableRow, MarkdownTarget,
+    MarkdownTargetId, MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review,
+    parse_markdown, rendered_text, resolve_anchor,
 };
 use clankerdiff_syntax::{DocumentHighlights, HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxStream};
 use clankerdiff_theme::{ReviewTheme, Rgba};

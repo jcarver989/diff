@@ -1,4 +1,6 @@
-use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag};
+use pulldown_cmark::{
+    Alignment, BrokenLink, CodeBlockKind, CowStr, Event, HeadingLevel, LinkType, Options, Parser, Tag,
+};
 use serde::{Deserialize, Serialize};
 use std::{cmp, ops::Range};
 
@@ -82,10 +84,15 @@ impl MarkdownInline {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MarkdownOptions {
+    pub intra_doc_links: bool,
+}
+
 /// Parses Markdown into a renderer-neutral semantic document.
 #[must_use]
-pub fn parse_markdown(source: impl Into<String>) -> MarkdownDocument {
-    MarkdownDocument::parse(source)
+pub fn parse_markdown(source: impl Into<String>, options: MarkdownOptions) -> MarkdownDocument {
+    MarkdownDocument::parse_document(None, None, source.into(), options)
 }
 
 /// Returns the rendered, style-free text represented by inline nodes.
@@ -317,12 +324,17 @@ impl MarkdownDocument {
     /// Parses Markdown while retaining optional host-provided metadata.
     #[must_use]
     pub fn parse_with_metadata(source_path: Option<String>, title: Option<String>, source: impl Into<String>) -> Self {
-        let source: String = source.into();
+        Self::parse_document(source_path, title, source.into(), MarkdownOptions::default())
+    }
+
+    fn parse_document(
+        source_path: Option<String>,
+        title: Option<String>,
+        source: String,
+        options: MarkdownOptions,
+    ) -> Self {
         let line_starts = LineIndex::new(&source);
-        let events = Parser::new_ext(&source, parser_options())
-            .into_offset_iter()
-            .map(|(event, range)| (event.into_static(), range))
-            .collect::<Vec<_>>();
+        let events = parse_events(&source, options);
         let roots = event_tree(&events);
         let mut source_styles = Vec::new();
         collect_source_styles(&roots, &line_starts, &mut source_styles);
@@ -412,6 +424,36 @@ pub(crate) struct Node {
 
 pub(crate) fn parser_options() -> Options {
     Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH
+}
+
+fn parse_events(source: &str, options: MarkdownOptions) -> Vec<(Event<'static>, Range<usize>)> {
+    let callback = |link: BrokenLink<'_>| {
+        (options.intra_doc_links && is_intra_doc_link(source, &link))
+            .then_some((CowStr::Borrowed(""), CowStr::Borrowed("")))
+    };
+    Parser::new_with_broken_link_callback(source, parser_options(), Some(callback))
+        .into_offset_iter()
+        .map(|(event, range)| (event.into_static(), range))
+        .collect()
+}
+
+fn is_intra_doc_link(source: &str, link: &BrokenLink<'_>) -> bool {
+    if link.link_type == LinkType::Reference {
+        return true;
+    }
+    let label = link.reference.as_ref();
+    let follows_word = source[..link.span.start]
+        .chars()
+        .next_back()
+        .is_some_and(|character| character.is_alphanumeric() || character == '_');
+    let code = label.len() > 1 && label.starts_with('`') && label.ends_with('`');
+    let path = label.chars().next().is_some_and(char::is_alphabetic)
+        && label.chars().all(|character| character.is_alphanumeric() || "_:.<>!()".contains(character));
+    !follows_word && (code || path)
+}
+
+const fn is_label_link(link_type: LinkType) -> bool {
+    matches!(link_type, LinkType::ReferenceUnknown | LinkType::CollapsedUnknown | LinkType::ShortcutUnknown)
 }
 
 pub(crate) fn event_tree(events: &[(Event<'static>, Range<usize>)]) -> Vec<Node> {
@@ -728,7 +770,16 @@ fn table_alignment(alignment: Alignment) -> MarkdownTableAlignment {
 }
 
 fn inline_children(children: &[Node]) -> Vec<MarkdownInline> {
-    children.iter().filter_map(inline_node).collect()
+    let mut inlines = Vec::new();
+    for child in children {
+        match &child.event {
+            Some(Event::Start(Tag::Link { link_type, .. })) if is_label_link(*link_type) => {
+                inlines.extend(inline_children(&child.children));
+            }
+            _ => inlines.extend(inline_node(child)),
+        }
+    }
+    inlines
 }
 
 fn inline_node(node: &Node) -> Option<MarkdownInline> {

@@ -14,7 +14,7 @@ use crate::{
 use clankerdiff_core::{
     CommitKind, CommitPage, CommitPicker, DiffReviewCommand, DiffScope, LineStat, PageLabel, ReviewCommand,
 };
-use clankerdiff_markdown::{MarkdownBlock, MarkdownBlockKind, parse_markdown};
+use clankerdiff_markdown::{MarkdownBlock, MarkdownBlockKind, MarkdownDocument};
 use clankerdiff_theme::DiffPalette;
 use gpui::{
     AnyElement, Context, Div, Entity, FontWeight, Hsla, MouseButton, Role, SharedString, Subscription, Window, div,
@@ -346,7 +346,7 @@ impl CommitPreview {
         if page.body.is_empty() {
             return None;
         }
-        let document = parse_markdown(page.body.as_str());
+        let document = MarkdownDocument::parse(page.body.as_str());
         Some(
             div()
                 .debug_selector(|| "commit-preview-body".to_owned())
