@@ -6,9 +6,10 @@ const GPUI_VERSION: &str = "=0.3.7";
 const GPUI_BASE_VERSION: &str = "=0.7.0";
 const GPUI_PLATFORM_FEATURES: [&str; 4] = ["font-kit", "runtime_shaders", "wayland", "x11"];
 
-pub const CRATES: [(&str, &str); 17] = [
+pub const CRATES: [(&str, &str); 18] = [
     ("clankerdiff-fingerprint", "crates/util/fingerprint"),
     ("clankerdiff-remote", "crates/util/remote"),
+    ("clankerdiff-lspd", "crates/util/lspd"),
     ("clankerdiff-theme", "crates/ui/theme"),
     ("clankerdiff-syntax", "crates/ui/syntax"),
     ("clankerdiff-gpui-ui", "crates/ui/gpui"),
