@@ -8,12 +8,12 @@ use clankerdiff_core::{
 };
 use std::{
     collections::{HashMap, HashSet},
-    io::ErrorKind,
+    io::{self, ErrorKind},
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
-use tokio::time::sleep;
+use tokio::{fs::File, io::AsyncReadExt, time::sleep};
 
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const STATUS_ARGS: [&str; 5] = ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all"];
@@ -44,7 +44,7 @@ enum ResolvedContentLocation {
     Unavailable(SourceUnavailable),
 }
 
-enum BoundedWorktree {
+enum Bounded {
     Content(Vec<u8>),
     TooLarge(u64),
 }
@@ -363,11 +363,9 @@ impl GitRepository {
         if size > MAX_SOURCE_FILE_BYTES {
             return (Err(SourceUnavailable::TooLarge { bytes: size }), exact_id);
         }
-        if bytes.contains(&0) {
-            return (Err(SourceUnavailable::Binary), exact_id);
-        }
-        let Ok(text) = String::from_utf8(bytes) else {
-            return (Err(SourceUnavailable::Binary), exact_id);
+        let text = match source_text(bytes) {
+            Ok(text) => text,
+            Err(reason) => return (Err(reason), exact_id),
         };
         if loaded.saturating_add(size) > MAX_SOURCE_ARCHIVE_BYTES {
             return (Err(SourceUnavailable::SnapshotBudgetExceeded), exact_id);
@@ -378,6 +376,10 @@ impl GitRepository {
         };
         *loaded = loaded.saturating_add(size);
         (Ok(source), exact_id)
+    }
+
+    pub async fn read_worktree_source(&self, path: &RepoPath) -> SourceResult {
+        source_document(self.read_bounded_worktree(path).await.map_err(source_error)?)
     }
 
     async fn worktrees_match(&self, expected: &HashMap<RepoPath, Fingerprint>) -> bool {
@@ -419,12 +421,12 @@ impl GitRepository {
 
     async fn read_bounded_worktree(&self, path: &RepoPath) -> Result<Vec<u8>, GitError> {
         match self.read_worktree_bytes(path).await? {
-            BoundedWorktree::Content(bytes) => Ok(bytes),
-            BoundedWorktree::TooLarge(bytes) => Err(GitError::SourceTooLarge { bytes }),
+            Bounded::Content(bytes) => Ok(bytes),
+            Bounded::TooLarge(bytes) => Err(GitError::SourceTooLarge { bytes }),
         }
     }
 
-    async fn read_worktree_bytes(&self, path: &RepoPath) -> Result<BoundedWorktree, GitError> {
+    async fn read_worktree_bytes(&self, path: &RepoPath) -> Result<Bounded, GitError> {
         let joined = path::lexical_path(&self.root, path)?;
         let metadata = tokio::fs::symlink_metadata(&joined)
             .await
@@ -433,21 +435,11 @@ impl GitRepository {
             let target = tokio::fs::read_link(&joined).await.map_err(|source| GitError::Io { path: joined, source })?;
             return target
                 .to_str()
-                .map(|target| BoundedWorktree::Content(target.as_bytes().to_vec()))
+                .map(|target| Bounded::Content(target.as_bytes().to_vec()))
                 .ok_or(GitError::UnsupportedRepositoryPath);
         }
         let host_path = path::readable_path(&self.root, path).await?;
-        let size = tokio::fs::metadata(&host_path)
-            .await
-            .map_err(|source| GitError::Io { path: host_path.clone(), source })?
-            .len();
-        if size > MAX_SOURCE_FILE_BYTES {
-            return Ok(BoundedWorktree::TooLarge(size));
-        }
-        tokio::fs::read(&host_path)
-            .await
-            .map(BoundedWorktree::Content)
-            .map_err(|source| GitError::Io { path: host_path, source })
+        read_bounded(&host_path).await.map_err(|source| GitError::Io { path: host_path, source })
     }
 
     pub async fn ignored_paths(&self, relative: &[String]) -> Result<HashSet<String>, GitError> {
@@ -628,7 +620,7 @@ impl GitRepository {
             let path = RepoPath::new(text)?;
             let captured = self.read_worktree_bytes(&path).await?;
             let (contents, size) = match captured {
-                BoundedWorktree::Content(contents) => {
+                Bounded::Content(contents) => {
                     let size = u64::try_from(contents.len()).unwrap_or(u64::MAX);
                     if loaded_bytes.saturating_add(size) > MAX_UNTRACKED_SNAPSHOT_BYTES {
                         (Vec::new(), size)
@@ -637,7 +629,7 @@ impl GitRepository {
                         (contents, size)
                     }
                 }
-                BoundedWorktree::TooLarge(size) => (Vec::new(), size),
+                Bounded::TooLarge(size) => (Vec::new(), size),
             };
             let omitted = contents.is_empty() && size != 0;
             files.push(UntrackedFile { path, contents, omitted_bytes: omitted.then_some(size) });
@@ -797,6 +789,42 @@ fn parse_blob_records(output: &[u8], kind: BlobRecordKind) -> HashMap<RepoPath, 
             Some((RepoPath::new(path).ok()?, (*oid).to_owned()))
         })
         .collect()
+}
+
+pub async fn read_source_file(path: &Path) -> SourceResult {
+    match read_bounded(path).await {
+        Ok(Bounded::Content(bytes)) => source_document(bytes),
+        Ok(Bounded::TooLarge(bytes)) => Err(SourceUnavailable::TooLarge { bytes }),
+        Err(error) => Err(SourceUnavailable::Error(format!("{}: {error}", path.display()))),
+    }
+}
+
+async fn read_bounded(path: &Path) -> io::Result<Bounded> {
+    let file = File::open(path).await?;
+    let size = file.metadata().await?.len();
+    if size > MAX_SOURCE_FILE_BYTES {
+        return Ok(Bounded::TooLarge(size));
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or_default());
+    let mut limited = file.take(MAX_SOURCE_FILE_BYTES + 1);
+    limited.read_to_end(&mut bytes).await?;
+    let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    if read > MAX_SOURCE_FILE_BYTES {
+        let size = limited.into_inner().metadata().await.map_or(read, |metadata| metadata.len().max(read));
+        return Ok(Bounded::TooLarge(size));
+    }
+    Ok(Bounded::Content(bytes))
+}
+
+fn source_document(bytes: Vec<u8>) -> SourceResult {
+    SourceDocument::new(source_text(bytes)?).map(Arc::new)
+}
+
+fn source_text(bytes: Vec<u8>) -> Result<String, SourceUnavailable> {
+    if bytes.contains(&0) {
+        return Err(SourceUnavailable::Binary);
+    }
+    String::from_utf8(bytes).map_err(|_| SourceUnavailable::Binary)
 }
 
 fn source_error(error: GitError) -> SourceUnavailable {
