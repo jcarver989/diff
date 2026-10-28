@@ -1,6 +1,9 @@
 #![cfg(feature = "test-support")]
 
-use clankerdiff_core::testing::{DocumentBuilder, location};
+use clankerdiff_core::{
+    LookupAnswer, LookupRequest,
+    testing::{DocumentBuilder, ResolutionBuilder, location},
+};
 use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
 use gpui::{Modifiers, MouseMoveEvent, TestAppContext, point, px};
 
@@ -76,6 +79,42 @@ fn a_name_defined_outside_the_diff_keeps_its_card_open_instead_of_jumping(cx: &m
     });
 }
 
+#[gpui::test]
+fn a_name_followed_while_its_answer_is_pending_jumps_to_the_language_servers_answer(cx: &mut TestAppContext) {
+    builder().with_lookups().run(cx, |harness, cx| {
+        let origin = location("src/main.rs", 2)?;
+        harness.select_line(cx, &origin)?;
+        let position = harness.hover_name(cx, "code:src/main.rs:new:2", "build")?;
+        let lookup = harness.last_lookup(cx).ok_or("lookup")?;
+        assert!(
+            matches!(&lookup.request, LookupRequest::Definition(request) if request.at == origin && request.column == 4)
+        );
+        assert!(harness.definition_card(cx).is_some_and(|card| card.is_pending()));
+        assert!(harness.bounds(cx, "definition-card-signature").is_some(), "names matched in the diff show meanwhile");
+
+        harness.secondary_click_at(cx, position);
+        assert_eq!(harness.selected_line(cx), Some(origin));
+        harness.answer_lookup(cx, lookup, Ok(resolved("src/util.rs", 1)));
+        assert_eq!(harness.selected_line(cx), Some(location("src/util.rs", 1)?));
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn code_in_a_language_server_hover_is_syntax_highlighted(cx: &mut TestAppContext) {
+    builder().with_lookups().run(cx, |harness, cx| {
+        harness.hover_name(cx, "code:src/main.rs:new:2", "build")?;
+        let lookup = harness.last_lookup(cx).ok_or("lookup")?;
+        let before = harness.read(cx, |viewer, _| viewer.highlight_stats());
+        harness.answer_lookup(cx, lookup, Ok(resolved("src/util.rs", 1)));
+        let after = harness.read(cx, |viewer, _| viewer.highlight_stats());
+        assert!(harness.definition_card(cx).is_some_and(|card| !card.is_pending()));
+        assert!(harness.bounds(cx, "definition-card-docs").is_some());
+        assert_eq!(after.misses - before.misses, 1, "the hover's rust fence is highlighted");
+        Ok(())
+    });
+}
+
 fn builder() -> DiffViewerHarnessBuilder {
     DiffViewerHarnessBuilder {
         document: DocumentBuilder::new()
@@ -89,4 +128,12 @@ fn builder() -> DiffViewerHarnessBuilder {
             .build(),
         ..DiffViewerHarnessBuilder::default()
     }
+}
+
+fn resolved(path: &str, line_number: usize) -> LookupAnswer {
+    ResolutionBuilder::new()
+        .target(path, line_number)
+        .preview("pub fn helper() -> u32 {")
+        .hover("```rust\npub fn helper() -> u32\n```\nReturns two.")
+        .answer()
 }

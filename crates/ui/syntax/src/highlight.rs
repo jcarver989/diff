@@ -386,6 +386,21 @@ impl ThemedHighlighter<'_> {
         Ok(highlights)
     }
 
+    pub fn highlight_lines<'a, 'b>(
+        &mut self,
+        language: impl Into<LanguageHint<'a>>,
+        text: &'b str,
+    ) -> Vec<(&'b str, Arc<[HighlightSpan]>)> {
+        let highlights = self.highlight_document(Fingerprint::of([text]), language, || text).ok();
+        text.lines()
+            .enumerate()
+            .map(|(index, line)| {
+                let spans = highlights.as_ref().and_then(|highlights| highlights.line_shared(index));
+                (line, spans.unwrap_or_else(empty_spans))
+            })
+            .collect()
+    }
+
     pub fn append(&mut self, stream: &mut SyntaxStream, appended: &str) -> Result<SyntaxStreamUpdate, SyntaxError> {
         let SyntaxHighlighter { config, stats, grammars, .. } = &mut *self.highlighter;
         check_limit(config, stream.source.len().saturating_add(appended.len()))?;

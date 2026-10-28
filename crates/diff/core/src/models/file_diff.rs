@@ -121,6 +121,23 @@ impl FileDiff {
         })
     }
 
+    #[must_use]
+    pub fn unchanged(path: RepoPath, source: Arc<SourceDocument>) -> Self {
+        Self {
+            old_path: Some(path.clone()),
+            path,
+            status: FileStatus::Modified,
+            staged: StageState::Unstaged,
+            hunks: Vec::new(),
+            binary: false,
+            mode: None,
+            no_newline_at_end: false,
+            omitted_bytes: None,
+            old_source: Ok(Arc::clone(&source)),
+            new_source: Ok(source),
+        }
+    }
+
     /// Attaches captured source versions, re-deriving the hunks from them when
     /// both sides are known. Git metadata such as status, staging, mode, and
     /// paths is kept as supplied; a binary file keeps its patch untouched.

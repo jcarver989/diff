@@ -178,7 +178,7 @@ impl DiffReviewState {
 
     fn handle_mouse(&mut self, mouse: MouseEvent) -> InputOutcome<DiffReviewEvent> {
         let position = Position::new(mouse.column, mouse.row);
-        self.lookup = None;
+        self.names.close();
         match mouse.kind {
             MouseEventKind::ScrollUp => self.scroll_at(position, -1),
             MouseEventKind::ScrollDown => self.scroll_at(position, 1),

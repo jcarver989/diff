@@ -6,34 +6,52 @@ use crate::{
     ui::{
         menu::{MenuItem, with_menu},
         prelude::{Button, ButtonVariant, ControlSize, IconButton, IconName, Typography, TypographyExt, rem},
-        tokens::{self, RADIUS_CONTROL, RADIUS_INNER, ROW_HEIGHT},
+        tokens::{RADIUS_CONTROL, RADIUS_INNER, ROW_HEIGHT},
     },
     viewer::{
         CancelNameHints, CloseDefinition, GoToDefinition, NavigateBack, NavigateForward, NextDefinition, PickName,
     },
 };
-use clankerdiff_core::{DiffReviewCommand, DiffSide, SourceLocation};
-use clankerdiff_symbols::{Definition, Lookup, SymbolReference};
+use clankerdiff_core::{DiffReviewCommand, SourceLocation, TargetLocation};
+use clankerdiff_symbols::{Mark, SymbolReference};
 use gpui::{
-    AnyElement, Context, Div, HighlightStyle, Hsla, InteractiveText, KeyDownEvent, Modifiers, ModifiersChangedEvent,
+    AnyElement, Context, Div, HighlightStyle, InteractiveText, KeyDownEvent, Modifiers, ModifiersChangedEvent,
     MouseButton, SharedString, StyledText, UnderlineStyle, WeakEntity, Window, combine_highlights, div, prelude::*, px,
 };
 use std::{ops::Range, rc::Rc};
+
+pub(crate) const HISTORY_BUTTONS: usize = 2;
 
 impl DiffViewer {
     pub(crate) fn navigate(&mut self, command: DiffReviewCommand, cx: &mut Context<Self>) -> bool {
         if self.session_mut().apply_navigation(command) != Some(true) {
             return false;
         }
-        self.name_hints = None;
-        self.sync_diff_list();
-        self.reveal_selected_row();
-        cx.notify();
+        self.update_names(cx, |names, session, _, enabled| names.navigated(session, enabled));
+        self.reveal_navigation(cx);
         true
     }
 
+    pub(crate) fn reveal_navigation(&mut self, cx: &mut Context<Self>) {
+        self.sync_diff_list();
+        self.reveal_selected_row();
+        cx.notify();
+    }
+
+    pub(crate) fn render_reference_status(&self, message: String) -> Div {
+        div()
+            .debug_selector(|| "reference-status".to_owned())
+            .flex_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .typography(Typography::Body)
+            .text_color(self.ui_theme().colors.text_secondary)
+            .child(message)
+    }
+
     pub(crate) fn name_hint_row(&self) -> Option<usize> {
-        self.presentation().row_showing_source(&self.name_hints.as_ref()?.origin)
+        self.presentation().row_showing_source(&self.names.hints()?.origin)
     }
 
     pub(crate) fn pick_name(&mut self, _: &PickName, window: &mut Window, cx: &mut Context<Self>) {
@@ -44,47 +62,31 @@ impl DiffViewer {
         let Some(origin) = self.session().selected_source_line() else {
             return false;
         };
-        match Lookup::at(&self.symbols(), origin) {
-            Some(Lookup::Card(card)) => self.show_card(card, Hold::Pinned, cx),
-            Some(Lookup::Hints(hints)) => {
-                self.name_hints = Some(hints);
-                self.remeasure_row(self.name_hint_row());
-                cx.notify();
-            }
-            None => return false,
-        }
-        true
+        let opened =
+            self.update_names(cx, |names, session, index, enabled| names.open_at(origin, session, index, enabled));
+        self.hold_card(Hold::Pinned);
+        opened
     }
 
     pub(crate) fn cancel_name_hints(&mut self, _: &CancelNameHints, _: &mut Window, cx: &mut Context<Self>) {
-        self.clear_name_hints(cx);
-    }
-
-    pub(crate) fn clear_name_hints(&mut self, cx: &mut Context<Self>) {
-        let row = self.name_hint_row();
-        if self.name_hints.take().is_some() {
-            self.remeasure_row(row);
-            cx.notify();
-        }
+        self.close_names(cx);
     }
 
     pub(crate) fn name_hint_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(hints) = &self.name_hints else {
-            return;
-        };
-        if event.keystroke.modifiers.modified() {
+        if self.names.hints().is_none() || event.keystroke.modifiers.modified() {
             return;
         }
-        let Some(card) = event.keystroke.key.parse().ok().and_then(|key| hints.pick(key)) else {
+        let Ok(key) = event.keystroke.key.parse() else {
             return;
         };
-        cx.stop_propagation();
-        self.clear_name_hints(cx);
-        self.show_card(card, Hold::Pinned, cx);
+        if self.update_names(cx, |names, session, _, enabled| names.pick_hint(key, session, enabled)) {
+            cx.stop_propagation();
+            self.hold_card(Hold::Pinned);
+        }
     }
 
     pub(crate) fn close_definition(&mut self, _: &CloseDefinition, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_card(cx);
+        self.close_names(cx);
     }
 
     pub(crate) fn go_to_definition(&mut self, _: &GoToDefinition, _: &mut Window, cx: &mut Context<Self>) {
@@ -119,14 +121,16 @@ impl DiffViewer {
         highlights: Vec<(Range<usize>, HighlightStyle)>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let marks = self.line_marks(&location);
-        if marks.is_empty() {
+        let marked = self.names.pick().is_some_and(|pick| pick.origin() == &location);
+        if !self.links_visible && !marked {
             return StyledText::new(text).with_highlights(highlights).into_any_element();
         }
         let references = self.line_references(&location, &text);
+        let names = self.names.marks(&location, &references);
+        let card_here = self.card_at(&location);
         let styled = StyledText::new(text.clone())
-            .with_highlights(combine_highlights(highlights, marks.highlights(&references)));
-        let anchor = marks.card.is_some().then(|| self.render_card_anchor(&text, cx)).flatten();
+            .with_highlights(combine_highlights(highlights, self.mark_highlights(&references, &names)));
+        let anchor = card_here.then(|| self.render_card_anchor(&text, cx)).flatten();
         let key = line_key(&location);
         let interactive = line_links(&key, location.clone(), styled, references, cx);
         div()
@@ -142,21 +146,30 @@ impl DiffViewer {
             .into_any_element()
     }
 
-    fn line_marks(&self, location: &SourceLocation) -> LineMarks {
-        let hinted = self.name_hints.as_ref().filter(|hints| &hints.origin == location);
-        LineMarks {
-            card: self
-                .card
-                .as_ref()
-                .filter(|hover| &hover.card.origin == location)
-                .map(|hover| hover.card.columns.clone()),
-            hinted: hinted
-                .map(|hints| hints.names.iter().map(|reference| reference.name.clone()).collect())
-                .unwrap_or_default(),
-            links: self.links_visible,
-            accent: style::color(self.theme().diff.accent),
-            warning: self.ui_theme().colors.warning,
-        }
+    fn mark_highlights(
+        &self,
+        references: &[SymbolReference],
+        names: &[(Range<usize>, Mark)],
+    ) -> Vec<(Range<usize>, HighlightStyle)> {
+        let theme = self.theme();
+        let accent = style::color(theme.diff.accent);
+        let (hinted, carded) = (style::color(theme.hinted_name()), style::color(theme.carded_name()));
+        let underline =
+            self.links_visible.then_some(UnderlineStyle { color: Some(accent), thickness: px(1.0), wavy: false });
+        references
+            .iter()
+            .filter_map(|reference| {
+                let background =
+                    names.iter().find(|(range, _)| range == &reference.span.columns).map(|(_, mark)| match mark {
+                        Mark::Hinted => hinted,
+                        Mark::Card => carded,
+                    });
+                (background.is_some() || underline.is_some()).then(|| {
+                    let style = HighlightStyle { background_color: background, underline, ..HighlightStyle::default() };
+                    (reference.span.columns.clone(), style)
+                })
+            })
+            .collect()
     }
 
     fn line_references(&mut self, location: &SourceLocation, text: &str) -> Rc<Vec<SymbolReference>> {
@@ -171,7 +184,7 @@ impl DiffViewer {
     }
 
     fn card_at(&self, location: &SourceLocation) -> bool {
-        self.card.as_ref().is_some_and(|hover| &hover.card.origin == location)
+        self.names.card().is_some_and(|card| &card.origin == location)
     }
 
     fn hover_line(
@@ -184,7 +197,7 @@ impl DiffViewer {
     ) {
         let hit = index.and_then(|index| references.iter().find(|reference| reference.span.columns.contains(&index)));
         match hit {
-            Some(reference) if self.card.as_ref().is_some_and(|card| card.shows(location, &reference.span.columns)) => {
+            Some(reference) if self.names.card().is_some_and(|card| card.shows(location, &reference.span.columns)) => {
                 self.card_token_hovered(true, cx);
             }
             Some(reference) if modifiers.secondary() => {
@@ -198,7 +211,7 @@ impl DiffViewer {
     }
 
     pub(crate) fn render_name_hints(&self) -> Option<AnyElement> {
-        let hints = self.name_hints.as_ref()?;
+        let hints = self.names.hints()?;
         let theme = self.ui_theme();
         let colors = theme.colors;
         let palette = &self.theme().diff;
@@ -247,22 +260,19 @@ impl DiffViewer {
     }
 
     pub(crate) fn render_symbol_path(&mut self, file_index: usize, cx: &mut Context<Self>) -> Option<Div> {
-        let path = self.symbol_path(file_index);
-        let navigation = self.render_history_buttons(cx);
-        if path.is_empty() && navigation.is_none() {
+        let location = self.top_source_location(file_index)?;
+        let index = self.symbols();
+        let names = index.path_names(&location);
+        if names.is_empty() {
             return None;
         }
         init_input(cx);
-        let file_path = self.document().files.get(file_index)?.path.clone();
-        let side = path.last().map_or(DiffSide::New, |definition| definition.location.side);
-        let items: Vec<(String, SourceLocation)> = self
-            .symbols()
-            .file_definitions(&file_path, side)
+        let file_path = self.presentation().document().files.get(file_index)?.path.clone();
+        let items: Vec<(String, SourceLocation)> = index
+            .file_definitions(&file_path, location.side)
             .into_iter()
             .map(|definition| (definition.label(), definition.location.clone()))
             .collect();
-        let mut names: Vec<String> = path.into_iter().map(|definition| definition.name).collect();
-        names.dedup();
         let crumbs: Vec<Div> = names
             .into_iter()
             .enumerate()
@@ -276,16 +286,8 @@ impl DiffViewer {
                 .items_center()
                 .gap_0p5()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .children(navigation)
                 .children(crumbs),
         )
-    }
-
-    fn symbol_path(&mut self, file_index: usize) -> Vec<Definition> {
-        let Some(location) = self.top_source_location(file_index) else {
-            return Vec::new();
-        };
-        self.symbols().path_at(&location).into_iter().cloned().collect()
     }
 
     fn render_symbol_crumb(
@@ -305,99 +307,51 @@ impl DiffViewer {
         div().flex().items_center().gap_0p5().child(div().text_color(theme.colors.text_muted).child("›")).child(menu)
     }
 
-    fn render_history_buttons(&self, cx: &Context<Self>) -> Option<Div> {
-        let back = self.session().back_location().is_some();
-        let forward = self.session().forward_location().is_some();
-        if !back && !forward {
-            return None;
-        }
-        Some(
-            div()
-                .flex()
-                .items_center()
-                .gap_0p5()
-                .child(self.history_button(
-                    "navigate-back",
-                    IconName::ChevronLeft,
-                    "Back (Ctrl-O)",
-                    back,
-                    DiffReviewCommand::NavigateBack,
-                    cx,
-                ))
-                .child(self.history_button(
-                    "navigate-forward",
-                    IconName::ChevronRight,
-                    "Forward (Ctrl-I)",
-                    forward,
-                    DiffReviewCommand::NavigateForward,
-                    cx,
-                )),
-        )
+    pub(crate) fn render_history_buttons(&self, cx: &Context<Self>) -> [IconButton; HISTORY_BUTTONS] {
+        let label = |direction: &str, key: char, target: Option<&TargetLocation>| -> SharedString {
+            let Some(target) = target else {
+                return format!("{direction} (Ctrl-{key})").into();
+            };
+            format!("{direction} to {}:{} (Ctrl-{key})", target.path.display_path().file_name(), target.line_number)
+                .into()
+        };
+        [
+            self.history_button(
+                "navigate-back",
+                IconName::ArrowLeft,
+                label("Back", 'O', self.session().back_location()),
+                DiffReviewCommand::NavigateBack,
+                cx,
+            ),
+            self.history_button(
+                "navigate-forward",
+                IconName::ArrowRight,
+                label("Forward", 'I', self.session().forward_location()),
+                DiffReviewCommand::NavigateForward,
+                cx,
+            ),
+        ]
     }
 
     fn history_button(
         &self,
         id: &'static str,
         icon: IconName,
-        label: &'static str,
-        enabled: bool,
+        label: SharedString,
         command: DiffReviewCommand,
         cx: &Context<Self>,
     ) -> IconButton {
-        IconButton::new(id, icon, label, self.ui_theme())
-            .icon_size(tokens::ICON_SIZE_SMALL)
-            .disabled(!enabled)
-            .on_click(cx.listener(move |viewer, _, window, cx| {
+        let enabled = self.command_enabled(&command);
+        IconButton::new(id, icon, label, self.ui_theme()).disabled(!enabled).on_click(cx.listener(
+            move |viewer, _, window, cx| {
                 viewer.handle_command(command.clone(), window, cx);
-            }))
+            },
+        ))
     }
 
     fn top_source_location(&self, file_index: usize) -> Option<SourceLocation> {
-        let range = self.presentation().file_range(file_index)?;
         let top = self.session().visible_range().start + self.diff_list_state.logical_scroll_top().item_ix + 1;
-        (top.max(range.start)..range.end).find_map(|index| {
-            let row = self.presentation().row(index)?;
-            let cell = row.preferred_cell(self.session().selected_side()).or_else(|| row.primary_cell())?;
-            self.presentation().source_location(row, cell)
-        })
-    }
-}
-
-struct LineMarks {
-    card: Option<Range<usize>>,
-    hinted: Vec<String>,
-    links: bool,
-    accent: Hsla,
-    warning: Hsla,
-}
-
-impl LineMarks {
-    fn is_empty(&self) -> bool {
-        !self.links && self.card.is_none() && self.hinted.is_empty()
-    }
-
-    fn highlights(&self, references: &[SymbolReference]) -> Vec<(Range<usize>, HighlightStyle)> {
-        references
-            .iter()
-            .filter_map(|reference| Some((reference.span.columns.clone(), self.style(reference)?)))
-            .collect()
-    }
-
-    fn style(&self, reference: &SymbolReference) -> Option<HighlightStyle> {
-        let background = if self.hinted.contains(&reference.name) {
-            Some(self.warning.opacity(0.28))
-        } else if self.card.as_ref() == Some(&reference.span.columns) {
-            Some(self.accent.opacity(0.22))
-        } else {
-            None
-        };
-        let underline =
-            self.links.then_some(UnderlineStyle { color: Some(self.accent), thickness: px(1.0), wavy: false });
-        (background.is_some() || underline.is_some()).then(|| HighlightStyle {
-            background_color: background,
-            underline,
-            ..HighlightStyle::default()
-        })
+        self.presentation().source_location_from(file_index, top, self.session().selected_side())
     }
 }
 
@@ -435,7 +389,7 @@ fn symbol_menu(items: Vec<(String, SourceLocation)>, viewer: &WeakEntity<DiffVie
             let viewer = viewer.clone();
             MenuItem::new(format!("symbol-path-item-{index}"), label, move |window, cx| {
                 let _ = viewer.update(cx, |viewer, cx| {
-                    viewer.handle_command(DiffReviewCommand::JumpTo(location.clone()), window, cx);
+                    viewer.handle_command(DiffReviewCommand::JumpTo(location.clone().into()), window, cx);
                 });
             })
         })

@@ -3,7 +3,7 @@
 use super::{BackendStats, CountingBackend, buffer_row_text, buffer_text, key};
 use crate::KeyCode;
 use crate::{DiffReviewState, DiffReviewWidget, ReviewInput};
-use clankerdiff_core::DiffDocument;
+use clankerdiff_core::{DiffDocument, Lookup, LookupAnswer, LookupReply, ReviewCapabilities};
 use clankerdiff_syntax::HighlightStats;
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
 use std::sync::Arc;
@@ -37,11 +37,17 @@ pub struct ReviewHarnessBuilder {
     pub document: Arc<DiffDocument>,
     pub width: u16,
     pub height: u16,
+    pub capabilities: ReviewCapabilities,
 }
 
 impl Default for ReviewHarnessBuilder {
     fn default() -> Self {
-        Self { document: Arc::new(DiffDocument::empty()), width: 80, height: 24 }
+        Self {
+            document: Arc::new(DiffDocument::empty()),
+            width: 80,
+            height: 24,
+            capabilities: ReviewCapabilities::default(),
+        }
     }
 }
 
@@ -53,15 +59,23 @@ impl ReviewHarnessBuilder {
         self
     }
 
+    #[must_use]
+    pub const fn with_lookups(mut self) -> Self {
+        self.capabilities.lookups = true;
+        self
+    }
+
     /// # Panics
     ///
     /// Panics if Ratatui cannot initialize the in-memory test terminal.
     #[must_use]
     pub fn build(self) -> ReviewHarness {
-        let state = DiffReviewState::new(self.document);
+        let mut state = DiffReviewState::new(self.document);
+        state.set_capabilities(self.capabilities);
         ReviewHarness {
             terminal: Terminal::new(CountingBackend::new(self.width, self.height)).expect("infallible test terminal"),
             state,
+            lookups: Vec::new(),
         }
     }
 }
@@ -70,12 +84,13 @@ impl ReviewHarnessBuilder {
 pub struct ReviewHarness {
     terminal: Terminal<CountingBackend>,
     state: DiffReviewState,
+    lookups: Vec<Lookup>,
 }
 
 impl ReviewHarness {
     #[must_use]
     pub fn new(document: Arc<DiffDocument>, width: u16, height: u16) -> Self {
-        ReviewHarnessBuilder { document, width, height }.build()
+        ReviewHarnessBuilder { document, width, height, ..ReviewHarnessBuilder::default() }.build()
     }
 
     /// Draws one frame and returns deterministic rendering work statistics.
@@ -104,6 +119,17 @@ impl ReviewHarness {
 
     pub fn input(&mut self, input: ReviewInput) {
         let _ = self.state.handle_input(input);
+        self.lookups.extend(self.state.take_lookups());
+    }
+
+    #[must_use]
+    pub fn last_lookup(&self) -> Option<Lookup> {
+        self.lookups.last().cloned()
+    }
+
+    pub fn answer_lookup(&mut self, lookup: Lookup, result: Result<LookupAnswer, String>) {
+        self.state.lookup_finished(LookupReply::new(lookup, result));
+        self.lookups.extend(self.state.take_lookups());
     }
 
     pub fn press(&mut self, code: KeyCode) {

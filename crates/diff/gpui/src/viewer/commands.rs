@@ -28,7 +28,7 @@ impl DiffViewer {
             repository_pending: self.repository_pending,
             themes_available: self.options.themes,
             commits_available: self.session.commits().is_some(),
-            source_view: self.session.source_view().is_some(),
+            source_view: self.session.shows_source(),
             ..CommandContext::default()
         }
     }
@@ -67,8 +67,7 @@ impl DiffViewer {
         if !self.command_enabled(&command) {
             return false;
         }
-        self.clear_name_hints(cx);
-        self.close_card(cx);
+        self.close_names(cx);
         match command {
             C::Focus(pane) => {
                 if self.pane == pane {

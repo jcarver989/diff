@@ -7,10 +7,11 @@ use crate::{
 };
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{
-    CommitPicker, DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, RepositoryAction,
-    RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, ViewMode, ViewportAnchor,
+    CommitPicker, DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, Lookup,
+    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, ViewMode,
+    ViewportAnchor,
 };
-use clankerdiff_symbols::{Lookup, SymbolCache, SymbolIndex};
+use clankerdiff_symbols::{NameLookup, NamePick, SymbolCache, SymbolIndex};
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
 use clankerdiff_theme::ReviewTheme;
 use ratatui::layout::{Position, Rect};
@@ -117,7 +118,7 @@ pub struct DiffReviewState {
     pub(crate) help_scroll: usize,
     pub(crate) theme_picker: Option<ThemePicker>,
     pub(crate) commit_picker: Option<CommitPicker>,
-    pub(crate) lookup: Option<Lookup>,
+    pub(crate) names: NameLookup,
     symbols: SymbolCache,
     pub(crate) repository_prompt: Option<RepositoryPrompt>,
     pub(crate) repository_status: RepositoryOperationStatus,
@@ -168,7 +169,7 @@ impl DiffReviewState {
             help_scroll: 0,
             theme_picker: None,
             commit_picker: None,
-            lookup: None,
+            names: NameLookup::default(),
             symbols: SymbolCache::default(),
             repository_prompt: None,
             repository_status: RepositoryOperationStatus::Idle,
@@ -234,12 +235,16 @@ impl DiffReviewState {
 
     /// Returns the open name hints or definition card, if any.
     #[must_use]
-    pub const fn lookup(&self) -> Option<&Lookup> {
-        self.lookup.as_ref()
+    pub const fn lookup(&self) -> Option<&NamePick> {
+        self.names.pick()
+    }
+
+    pub fn take_lookups(&mut self) -> Vec<Lookup> {
+        self.names.take_lookups()
     }
 
     pub(crate) fn symbols(&mut self) -> Arc<SymbolIndex> {
-        self.symbols.index(self.session.document())
+        self.symbols.index(self.session.presentation().document())
     }
 
     /// Returns the current load status.
@@ -353,7 +358,7 @@ impl DiffReviewState {
     fn install_document(&mut self, document: Arc<DiffDocument>) {
         let bookmark = matches!(self.status, DiffReviewStatus::Ready).then(|| self.viewport_bookmark()).flatten();
         self.session.set_document(document);
-        self.lookup = None;
+        self.names.document_changed(&mut self.session, self.capabilities.lookups);
         self.status = DiffReviewStatus::Ready;
         self.cursor_position = None;
         self.mark_dirty();
@@ -416,6 +421,7 @@ impl DiffReviewState {
     }
 
     pub fn apply_client_state(&mut self, client: &ClientState, installed: &mut Option<Arc<DiffDocument>>) {
+        self.set_capabilities(client.capabilities);
         if let Some(snapshot) = client.snapshot_if_changed(installed) {
             self.set_document(Arc::clone(snapshot));
         }
@@ -425,7 +431,6 @@ impl DiffReviewState {
             }
             status => self.set_background_error(status),
         }
-        self.set_capabilities(client.capabilities);
     }
 
     /// Whether a host command is still in flight.

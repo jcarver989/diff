@@ -1,6 +1,7 @@
 use crate::{
-    CommitId, CommitStack, CommitSummary, DiffDocument, DiffSide, FileDiff, FileStatus, Hunk, PatchLine, RepoPath,
-    RepoPathError, ReviewTarget, SourceDocument, SourceLocation, SourceResult, SourceUnavailable, StageState,
+    CommitId, CommitStack, CommitSummary, DefinitionTarget, DiffDocument, DiffSide, FileDiff, FileStatus, Hunk,
+    LookupAnswer, PatchLine, RepoPath, RepoPathError, Resolution, ReviewTarget, SourceDocument, SourceLocation,
+    SourcePath, SourceResult, SourceUnavailable, StageState, TargetLocation,
 };
 use std::sync::Arc;
 
@@ -280,8 +281,80 @@ impl DocumentBuilder {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ResolutionBuilder {
+    targets: Vec<DefinitionTarget>,
+    hover: Option<String>,
+}
+
+impl ResolutionBuilder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn target(self, path: &str, line_number: usize) -> Self {
+        self.at(SourcePath::Repo(RepoPath::new(path).expect("valid fixture path")), line_number)
+    }
+
+    #[must_use]
+    pub fn external(self, id: u64, display: &str, line_number: usize) -> Self {
+        self.at(external(id, display), line_number)
+    }
+
+    #[must_use]
+    pub fn at(mut self, path: SourcePath, line_number: usize) -> Self {
+        let location = TargetLocation { path, side: DiffSide::New, line_number };
+        self.targets.push(DefinitionTarget { location, preview: None });
+        self
+    }
+
+    #[must_use]
+    pub fn preview(mut self, preview: &str) -> Self {
+        if let Some(target) = self.targets.last_mut() {
+            target.preview = Some(preview.to_owned());
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn hover(mut self, hover: &str) -> Self {
+        self.hover = Some(hover.to_owned());
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> Resolution {
+        Resolution { targets: self.targets, hover: self.hover }
+    }
+
+    #[must_use]
+    pub fn answer(self) -> LookupAnswer {
+        LookupAnswer::Definition(self.build())
+    }
+}
+
+#[must_use]
+pub fn external(id: u64, display: &str) -> SourcePath {
+    SourcePath::External { id, display: display.to_owned() }
+}
+
+#[must_use]
+pub fn source(text: &str) -> Arc<SourceDocument> {
+    Arc::new(SourceDocument::new(text).expect("fixture source fits"))
+}
+
 pub fn location(path: &str, line_number: usize) -> Result<SourceLocation, RepoPathError> {
     Ok(SourceLocation { path: RepoPath::new(path)?, side: DiffSide::New, line_number })
+}
+
+pub fn repo(path: &str) -> Result<SourcePath, RepoPathError> {
+    Ok(SourcePath::Repo(RepoPath::new(path)?))
+}
+
+pub fn target(path: &str, line_number: usize) -> Result<TargetLocation, RepoPathError> {
+    Ok(location(path, line_number)?.into())
 }
 
 #[must_use]

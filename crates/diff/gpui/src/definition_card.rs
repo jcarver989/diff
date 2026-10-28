@@ -1,20 +1,22 @@
 use crate::{
     DiffViewer,
-    markdown_viewer::inline::{InlineColors, inline_text},
+    markdown_viewer::{content::MarkdownContent, inline::InlineColors, rows::document_rows},
     style,
     ui::{
         prelude::{CODE_FONT, SurfaceExt, Typography, TypographyExt, rem},
-        tokens::{CODE_ROW_HEIGHT, POPOVER_WIDTH, RADIUS_INNER},
+        tokens::{CODE_ROW_HEIGHT, POPOVER_WIDTH},
     },
 };
-use clankerdiff_core::{DiffReviewCommand, SourceDocument, SourceLocation};
-use clankerdiff_markdown::{MarkdownBlock, MarkdownBlockKind, parse_markdown, rendered_text};
-use clankerdiff_symbols::{Definition, DefinitionCard, SymbolReference};
-use gpui::{
-    AnyElement, App, Context, MouseDownEvent, Pixels, SharedString, StyledText, anchored, deferred, div, font,
-    prelude::*, px,
+use clankerdiff_core::{
+    DiffReviewCommand, DiffReviewEvent, LookupReply, ReviewSession, SourceLocation, TargetLocation,
 };
-use std::{ops::Range, time::Duration};
+use clankerdiff_markdown::{MarkdownOptions, parse_markdown};
+use clankerdiff_symbols::{Activation, DefinitionCard, NameLookup, Settled, SymbolIndex, SymbolReference};
+use clankerdiff_syntax::LanguageHint;
+use gpui::{
+    AnyElement, App, Context, Div, MouseDownEvent, Pixels, StyledText, anchored, deferred, div, font, prelude::*, px,
+};
+use std::time::Duration;
 
 const CARD_HIDE_DELAY: Duration = Duration::from_millis(200);
 const CARD_MIN_WIDTH: f32 = 320.0;
@@ -26,25 +28,50 @@ pub(crate) enum Hold {
     Pinned,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct HoverCard {
-    pub(crate) card: DefinitionCard,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CardHover {
     hold: Hold,
     token_hovered: bool,
     card_hovered: bool,
 }
 
-impl HoverCard {
-    fn lingering(&self) -> bool {
-        self.hold == Hold::Hover && !self.token_hovered && !self.card_hovered
+impl CardHover {
+    fn new(hold: Hold) -> Self {
+        Self { hold, token_hovered: hold == Hold::Hover, card_hovered: false }
     }
 
-    pub(crate) fn shows(&self, origin: &SourceLocation, columns: &Range<usize>) -> bool {
-        self.card.shows(origin, columns)
+    fn lingering(self) -> bool {
+        self.hold == Hold::Hover && !self.token_hovered && !self.card_hovered
+    }
+}
+
+impl Default for CardHover {
+    fn default() -> Self {
+        Self::new(Hold::Pinned)
     }
 }
 
 impl DiffViewer {
+    pub(crate) fn update_names<T>(
+        &mut self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut NameLookup, &mut ReviewSession, &SymbolIndex, bool) -> T,
+    ) -> T {
+        let index = self.symbols();
+        let hint_row = self.name_hint_row();
+        let result = update(&mut self.names, &mut self.session, &index, self.capabilities.lookups);
+        let next_row = self.name_hint_row();
+        if hint_row != next_row {
+            self.remeasure_row(hint_row);
+            self.remeasure_row(next_row);
+        }
+        for lookup in self.names.take_lookups() {
+            cx.emit(DiffReviewEvent::Lookup(lookup));
+        }
+        cx.notify();
+        result
+    }
+
     pub(crate) fn show_definition(
         &mut self,
         origin: SourceLocation,
@@ -52,40 +79,50 @@ impl DiffViewer {
         hold: Hold,
         cx: &mut Context<Self>,
     ) {
-        self.show_card(DefinitionCard::new(origin, reference), hold, cx);
+        let card = DefinitionCard::new(origin, reference);
+        self.update_names(cx, |names, session, _, enabled| names.show(card, session, enabled));
+        self.hold_card(hold);
     }
 
-    pub(crate) fn show_card(&mut self, card: DefinitionCard, hold: Hold, cx: &mut Context<Self>) {
+    pub(crate) fn hold_card(&mut self, hold: Hold) {
         self.card_timer = None;
-        self.card = Some(HoverCard { card, hold, token_hovered: hold == Hold::Hover, card_hovered: false });
-        cx.notify();
+        self.hover = CardHover::new(hold);
     }
 
-    pub(crate) fn close_card(&mut self, cx: &mut Context<Self>) -> bool {
+    pub fn lookup_finished(&mut self, reply: LookupReply, cx: &mut Context<Self>) {
+        match self.update_names(cx, |names, session, index, _| names.finish(reply, session, index)) {
+            Settled::Ignored | Settled::Redraw => {}
+            Settled::Opened => self.reveal_navigation(cx),
+            Settled::Jump(target) => {
+                self.jump_to(target, cx);
+            }
+        }
+    }
+
+    pub(crate) fn close_names(&mut self, cx: &mut Context<Self>) -> bool {
         self.card_timer = None;
-        if self.card.take().is_none() {
+        if self.names.pick().is_none() {
             return false;
         }
-        cx.notify();
-        true
+        self.update_names(cx, |names, _, _, _| names.close())
     }
 
     pub(crate) fn card_token_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        if let Some(card) = &mut self.card {
-            card.token_hovered = hovered;
-        }
+        self.hover.token_hovered = hovered;
         self.schedule_card_hide(cx);
     }
 
     fn card_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        if let Some(card) = &mut self.card {
-            card.card_hovered = hovered;
-        }
+        self.hover.card_hovered = hovered;
         self.schedule_card_hide(cx);
     }
 
+    fn card_lingering(&self) -> bool {
+        self.names.card().is_some() && self.hover.lingering()
+    }
+
     fn schedule_card_hide(&mut self, cx: &mut Context<Self>) {
-        if !self.card.as_ref().is_some_and(HoverCard::lingering) {
+        if !self.card_lingering() {
             self.card_timer = None;
             return;
         }
@@ -93,8 +130,8 @@ impl DiffViewer {
             cx.background_executor().timer(CARD_HIDE_DELAY).await;
             let _ = viewer.update(cx, |viewer, cx| {
                 viewer.card_timer = None;
-                if viewer.card.as_ref().is_some_and(HoverCard::lingering) {
-                    viewer.close_card(cx);
+                if viewer.card_lingering() {
+                    viewer.close_names(cx);
                 }
             });
         }));
@@ -106,40 +143,43 @@ impl DiffViewer {
         reference: &SymbolReference,
         cx: &mut Context<Self>,
     ) {
-        match &mut self.card {
-            Some(card) if card.shows(&origin, &reference.span.columns) => card.hold = Hold::Pinned,
-            _ => self.show_definition(origin, reference, Hold::Pinned, cx),
+        if self.names.card().is_some_and(|card| card.shows(&origin, &reference.span.columns)) {
+            self.hover.hold = Hold::Pinned;
+        } else {
+            self.show_definition(origin, reference, Hold::Pinned, cx);
         }
         self.jump_to_card_choice(cx);
     }
 
     pub(crate) fn jump_to_card_choice(&mut self, cx: &mut Context<Self>) -> bool {
-        let index = self.symbols();
-        let Some(target) = self.card.as_ref().and_then(|hover| hover.card.target(&index)) else {
-            return false;
-        };
+        match self.update_names(cx, |names, _, index, _| names.activate(index)) {
+            Activation::Idle => false,
+            Activation::Wait => {
+                self.hover.hold = Hold::Pinned;
+                true
+            }
+            Activation::Jump(target) => self.jump_to(target, cx),
+        }
+    }
+
+    fn jump_to(&mut self, target: TargetLocation, cx: &mut Context<Self>) -> bool {
         let command = DiffReviewCommand::JumpTo(target);
         if !self.command_enabled(&command) {
             return false;
         }
-        self.clear_name_hints(cx);
-        self.close_card(cx);
+        self.close_names(cx);
         self.navigate(command, cx)
     }
 
     pub(crate) fn cycle_card_choice(&mut self, cx: &mut Context<Self>) {
-        let index = self.symbols();
-        if let Some(hover) = self.card.as_mut()
-            && hover.card.cycle(&index)
-        {
-            hover.hold = Hold::Pinned;
-            cx.notify();
+        if self.update_names(cx, |names, _, index, _| names.cycle(index)) {
+            self.hover.hold = Hold::Pinned;
         }
     }
 
     #[expect(clippy::cast_precision_loss, reason = "a column offset is far below f32's exact integer range")]
     pub(crate) fn render_card_anchor(&mut self, text: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let card = self.card.as_ref()?.card.clone();
+        let card = self.names.card()?.clone();
         let preceding = text.get(..card.columns.start).map_or(0, |prefix| prefix.chars().count());
         let left = self.code_advance(cx) * preceding as f32;
         let line_height = rem(CODE_ROW_HEIGHT);
@@ -170,19 +210,32 @@ impl DiffViewer {
         let theme = self.ui_theme();
         let colors = theme.colors;
         let index = self.symbols();
-        let choice = card.choice(&index);
-        let uses = format!("{} in this diff", uses_label(index.uses(&card.name).len()));
-        let head = match choice {
-            Some(choice) => self.render_signature(choice.definition),
-            None => div()
-                .typography(Typography::Body)
-                .text_color(colors.text_secondary)
-                .child(format!("No definition of {} in this diff", card.name))
-                .into_any_element(),
+        let content = card.content(&index);
+        let head = match (&content.message, &content.code) {
+            (Some(message), _) => Some(
+                div()
+                    .typography(Typography::Body)
+                    .text_color(colors.text_secondary)
+                    .child(message.clone())
+                    .into_any_element(),
+            ),
+            (None, Some((path, code))) => Some(
+                self.render_code(LanguageHint::Path(path.as_str()), code)
+                    .debug_selector(|| "definition-card-signature".to_owned())
+                    .into_any_element(),
+            ),
+            (None, None) => None,
         };
-        let docs = choice.and_then(|choice| choice.definition.docs.as_deref()).map(|docs| {
-            let colors = InlineColors::new(self.theme(), &theme);
-            let document = parse_markdown(docs);
+        let docs = content.docs.map(|docs| {
+            let rows = document_rows(parse_markdown(docs, MarkdownOptions { intra_doc_links: true }).blocks());
+            let mut markdown = MarkdownContent {
+                theme: &self.theme,
+                ui: &theme,
+                inline: InlineColors::new(&self.theme, &theme),
+                highlighter: &mut self.highlighter,
+                copy: false,
+                compact: true,
+            };
             div()
                 .id("definition-card-docs")
                 .debug_selector(|| "definition-card-docs".to_owned())
@@ -190,33 +243,19 @@ impl DiffViewer {
                 .overflow_y_scroll()
                 .flex()
                 .flex_col()
-                .gap_2()
                 .typography(Typography::Body)
-                .text_color(theme.colors.text)
-                .children(
-                    document
-                        .blocks()
-                        .iter()
-                        .enumerate()
-                        .map(|(index, block)| doc_block(index, block, colors, theme.colors.surface_hover)),
-                )
+                .text_color(colors.text)
+                .children(markdown.rows("definition-card-doc", &rows))
         });
-        let place = choice.map(|choice| {
-            let location = choice.definition.location.clone();
-            let location = format!("{}:{}", location.path, location.line_number);
-            match choice.count {
-                0 | 1 => location,
-                count => format!("{location} · {} of {count}", choice.position + 1),
-            }
-        });
+        let head_divider = head.is_some();
         let meta = div()
             .flex()
             .items_center()
             .gap_3()
             .typography(Typography::Caption)
             .text_color(colors.text_secondary)
-            .child(div().min_w_0().flex_1().overflow_hidden().whitespace_nowrap().children(place))
-            .child(div().flex_shrink_0().child(uses));
+            .child(div().min_w_0().flex_1().overflow_hidden().whitespace_nowrap().children(content.place.clone()))
+            .child(div().flex_shrink_0().child(content.uses.clone()));
         div()
             .id("definition-card")
             .debug_selector(|| "definition-card".to_owned())
@@ -231,93 +270,24 @@ impl DiffViewer {
             .on_hover(cx.listener(|viewer, hovered: &bool, _, cx| viewer.card_hovered(*hovered, cx)))
             .on_mouse_down_out(cx.listener(|viewer, event: &MouseDownEvent, _, cx| {
                 if !event.modifiers.secondary() {
-                    viewer.close_card(cx);
+                    viewer.close_names(cx);
                 }
             }))
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .child(div().px_3().py_2p5().child(head))
-            .child(div().h(px(1.0)).bg(colors.border_subtle))
+            .children(head.map(|head| div().px_3().py_2p5().child(head)))
+            .children(head_divider.then(|| div().h(px(1.0)).bg(colors.border_subtle)))
             .child(div().px_3().py_2p5().flex().flex_col().gap_2p5().children(docs).child(meta))
             .into_any_element()
     }
 
-    fn render_signature(&mut self, definition: &Definition) -> AnyElement {
-        let path = definition.location.path.as_str().to_owned();
-        let lines: Vec<AnyElement> =
-            match SourceDocument::new(&definition.signature) {
-                Ok(source) => (1..=source.line_count())
-                    .map(|line_number| {
-                        let text: SharedString = source.line(line_number).unwrap_or_default().to_owned().into();
-                        let highlights = self.highlight_source_line(&path, &source, line_number);
-                        StyledText::new(text)
-                            .with_highlights(highlights.iter().map(|span| {
-                                (span.range.clone(), style::highlight_style(span.foreground, span.font_style))
-                            }))
-                            .into_any_element()
-                    })
-                    .collect(),
-                Err(_) => vec![definition.signature.clone().into_any_element()],
-            };
-        div()
-            .debug_selector(|| "definition-card-signature".to_owned())
-            .flex()
-            .flex_col()
-            .typography(Typography::Code)
-            .children(lines)
-            .into_any_element()
+    fn render_code(&mut self, language: LanguageHint<'_>, code: &str) -> Div {
+        let lines: Vec<StyledText> = self
+            .highlighter
+            .with_theme(&self.theme.syntax)
+            .highlight_lines(language, code)
+            .into_iter()
+            .map(|(line, spans)| style::code_text(line.to_owned().into(), &spans))
+            .collect();
+        div().flex().flex_col().typography(Typography::Code).children(lines)
     }
-}
-
-fn doc_block(index: usize, block: &MarkdownBlock, colors: InlineColors, code_background: gpui::Hsla) -> AnyElement {
-    let id = ("definition-card-doc", index);
-    match &block.kind {
-        MarkdownBlockKind::Heading { content, .. }
-        | MarkdownBlockKind::Paragraph { content }
-        | MarkdownBlockKind::HtmlFallback { content } => inline_text(id, content, colors),
-        MarkdownBlockKind::List { items, .. } => div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .children(items.iter().enumerate().map(|(item, entry)| {
-                div().flex().gap_1p5().child("•").child(inline_text(
-                    (id.0, index * 1000 + item),
-                    &entry.content,
-                    colors,
-                ))
-            }))
-            .into_any_element(),
-        MarkdownBlockKind::BlockQuote { blocks } => div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .children(
-                blocks
-                    .iter()
-                    .enumerate()
-                    .map(|(nested, block)| doc_block(index * 1000 + nested, block, colors, code_background)),
-            )
-            .into_any_element(),
-        MarkdownBlockKind::CodeBlock(code) => div()
-            .px_2()
-            .py_1()
-            .rounded(rem(RADIUS_INNER))
-            .bg(code_background)
-            .typography(Typography::Code)
-            .children(code.lines.iter().map(|line| div().child(line.text.clone())))
-            .into_any_element(),
-        MarkdownBlockKind::Table(table) => {
-            div()
-                .flex()
-                .flex_col()
-                .children(table.rows.iter().map(|row| {
-                    row.cells.iter().map(|cell| rendered_text(&cell.content)).collect::<Vec<_>>().join(" | ")
-                }))
-                .into_any_element()
-        }
-        MarkdownBlockKind::Rule => div().h(px(1.0)).bg(code_background).into_any_element(),
-    }
-}
-
-fn uses_label(count: usize) -> String {
-    if count == 1 { "1 use".to_owned() } else { format!("{count} uses") }
 }

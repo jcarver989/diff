@@ -26,9 +26,10 @@ pub use error::{CommitIdError, DiffError, ParseDiffScopeError, RepoPathError};
 pub use file_tree::{FileTree, FileTreeEntry, tree_order};
 pub use models as model;
 pub use models::{
-    CommitId, CommitKind, CommitStack, CommitSummary, CommitTitle, DiffDocument, DiffScope, DiffSide, FileDiff,
-    FileStatus, Hunk, LineStat, ModeChange, PageKind, PageLabel, PatchLine, PatchLineKind, RepoPath, ReviewTarget,
-    StageState, UNCOMMITTED_CHANGES, commit_description,
+    CommitId, CommitKind, CommitStack, CommitSummary, CommitTitle, DefinitionRequest, DefinitionTarget, DiffDocument,
+    DiffScope, DiffSide, FileDiff, FileStatus, Hunk, LineStat, Lookup, LookupAnswer, LookupReply, LookupRequest,
+    ModeChange, PageKind, PageLabel, PatchLine, PatchLineKind, RepoPath, Resolution, ReviewTarget, SourcePath,
+    StageState, TargetLocation, UNCOMMITTED_CHANGES, commit_description,
 };
 pub use parser::{
     GitStatusEntry, UntrackedFile, parse_detached_git_diff, parse_git_diff, parse_git_diff_with_path_mapper,

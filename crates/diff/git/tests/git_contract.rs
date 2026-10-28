@@ -2,10 +2,10 @@
 
 use clankerdiff_core::{
     CommitStack, DiffDocument, DiffScope, DiffSide, FileDiff, FileStatus, LineStat, PatchLineKind, RepoPath,
-    RepositoryAction, ReviewTarget, SourceResult, SourceUnavailable, StageState,
+    RepositoryAction, ReviewTarget, SourceDocument, SourceResult, SourceUnavailable, StageState,
 };
 use clankerdiff_git::{
-    GitError, GitRepository, MAX_SOURCE_FILE_BYTES,
+    GitError, GitRepository, MAX_SOURCE_FILE_BYTES, read_source_file,
     testing::{RepoFixture, RepoFixtureBuilder},
 };
 use std::{error::Error, fs};
@@ -663,5 +663,44 @@ async fn commit_snapshots_capture_the_commit_and_ignore_the_working_tree() -> Re
     let root = repository.snapshot_with_sources(root).await?;
     assert_eq!(file(&root, "a.txt").status, FileStatus::Added);
     assert_eq!(text(&root, "a.txt", DiffSide::Old), Err(SourceUnavailable::Absent));
+    Ok(())
+}
+
+#[tokio::test]
+async fn files_outside_the_repository_are_read_within_the_source_limits() -> Result<(), Box<dyn Error>> {
+    let dir = TempDir::new()?;
+    let text = dir.path().join("lib.rs");
+    fs::write(&text, "fn main() {}\n")?;
+    assert_eq!(read_source_file(&text).await.as_deref().map(SourceDocument::text), Ok("fn main() {}\n"));
+    let binary = dir.path().join("data.bin");
+    fs::write(&binary, [0_u8, 1, 2])?;
+    assert_eq!(read_source_file(&binary).await, Err(SourceUnavailable::Binary));
+    let large = dir.path().join("large.rs");
+    fs::File::create(&large)?.set_len(MAX_SOURCE_FILE_BYTES + 1)?;
+    assert!(matches!(read_source_file(&large).await, Err(SourceUnavailable::TooLarge { .. })));
+    assert!(matches!(read_source_file(&dir.path().join("missing.rs")).await, Err(SourceUnavailable::Error(_))));
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_file_larger_than_its_reported_size_is_read_only_up_to_the_source_limit() -> Result<(), Box<dyn Error>> {
+    let dir = TempDir::new()?;
+    let pipe = dir.path().join("growing.rs");
+    if !std::process::Command::new("mkfifo").arg(&pipe).status()?.success() {
+        return Err("mkfifo failed".into());
+    }
+    let writer = std::thread::spawn({
+        let pipe = pipe.clone();
+        move || -> std::io::Result<()> {
+            let chunk = vec![b'a'; 1 << 20];
+            let mut file = fs::OpenOptions::new().write(true).open(pipe)?;
+            loop {
+                std::io::Write::write_all(&mut file, &chunk)?;
+            }
+        }
+    });
+    assert!(matches!(read_source_file(&pipe).await, Err(SourceUnavailable::TooLarge { .. })));
+    assert!(writer.join().map_err(|_| "writer panicked")?.is_err());
     Ok(())
 }

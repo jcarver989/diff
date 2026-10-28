@@ -6,7 +6,7 @@ use crate::{
     DiffViewerEvent, ThemeChanged, ViewModeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
     commits::CommitPickerOverlay,
-    definition_card::HoverCard,
+    definition_card::CardHover,
     style::color,
     ui::{
         prelude::{
@@ -18,11 +18,10 @@ use crate::{
 };
 use clankerdiff_core::{
     DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, LineAnchor, PresentedCell,
-    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, SourceDocument, ViewMode,
-    ViewportAnchor,
+    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, ViewMode, ViewportAnchor,
 };
 use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
-use clankerdiff_symbols::{NameHints, SymbolCache, SymbolIndex};
+use clankerdiff_symbols::{NameLookup, SymbolCache, SymbolIndex};
 use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter, empty_spans};
 use clankerdiff_theme::{ReviewTheme, ThemeChoice};
 use gpui::{
@@ -165,12 +164,12 @@ struct DiffViewportBookmark {
 ///
 #[expect(clippy::struct_excessive_bools, reason = "View flags toggle independently")]
 pub struct DiffViewer {
-    session: ReviewSession,
-    capabilities: ReviewCapabilities,
+    pub(crate) session: ReviewSession,
+    pub(crate) capabilities: ReviewCapabilities,
     theme_picker: Option<ThemePickerOverlay>,
     pub(crate) commit_picker: Option<CommitPickerOverlay>,
-    theme: ReviewTheme,
-    highlighter: SyntaxHighlighter,
+    pub(crate) theme: ReviewTheme,
+    pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) options: DiffViewerOptions,
     sidebar: SidebarLayout,
     rem_size: Pixels,
@@ -194,10 +193,10 @@ pub struct DiffViewer {
     background_error: Option<String>,
     repository_pending: bool,
     focus_handle: Option<gpui::FocusHandle>,
-    pub(crate) name_hints: Option<NameHints>,
     pub(crate) links_visible: bool,
     symbols: SymbolCache,
-    pub(crate) card: Option<HoverCard>,
+    pub(crate) names: NameLookup,
+    pub(crate) hover: CardHover,
     pub(crate) card_timer: Option<Task<()>>,
 }
 
@@ -252,10 +251,10 @@ impl DiffViewer {
             background_error: None,
             repository_pending: false,
             focus_handle: None,
-            name_hints: None,
             links_visible: false,
             symbols: SymbolCache::default(),
-            card: None,
+            names: NameLookup::default(),
+            hover: CardHover::default(),
             card_timer: None,
         };
         viewer.sync_diff_list();
@@ -274,6 +273,7 @@ impl DiffViewer {
         const CARD: &str = "DiffViewer && mode == browse && card";
         const CARD_ACTIVATION: &str =
             "DiffViewer && mode == browse && card && !CommentDismissControl && !StageCheckbox";
+        const REFERENCE: &str = "DiffViewer && mode == browse && reference && !card";
         const HINTS: &str = "DiffViewer && mode == hints";
         cx.bind_keys([
             KeyBinding::new("down", NextItem, Some(BROWSE)),
@@ -345,6 +345,7 @@ impl DiffViewer {
             KeyBinding::new("shift-d", PickName, Some(DIFF)),
             KeyBinding::new("ctrl-o", NavigateBack, Some(BROWSE)),
             KeyBinding::new("ctrl-i", NavigateForward, Some(BROWSE)),
+            KeyBinding::new("escape", NavigateBack, Some(REFERENCE)),
             KeyBinding::new("escape", CloseDefinition, Some(CARD)),
             KeyBinding::new("enter", GoToDefinition, Some(CARD_ACTIVATION)),
             KeyBinding::new("tab", NextDefinition, Some(CARD_ACTIVATION)),
@@ -479,14 +480,13 @@ impl DiffViewer {
         if self.session.commits() != document.commits.as_ref() {
             self.commit_picker = None;
         }
-        self.name_hints = None;
-        self.card = None;
         self.card_timer = None;
         self.sidebar_tree.rebuild(&document);
         self.change_layout(|session| {
             session.set_document(document);
             true
         });
+        self.update_names(cx, |names, session, _, enabled| names.document_changed(session, enabled));
         if self.sidebar_tree.selected().is_none() {
             self.sidebar_tree.reveal_file(self.session.selected_file().unwrap_or(0));
         }
@@ -989,21 +989,7 @@ impl DiffViewer {
     }
 
     pub(crate) fn symbols(&mut self) -> Arc<SymbolIndex> {
-        self.symbols.index(self.session.document())
-    }
-
-    pub(crate) fn highlight_source_line(
-        &mut self,
-        path: &str,
-        source: &SourceDocument,
-        line_number: usize,
-    ) -> Arc<[HighlightSpan]> {
-        self.highlighter
-            .with_theme(&self.theme.syntax)
-            .highlight_document(source.content_id(), LanguageHint::Path(path), || source.text())
-            .ok()
-            .and_then(|highlights| highlights.line_shared(line_number.saturating_sub(1)))
-            .unwrap_or_else(empty_spans)
+        self.symbols.index(self.session.presentation().document())
     }
 
     pub(crate) fn highlight_cell(&mut self, row: &PresentedRow, cell: &PresentedCell) -> Arc<[HighlightSpan]> {
@@ -1467,7 +1453,7 @@ impl Render for DiffViewer {
             "repository-commit"
         } else if self.comment_editor.is_some() {
             "draft"
-        } else if self.name_hints.is_some() {
+        } else if self.names.hints().is_some() {
             "hints"
         } else {
             "browse"
@@ -1482,8 +1468,11 @@ impl Render for DiffViewer {
         key_context.set("mode", mode);
         key_context.set("pane", pane);
         key_context.set("layout", layout);
-        if self.card.is_some() {
+        if self.names.card().is_some() {
             key_context.add("card");
+        }
+        if self.session.in_reference() {
+            key_context.add("reference");
         }
         div()
             .debug_selector(|| "diff-viewer".to_owned())
@@ -1576,7 +1565,10 @@ impl Render for DiffViewer {
                             .overflow_hidden()
                             .flex()
                             .children((!self.sidebar.collapsed).then(|| self.render_sidebar(cx)))
-                            .child(self.render_diff(cx)),
+                            .child(match self.session.reference_status() {
+                                Some(status) => self.render_reference_status(status).into_any_element(),
+                                None => self.render_diff(cx).into_any_element(),
+                            }),
                     )
                     .when(self.options.review_bar, |viewer| viewer.child(self.render_review_bar(cx)))
             })

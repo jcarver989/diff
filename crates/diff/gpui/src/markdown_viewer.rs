@@ -2,9 +2,10 @@
 
 mod chrome;
 mod commands;
+pub(crate) mod content;
 mod document;
 pub(crate) mod inline;
-mod rows;
+pub(crate) mod rows;
 
 use crate::{
     ThemeChanged,

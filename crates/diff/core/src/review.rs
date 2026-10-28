@@ -1,8 +1,8 @@
 //! Structured review comments, reconciliation, and agent-facing output.
 
 use crate::{
-    CommitId, CommitStack, DiffDocument, DiffSide, FileStatus, Fingerprint, LineAnchor, PatchLineKind, RepoPath,
-    ReviewTarget,
+    CommitId, CommitStack, DiffDocument, DiffSide, FileStatus, Fingerprint, LineAnchor, Lookup, PatchLineKind,
+    RepoPath, ReviewTarget,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -321,6 +321,7 @@ pub enum DiffReviewEvent {
     SubmitReview(ReviewSubmission),
     CopyFormattedReview(String),
     Cancel,
+    Lookup(Lookup),
 }
 
 #[cfg(test)]

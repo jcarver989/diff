@@ -1,0 +1,45 @@
+[package]
+name = "clankerdiff-lspd"
+description = "A daemon that shares language servers across clients working in the same workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["lsp", "language-server", "daemon"]
+categories = ["development-tools"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+daemon = ["dep:clap", "dep:globset", "dep:ignore", "dep:notify", "dep:tracing-subscriber"]
+test-support = ["daemon", "dep:tempfile", "tokio/test-util"]
+
+[lints]
+workspace = true
+
+[dependencies]
+clap = { workspace = true, features = ["env"], optional = true }
+futures.workspace = true
+globset = { workspace = true, optional = true }
+ignore = { workspace = true, optional = true }
+lsp-types.workspace = true
+nix.workspace = true
+notify = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
+url.workspace = true
+
+[dev-dependencies]
+clankerdiff-lspd = { path = ".", features = ["daemon", "test-support"] }
+tempfile.workspace = true
+tokio.workspace = true

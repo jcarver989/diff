@@ -280,6 +280,19 @@ fn unknown_language_is_plain_text_and_cached() -> TestResult {
 }
 
 #[test]
+fn highlight_lines_pairs_each_line_with_its_spans() {
+    let mut fixture = CacheBuilder::default().build();
+    let mut highlighter = fixture.highlighter.with_theme(&fixture.theme);
+    let lines = highlighter.highlight_lines(LanguageHint::Id("rust"), "fn main() {}\nlet x = 1;");
+    let text: Vec<&str> = lines.iter().map(|(line, _)| *line).collect();
+    assert_eq!(text, ["fn main() {}", "let x = 1;"]);
+    assert!(lines.iter().all(|(_, spans)| !spans.is_empty()));
+    let plain = highlighter.highlight_lines(LanguageHint::Id("not-a-language"), "plain");
+    assert_eq!(plain.len(), 1);
+    assert!(plain[0].1.is_empty());
+}
+
+#[test]
 fn complete_input_limits_leave_cache_and_counters_unchanged() -> TestResult {
     let mut fixture = CacheBuilder::default().source_limit(12).build();
     let accepted = fixture.highlight("let café=1;")?;

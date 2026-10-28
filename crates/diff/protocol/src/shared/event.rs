@@ -2,6 +2,7 @@ use super::{
     ProtocolError, RemoteError,
     message::{decode_json, encode_json},
 };
+use clankerdiff_core::LookupAnswer;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::convert::Infallible;
 
@@ -12,6 +13,7 @@ pub enum Event<T> {
     RequestResult(Result<(), RemoteError>),
     Health { error: Option<RemoteError> },
     Error(RemoteError),
+    Lookup { id: u64, result: Result<LookupAnswer, RemoteError> },
 }
 
 impl<T> Event<T> {
@@ -29,6 +31,7 @@ impl<T> Event<T> {
             Self::RequestResult(result) => Event::RequestResult(result),
             Self::Health { error } => Event::Health { error },
             Self::Error(error) => Event::Error(error),
+            Self::Lookup { id, result } => Event::Lookup { id, result },
         })
     }
 }

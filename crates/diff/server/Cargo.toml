@@ -18,15 +18,19 @@ websocket = ["dep:axum", "dep:futures-util"]
 clankerdiff-core.workspace = true
 clankerdiff-protocol.workspace = true
 clankerdiff-git.workspace = true
+clankerdiff-lspd.workspace = true
 clankerdiff-watch.workspace = true
 axum = { version = "0.8", features = ["ws"], optional = true }
 futures-util = { version = "0.3.31", features = ["sink"], optional = true }
+lsp-types.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util = { version = "0.7.16", features = ["rt"] }
 
 [dev-dependencies]
 async-channel.workspace = true
+clankerdiff-core = { workspace = true, features = ["test-support"] }
+clankerdiff-lspd = { workspace = true, features = ["test-support"] }
 tokio-tungstenite = "0.30"
 tokio.workspace = true
 clankerdiff-client = { workspace = true, features = ["websocket"] }

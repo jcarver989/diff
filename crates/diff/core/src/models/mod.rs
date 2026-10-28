@@ -7,6 +7,7 @@ mod diff_scope;
 mod diff_side;
 mod file_diff;
 mod hunk;
+mod lookup;
 mod patch_derivation;
 mod patch_line;
 mod repo_path;
@@ -19,6 +20,10 @@ pub use diff_scope::DiffScope;
 pub use diff_side::DiffSide;
 pub use file_diff::{FileDiff, FileStatus, ModeChange, StageState};
 pub use hunk::Hunk;
+pub use lookup::{
+    DefinitionRequest, DefinitionTarget, Lookup, LookupAnswer, LookupReply, LookupRequest, Resolution, SourcePath,
+    TargetLocation,
+};
 pub use patch_line::{PatchLine, PatchLineKind};
 pub use repo_path::RepoPath;
 pub use review_target::{CommitId, PageKind, PageLabel, ReviewTarget, UNCOMMITTED_CHANGES};

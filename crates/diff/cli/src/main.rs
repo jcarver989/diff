@@ -20,10 +20,14 @@ use std::{
     sync::Arc,
 };
 use thiserror::Error;
+use tokio::runtime::Runtime;
 
-#[tokio::main]
-async fn main() -> ExitCode {
-    match dispatch(Cli::parse().command).await {
+fn main() -> ExitCode {
+    if let Some(exit) = clankerdiff_lspd::run_if_requested() {
+        return exit;
+    }
+    let command = Cli::parse().command;
+    match Runtime::new().map_err(AppError::from).and_then(|runtime| runtime.block_on(dispatch(command))) {
         Ok(exit) => exit,
         Err(error) => {
             eprintln!("error: {error}");

@@ -143,7 +143,12 @@ fn run_tui(document: Arc<DiffDocument>) -> io::Result<Outcome> {
 
 fn apply_event(state: &mut DiffReviewState, event: Event) -> Option<Outcome> {
     match handle_crossterm_event(state, event).into_event() {
-        Some(DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetTarget(_) | DiffReviewEvent::Refresh)
+        Some(
+            DiffReviewEvent::RepositoryAction(_)
+            | DiffReviewEvent::SetTarget(_)
+            | DiffReviewEvent::Refresh
+            | DiffReviewEvent::Lookup(_),
+        )
         | None => None,
         Some(DiffReviewEvent::Cancel) => Some(Outcome::Cancelled),
         Some(DiffReviewEvent::SubmitReview(submission)) => Some(Outcome::Submitted(submission)),

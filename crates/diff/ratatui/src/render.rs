@@ -3,12 +3,13 @@
 use crate::{
     DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme, RepositoryOperationStatus,
     annotation::render_annotation_line,
-    color::page_color,
+    color::{native_color, page_color},
     commit_picker::render_commit_picker,
-    definition_card::hints_footer,
+    definition_card::{NameMarks, hints_footer},
     patch_layout::{PatchContentLayout, PatchVisualRow},
     state::{HitLayout, RepositoryPrompt},
-    style::{diff_indicator, file_status_color, syntax_style},
+    style::{diff_indicator, file_status_color},
+    syntax::styled_spans,
     text::{FitOptions, fit_spans_from},
     theme_picker::render_theme_picker,
     ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
@@ -18,16 +19,17 @@ use clankerdiff_core::{
     DiffScope, DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PageLabel, PresentedCell, PresentedRow, RowKind,
     ViewMode,
 };
-use clankerdiff_symbols::Lookup;
-use clankerdiff_syntax::{HighlightSpan, SyntaxHighlighter};
+use clankerdiff_symbols::Mark;
+use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_theme::ReviewTheme;
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Layout, Position, Rect},
-    style::{Modifier, Style},
+    layout::{Alignment, Constraint, Layout, Position, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph, StatefulWidget, Widget},
 };
+use std::ops::Range;
 
 const DRAWER_BREAKPOINT: u16 = 72;
 pub(crate) const GAP_EXPAND_WIDTH: u16 = 3;
@@ -276,7 +278,7 @@ const fn stage_marker(state: clankerdiff_core::StageState) -> &'static str {
 }
 
 fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
-    if area.is_empty() {
+    if area.is_empty() || render_reference_status(area, buffer, state, theme) {
         return;
     }
     state.last_height = usize::from(area.height).max(1);
@@ -286,6 +288,9 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
     };
     state.scroll = state.scroll.min(visual_layout.len().saturating_sub(state.last_height));
     let active_file = state.active_file();
+    let top = visual_layout.row(state.scroll).map(|row| row.source());
+    let symbol_path = top.map(|top| state.symbol_path(top)).unwrap_or_default();
+    let marks = state.name_marks();
 
     let DiffReviewState {
         session,
@@ -328,6 +333,7 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
                     first_segment: segment,
                     patch_layout: visual_layout.content(),
                     tab_width: options.tab_width,
+                    marks: marks.as_ref(),
                 };
                 let selected = selected_row == Some(index) && *focus == FocusPane::Diff;
                 render_row(
@@ -351,7 +357,6 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
         visual_index += usize::from(height);
         y += height;
     }
-    let top = visual_layout.row(*scroll).map(|row| row.source());
     if let Some(file) = active_file
         && let Some(header) = presentation.file_range(file).map(|range| range.start)
         && top != Some(header)
@@ -365,12 +370,25 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
             FileDividerState {
                 collapsed: presentation.is_collapsed(file),
                 selected: selected_row == Some(header) && *focus == FocusPane::Diff,
+                symbol_path: &symbol_path,
             },
         );
         visible_rows.retain(|(screen_y, _)| *screen_y != area.y);
         visible_rows.push((area.y, header));
     }
     render_vertical_scrollbar(track, buffer, visual_layout.len(), usize::from(area.height), *scroll);
+}
+
+fn render_reference_status(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) -> bool {
+    let Some(status) = state.reference_status() else {
+        return false;
+    };
+    state.visible_rows.clear();
+    Paragraph::new(status)
+        .style(Style::new().fg(theme.ui.text_muted).bg(theme.ui.canvas))
+        .alignment(Alignment::Center)
+        .render(area, buffer);
+    true
 }
 
 fn render_gap_row(area: Rect, buffer: &mut Buffer, context: &CellContext<'_>, selected: bool) {
@@ -394,9 +412,10 @@ fn render_gap_row(area: Rect, buffer: &mut Buffer, context: &CellContext<'_>, se
 }
 
 #[derive(Clone, Copy)]
-struct FileDividerState {
+struct FileDividerState<'a> {
     collapsed: bool,
     selected: bool,
+    symbol_path: &'a [String],
 }
 
 fn render_file_divider(
@@ -405,7 +424,7 @@ fn render_file_divider(
     theme: &RatatuiTheme,
     file: &FileDiff,
     source_label: Option<&str>,
-    state: FileDividerState,
+    state: FileDividerState<'_>,
 ) {
     Clear.render(area, buffer);
     buffer.set_style(area, Style::new().bg(if state.selected { theme.ui.surface_selected } else { theme.ui.surface }));
@@ -424,6 +443,10 @@ fn render_file_divider(
     }
     if let Some(old) = file.renamed_from() {
         left.push(Span::styled(format!(" ← {old}"), Style::new().fg(theme.ui.text_muted)));
+    }
+    for name in state.symbol_path {
+        left.push(Span::styled(" › ", Style::new().fg(theme.ui.text_muted)));
+        left.push(Span::styled(name.clone(), Style::new().fg(theme.ui.text_secondary)));
     }
     let right = source_label.map_or_else(
         || {
@@ -458,6 +481,7 @@ struct CellContext<'a> {
     source: usize,
     first_segment: usize,
     patch_layout: &'a PatchContentLayout,
+    marks: Option<&'a NameMarks>,
 }
 
 fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, style: &RowStyle) {
@@ -469,7 +493,11 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
             context.theme,
             &context.presentation.document().files[row.file_index],
             style.source_label,
-            FileDividerState { collapsed: context.presentation.is_collapsed(row.file_index), selected: style.selected },
+            FileDividerState {
+                collapsed: context.presentation.is_collapsed(row.file_index),
+                selected: style.selected,
+                symbol_path: &[],
+            },
         ),
         RowKind::Meta => {
             Paragraph::new(row.primary_cell().map_or("", |cell| cell.text.as_ref()))
@@ -531,7 +559,18 @@ fn render_cell(
         context.row,
         cell,
     );
-    let source_spans = highlighted_spans(&cell.text, &highlights, background);
+    let tint = |mark| match mark {
+        Mark::Hinted => context.diff_theme.hinted_name(),
+        Mark::Card => context.diff_theme.carded_name(),
+    };
+    let marks: Vec<(Range<usize>, Color)> = context
+        .marks
+        .filter(|(origin, _)| context.presentation.source_location(context.row, cell).as_ref() == Some(origin))
+        .map(|(_, marks)| {
+            marks.iter().map(|(range, mark)| (range.clone(), native_color(tint(*mark), background))).collect()
+        })
+        .unwrap_or_default();
+    let source_spans = styled_spans(&cell.text, &highlights, &marks, Style::new().bg(background));
     let lines = fit_spans_from(
         source_spans,
         FitOptions {
@@ -567,37 +606,6 @@ fn render_cell(
             Rect::new(area.x.saturating_add(gutter_area.width), y, area.width.saturating_sub(gutter_area.width), 1);
         Paragraph::new(line).render(source_area, buffer);
     }
-}
-
-fn highlighted_spans<'a>(
-    source: &'a str,
-    highlights: &[HighlightSpan],
-    background: ratatui::style::Color,
-) -> Vec<Span<'a>> {
-    if highlights.is_empty() {
-        return vec![Span::styled(source, Style::new().bg(background))];
-    }
-    let plain = Style::new().bg(background);
-    let mut spans = Vec::new();
-    let mut offset = 0;
-    for highlight in highlights {
-        let start = highlight.range.start.min(source.len());
-        let end = highlight.range.end.min(source.len());
-        if start > offset && source.is_char_boundary(offset) && source.is_char_boundary(start) {
-            spans.push(Span::styled(&source[offset..start], plain));
-        }
-        if end > start && source.is_char_boundary(start) && source.is_char_boundary(end) {
-            spans.push(Span::styled(
-                &source[start..end],
-                syntax_style(highlight.foreground, highlight.font_style, background),
-            ));
-            offset = end;
-        }
-    }
-    if offset < source.len() && source.is_char_boundary(offset) {
-        spans.push(Span::styled(&source[offset..], plain));
-    }
-    spans
 }
 
 fn render_footer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
@@ -645,7 +653,7 @@ fn render_footer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, t
     );
     let hint = if matches!(state.repository_status, RepositoryOperationStatus::Pending) {
         "Git operation in progress…".to_owned()
-    } else if let Some(Lookup::Hints(hints)) = &state.lookup {
+    } else if let Some(hints) = state.names.hints() {
         hints_footer(hints)
     } else if state.session.draft().is_some() {
         "[Enter] save  [Shift-Enter] newline  [Esc] cancel".to_owned()

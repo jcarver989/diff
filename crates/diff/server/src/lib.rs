@@ -1,4 +1,5 @@
 mod connection;
+mod lookup;
 mod server;
 mod transport;
 #[cfg(feature = "websocket")]

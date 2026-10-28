@@ -9,11 +9,13 @@ use crate::{
     ui::{InterfaceSize, testing::ViewHarness, tokens::BASE_SIZE},
 };
 use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand, Review, ReviewCommand, SourceLocation, ViewMode, testing::DocumentBuilder,
+    DiffDocument, DiffReviewCommand, Lookup, LookupAnswer, LookupReply, Review, ReviewCapabilities, ReviewCommand,
+    SourceLocation, ViewMode, testing::DocumentBuilder,
 };
 use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReview, MarkdownReviewCommand, MarkdownReviewEvent, MarkdownTargetId,
 };
+use clankerdiff_symbols::DefinitionCard;
 use clankerdiff_theme::ReviewTheme;
 use gpui::{
     App, Bounds, Capslock, Context, ElementInputHandler, Entity, EventEmitter, Focusable, InputHandler, ListOffset,
@@ -64,6 +66,7 @@ pub struct DiffViewerHarnessBuilder {
     pub window_options: WindowOptions,
     pub comments: Vec<String>,
     pub interface_size: f32,
+    pub capabilities: ReviewCapabilities,
 }
 
 impl Default for DiffViewerHarnessBuilder {
@@ -75,6 +78,7 @@ impl Default for DiffViewerHarnessBuilder {
             window_options: WindowOptions::default(),
             comments: Vec::new(),
             interface_size: BASE_SIZE,
+            capabilities: ReviewCapabilities::default(),
         }
     }
 }
@@ -89,6 +93,12 @@ impl DiffViewerHarnessBuilder {
     #[must_use]
     pub fn with_view_mode(mut self, view_mode: ViewMode) -> Self {
         self.options.view_mode = view_mode;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_lookups(mut self) -> Self {
+        self.capabilities.lookups = true;
         self
     }
 
@@ -114,9 +124,10 @@ impl DiffViewerHarnessBuilder {
     /// Panics if GPUI cannot open, read, or draw the test window.
     pub fn build(self, cx: &mut TestAppContext) -> DiffViewerHarness {
         cx.update(DiffViewer::bind_keys);
-        let Self { document, theme, options, window_options, comments, interface_size } = self;
+        let Self { document, theme, options, window_options, comments, interface_size, capabilities } = self;
         cx.update(|cx| InterfaceSize::init(interface_size, cx));
         let harness = Harness::open(cx, window_options, move || DiffViewer::with_options(document, theme, options));
+        harness.update(cx, |viewer, cx| viewer.set_capabilities(capabilities, cx));
         for body in comments {
             harness.add_comment(cx, body).expect("seed review comment");
         }
@@ -251,7 +262,25 @@ impl DiffViewerHarness {
 
     #[must_use]
     pub fn definition_card_name(&self, cx: &TestAppContext) -> Option<String> {
-        self.read(cx, |viewer, _| viewer.card.as_ref().map(|hover| hover.card.name.clone()))
+        self.definition_card(cx).map(|card| card.name)
+    }
+
+    #[must_use]
+    pub fn definition_card(&self, cx: &TestAppContext) -> Option<DefinitionCard> {
+        self.read(cx, |viewer, _| viewer.names.card().cloned())
+    }
+
+    #[must_use]
+    pub fn last_lookup(&self, cx: &TestAppContext) -> Option<Lookup> {
+        self.events(cx).into_iter().rev().find_map(|event| match event {
+            DiffViewerEvent::Lookup(lookup) => Some(lookup),
+            _ => None,
+        })
+    }
+
+    pub fn answer_lookup(&self, cx: &mut TestAppContext, lookup: Lookup, result: Result<LookupAnswer, String>) {
+        self.update(cx, |viewer, cx| viewer.lookup_finished(LookupReply::new(lookup, result), cx));
+        self.draw(cx);
     }
 
     pub fn hover_name(

@@ -30,6 +30,8 @@ fn the_page_and_its_scopes_form_one_control_after_the_file_controls(cx: &mut Tes
         let target = harness.bounds(cx, "review-target").ok_or("missing review target")?;
         let toggle = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing sidebar toggle")?;
         let collapse = harness.bounds(cx, "toggle-all-files-collapsed").ok_or("missing collapse all")?;
+        let back = harness.bounds(cx, "navigate-back").ok_or("missing back")?;
+        let forward = harness.bounds(cx, "navigate-forward").ok_or("missing forward")?;
         let summary = harness.bounds(cx, "diff-summary").ok_or("missing summary")?;
         let layout = harness.bounds(cx, "view-mode-toggle").ok_or("missing layout toggle")?;
         let size = harness.bounds(cx, "interface-size").ok_or("missing interface size")?;
@@ -41,10 +43,12 @@ fn the_page_and_its_scopes_form_one_control_after_the_file_controls(cx: &mut Tes
             );
         }
         assert!(toggle.right() <= collapse.left() && collapse.left() - toggle.right() < px(4.0));
-        assert!(collapse.right() < target.left() && target.left() - collapse.right() < px(16.0));
+        assert!(collapse.right() < back.left() && back.left() - collapse.right() < px(16.0));
+        assert!(back.right() <= forward.left() && forward.left() - back.right() < px(4.0));
+        assert!(forward.right() < target.left() && target.left() - forward.right() < px(16.0));
         assert!(target.right() < layout.left() && layout.right() < size.left() && size.right() < summary.left());
         assert!(px(1400.0) - summary.right() < px(16.0));
-        for bounds in [toggle, collapse, summary, layout] {
+        for bounds in [toggle, collapse, back, forward, summary, layout] {
             assert!((bounds.center().y - target.center().y).abs() < px(1.0));
         }
         assert!(harness.bounds(cx, "commit-position").is_some());

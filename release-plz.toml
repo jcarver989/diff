@@ -45,6 +45,11 @@ release = true
 publish = true
 
 [[package]]
+name = "clankerdiff-lspd"
+release = true
+publish = true
+
+[[package]]
 name = "clankerdiff-ratatui"
 release = true
 publish = true

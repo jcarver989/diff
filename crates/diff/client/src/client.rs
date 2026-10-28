@@ -1,6 +1,6 @@
 use crate::{
-    ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, ReconnectPolicy, RemoteError,
-    RepositoryAction, ReviewTarget, platform,
+    ClientError, ClientOptions, ClientState, ConnectionState, DiffReviewEvent, Lookup, LookupAnswer, LookupReply,
+    LookupRequest, ReconnectPolicy, RemoteError, RepositoryAction, ReviewTarget, platform,
     protocol::{
         client::{ClientCommand, LocalClientTransport},
         server::ServerEvent,
@@ -12,17 +12,19 @@ use crate::{
 use crate::{ConnectionHeader, transport::Reconnecting};
 use async_channel::{Receiver, Sender, unbounded};
 use futures_util::FutureExt;
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, watch};
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 
 type Reply = oneshot::Sender<Result<(), ClientError>>;
 type Ready = oneshot::Receiver<Result<(), ClientError>>;
+type LookupSender = oneshot::Sender<Result<LookupAnswer, ClientError>>;
 
 #[derive(Clone)]
 pub struct DiffClient {
     commands: Sender<Command>,
+    lookups: Sender<(LookupRequest, LookupSender)>,
     state: watch::Receiver<Arc<ClientState>>,
 }
 
@@ -109,11 +111,15 @@ impl DiffClient {
 
     fn start_worker(transport: impl Transport, options: ClientOptions) -> (Self, Ready) {
         let (commands, rx) = unbounded();
+        let (lookups, lookup_rx) = unbounded();
         let (state_tx, state) = watch::channel(Arc::new(ClientState::default()));
         let (ready_tx, ready_rx) = oneshot::channel();
         platform::spawn(async move {
             Worker {
                 commands: rx,
+                lookups: lookup_rx,
+                outstanding: HashMap::new(),
+                next_lookup: 0,
                 state_tx,
                 options,
                 client: ClientState::default(),
@@ -124,7 +130,7 @@ impl DiffClient {
             .run(transport, ready_tx)
             .await;
         });
-        (Self { commands, state }, ready_rx)
+        (Self { commands, lookups, state }, ready_rx)
     }
 
     #[must_use]
@@ -149,6 +155,17 @@ impl DiffClient {
         self.request(ClientCommand::Refresh).await
     }
 
+    pub async fn lookup(&self, lookup: Lookup) -> LookupReply {
+        let result = self.answer(lookup.request.clone()).await.map_err(|error| error.to_string());
+        LookupReply::new(lookup, result)
+    }
+
+    async fn answer(&self, request: LookupRequest) -> Result<LookupAnswer, ClientError> {
+        let (reply, rx) = oneshot::channel();
+        self.lookups.send((request, reply)).await.map_err(|_| ClientError::Disconnected)?;
+        rx.await.map_err(|_| ClientError::Disconnected)?
+    }
+
     pub async fn handle(&self, event: DiffReviewEvent) -> Result<(), ClientError> {
         match self.dispatch(event)? {
             Some(reply) => reply.await.map_err(|_| ClientError::Disconnected)?,
@@ -166,7 +183,7 @@ impl DiffClient {
             DiffReviewEvent::Refresh => ClientCommand::Refresh,
             DiffReviewEvent::SubmitReview(submission) => ClientCommand::Submit(submission),
             DiffReviewEvent::Cancel => ClientCommand::Cancel,
-            DiffReviewEvent::CopyFormattedReview(_) => return Ok(None),
+            DiffReviewEvent::CopyFormattedReview(_) | DiffReviewEvent::Lookup(_) => return Ok(None),
         };
         let (reply, receiver) = oneshot::channel();
         self.commands.try_send(Command::Request(request, reply)).map_err(|_| ClientError::Disconnected)?;
@@ -195,6 +212,7 @@ enum Command {
 
 enum ConnectionInput {
     Command(Option<Command>),
+    Lookup(Option<(LookupRequest, LookupSender)>),
     Event(Result<ServerEvent, ClientError>),
     Idle,
 }
@@ -206,6 +224,9 @@ struct Pending {
 
 struct Worker {
     commands: Receiver<Command>,
+    lookups: Receiver<(LookupRequest, LookupSender)>,
+    outstanding: HashMap<u64, LookupSender>,
+    next_lookup: u64,
     state_tx: watch::Sender<Arc<ClientState>>,
     options: ClientOptions,
     client: ClientState,
@@ -304,16 +325,18 @@ impl Worker {
                     }
                 }
                 .fuse();
+                let lookup = self.lookups.recv().fuse();
                 let event = transport.recv().fuse();
-                futures_util::pin_mut!(command, event);
+                futures_util::pin_mut!(command, lookup, event);
                 futures_util::select! {
                     command = command => ConnectionInput::Command(command),
+                    lookup = lookup => ConnectionInput::Lookup(lookup.ok()),
                     event = event => ConnectionInput::Event(event),
                     () = idle => ConnectionInput::Idle,
                 }
             };
             match input {
-                ConnectionInput::Command(None) => {
+                ConnectionInput::Command(None) | ConnectionInput::Lookup(None) => {
                     self.closed = true;
                     return Ok(());
                 }
@@ -325,6 +348,7 @@ impl Worker {
                 ConnectionInput::Command(Some(Command::Request(request, reply))) => {
                     self.request(transport, request, reply).await?;
                 }
+                ConnectionInput::Lookup(Some((lookup, reply))) => self.lookup(transport, lookup, reply).await?,
                 ConnectionInput::Event(event) => {
                     self.event(&event?)?;
                     if self.handshake.initialized
@@ -344,6 +368,12 @@ impl Worker {
         if let Event::RequestResult(result) = event {
             if let Some(pending) = self.pending.take() {
                 let _ = pending.reply.send(result.clone().map_err(ClientError::Remote));
+            }
+            return Ok(());
+        }
+        if let Event::Lookup { id, result } = event {
+            if let Some(reply) = self.outstanding.remove(id) {
+                let _ = reply.send(result.clone().map_err(ClientError::Remote));
             }
             return Ok(());
         }
@@ -381,7 +411,30 @@ impl Worker {
         Ok(())
     }
 
+    async fn lookup<T: Transport>(
+        &mut self,
+        transport: &mut T,
+        request: LookupRequest,
+        reply: LookupSender,
+    ) -> Result<(), ClientError> {
+        if !self.handshake.initialized {
+            let _ = reply.send(Err(ClientError::Disconnected));
+            return Ok(());
+        }
+        let id = self.next_lookup;
+        self.next_lookup += 1;
+        if transport.send(ClientCommand::Lookup { id, request }).await.is_err() {
+            let _ = reply.send(Err(ClientError::Disconnected));
+            return Err(ClientError::Disconnected);
+        }
+        self.outstanding.insert(id, reply);
+        Ok(())
+    }
+
     fn abandon_request(&mut self) {
+        for (_, reply) in self.outstanding.drain() {
+            let _ = reply.send(Err(ClientError::Disconnected));
+        }
         if let Some(pending) = self.pending.take() {
             let _ = pending.reply.send(Err(if pending.outcome_unknown_on_disconnect {
                 ClientError::OutcomeUnknown
@@ -401,11 +454,15 @@ impl Worker {
             }
             .fuse();
             let command = self.commands.recv().fuse();
-            futures_util::pin_mut!(connecting, command);
+            let lookup = self.lookups.recv().fuse();
+            futures_util::pin_mut!(connecting, command, lookup);
             futures_util::select! {
                 next = connecting => match next {
                     Ok(()) => return true,
                     Err(_) => delay = (delay * 2).min(5000),
+                },
+                lookup = lookup => if let Ok((_, reply)) = lookup {
+                    let _ = reply.send(Err(ClientError::Disconnected));
                 },
                 command = command => match command {
                     Ok(Command::Request(_, reply)) => { let _ = reply.send(Err(ClientError::Disconnected)); }

@@ -211,7 +211,8 @@ mod wasm {
     use async_channel::{Receiver, Sender};
     use clankerdiff_client::{ClientOptions, ClientState, DiffClient};
     use clankerdiff_core::{
-        DiffDocument, DiffReviewEvent, ReviewCapabilities, ReviewSubmission, ReviewTarget, ViewMode,
+        DiffDocument, DiffReviewEvent, Lookup, LookupReply, ReviewCapabilities, ReviewSubmission, ReviewTarget,
+        ViewMode,
     };
     use clankerdiff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged, ViewModeChanged,
@@ -244,6 +245,7 @@ mod wasm {
         InstallRemote(DiffClient),
         DisconnectRemote,
         RemoteFinished(RepositoryReply),
+        LookupFinished(LookupReply),
         SetDocument { document: Arc<DiffDocument>, revision: Option<u64>, request_id: Option<u64> },
         SetTheme(ReviewTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
@@ -284,6 +286,10 @@ mod wasm {
                 viewer
             });
             let viewer_subscription = cx.subscribe(&viewer, |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| {
+                if let DiffReviewEvent::Lookup(lookup) = event {
+                    this.remote_lookup(lookup.clone());
+                    return;
+                }
                 if MANAGED.get() && !matches!(event, DiffReviewEvent::CopyFormattedReview(_)) {
                     this.remote_request(event.clone(), cx);
                     return;
@@ -385,6 +391,15 @@ mod wasm {
             let _ = emit_connection_state(state.label(), error.as_deref());
         }
 
+        fn remote_lookup(&self, lookup: Lookup) {
+            let Some(client) = self.remote.clone() else {
+                return;
+            };
+            spawn_local(async move {
+                let _ = send(WebCommand::LookupFinished(client.lookup(lookup).await));
+            });
+        }
+
         fn remote_request(&mut self, event: DiffReviewEvent, cx: &mut Context<Self>) {
             let Some(client) = self.remote.clone() else {
                 return;
@@ -480,6 +495,9 @@ mod wasm {
                         self.finish_repository(reply, cx);
                     }
                 }
+                WebCommand::LookupFinished(reply) => {
+                    self.viewer.update(cx, |viewer, cx| viewer.lookup_finished(reply, cx));
+                }
                 WebCommand::SetDocument { document, revision, request_id } => {
                     let decision = document_update_decision(self.applied_revision, revision, || {
                         self.viewer.read(cx).document().as_ref() == document.as_ref()
@@ -561,7 +579,10 @@ mod wasm {
 
     fn dispatch_viewer_event(event: &DiffReviewEvent) {
         let result = match event {
-            DiffReviewEvent::RepositoryAction(_) | DiffReviewEvent::SetTarget(_) | DiffReviewEvent::Refresh => return,
+            DiffReviewEvent::RepositoryAction(_)
+            | DiffReviewEvent::SetTarget(_)
+            | DiffReviewEvent::Refresh
+            | DiffReviewEvent::Lookup(_) => return,
             DiffReviewEvent::SubmitReview(submission) => dispatch_submission(submission),
             DiffReviewEvent::CopyFormattedReview(text) => dispatch_custom_event("diff-review-copy", Some(text)),
             DiffReviewEvent::Cancel => dispatch_custom_event("diff-review-cancel", None),

@@ -1,10 +1,11 @@
 use crate::{
     AgentFeedbackOptions, CommitPage, CommitStack, CommitTitle, ContentProjection, DiffDocument, DiffPresentation,
-    DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, GapId, Layout, LineAnchor, PageLabel, PresentationOptions,
-    PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind, SourceLocation,
-    UNCOMMITTED_CHANGES, ViewMode, commit_description, commit_picker::format_age, presentation::retained_expansions,
+    DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, FileDiff, GapId, Layout, LineAnchor, PageLabel,
+    PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind,
+    SourceLocation, UNCOMMITTED_CHANGES, ViewMode, commit_description, commit_picker::format_age,
+    presentation::retained_expansions,
 };
-use navigation::Navigation;
+use navigation::{Navigation, Reference};
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, sync::Arc, time::Duration};
 
@@ -142,6 +143,7 @@ pub struct ReviewSession {
     pending_source_restore: Option<SourceLocation>,
     diff_return: Option<SelectionBookmark>,
     navigation: Navigation,
+    reference: Option<Reference>,
 }
 
 impl ReviewSession {
@@ -163,6 +165,7 @@ impl ReviewSession {
             pending_source_restore: None,
             diff_return: None,
             navigation: Navigation::default(),
+            reference: None,
         };
         session.review.reconcile(&session.document);
         session.selected_file = session.presentation.file_order().first().copied().unwrap_or(0);
@@ -346,6 +349,9 @@ impl ReviewSession {
 
     #[must_use]
     pub fn source_view_label(&self) -> Option<&'static str> {
+        if self.reference().is_some() {
+            return Some("Not in this diff · read-only · o back to diff");
+        }
         Some(match self.source_view_side()? {
             DiffSide::New => "Source (new) · o back to diff",
             DiffSide::Old => "Source (old — deleted) · o back to diff",
@@ -354,7 +360,30 @@ impl ReviewSession {
 
     fn source_view_side(&self) -> Option<DiffSide> {
         let path = self.source_view()?;
-        Some(self.document.files[self.document.file_index(path)?].source_side())
+        Some(self.file(self.file_index(path)?)?.source_side())
+    }
+
+    fn file_index(&self, path: &RepoPath) -> Option<usize> {
+        self.document
+            .file_index(path)
+            .or_else(|| self.reference().filter(|file| &file.path == path).map(|_| self.document.files.len()))
+    }
+
+    fn file(&self, index: usize) -> Option<&FileDiff> {
+        self.document.files.get(index).or_else(|| self.reference().filter(|_| index == self.document.files.len()))
+    }
+
+    fn file_count(&self) -> usize {
+        self.document.files.len() + usize::from(self.reference().is_some())
+    }
+
+    fn displayed_document(&self) -> Arc<DiffDocument> {
+        let Some(file) = self.reference() else {
+            return Arc::clone(&self.document);
+        };
+        let mut shown = DiffDocument::clone(&self.document);
+        shown.files.push(file.clone());
+        Arc::new(shown)
     }
 
     pub fn toggle_source_view(&mut self) -> bool {
@@ -363,6 +392,7 @@ impl ReviewSession {
         }
         if self.source_view().is_some() {
             self.projection.set_source_view(None);
+            self.reference = None;
             let bookmark = self.diff_return.take();
             self.rebuild_restoring(bookmark);
             return true;
@@ -388,7 +418,7 @@ impl ReviewSession {
 
     fn capture_bookmark(&self) -> Option<SelectionBookmark> {
         Some(SelectionBookmark {
-            path: self.document.files.get(self.selected_file)?.path.clone(),
+            path: self.file(self.selected_file)?.path.clone(),
             row: self.selected_presented_row().map(|row| row.id),
             source: self.selected_source_line(),
             anchor: self.selected_anchor(),
@@ -407,7 +437,7 @@ impl ReviewSession {
         let id = self.presentation.gap_info(self.selected_row).map(|info| info.id).or_else(|| {
             let row = self.presentation.row(self.selected_row)?;
             let source = row.preferred_cell(self.selected_side)?.patch_source?;
-            let hunk = self.document.files.get(row.file_index)?.hunks.get(source.hunk_index)?;
+            let hunk = self.file(row.file_index)?.hunks.get(source.hunk_index)?;
             // Code rows reveal the nearest hunk edge when no gap row is selected.
             let after = source.line_index.saturating_mul(2) >= hunk.lines.len();
             Some(GapId { file_index: row.file_index, gap_index: source.hunk_index + usize::from(after) })
@@ -415,7 +445,7 @@ impl ReviewSession {
         let Some(id) = id else {
             return false;
         };
-        let Some(file) = self.document.files.get(id.file_index) else {
+        let Some(file) = self.file(id.file_index) else {
             return false;
         };
         let hunk_count = file.hunks.len();
@@ -517,24 +547,25 @@ impl ReviewSession {
         if Arc::ptr_eq(&document, &self.document) || document == self.document {
             return;
         }
-        if self.source_view().is_some_and(|path| document.file_index(path).is_none()) {
+        let selected_path = self.file(self.selected_file).map(|file| file.path.clone());
+        let had_open = self.reference().is_some();
+        let reference = self.reference.take().filter(|reference| reference.survives(&document, target_changed));
+        let keeps_open = reference.as_ref().and_then(Reference::file).is_some();
+        if !keeps_open && (had_open || self.source_view().is_some_and(|path| document.file_index(path).is_none())) {
             self.projection.set_source_view(None);
             self.diff_return = None;
         }
-        let expansions = retained_expansions(&self.document, &self.projection.expansions, &document);
-        let selected_path = self.document.files.get(self.selected_file).map(|file| file.path.clone());
-        self.selected_file = selected_path
-            .and_then(|path| document.file_index(&path))
-            .unwrap_or(0)
-            .min(document.files.len().saturating_sub(1));
-        self.projection.expansions = expansions;
+        self.projection.expansions = retained_expansions(&self.document, &self.projection.expansions, &document);
         self.projection.full_files.retain(|path| document.file_index(path).is_some());
         self.projection.collapsed_files.retain(|path| document.file_index(path).is_some());
-        if self.pending_source_restore.as_ref().is_some_and(|location| document.file_index(&location.path).is_none()) {
-            self.pending_source_restore = None;
-        }
         self.navigation.document_changed(&document, target_changed);
         self.document = document;
+        self.reference = reference;
+        self.selected_file =
+            selected_path.and_then(|path| self.file_index(&path)).unwrap_or(0).min(self.file_count().saturating_sub(1));
+        if self.pending_source_restore.as_ref().is_some_and(|location| self.file_index(&location.path).is_none()) {
+            self.pending_source_restore = None;
+        }
         self.rebuild();
     }
 
@@ -588,6 +619,7 @@ impl ReviewSession {
             self.toggle_source_view();
         }
         self.pending_source_restore = None;
+        self.cancel_pending_reference();
         self.selected_file = index;
         self.draft = None;
         self.select_first_row();
@@ -623,6 +655,7 @@ impl ReviewSession {
             return false;
         }
         self.pending_source_restore = None;
+        self.cancel_pending_reference();
         self.selected_row = index;
         if let Some(row) = self.presentation.row(index) {
             self.selected_file = row.file_index;
@@ -768,14 +801,13 @@ impl ReviewSession {
             source = pending.or(source);
         }
         if let Some(bookmark) = &bookmark {
-            self.selected_file = self.document.file_index(&bookmark.path).unwrap_or(self.selected_file);
+            self.selected_file = self.file_index(&bookmark.path).unwrap_or(self.selected_file);
             self.selected_side = bookmark.side;
         }
         if mode == Restore::Source
             && let Some(location) = &mut source
-            && let Some(index) = self.source_view().and_then(|path| self.document.file_index(path))
+            && let Some(file) = self.source_view().and_then(|path| self.file(self.file_index(path)?))
         {
-            let file = &self.document.files[index];
             location.path = file.path.clone();
             location.side = file.source_side();
             let count = file.source_document(location.side).map_or(0, |source| source.line_count());
@@ -783,7 +815,7 @@ impl ReviewSession {
         }
         let draft_anchor = self.draft.as_ref().map(|draft| draft.anchor.clone());
         self.presentation =
-            DiffPresentation::with_projection(self.document.clone(), self.presentation_options(), &self.projection);
+            DiffPresentation::with_projection(self.displayed_document(), self.presentation_options(), &self.projection);
         self.projection_revision = self.projection_revision.wrapping_add(1);
         let source_row = source.as_ref().and_then(|location| self.presentation.row_showing_source(location));
         if source_row.is_none() && mode == Restore::Refresh {

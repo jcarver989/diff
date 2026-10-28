@@ -177,11 +177,13 @@ impl SymbolIndex {
     }
 
     #[must_use]
-    pub fn path_at(&self, location: &SourceLocation) -> Vec<&Definition> {
+    pub fn path_names(&self, location: &SourceLocation) -> Vec<String> {
         let mut path: Vec<&Definition> =
             self.definitions.iter().filter(|definition| definition.contains(location)).collect();
         path.sort_by_key(|definition| (definition.lines.start, Reverse(definition.lines.end)));
-        path
+        let mut names: Vec<String> = path.into_iter().map(|definition| definition.name.clone()).collect();
+        names.dedup();
+        names
     }
 
     #[must_use]

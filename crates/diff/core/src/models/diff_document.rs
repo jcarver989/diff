@@ -1,5 +1,5 @@
-use super::{CommitStack, FileDiff, LineStat, RepoPath, ReviewTarget};
-use crate::{DiffError, RepoPathError};
+use super::{CommitStack, DiffSide, FileDiff, LineStat, RepoPath, ReviewTarget};
+use crate::{DiffError, RepoPathError, SourceDocument};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -36,6 +36,11 @@ impl DiffDocument {
     #[must_use]
     pub fn file_index(&self, path: &RepoPath) -> Option<usize> {
         self.files.iter().position(|file| &file.path == path)
+    }
+
+    #[must_use]
+    pub fn source(&self, path: &RepoPath, side: DiffSide) -> Option<&Arc<SourceDocument>> {
+        self.files.get(self.file_index(path)?)?.source_document(side)
     }
 
     #[must_use]

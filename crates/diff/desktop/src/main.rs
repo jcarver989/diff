@@ -5,13 +5,17 @@ use clankerdiff_gpui_desktop::{
     args::{ArgsError, CliArgs, USAGE},
     run, run_client_review,
 };
+use std::process::ExitCode;
 
-fn main() {
+fn main() -> ExitCode {
+    if let Some(exit) = clankerdiff_lspd::run_if_requested() {
+        return exit;
+    }
     let args = match CliArgs::parse() {
         Ok(args) => args,
         Err(ArgsError::Help) => {
             println!("{USAGE}");
-            return;
+            return ExitCode::SUCCESS;
         }
         Err(error) => {
             eprintln!("error: {error}\n\n{USAGE}");
@@ -40,4 +44,5 @@ fn main() {
     } else {
         run(args, None);
     }
+    ExitCode::SUCCESS
 }

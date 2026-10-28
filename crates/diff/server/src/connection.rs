@@ -1,4 +1,5 @@
 use crate::{
+    lookup::{LookupError, Lookups},
     server::{Context, ReviewCompletion, protocol, stopped},
     transport::Transport,
 };
@@ -9,7 +10,7 @@ use clankerdiff_protocol::{
     shared::{Event, LIVE_PROTOCOL_VERSION, RemoteError, RemoteErrorCode},
 };
 use clankerdiff_watch::RepositoryState;
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::VecDeque, future::Future, pin::Pin, sync::Arc, time::Duration};
 use tokio::{
     sync::watch,
     time::{MissedTickBehavior, interval, timeout},
@@ -67,9 +68,11 @@ async fn serve<T: Transport>(
     mut state: watch::Receiver<RepositoryState>,
     mut target: ReviewTarget,
 ) -> Result<(), RemoteError> {
+    let mut lookups = Lookups::default();
     let mut published: Option<Arc<DiffDocument>> = None;
     let mut health: Option<RemoteError> = None;
     let mut running: Option<Command> = None;
+    let mut queued: VecDeque<ClientCommand> = VecDeque::new();
     let mut finished: Option<CommandResult> = None;
     let mut heartbeat = interval(HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -95,10 +98,19 @@ async fn serve<T: Transport>(
             }
             acknowledgement?;
         }
+        if running.is_none()
+            && let Some(command) = queued.pop_front()
+        {
+            running = Some(start(context, target.clone(), command)?);
+        }
         tokio::select! {
             changed = state.changed() => if changed.is_err() { return Err(stopped()); },
-            command = transport.recv(), if running.is_none() => {
-                running = Some(start(context, target.clone(), command?)?);
+            command = transport.recv() => match command? {
+                ClientCommand::Lookup { id, request } => lookups.submit(context, id, request, current.snapshot.clone()),
+                command => queued.push_back(command),
+            },
+            Some((id, result)) = lookups.next() => {
+                publish(transport, Event::Lookup { id, result: result.map_err(RemoteError::from) }).await?;
             }
             result = async {
                 match running.as_mut() {
@@ -134,6 +146,7 @@ async fn serve<T: Transport>(
 fn start(context: &Context, current_target: ReviewTarget, command: ClientCommand) -> Result<Command, RemoteError> {
     match command {
         ClientCommand::Initialize { .. } => Err(protocol("repeated Hello")),
+        ClientCommand::Lookup { .. } => Err(protocol("lookups are not repository requests")),
         ClientCommand::SetTarget(target) => {
             let watcher = context.watcher.clone();
             Ok(Box::pin(async move {
@@ -192,4 +205,15 @@ fn watcher_error(error: impl ToString) -> RemoteError {
     let message = error.to_string();
     drop(error);
     RemoteError::new(RemoteErrorCode::Watcher, message)
+}
+
+impl From<LookupError> for RemoteError {
+    fn from(error: LookupError) -> Self {
+        let code = match error {
+            LookupError::Busy => RemoteErrorCode::Busy,
+            LookupError::UnknownExternal(_) => RemoteErrorCode::Protocol,
+            LookupError::Unavailable { .. } => RemoteErrorCode::Git,
+        };
+        Self::new(code, error.to_string())
+    }
 }

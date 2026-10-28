@@ -703,6 +703,15 @@ impl DiffPresentation {
     }
 
     #[must_use]
+    pub fn source_location_from(&self, file_index: usize, top: usize, side: DiffSide) -> Option<SourceLocation> {
+        let range = self.file_range(file_index)?;
+        (top.max(range.start)..range.end).find_map(|index| {
+            let row = self.row(index)?;
+            self.source_location(row, row.preferred_cell(side).or_else(|| row.primary_cell())?)
+        })
+    }
+
+    #[must_use]
     pub fn row_showing_source(&self, location: &SourceLocation) -> Option<usize> {
         let file_index = self.document.file_index(&location.path)?;
         self.source_rows.get(&(file_index, location.side, location.line_number)).copied()

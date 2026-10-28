@@ -16,6 +16,7 @@ pub fn capabilities(connected: bool, document: Option<&DiffDocument>) -> ReviewC
         refresh: connected,
         scope: connected,
         submit: document.is_some(),
+        lookups: connected,
         ..ReviewCapabilities::default()
     }
 }

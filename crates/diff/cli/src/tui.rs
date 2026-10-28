@@ -3,7 +3,7 @@ use crate::{
     protocol::{SessionRequestRef, SessionResponse, read_response, write_request},
 };
 use clankerdiff_client::{ClientState, DiffClient};
-use clankerdiff_core::{DiffDocument, DiffReviewEvent, ReviewSubmission};
+use clankerdiff_core::{DiffDocument, DiffReviewEvent, Lookup, LookupReply, ReviewSubmission};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use clankerdiff_ratatui::{
     DiffReviewState, DiffReviewWidget, InputOutcome, MarkdownReviewEvent, MarkdownReviewState, MarkdownReviewWidget,
@@ -21,7 +21,10 @@ use std::{
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::Arc,
+    sync::{
+        Arc,
+        mpsc::{self, Sender},
+    },
     thread,
     time::Duration,
 };
@@ -126,15 +129,22 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
     let mut installed = None;
     let mut last_state: Option<Arc<ClientState>> = None;
     let mut operation: Option<Receiver<Result<(), clankerdiff_client::ClientError>>> = None;
+    let (answers, answered) = mpsc::channel::<LookupReply>();
     loop {
+        while let Ok(reply) = answered.try_recv() {
+            state.lookup_finished(reply);
+        }
         let current = client.state();
         if last_state.as_ref().is_none_or(|old| !Arc::ptr_eq(old, &current)) {
+            state.set_capabilities(current.capabilities);
             if let Some(snapshot) = current.snapshot_if_changed(&mut installed) {
                 state.set_document(snapshot.clone());
             }
             state.set_background_error(current.status());
-            state.set_capabilities(current.capabilities);
             last_state = Some(current);
+        }
+        for lookup in state.take_lookups() {
+            look_up(client, lookup, &answers);
         }
         if let Some(reply) = operation.as_mut() {
             match reply.try_recv() {
@@ -179,7 +189,7 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
             match input.into_event() {
                 Some(DiffReviewEvent::Cancel) => return Ok(None),
                 Some(DiffReviewEvent::SubmitReview(submission)) => return Ok(Some(submission)),
-                Some(DiffReviewEvent::CopyFormattedReview(_)) | None => {}
+                Some(DiffReviewEvent::CopyFormattedReview(_) | DiffReviewEvent::Lookup(_)) | None => {}
                 Some(command) if operation.is_none() => {
                     state.set_repository_pending();
                     operation = client.dispatch(command)?;
@@ -191,6 +201,13 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
             }
         }
     }
+}
+
+fn look_up(client: &DiffClient, lookup: Lookup, answers: &Sender<LookupReply>) {
+    let (client, answers) = (client.clone(), answers.clone());
+    tokio::spawn(async move {
+        let _ = answers.send(client.lookup(lookup).await);
+    });
 }
 
 pub fn run_markdown(document: Arc<MarkdownDocument>) -> Result<Option<MarkdownReviewSubmission>, TuiError> {

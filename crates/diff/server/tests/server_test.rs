@@ -3,8 +3,12 @@ mod support;
 #[cfg(feature = "websocket")]
 use clankerdiff_client::ConnectionState;
 use clankerdiff_client::{
-    ClientError, ClientOptions, ClientSubscription, DiffClient, DiffReviewEvent, DiffScope, RemoteErrorCode,
-    RepositoryAction, ReviewTarget,
+    ClientError, ClientMessageTransport, ClientOptions, ClientSubscription, DiffClient, DiffReviewEvent, DiffScope,
+    RemoteErrorCode, RepositoryAction, ReviewTarget,
+    protocol::{
+        client::ClientCommand,
+        shared::{Event, LIVE_PROTOCOL_VERSION},
+    },
 };
 use clankerdiff_core::Review;
 use clankerdiff_git::testing::RepoFixtureBuilder;
@@ -22,8 +26,8 @@ use tokio::time::timeout;
 async fn local_clients_have_independent_scopes_and_observe_actions() -> Result<(), Box<dyn Error>> {
     let fixture = TestServer::start().await?;
     fixture.repo.write("a", "new\n");
-    let a = DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
-    let b = DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    let a = fixture.client().await?;
+    let b = fixture.client().await?;
     let mut state_a = a.subscribe();
     let mut state_b = b.subscribe();
     wait_for(&mut state_a, DiffScope::Both, 1).await?;
@@ -43,7 +47,7 @@ async fn local_clients_have_independent_scopes_and_observe_actions() -> Result<(
 #[tokio::test]
 async fn submitted_review_reaches_the_server_with_the_effective_scope() -> Result<(), Box<dyn Error>> {
     let mut fixture = TestServer::start().await?;
-    let client = DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    let client = fixture.client().await?;
     client.set_target(DiffScope::Staged).await?;
     let submission = Review::default().submission();
     let submitting = client.clone();
@@ -90,7 +94,7 @@ async fn commit_reviews_start_on_the_first_commit_and_page_to_the_working_tree()
 #[tokio::test]
 async fn cancelled_review_reaches_the_server() -> Result<(), Box<dyn Error>> {
     let mut fixture = TestServer::start().await?;
-    let client = DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    let client = fixture.client().await?;
     let cancelling = client.clone();
     let request = tokio::spawn(async move { cancelling.handle(DiffReviewEvent::Cancel).await });
     assert_eq!(
@@ -105,8 +109,8 @@ async fn cancelled_review_reaches_the_server() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn only_one_concurrent_review_completion_is_accepted() -> Result<(), Box<dyn Error>> {
     let mut fixture = TestServer::start().await?;
-    let first = DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
-    let second = DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    let first = fixture.client().await?;
+    let second = fixture.client().await?;
     let first_request = tokio::spawn(async move { first.handle(DiffReviewEvent::Cancel).await });
     let second_request = tokio::spawn(async move { second.handle(DiffReviewEvent::Cancel).await });
     assert!(matches!(timeout(WAIT, fixture.server.next_review()).await??, ReviewCompletion::Cancelled { .. }));
@@ -178,7 +182,7 @@ async fn server_shutdown_closes_active_websocket_connections() -> Result<(), Box
 #[tokio::test]
 async fn continuous_writes_publish_before_the_writer_stops() -> Result<(), Box<dyn Error>> {
     let fixture = TestServer::start().await?;
-    let client = DiffClient::from_transport(fixture.server.connect()?, ClientOptions::default()).await?;
+    let client = fixture.client().await?;
     let mut state = client.subscribe();
     wait_for(&mut state, DiffScope::Both, 0).await?;
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -219,6 +223,34 @@ async fn message_transports_track_edits_and_actions_through_the_wire_form() -> R
     timeout(WAIT, client.set_target(DiffScope::Staged)).await??;
     wait_for(&mut state, DiffScope::Staged, 1).await?;
     client.close().await?;
+    fixture.server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn repository_requests_sent_back_to_back_run_in_order() -> Result<(), Box<dyn Error>> {
+    let fixture = TestServer::start().await?;
+    let (mut client_end, server_end) = message_transports();
+    fixture.server.accept(server_end)?;
+    let target = DiffScope::Both.into();
+    client_end.send(ClientCommand::Initialize { protocol_version: LIVE_PROTOCOL_VERSION, target }).await?;
+    client_end.send(ClientCommand::Refresh).await?;
+    client_end.send(ClientCommand::SetTarget(DiffScope::Staged.into())).await?;
+    let mut results = Vec::new();
+    let mut staged = false;
+    timeout(WAIT, async {
+        while results.len() < 2 || !staged {
+            match client_end.recv().await? {
+                Event::RequestResult(result) => results.push(result),
+                Event::Document(update) => staged |= update.target == ReviewTarget::WorkingTree(DiffScope::Staged),
+                Event::Error(error) => return Err(error.into()),
+                _ => {}
+            }
+        }
+        Ok::<_, Box<dyn Error>>(())
+    })
+    .await??;
+    assert!(results.iter().all(Result::is_ok), "{results:?}");
     fixture.server.shutdown().await?;
     Ok(())
 }

@@ -45,7 +45,9 @@ fn source_round_trip_restores_an_independently_scrolled_viewport() {
         (builder.clone().changed("b.rs", "old", "new").build(), 110, 16),
         (document.clone(), 100, 12),
     ] {
-        let mut harness = ReviewHarnessBuilder { document: document.clone(), width: 110, height: 16 }.build();
+        let mut harness = ReviewHarnessBuilder { document: document.clone(), ..ReviewHarnessBuilder::default() }
+            .dimensions(110, 16)
+            .build();
         harness.state_mut().set_options(ReviewOptions {
             navigation: NavigationPane::Hidden,
             footer: false,
@@ -354,6 +356,7 @@ fn annotations_follow_the_taller_split_cell() -> Result<(), Box<dyn Error>> {
                 .build(),
             width: 40,
             height: 20,
+            ..ReviewHarnessBuilder::default()
         }
         .build();
         harness.state_mut().set_options(ReviewOptions {

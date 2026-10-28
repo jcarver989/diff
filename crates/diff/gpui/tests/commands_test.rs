@@ -73,13 +73,9 @@ fn keyboard_and_shared_commands_create_identical_reviews(cx: &mut TestAppContext
 #[gpui::test]
 fn direct_commands_and_shortcuts_obey_the_same_host_capabilities(cx: &mut TestAppContext) {
     let result = (|| -> Result<(), Box<dyn Error>> {
-        let harness = DiffViewerHarnessBuilder::default().build(cx);
-        harness.update(cx, |viewer, cx| {
-            viewer.set_capabilities(
-                ReviewCapabilities { repository: false, refresh: false, scope: false, submit: false, clipboard: false },
-                cx,
-            );
-        });
+        let harness =
+            DiffViewerHarnessBuilder { capabilities: ReviewCapabilities::NONE, ..DiffViewerHarnessBuilder::default() }
+                .build(cx);
         for command in [
             DiffReviewCommand::StageAll,
             DiffReviewCommand::BeginCommit,

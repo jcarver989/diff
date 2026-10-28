@@ -44,16 +44,7 @@ fn loading_blocks_review_mutations_but_allows_refresh_and_scope_changes() {
 
 #[test]
 fn host_capabilities_gate_each_host_intent() {
-    let context = CommandContext {
-        capabilities: ReviewCapabilities {
-            repository: false,
-            refresh: false,
-            scope: false,
-            submit: false,
-            clipboard: false,
-        },
-        ..CommandContext::default()
-    };
+    let context = CommandContext { capabilities: ReviewCapabilities::NONE, ..CommandContext::default() };
     for command in [
         DiffReviewCommand::StageAll,
         DiffReviewCommand::Refresh,

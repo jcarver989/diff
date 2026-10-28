@@ -10,6 +10,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use std::ops::Range;
 
 /// Converts ordered UTF-8 byte spans into a fully-owned Ratatui line.
 ///
@@ -17,55 +18,58 @@ use ratatui::{
 /// backgrounds and modifiers are preserved rather than replaced.
 #[must_use]
 pub fn highlighted_line(source: &str, spans: &[HighlightSpan], base: Style) -> Line<'static> {
-    let mut output = Vec::with_capacity(spans.len().saturating_mul(2).saturating_add(1));
-    let mut cursor = 0;
-    for span in spans {
-        let start = span.range.start.max(cursor);
-        let end = span.range.end;
-        if start >= end || end > source.len() || !source.is_char_boundary(start) || !source.is_char_boundary(end) {
-            continue;
-        }
-        if cursor < start {
-            output.push(Span::styled(source[cursor..start].to_owned(), base));
-        }
-        let mut modifiers = Modifier::empty();
-        modifiers.set(Modifier::BOLD, span.font_style.bold);
-        modifiers.set(Modifier::ITALIC, span.font_style.italic);
-        modifiers.set(Modifier::UNDERLINED, span.font_style.underline);
-        let syntax =
-            Style::new().fg(native_color(span.foreground, base.bg.unwrap_or(Color::Black))).add_modifier(modifiers);
-        output.push(Span::styled(source[start..end].to_owned(), base.patch(syntax)));
-        cursor = end;
-    }
-    if cursor < source.len() {
-        output.push(Span::styled(source[cursor..].to_owned(), base));
-    }
-    if output.is_empty() {
-        output.push(Span::styled(source.to_owned(), base));
-    }
-    Line::from(output)
+    let spans = styled_spans(source, spans, &[], base);
+    Line::from(spans.into_iter().map(|span| Span::styled(span.content.into_owned(), span.style)).collect::<Vec<_>>())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clankerdiff_theme::{FontStyle, Rgba};
-
-    #[test]
-    fn preserves_utf8_gaps_and_base_background() {
-        let base = Style::new().bg(Color::Blue).add_modifier(Modifier::DIM);
-        let line = highlighted_line(
-            "aéz",
-            &[HighlightSpan {
-                range: 1..3,
-                foreground: Rgba::new(1, 2, 3, 255),
-                font_style: FontStyle { bold: true, italic: false, underline: false },
-            }],
-            base,
-        );
-        assert_eq!(line.to_string(), "aéz");
-        assert_eq!(line.spans[1].style.bg, Some(Color::Blue));
-        assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
-        assert!(line.spans[1].style.add_modifier.contains(Modifier::DIM));
+pub(crate) fn styled_spans<'a>(
+    source: &'a str,
+    highlights: &[HighlightSpan],
+    overlays: &[(Range<usize>, Color)],
+    base: Style,
+) -> Vec<Span<'a>> {
+    let valid = |range: &Range<usize>| {
+        range.start < range.end
+            && range.end <= source.len()
+            && source.is_char_boundary(range.start)
+            && source.is_char_boundary(range.end)
+    };
+    let highlights: Vec<&HighlightSpan> = highlights.iter().filter(|highlight| valid(&highlight.range)).collect();
+    let overlays: Vec<&(Range<usize>, Color)> = overlays.iter().filter(|(range, _)| valid(range)).collect();
+    let mut cuts: Vec<usize> = highlights
+        .iter()
+        .map(|highlight| &highlight.range)
+        .chain(overlays.iter().map(|(range, _)| range))
+        .flat_map(|range| [range.start, range.end])
+        .chain([0, source.len()])
+        .collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut highlights = highlights.into_iter().peekable();
+    let mut spans: Vec<Span<'a>> = cuts
+        .windows(2)
+        .map(|pair| {
+            let (start, end) = (pair[0], pair[1]);
+            let base =
+                overlays.iter().find(|(range, _)| range.contains(&start)).map_or(base, |(_, tint)| base.bg(*tint));
+            while highlights.next_if(|highlight| highlight.range.end <= start).is_some() {}
+            let style = highlights
+                .peek()
+                .filter(|highlight| highlight.range.start <= start)
+                .map_or(base, |highlight| base.patch(syntax_style(highlight, base)));
+            Span::styled(&source[start..end], style)
+        })
+        .collect();
+    if spans.is_empty() {
+        spans.push(Span::styled(source, base));
     }
+    spans
+}
+
+fn syntax_style(highlight: &HighlightSpan, base: Style) -> Style {
+    let mut modifiers = Modifier::empty();
+    modifiers.set(Modifier::BOLD, highlight.font_style.bold);
+    modifiers.set(Modifier::ITALIC, highlight.font_style.italic);
+    modifiers.set(Modifier::UNDERLINED, highlight.font_style.underline);
+    Style::new().fg(native_color(highlight.foreground, base.bg.unwrap_or(Color::Black))).add_modifier(modifiers)
 }
