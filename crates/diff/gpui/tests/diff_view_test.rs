@@ -55,7 +55,7 @@ fn wheel_scrolling_crosses_files_without_changing_selection_or_draft(cx: &mut Te
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         assert!(harness.bounds(cx, "diff-active-file:1").is_some());
         assert_eq!(harness.selected_row(cx), selected);
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(0));
+        assert_eq!(harness.selected_file(cx), Some(0));
         assert_eq!(harness.draft_body(cx), body);
         assert!(harness.comment_focused(cx)?);
         harness.simulate_input(cx, " still editing");
@@ -193,7 +193,7 @@ fn the_sidebar_follows_the_top_file_without_expanding_collapsed_directories(cx: 
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         assert!(harness.dispatch_command(cx, DiffReviewCommand::MoveSelection(1))?);
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(2));
+        assert_eq!(harness.selected_file(cx), Some(2));
         Ok(())
     });
 }
@@ -246,7 +246,7 @@ fn clicking_a_file_divider_selects_that_file(cx: &mut TestAppContext) {
     }
     .run(cx, |harness, cx| {
         harness.click(cx, "diff-file-header:1")?;
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
+        assert_eq!(harness.selected_file(cx), Some(1));
         Ok(())
     });
 }
@@ -306,7 +306,7 @@ fn file_header_chevrons_collapse_and_expand_a_file(cx: &mut TestAppContext) {
         assert!(harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
         assert_eq!(file_rows(harness, cx, 0), 1);
         assert!(harness.bounds(cx, "diff-file-header:1").is_some());
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(0));
+        assert_eq!(harness.selected_file(cx), Some(0));
         harness.click(cx, "diff-file-collapse:0")?;
         assert!(!harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
         assert_eq!(file_rows(harness, cx, 0), expanded);

@@ -420,7 +420,7 @@ fn staging_checkboxes_keep_their_geometry_and_do_not_activate_rows(cx: &mut Test
             assert_eq!(file.size.height, px(CHECKBOX_SIZE));
             assert_eq!(file.size, directory.size);
             harness.click(cx, "diff-file-checkbox:0")?;
-            assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
+            assert_eq!(harness.selected_file(cx), Some(1));
             let expected = if stage == StageState::Staged {
                 RepositoryAction::UnstagePaths(vec![RepoPath::new("src/lib.rs")?])
             } else {
@@ -478,7 +478,7 @@ fn staging_refresh_preserves_selected_collapsed_directory(cx: &mut TestAppContex
             viewer.set_repository_pending(false, cx);
         });
         harness.draw(cx);
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
+        assert_eq!(harness.selected_file(cx), Some(1));
         assert!(harness.bounds(cx, "diff-file-checkbox:1").is_none());
         assert!(harness.dispatch_command(cx, DiffReviewCommand::ToggleStage)?);
         assert_eq!(
@@ -511,7 +511,7 @@ fn staging_refresh_preserves_file_selection_and_checkbox_focus_by_path(cx: &mut 
             viewer.set_repository_pending(false, cx);
         });
         harness.draw(cx);
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
+        assert_eq!(harness.selected_file(cx), Some(1));
         harness.press_key(cx, "space");
         assert_eq!(
             harness.events(cx),

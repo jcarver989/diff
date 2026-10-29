@@ -247,17 +247,17 @@ fn menu_navigation_actions_cannot_bypass_a_draft(cx: &mut TestAppContext) {
             ..DiffViewerHarnessBuilder::default()
         }
         .build(cx);
-        let selected = harness.read(cx, |viewer, _| (viewer.selected_file(), viewer.session().selected_row()));
+        let selected = (harness.selected_file(cx), harness.selected_row(cx));
         harness.dispatch_command(cx, ReviewCommand::BeginComment)?;
         harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::SelectFile(1)));
         harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::MoveSelection(1)));
         harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::StageAll));
-        assert_eq!(harness.read(cx, |viewer, _| (viewer.selected_file(), viewer.session().selected_row())), selected);
+        assert_eq!((harness.selected_file(cx), harness.selected_row(cx)), selected);
         assert_eq!(harness.read(cx, |viewer, _| viewer.command_context().phase), InteractionPhase::Draft);
         assert_eq!(harness.events(cx).len(), 0);
         harness.dispatch_command(cx, ReviewCommand::Cancel)?;
         harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::SelectFile(1)));
-        assert_ne!(harness.read(cx, |viewer, _| viewer.selected_file()), selected.0);
+        assert_ne!(harness.selected_file(cx), selected.0);
         Ok(())
     })();
     if let Err(error) = result {
