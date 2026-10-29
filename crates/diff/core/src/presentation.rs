@@ -72,6 +72,14 @@ impl Layout {
             Self::Split => Self::Unified,
         }
     }
+
+    #[must_use]
+    pub const fn for_status(self, status: FileStatus) -> Self {
+        match status {
+            FileStatus::Added | FileStatus::Untracked | FileStatus::Deleted => Self::Unified,
+            _ => self,
+        }
+    }
 }
 
 /// Options used while indexing presentation rows.
@@ -173,11 +181,7 @@ impl GapInfo {
 
     #[must_use]
     pub fn hint(&self) -> String {
-        if self.is_expandable() {
-            format!("{} — Enter expand · O expand all", self.message())
-        } else {
-            self.message()
-        }
+        if self.is_expandable() { format!("{} — Enter expand", self.message()) } else { self.message() }
     }
 }
 
@@ -236,7 +240,7 @@ impl ContentProjection {
     }
 }
 
-pub use clankerdiff_theme::DiffTone;
+pub use clankerdiff_ui_core::DiffTone;
 
 /// Renderer-neutral description of the hunk-side line sequence containing a
 /// patch cell, used to keep multiline syntax context for patch-only files.
@@ -419,6 +423,7 @@ impl DiffPresentation {
         let mut collapsed = vec![false; document.files.len()];
         for &file_index in &file_order {
             let file = &document.files[file_index];
+            let layout = layout.for_status(file.status);
             let file_start = rows.len();
             if options.include_file_headers {
                 rows.push(header_row(file_index, file));
@@ -523,6 +528,11 @@ impl DiffPresentation {
     #[must_use]
     pub const fn layout(&self) -> Layout {
         self.layout
+    }
+
+    #[must_use]
+    pub fn file_layout(&self, file_index: usize) -> Layout {
+        self.document.files.get(file_index).map_or(self.layout, |file| self.layout.for_status(file.status))
     }
 
     /// Total number of rows.
@@ -910,9 +920,9 @@ fn append_gap_projection(
 
 fn gap_required_sides(layout: Layout, status: FileStatus) -> &'static [DiffSide] {
     match (layout, status) {
-        (Layout::Split | Layout::Unified, FileStatus::Deleted) => &[DiffSide::Old],
-        (Layout::Split, FileStatus::Added | FileStatus::Untracked) | (Layout::Unified, _) => &[DiffSide::New],
+        (_, FileStatus::Deleted) => &[DiffSide::Old],
         (Layout::Split, _) => &[DiffSide::Old, DiffSide::New],
+        (Layout::Unified, _) => &[DiffSide::New],
     }
 }
 

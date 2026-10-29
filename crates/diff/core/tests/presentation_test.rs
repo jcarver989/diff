@@ -265,3 +265,17 @@ fn collapsed_files_project_only_a_navigable_header() -> Result<(), Box<dyn Error
     assert!(expanded.len() > 1);
     Ok(())
 }
+
+#[test]
+fn split_presentations_show_one_sided_files_unified() {
+    let document = DocumentBuilder::new()
+        .changed("changed.rs", "old\n", "new\n")
+        .added("added.rs", "new\n")
+        .untracked("untracked.rs", "new\n")
+        .deleted("deleted.rs", "old\n")
+        .build();
+    let options = PresentationOptions { view_mode: ViewMode::Split, ..Default::default() };
+    let presentation = DiffPresentation::new(document, options);
+    let layouts: Vec<Layout> = (0..4).map(|index| presentation.file_layout(index)).collect();
+    assert_eq!(layouts, [Layout::Split, Layout::Unified, Layout::Unified, Layout::Unified]);
+}
