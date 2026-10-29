@@ -538,7 +538,7 @@ impl DiffReviewState {
 
     pub(crate) fn toggle_stage_action(&self) -> Option<RepositoryAction> {
         let path = &self.drawer.selected()?.path;
-        FileTree::toggle_stage_action(self.document(), path)
+        self.drawer.toggle_stage_action(self.document(), path)
     }
 
     pub(crate) fn begin_commit(&mut self) {

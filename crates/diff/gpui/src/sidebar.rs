@@ -9,7 +9,7 @@ use crate::{
     },
     viewer::{MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH},
 };
-use clankerdiff_core::{DiffReviewCommand, FileTree, FileTreeEntry, StageState};
+use clankerdiff_core::{DiffReviewCommand, FileTreeEntry, StageState};
 use gpui::{Context, PathBuilder, Role, canvas, div, point, prelude::*, px};
 use gpui_base::{Checkbox, CheckboxIndicator, CheckboxState};
 
@@ -31,7 +31,7 @@ impl DiffViewer {
 
     fn stage_checkbox(&self, entry: &FileTreeEntry, cx: &mut Context<Self>) -> Checkbox {
         let colors = self.ui_theme().colors;
-        let checkbox_state = match FileTree::stage_state_for(self.document(), &entry.path) {
+        let checkbox_state = match entry.stage {
             StageState::Staged => CheckboxState::Checked,
             StageState::PartiallyStaged => CheckboxState::Indeterminate,
             StageState::Unstaged => CheckboxState::Unchecked,
@@ -187,8 +187,8 @@ impl DiffViewer {
                         .gap_1()
                         .typography(Typography::Caption)
                         .font_family(CODE_FONT)
-                        .child(div().text_color(color(palette.addition)).child(format!("+{}", diff.additions())))
-                        .child(div().text_color(color(palette.deletion)).child(format!("−{}", diff.deletions()))),
+                        .child(div().text_color(color(palette.addition)).child(format!("+{}", entry.stat.added)))
+                        .child(div().text_color(color(palette.deletion)).child(format!("−{}", entry.stat.deleted))),
                 )
                 .child(
                     div()

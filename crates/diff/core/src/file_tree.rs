@@ -1,4 +1,4 @@
-use crate::{DiffDocument, FileDiff, FileStatus, RepoPath, RepositoryAction, StageState};
+use crate::{DiffDocument, FileDiff, FileStatus, LineStat, RepoPath, RepositoryAction, StageState};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,6 +8,8 @@ pub struct FileTreeEntry {
     pub depth: usize,
     pub file: Option<usize>,
     pub expanded: bool,
+    pub stage: StageState,
+    pub stat: LineStat,
 }
 
 #[derive(Debug, Default)]
@@ -46,25 +48,38 @@ impl FileTree {
     pub fn rebuild(&mut self, document: &DiffDocument) {
         self.all.clear();
         let mut open: Vec<&str> = Vec::new();
+        let mut ancestors: Vec<usize> = Vec::new();
         for index in tree_order(document) {
-            let path = &document.files[index].path;
-            let directories = path.directory().map_or_else(Vec::new, |directory| directory.split('/').collect());
+            let file = &document.files[index];
+            let stat = file.line_stat();
+            let directories = file.path.directory().map_or_else(Vec::new, |directory| directory.split('/').collect());
             let shared = open.iter().zip(&directories).take_while(|(left, right)| left == right).count();
+            ancestors.truncate(shared);
             for depth in shared..directories.len() {
+                ancestors.push(self.all.len());
                 self.all.push(FileTreeEntry {
                     path: directories[..=depth].join("/"),
                     name: directories[depth].to_owned(),
                     depth,
                     file: None,
                     expanded: true,
+                    stage: file.staged,
+                    stat: LineStat::default(),
                 });
             }
+            for &ancestor in &ancestors {
+                let directory = &mut self.all[ancestor];
+                directory.stage = merge_stage(directory.stage, file.staged);
+                directory.stat += stat;
+            }
             self.all.push(FileTreeEntry {
-                path: path.to_string(),
-                name: path.file_name().to_owned(),
+                path: file.path.to_string(),
+                name: file.path.file_name().to_owned(),
                 depth: directories.len(),
                 file: Some(index),
                 expanded: true,
+                stage: file.staged,
+                stat,
             });
             open = directories;
         }
@@ -154,8 +169,8 @@ impl FileTree {
     }
 
     #[must_use]
-    pub fn toggle_stage_action(document: &DiffDocument, path: &str) -> Option<RepositoryAction> {
-        let unstage = Self::stage_state_for(document, path) == StageState::Staged;
+    pub fn toggle_stage_action(&self, document: &DiffDocument, path: &str) -> Option<RepositoryAction> {
+        let unstage = self.all.iter().find(|entry| entry.path == path)?.stage == StageState::Staged;
         let mut paths = Vec::new();
         let mut seen = HashSet::new();
         for file in files_under(document, path) {
@@ -178,19 +193,6 @@ impl FileTree {
         }
     }
 
-    #[must_use]
-    pub fn stage_state_for(document: &DiffDocument, path: &str) -> StageState {
-        let mut states = files_under(document, path).map(|file| file.staged);
-        let Some(first) = states.next() else {
-            return StageState::Unstaged;
-        };
-        if first == StageState::PartiallyStaged || states.any(|state| state != first) {
-            StageState::PartiallyStaged
-        } else {
-            first
-        }
-    }
-
     fn file_path(&self, file: usize) -> Option<String> {
         self.all.iter().find(|entry| entry.file == Some(file)).map(|entry| entry.path.clone())
     }
@@ -210,6 +212,10 @@ impl FileTree {
             .map(|entry| FileTreeEntry { expanded: !self.collapsed.contains(&entry.path), ..entry.clone() })
             .collect();
     }
+}
+
+fn merge_stage(left: StageState, right: StageState) -> StageState {
+    if left == right { left } else { StageState::PartiallyStaged }
 }
 
 fn files_under<'a>(document: &'a DiffDocument, path: &'a str) -> impl Iterator<Item = &'a FileDiff> {

@@ -1,4 +1,4 @@
-use super::{DiffSide, Hunk, PatchLine, PatchLineKind, RepoPath, patch_derivation::derive_patch};
+use super::{DiffSide, Hunk, LineStat, PatchLine, PatchLineKind, RepoPath, patch_derivation::derive_patch};
 use crate::{DiffError, Fingerprint, RepoPathError, SourceDocument, SourceResult, SourceUnavailable};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::BTreeSet, ffi::OsStr, path::Path, sync::Arc};
@@ -273,6 +273,11 @@ impl FileDiff {
     #[must_use]
     pub fn deletions(&self) -> usize {
         self.hunks.iter().map(Hunk::deletions).sum()
+    }
+
+    #[must_use]
+    pub fn line_stat(&self) -> LineStat {
+        LineStat { added: self.additions(), deleted: self.deletions(), files: 1 }
     }
 
     /// Lowercase file extension, without a dot.

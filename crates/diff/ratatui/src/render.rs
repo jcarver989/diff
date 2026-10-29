@@ -17,7 +17,7 @@ use crate::{
     ui::{AppFrame, EmptyState, Modal, ModalSize, NoticeTone, Notification, SelectionState},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use clankerdiff_core::{DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PresentedCell, PresentedRow, RowKind};
+use clankerdiff_core::{DiffSide, DiffTone, FileDiff, GapInfo, PresentedCell, PresentedRow, RowKind};
 use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_ui_core::ReviewTheme;
 use ratatui::{
@@ -183,7 +183,7 @@ fn render_drawer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, t
         let index = state.drawer_scroll.saturating_add(offset);
         let row = Rect::new(rows.x, y, rows.width, 1);
         let indent = "  ".repeat(entry.depth);
-        let (left, right, entry_stage) = match entry.file {
+        let (left, mut right) = match entry.file {
             None => {
                 let marker = if entry.expanded { "▾" } else { "▸" };
                 (
@@ -192,7 +192,6 @@ fn render_drawer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, t
                         Span::styled(entry.name.clone(), Style::new().fg(theme.ui.text)),
                     ],
                     Vec::new(),
-                    FileTree::stage_state_for(state.document(), &entry.path),
                 )
             }
             Some(file_index) => {
@@ -206,16 +205,14 @@ fn render_drawer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, t
                         Span::styled(entry.name.clone(), Style::new().fg(theme.ui.text)),
                     ],
                     [
-                        stat_spans(file.additions(), file.deletions(), theme).to_vec(),
+                        stat_spans(entry.stat.added, entry.stat.deleted, theme).to_vec(),
                         vec![Span::styled(format!(" {}", file.status.code()), status)],
                     ]
                     .concat(),
-                    file.staged,
                 )
             }
         };
-        let mut right = right;
-        right.push(Span::styled(format!(" {}", stage_marker(entry_stage)), Style::new().fg(theme.ui.text_muted)));
+        right.push(Span::styled(format!(" {}", stage_marker(entry.stage)), Style::new().fg(theme.ui.text_muted)));
         let right = Line::from(right);
         let right_width = u16::try_from(right.width()).unwrap_or(u16::MAX).min(row.width);
         let [content, trailing] = Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(row);

@@ -633,7 +633,7 @@ impl DiffViewer {
         if self.repository_pending {
             return;
         }
-        let Some(action) = FileTree::toggle_stage_action(self.document(), path) else {
+        let Some(action) = self.sidebar_tree.toggle_stage_action(self.document(), path) else {
             return;
         };
         self.handle_command(DiffReviewCommand::RepositoryAction(action), window, cx);
