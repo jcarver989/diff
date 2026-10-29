@@ -86,6 +86,7 @@ fn release() -> Release {
         .setup(GpuiApp::linux_dependencies())
         .set("release", false)
         .set("git_only", false)
-        .set("publish", false);
+        .set("publish", false)
+        .set("semver_check", false);
     Release::new().release_plz(release_plz).dist(Dist::new().allow_dirty_ci())
 }

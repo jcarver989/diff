@@ -78,7 +78,8 @@
         "workspace.dependencies_update",
         "workspace.release",
         "workspace.git_only",
-        "workspace.publish"
+        "workspace.publish",
+        "workspace.semver_check"
       ]
     },
     "rust-toolchain.toml": {
