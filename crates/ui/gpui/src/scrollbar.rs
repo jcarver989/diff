@@ -4,7 +4,7 @@ use crate::{
 };
 use gpui::{
     App, DragMoveEvent, ElementId, Empty, IntoElement, ListState, MouseButton, MouseDownEvent, Pixels, RenderOnce,
-    Window, div, point, prelude::*, px,
+    Window, canvas, div, point, prelude::*, px,
 };
 use std::cell::Cell;
 
@@ -105,6 +105,20 @@ impl RenderOnce for ListScrollbar {
             )
             .into_any_element()
     }
+}
+
+#[must_use]
+pub fn uniform_height_hints(list: ListState, height: Pixels) -> impl IntoElement {
+    let laid_out_width = list.viewport_bounds().size.width;
+    canvas(
+        move |_, _, _| {
+            if list.viewport_bounds().size.width != laid_out_width {
+                list.with_uniform_item_height(height);
+            }
+        },
+        |_, (), _, _| {},
+    )
+    .absolute()
 }
 
 const SCROLLBAR_THUMB_WIDTH: f32 = 6.0;

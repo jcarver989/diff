@@ -1,5 +1,5 @@
 use clankerdiff_gpui_ui::{
-    prelude::{ListScrollbar, UiTheme},
+    prelude::{ListScrollbar, UiTheme, uniform_height_hints},
     testing::ComponentHarnessBuilder,
 };
 use clankerdiff_ui_core::ReviewTheme;
@@ -118,6 +118,32 @@ fn releasing_the_thumb_keeps_it_where_it_was_dropped_when_rows_grow_during_the_d
             assert!(!rows.is_scrollbar_dragging());
             let released = fraction(&rows);
             assert!((released - dropped).abs() < 0.01, "dropped at {dropped}, released at {released}");
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn height_hints_keep_unmeasured_rows_in_the_scroll_range_when_the_width_changes(cx: &mut TestAppContext) {
+    let rows = ListState::new(100, ListAlignment::Top, px(0.0)).with_uniform_item_height(px(40.0));
+    let rendered = rows.clone();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            div()
+                .relative()
+                .size_full()
+                .child(list(rendered.clone(), |_, _, _| div().h(px(40.0)).into_any_element()).size_full())
+                .child(uniform_height_hints(rendered.clone(), px(40.0)))
+                .into_any_element()
+        },
+        |harness, cx| {
+            let before = rows.max_offset_for_scrollbar().y;
+            assert_eq!(before, px(100.0 * 40.0 - 600.0));
+
+            harness.resize(cx, 700.0, 600.0);
+
+            assert_eq!(rows.max_offset_for_scrollbar().y, before);
             Ok(())
         },
     );

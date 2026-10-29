@@ -9,6 +9,7 @@ use crate::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
         prelude::{
             Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography, TypographyExt, rem,
+            uniform_height_hints,
         },
         tokens::{CODE_ROW_HEIGHT, RADIUS_CONTROL, ROW_HEIGHT},
     },
@@ -68,8 +69,9 @@ impl DiffViewer {
             .and_then(|next| list_state.bounds_for_item(next))
             .map_or(px(0.0), |next| (next.top() - viewport.top() - divider_height).min(px(0.0)));
         let start = self.session().visible_range().start;
-        let wheel_lines =
-            wheel_line_scroller(list_state.clone(), self.diff_row_height() * WHEEL_ROWS_PER_LINE, cx.entity_id());
+        let row_height = self.diff_row_height();
+        let wheel_lines = wheel_line_scroller(list_state.clone(), row_height * WHEEL_ROWS_PER_LINE, cx.entity_id());
+        let row_height_hints = uniform_height_hints(list_state.clone(), row_height);
         let list = list(
             list_state,
             cx.processor(move |viewer, offset: usize, _window, cx| viewer.render_visible_row(start + offset, cx)),
@@ -100,6 +102,7 @@ impl DiffViewer {
                             .overflow_hidden()
                             .child(wheel_lines)
                             .child(list)
+                            .child(row_height_hints)
                             .child(
                                 div().absolute().top(sticky_top).left_0().right_0().child(self.render_file_divider(
                                     file_index,

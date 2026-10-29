@@ -37,7 +37,7 @@ pub mod prelude {
         ThemePickerEvent, ThemePickerOverlay,
     };
     pub use super::resizable::{PanelSide, ResizablePanel};
-    pub use super::scrollbar::ListScrollbar;
+    pub use super::scrollbar::{ListScrollbar, uniform_height_hints};
     pub use super::theme::{ActiveTheme, UiColors, UiStyle, UiTheme, color, window_appearance};
     pub use super::tokens::rem;
     pub use super::tree::TreeRow;
