@@ -11,7 +11,7 @@ use clankerdiff_core::{
     DiffReviewCommand, DiffReviewEvent, LookupReply, ReviewSession, SourceLocation, TargetLocation,
 };
 use clankerdiff_markdown::{MarkdownOptions, parse_markdown};
-use clankerdiff_symbols::{Activation, DefinitionCard, NameLookup, Settled, SymbolIndex, SymbolReference};
+use clankerdiff_symbols::{Activation, DefinitionCard, Hold, NameLookup, Settled, SymbolIndex, SymbolReference};
 use clankerdiff_syntax::LanguageHint;
 use gpui::{
     AnyElement, App, Context, Div, MouseDownEvent, Pixels, StyledText, anchored, deferred, div, font, prelude::*, px,
@@ -22,35 +22,6 @@ const CARD_HIDE_DELAY: Duration = Duration::from_millis(200);
 const CARD_MIN_WIDTH: f32 = 320.0;
 const DOCS_MAX_HEIGHT: f32 = 240.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Hold {
-    Hover,
-    Pinned,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CardHover {
-    hold: Hold,
-    token_hovered: bool,
-    card_hovered: bool,
-}
-
-impl CardHover {
-    fn new(hold: Hold) -> Self {
-        Self { hold, token_hovered: hold == Hold::Hover, card_hovered: false }
-    }
-
-    fn lingering(self) -> bool {
-        self.hold == Hold::Hover && !self.token_hovered && !self.card_hovered
-    }
-}
-
-impl Default for CardHover {
-    fn default() -> Self {
-        Self::new(Hold::Pinned)
-    }
-}
-
 impl DiffViewer {
     pub(crate) fn update_names<T>(
         &mut self,
@@ -58,13 +29,7 @@ impl DiffViewer {
         update: impl FnOnce(&mut NameLookup, &mut ReviewSession, &SymbolIndex, bool) -> T,
     ) -> T {
         let index = self.symbols();
-        let hint_row = self.name_hint_row();
         let result = update(&mut self.names, &mut self.session, &index, self.capabilities.lookups);
-        let next_row = self.name_hint_row();
-        if hint_row != next_row {
-            self.remeasure_row(hint_row);
-            self.remeasure_row(next_row);
-        }
         for lookup in self.names.take_lookups() {
             cx.emit(DiffReviewEvent::Lookup(lookup));
         }
@@ -80,13 +45,8 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         let card = DefinitionCard::new(origin, reference);
-        self.update_names(cx, |names, session, _, enabled| names.show(card, session, enabled));
-        self.hold_card(hold);
-    }
-
-    pub(crate) fn hold_card(&mut self, hold: Hold) {
         self.card_timer = None;
-        self.hover = CardHover::new(hold);
+        self.update_names(cx, |names, session, _, enabled| names.show(card, session, enabled, hold));
     }
 
     pub fn lookup_finished(&mut self, reply: LookupReply, cx: &mut Context<Self>) {
@@ -101,28 +61,24 @@ impl DiffViewer {
 
     pub(crate) fn close_names(&mut self, cx: &mut Context<Self>) -> bool {
         self.card_timer = None;
-        if self.names.pick().is_none() {
+        if self.names.card().is_none() {
             return false;
         }
         self.update_names(cx, |names, _, _, _| names.close())
     }
 
     pub(crate) fn card_token_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        self.hover.token_hovered = hovered;
+        self.names.hover_token(hovered);
         self.schedule_card_hide(cx);
     }
 
     fn card_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        self.hover.card_hovered = hovered;
+        self.names.hover_card(hovered);
         self.schedule_card_hide(cx);
     }
 
-    fn card_lingering(&self) -> bool {
-        self.names.card().is_some() && self.hover.lingering()
-    }
-
     fn schedule_card_hide(&mut self, cx: &mut Context<Self>) {
-        if !self.card_lingering() {
+        if !self.names.lingering() {
             self.card_timer = None;
             return;
         }
@@ -130,7 +86,7 @@ impl DiffViewer {
             cx.background_executor().timer(CARD_HIDE_DELAY).await;
             let _ = viewer.update(cx, |viewer, cx| {
                 viewer.card_timer = None;
-                if viewer.card_lingering() {
+                if viewer.names.lingering() {
                     viewer.close_names(cx);
                 }
             });
@@ -144,7 +100,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) {
         if self.names.card().is_some_and(|card| card.shows(&origin, &reference.span.columns)) {
-            self.hover.hold = Hold::Pinned;
+            self.names.pin();
         } else {
             self.show_definition(origin, reference, Hold::Pinned, cx);
         }
@@ -154,10 +110,7 @@ impl DiffViewer {
     pub(crate) fn jump_to_card_choice(&mut self, cx: &mut Context<Self>) -> bool {
         match self.update_names(cx, |names, _, index, _| names.activate(index)) {
             Activation::Idle => false,
-            Activation::Wait => {
-                self.hover.hold = Hold::Pinned;
-                true
-            }
+            Activation::Wait => true,
             Activation::Jump(target) => self.jump_to(target, cx),
         }
     }
@@ -171,10 +124,8 @@ impl DiffViewer {
         self.navigate(command, cx)
     }
 
-    pub(crate) fn cycle_card_choice(&mut self, cx: &mut Context<Self>) {
-        if self.update_names(cx, |names, _, index, _| names.cycle(index)) {
-            self.hover.hold = Hold::Pinned;
-        }
+    pub(crate) fn cycle_card_choice(&mut self, cx: &mut Context<Self>) -> bool {
+        self.update_names(cx, |names, _, index, _| names.cycle(index))
     }
 
     #[expect(clippy::cast_precision_loss, reason = "a column offset is far below f32's exact integer range")]

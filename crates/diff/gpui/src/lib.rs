@@ -13,12 +13,14 @@ mod diff_preview;
 mod diff_view;
 mod markdown_viewer;
 mod navigation;
+mod palette;
 mod review_bar;
 mod shortcuts;
 mod sidebar;
 pub mod style;
 #[cfg(feature = "test-support")]
 pub mod testing;
+mod toolbar;
 mod viewer;
 
 use clankerdiff_core::ViewMode;
@@ -47,11 +49,6 @@ pub use markdown_viewer::{
     MarkdownSubmitComment, MarkdownToggleFocus, MarkdownToggleOutline, MarkdownUndoComment,
 };
 pub use viewer::{
-    ActivateGap, AddComment, Cancel, CancelComment, CancelRepositoryPrompt, Collapse, CommitChanges, ConfirmDiscard,
-    CopyReview, CycleScope, DeleteComment, DiffViewer, DiffViewerOptions, DiscardChanges, EditComment, ExpandGap,
-    ExpandGapAll, ExpandOrOpen, FirstCommit, FirstItem, FocusDiff, FocusFiles, HideShortcuts, LastCommit, LastItem,
-    NextCommit, NextFile, NextHunk, NextItem, PageDown, PageUp, PreviousCommit, PreviousFile, PreviousHunk,
-    PreviousItem, Refresh, SelectNewSide, SelectOldSide, ShowCommitPicker, ShowShortcuts, ShowThemePicker, StageAll,
-    SubmitComment, SubmitReview, ToggleAllFilesCollapsed, ToggleFileCollapsed, ToggleFullFile, ToggleLayout,
-    TogglePane, ToggleSidebar, ToggleSourceView, ToggleStage, UndoComment, UnstageAll, UseAutoLayout, ViewerPane,
+    CancelComment, CancelRepositoryPrompt, ConfirmDiscard, DiffViewer, DiffViewerOptions, RunCommand, SubmitComment,
+    ViewerPane,
 };

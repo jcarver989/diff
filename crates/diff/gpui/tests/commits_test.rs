@@ -1,10 +1,14 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    CommitSummary, DiffDocument, DiffReviewEvent, DiffScope, InteractionPhase, LineStat, ReviewTarget,
+    CommitSummary, DiffDocument, DiffReviewCommand, DiffReviewEvent, DiffScope, InteractionPhase, LineStat,
+    ReviewTarget,
     testing::{DocumentBuilder, commit_id},
 };
-use clankerdiff_gpui::testing::{DiffViewerHarness, DiffViewerHarnessBuilder};
+use clankerdiff_gpui::{
+    RunCommand,
+    testing::{DiffViewerHarness, DiffViewerHarnessBuilder},
+};
 use gpui::{TestAppContext, px};
 use std::sync::Arc;
 
@@ -149,9 +153,10 @@ fn an_empty_page_keeps_navigation_and_the_keyboard(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn braces_jump_to_the_first_commit_and_the_working_tree(cx: &mut TestAppContext) {
+fn the_first_commit_and_the_working_tree_are_commands(cx: &mut TestAppContext) {
     paged(page(commit_id(2))).run(cx, |harness, cx| {
-        harness.simulate_keystrokes(cx, "shift-[ shift-]");
+        harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::GoToPage(0)));
+        harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::GoToPage(usize::MAX)));
         assert_eq!(
             harness.events(cx),
             vec![DiffReviewEvent::SetTarget(commit_id(1).into()), DiffReviewEvent::SetTarget(DiffScope::Both.into())]

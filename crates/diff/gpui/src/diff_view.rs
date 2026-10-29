@@ -3,20 +3,19 @@ use crate::{
     annotation::add_comment_button,
     comment_editor::CommentEditor,
     comments::{CommentCard, CommentComposer, CommentCount, CommentThread, comment_dismiss_button},
-    navigation::{HISTORY_BUTTONS, line_key},
+    navigation::line_key,
     style::{self, stat_badges},
     ui::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
         prelude::{
-            Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Segment, SegmentedControl,
-            Typography, TypographyExt, rem,
+            Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography, TypographyExt, rem,
         },
-        tokens::{BAR_HEIGHT, CODE_ROW_HEIGHT, ICON_BUTTON_SIZE, ICON_SIZE, RADIUS_CONTROL, ROW_HEIGHT},
+        tokens::{CODE_ROW_HEIGHT, RADIUS_CONTROL, ROW_HEIGHT},
     },
 };
 use clankerdiff_core::{
     DiffReviewCommand, DiffSide, DiffTone, GapInfo, PresentedCell, PresentedRow, RevealAmount, ReviewCommand,
-    ReviewComment, RowKind, ViewMode,
+    ReviewComment, RowKind,
 };
 use gpui::{
     Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString, Stateful, StyledText,
@@ -29,7 +28,6 @@ const GUTTER_WIDTH: f32 = 52.0;
 const FILE_DIVIDER_HEIGHT: f32 = 40.0;
 const FILE_DIVIDER_INSET: f32 = 4.0;
 const WHEEL_ROWS_PER_LINE: f32 = 2.0;
-const COMPACT_TOOLBAR_WIDTH: f32 = 1000.0;
 
 #[derive(Clone, Copy)]
 enum FileDividerPlacement {
@@ -104,129 +102,6 @@ impl DiffViewer {
 
     pub(crate) fn file_divider_height(&self) -> Pixels {
         rem(FILE_DIVIDER_HEIGHT).to_pixels(self.rem_size())
-    }
-
-    pub(crate) fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> Div {
-        let has_files = !self.document().files.is_empty();
-        let compact = window.viewport_size().width < rem(COMPACT_TOOLBAR_WIDTH).to_pixels(window.rem_size());
-        div()
-            .debug_selector(|| "diff-toolbar".to_owned())
-            .h(rem(BAR_HEIGHT))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .border_b_1()
-            .border_color(self.ui_theme().colors.border)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .children(self.render_toolbar_leading(cx))
-                    .children(self.render_review_target(compact, cx)),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap_2()
-                    .children(self.render_layout_toggle(cx))
-                    .when(has_files, |side| side.child(self.render_interface_size_controls(window, cx)))
-                    .when(has_files && !compact, |side| side.child(self.render_diff_summary().ml_2())),
-            )
-    }
-
-    pub(crate) fn toolbar_leading_spacer(&self) -> Option<Div> {
-        let count = self.toolbar_leading_count();
-        let slot = || div().flex_none().w(rem(ICON_BUTTON_SIZE));
-        (count > 0).then(|| {
-            toolbar_leading_group()
-                .children((0..count).map(|_| slot()))
-                .child(toolbar_divider())
-                .children((0..HISTORY_BUTTONS).map(|_| slot()))
-        })
-    }
-
-    fn render_toolbar_leading(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if self.document().files.is_empty() {
-            return None;
-        }
-        Some(
-            toolbar_leading_group()
-                .child(self.render_sidebar_toggle(cx))
-                .children(self.render_collapse_all_button(cx))
-                .child(toolbar_divider().bg(self.ui_theme().colors.border_subtle))
-                .children(self.render_history_buttons(cx)),
-        )
-    }
-
-    fn toolbar_leading_count(&self) -> usize {
-        if self.document().files.is_empty() {
-            0
-        } else if self.session().source_view().is_some() {
-            1
-        } else {
-            2
-        }
-    }
-
-    fn render_diff_summary(&self) -> Div {
-        let palette = &self.theme().diff;
-        let stat = self.document().line_stat();
-        div()
-            .debug_selector(|| "diff-summary".to_owned())
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap_2()
-            .whitespace_nowrap()
-            .children(stat_badges(palette, stat.added, stat.deleted))
-    }
-
-    fn render_layout_toggle(&self, cx: &mut Context<Self>) -> Option<SegmentedControl> {
-        if self.document().files.is_empty() || self.session().source_view().is_some() {
-            return None;
-        }
-        let current = self.view_mode();
-        let auto_label =
-            if self.layout().is_split() { "Auto layout (showing split)" } else { "Auto layout (showing unified)" };
-        let options = [
-            ("view-mode-auto", ViewMode::Auto, IconName::MoveHorizontal, auto_label),
-            ("view-mode-unified", ViewMode::Unified, IconName::Rows2, "Unified view"),
-            ("view-mode-split", ViewMode::Split, IconName::Columns2, "Split view"),
-        ];
-        Some(SegmentedControl::new("view-mode-toggle", self.ui_theme()).segments(options.map(
-            |(id, mode, icon, label)| {
-                Segment::icon(id, icon, label).selected(current == mode).on_click(cx.listener(
-                    move |viewer, _, window, cx| {
-                        viewer.handle_command(DiffReviewCommand::SetViewMode(mode), window, cx);
-                    },
-                ))
-            },
-        )))
-    }
-
-    fn render_collapse_all_button(&self, cx: &mut Context<Self>) -> Option<IconButton> {
-        if self.document().files.is_empty() || self.session().source_view().is_some() {
-            return None;
-        }
-        let (icon, label) = if self.session().all_files_collapsed() {
-            (IconName::ChevronsUpDown, "Expand all files")
-        } else {
-            (IconName::ChevronsDownUp, "Collapse all files")
-        };
-        Some(IconButton::new("toggle-all-files-collapsed", icon, label, self.ui_theme()).on_click(cx.listener(
-            |viewer, _, window, cx| {
-                viewer.handle_command(DiffReviewCommand::ToggleAllFilesCollapsed, window, cx);
-            },
-        )))
     }
 
     fn render_file_chevron(&self, file_index: usize, cx: &mut Context<Self>) -> IconButton {
@@ -352,7 +227,7 @@ impl DiffViewer {
             )
     }
 
-    fn render_interface_size_controls(&self, window: &Window, _cx: &mut Context<Self>) -> Div {
+    pub(crate) fn render_interface_size_controls(&self, window: &Window, _cx: &mut Context<Self>) -> Div {
         let theme = self.ui_theme();
         div()
             .debug_selector(|| "interface-size".to_owned())
@@ -484,7 +359,7 @@ impl DiffViewer {
             RowKind::Code | RowKind::ExpandedContext => {}
         }
 
-        let split = self.layout().is_split();
+        let split = self.presentation().file_layout(row.file_index).is_split();
         let mut cells = div().min_h(row_height).w_full().flex();
         if split {
             cells = cells
@@ -528,9 +403,6 @@ impl DiffViewer {
                 element = element.child(self.render_comment_dialog(index, row, side, editor, cx));
             }
         }
-        if self.name_hint_row() == Some(index) {
-            element = element.children(self.render_name_hints());
-        }
         element.into_any_element()
     }
 
@@ -544,7 +416,7 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let palette = self.theme().diff.clone();
-        let split = self.layout().is_split();
+        let split = self.presentation().file_layout(row.file_index).is_split();
         let border_color = style::color(palette.border);
         let Some(cell) = cell else {
             return div()
@@ -779,14 +651,6 @@ impl DiffViewer {
         };
         self.review().comments_for_anchor(&anchor).count()
     }
-}
-
-fn toolbar_leading_group() -> Div {
-    div().flex_none().flex().items_center().gap_0p5()
-}
-
-fn toolbar_divider() -> Div {
-    div().flex_none().w_px().h(rem(ICON_SIZE)).mx_1()
 }
 
 #[cfg(test)]

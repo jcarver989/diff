@@ -1,5 +1,7 @@
-use clankerdiff_core::{DiffReviewEvent, RepositoryAction, RowKind, ViewMode, testing::DocumentBuilder};
-use clankerdiff_gpui::{DiffViewer, DiffViewerEvent, ViewerPane, testing::DiffViewerHarnessBuilder};
+use clankerdiff_core::{
+    DiffReviewCommand, DiffReviewEvent, RepositoryAction, RowKind, ViewMode, testing::DocumentBuilder,
+};
+use clankerdiff_gpui::{DiffViewer, DiffViewerEvent, RunCommand, ViewerPane, testing::DiffViewerHarnessBuilder};
 use gpui::{Context, Entity, Render, TestAppContext, Window, WindowOptions, div, prelude::*};
 
 struct TestRoot {
@@ -197,7 +199,10 @@ fn comment_shortcuts_add_edit_delete_undo_and_cancel_drafts(cx: &mut TestAppCont
 fn repository_shortcuts_emit_path_bulk_commit_and_discard_actions(cx: &mut TestAppContext) {
     let window = open_viewer(cx);
 
-    cx.simulate_keystrokes(*window, "h space a shift-a d y shift-c s h i p enter");
+    cx.simulate_keystrokes(*window, "h space");
+    cx.dispatch_action(*window, RunCommand(DiffReviewCommand::StageAll));
+    cx.dispatch_action(*window, RunCommand(DiffReviewCommand::UnstageAll));
+    cx.simulate_keystrokes(*window, "d y shift-c s h i p enter");
     window
         .read_with(cx, |root, _| {
             assert!(matches!(
@@ -230,19 +235,19 @@ fn review_help_layout_and_host_event_shortcuts_are_contextual(cx: &mut TestAppCo
     cx.simulate_keystrokes(*window, "v shift-/");
     viewer.read_with(cx, |viewer, _| {
         assert_eq!(viewer.view_mode(), ViewMode::Unified);
-        assert!(viewer.shortcuts_open());
+        assert!(viewer.commands_open());
     });
 
     let selected = viewer.read_with(cx, |viewer, _| viewer.session().selected_row()).unwrap();
     cx.simulate_keystrokes(*window, "j escape");
     viewer.read_with(cx, |viewer, _| {
         assert_eq!(viewer.session().selected_row(), Some(selected));
-        assert!(!viewer.shortcuts_open());
+        assert!(!viewer.commands_open());
     });
 
     cx.simulate_keystrokes(*window, "v");
     assert_eq!(viewer.read_with(cx, |viewer, _| viewer.view_mode()), ViewMode::Split);
-    cx.simulate_keystrokes(*window, "shift-v");
+    cx.dispatch_action(*window, RunCommand(DiffReviewCommand::SetViewMode(ViewMode::Auto)));
     assert_eq!(viewer.read_with(cx, |viewer, _| viewer.view_mode()), ViewMode::Auto);
 
     cx.simulate_keystrokes(*window, "s y escape");

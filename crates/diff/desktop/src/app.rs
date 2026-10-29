@@ -1,14 +1,12 @@
 use crate::{
     WINDOW_TITLE,
     args::CliArgs,
-    menus::SetScope,
     preferences::{ThemeStore, ViewModeStore},
 };
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, DiffScope, Lookup, LookupReply, ReviewSubmission};
 use clankerdiff_gpui::{
-    DiffClientEvent, DiffClientView, DiffViewerOptions, NextCommit, PreviousCommit, StageAll, ThemeChanged, UnstageAll,
-    ViewModeChanged,
+    DiffClientEvent, DiffClientView, DiffViewerOptions, RunCommand, ThemeChanged, ViewModeChanged,
     ui::{
         InterfaceSize,
         prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme, window_appearance},
@@ -86,10 +84,10 @@ impl DesktopApp {
 
     pub(crate) fn bind_keys(cx: &mut App) {
         cx.bind_keys([
-            KeyBinding::new("cmd-shift-s", StageAll, Some("DesktopDiff")),
-            KeyBinding::new("ctrl-shift-s", StageAll, Some("DesktopDiff")),
-            KeyBinding::new("cmd-shift-u", UnstageAll, Some("DesktopDiff")),
-            KeyBinding::new("ctrl-shift-u", UnstageAll, Some("DesktopDiff")),
+            KeyBinding::new("cmd-shift-s", RunCommand(DiffReviewCommand::StageAll), Some("DesktopDiff")),
+            KeyBinding::new("ctrl-shift-s", RunCommand(DiffReviewCommand::StageAll), Some("DesktopDiff")),
+            KeyBinding::new("cmd-shift-u", RunCommand(DiffReviewCommand::UnstageAll), Some("DesktopDiff")),
+            KeyBinding::new("ctrl-shift-u", RunCommand(DiffReviewCommand::UnstageAll), Some("DesktopDiff")),
         ]);
     }
 
@@ -199,24 +197,8 @@ impl DesktopApp {
         self.view.update(cx, |view, cx| view.handle_command(command, window, cx));
     }
 
-    fn stage_all(&mut self, _: &StageAll, window: &mut Window, cx: &mut Context<Self>) {
-        self.dispatch_command(DiffReviewCommand::StageAll, window, cx);
-    }
-
-    fn unstage_all(&mut self, _: &UnstageAll, window: &mut Window, cx: &mut Context<Self>) {
-        self.dispatch_command(DiffReviewCommand::UnstageAll, window, cx);
-    }
-
-    fn menu_set_scope(&mut self, action: &SetScope, window: &mut Window, cx: &mut Context<Self>) {
-        self.dispatch_command(DiffReviewCommand::SetScope(action.scope()), window, cx);
-    }
-
-    fn next_commit(&mut self, _: &NextCommit, window: &mut Window, cx: &mut Context<Self>) {
-        self.dispatch_command(DiffReviewCommand::StepTarget(1), window, cx);
-    }
-
-    fn previous_commit(&mut self, _: &PreviousCommit, window: &mut Window, cx: &mut Context<Self>) {
-        self.dispatch_command(DiffReviewCommand::StepTarget(-1), window, cx);
+    fn run_command(&mut self, action: &RunCommand, window: &mut Window, cx: &mut Context<Self>) {
+        self.dispatch_command(action.0.clone(), window, cx);
     }
 
     fn status_panel(&self, title: String, detail: &str, tone: NoticeTone, cx: &App) -> AnyElement {
@@ -243,11 +225,7 @@ impl Render for DesktopApp {
         };
         let content = div()
             .key_context("DesktopDiff")
-            .on_action(cx.listener(Self::menu_set_scope))
-            .on_action(cx.listener(Self::next_commit))
-            .on_action(cx.listener(Self::previous_commit))
-            .on_action(cx.listener(Self::stage_all))
-            .on_action(cx.listener(Self::unstage_all))
+            .on_action(cx.listener(Self::run_command))
             .size_full()
             .bg(theme.colors.canvas)
             .font_family(UI_FONT)

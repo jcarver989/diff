@@ -5,9 +5,9 @@ use clankerdiff_core::{
     DiffReviewCommand, DiffReviewEvent, DiffScope, InteractionPhase, ReviewCapabilities, ReviewCommand,
 };
 use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
-use clankerdiff_gpui::{DiffViewerOptions, MarkdownReviewer, NextFile, NextHunk, Refresh, StageAll};
+use clankerdiff_gpui::{DiffViewerOptions, MarkdownReviewer, RunCommand};
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewCommand, MarkdownReviewEvent};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AppContext, Focusable, TestAppContext};
 use std::{error::Error, sync::Arc};
 
@@ -213,20 +213,21 @@ fn help_and_repository_modals_block_commands_and_cancel_locally(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn refresh_shortcuts_obey_pending_and_modal_state(cx: &mut TestAppContext) {
+fn refresh_obeys_pending_and_modal_state(cx: &mut TestAppContext) {
     let result = (|| -> Result<(), Box<dyn Error>> {
         let harness = DiffViewerHarnessBuilder::default().build(cx);
-        harness.simulate_keystrokes(cx, "cmd-r");
+        let refresh = RunCommand(DiffReviewCommand::Refresh);
+        harness.dispatch_action(cx, &refresh);
         assert_eq!(harness.events(cx), vec![DiffReviewEvent::Refresh]);
         harness.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
-        harness.simulate_keystrokes(cx, "ctrl-r");
+        harness.dispatch_action(cx, &refresh);
         assert!(!harness.dispatch_command(cx, DiffReviewCommand::Refresh)?);
         harness.update(cx, |viewer, cx| viewer.set_repository_pending(false, cx));
         harness.dispatch_command(cx, ReviewCommand::BeginComment)?;
-        harness.dispatch_action(cx, &Refresh);
+        harness.dispatch_action(cx, &refresh);
         assert_eq!(harness.events(cx), vec![DiffReviewEvent::Refresh]);
         harness.dispatch_command(cx, ReviewCommand::Cancel)?;
-        harness.simulate_keystrokes(cx, "ctrl-r");
+        harness.dispatch_action(cx, &refresh);
         assert_eq!(harness.events(cx), vec![DiffReviewEvent::Refresh, DiffReviewEvent::Refresh]);
         Ok(())
     })();
@@ -248,14 +249,14 @@ fn menu_navigation_actions_cannot_bypass_a_draft(cx: &mut TestAppContext) {
         .build(cx);
         let selected = harness.read(cx, |viewer, _| (viewer.selected_file(), viewer.session().selected_row()));
         harness.dispatch_command(cx, ReviewCommand::BeginComment)?;
-        harness.dispatch_action(cx, &NextFile);
-        harness.dispatch_action(cx, &NextHunk);
-        harness.dispatch_action(cx, &StageAll);
+        harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::SelectFile(1)));
+        harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::MoveSelection(1)));
+        harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::StageAll));
         assert_eq!(harness.read(cx, |viewer, _| (viewer.selected_file(), viewer.session().selected_row())), selected);
         assert_eq!(harness.read(cx, |viewer, _| viewer.command_context().phase), InteractionPhase::Draft);
         assert_eq!(harness.events(cx).len(), 0);
         harness.dispatch_command(cx, ReviewCommand::Cancel)?;
-        harness.dispatch_action(cx, &NextFile);
+        harness.dispatch_action(cx, &RunCommand(DiffReviewCommand::SelectFile(1)));
         assert_ne!(harness.read(cx, |viewer, _| viewer.selected_file()), selected.0);
         Ok(())
     })();
@@ -273,12 +274,12 @@ fn theme_keyboard_preview_and_commit_match_shared_commands(cx: &mut TestAppConte
         let preview = direct.read(cx, |viewer, _| viewer.theme().id().clone());
         let keyboard = DiffViewerHarnessBuilder::default().build(cx);
         let original = keyboard.read(cx, |viewer, _| viewer.theme().id().clone());
-        keyboard.simulate_keystrokes(cx, "t");
+        keyboard.click(cx, "select-theme")?;
         keyboard.simulate_keystrokes(cx, "down");
         assert_eq!(keyboard.read(cx, |viewer, _| viewer.theme().id().clone()), preview);
         keyboard.simulate_keystrokes(cx, "escape");
         assert_eq!(keyboard.read(cx, |viewer, _| viewer.theme().id().clone()), original);
-        keyboard.simulate_keystrokes(cx, "t");
+        keyboard.click(cx, "select-theme")?;
         keyboard.simulate_keystrokes(cx, "down enter");
         assert_eq!(keyboard.read(cx, |viewer, _| viewer.theme().id().clone()), preview);
         assert_eq!(keyboard.read(cx, |viewer, _| viewer.command_context().phase), InteractionPhase::Browse);
@@ -369,7 +370,7 @@ fn a_viewer_without_themes_offers_no_theme_picker(cx: &mut TestAppContext) {
     }
     .build(cx);
     assert!(harness.bounds(cx, "select-theme").is_none());
-    harness.simulate_keystrokes(cx, "t");
+    harness.dispatch_action(cx, &RunCommand(ReviewCommand::OpenThemePicker.into()));
     assert!(!harness.read(cx, |viewer, _| viewer.theme_picker_open()));
     assert!(!harness.read(cx, |viewer, _| { viewer.command_enabled(&ReviewCommand::OpenThemePicker.into()) }));
 }
@@ -394,7 +395,7 @@ fn a_viewer_without_a_review_bar_still_submits_from_the_keyboard(cx: &mut TestAp
 fn clicking_outside_the_theme_picker_cancels_its_preview(cx: &mut TestAppContext) {
     let harness = DiffViewerHarnessBuilder::default().build(cx);
     let original = harness.read(cx, |viewer, _| viewer.theme().id().clone());
-    harness.simulate_keystrokes(cx, "t");
+    harness.click(cx, "select-theme").expect("the review bar offers themes");
     harness.simulate_keystrokes(cx, "down");
     assert_ne!(harness.read(cx, |viewer, _| viewer.theme().id().clone()), original);
     let corner = harness.bounds(cx, "theme-picker-backdrop").expect("the theme picker is open").origin

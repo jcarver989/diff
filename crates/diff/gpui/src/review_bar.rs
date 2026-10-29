@@ -1,23 +1,17 @@
 use crate::{
-    DiffViewer, ViewerPane,
+    DiffViewer,
     ui::prelude::{ActionBar, Button, ButtonVariant, ControlSize, EmptyState, MutedText, NoticeTone},
 };
-use clankerdiff_core::{DiffReviewCommand, ReviewCommand};
+use clankerdiff_core::{DRAFT_HINT, DiffReviewCommand, KeyState, ReviewCommand, browse_hint};
 use gpui::{Context, div, prelude::*};
 
 impl DiffViewer {
     pub(crate) fn render_review_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.ui_theme();
         let hint = if self.comment_editor.is_some() {
-            "Enter save · Shift-Enter newline · Esc cancel"
-        } else if self.session().source_view().is_some() {
-            "j/k line · o back to diff · s submit · y copy · ? help"
-        } else if self.pane == ViewerPane::Files {
-            "j/k entry · h/l fold/open · Tab pane · ? help"
-        } else if self.layout().is_split() {
-            "j/k line · ←/→ side · c comment · s submit · ? help"
+            DRAFT_HINT
         } else {
-            "j/k line · c comment · e/x edit/delete · s submit · y copy · ? help"
+            browse_hint(self.key_state(), self.session().source_view().is_some())
         };
         ActionBar::new(theme)
             .child(
@@ -63,6 +57,10 @@ impl DiffViewer {
                     viewer.handle_command(ReviewCommand::Cancel, window, cx);
                 },
             )))
+    }
+
+    pub(crate) fn key_state(&self) -> KeyState {
+        KeyState::new(self.pane, self.session(), self.names.card().is_some())
     }
 
     pub(crate) fn render_clean(&self) -> impl IntoElement {

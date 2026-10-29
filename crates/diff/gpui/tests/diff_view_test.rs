@@ -363,7 +363,7 @@ fn layout_toggle_is_hidden_in_source_view(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn keyboard_collapses_the_selected_file_and_all_files(cx: &mut TestAppContext) {
+fn z_collapses_the_selected_file_and_the_toolbar_collapses_all_files(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
         assert!(harness.dispatch_command(cx, DiffReviewCommand::Focus(FocusPane::Diff))?);
         harness.simulate_keystrokes(cx, "z");
@@ -371,9 +371,9 @@ fn keyboard_collapses_the_selected_file_and_all_files(cx: &mut TestAppContext) {
         assert!(!harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(1)));
         harness.simulate_keystrokes(cx, "enter");
         assert!(!harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
-        harness.simulate_keystrokes(cx, "shift-z");
+        harness.click(cx, "toggle-all-files-collapsed")?;
         assert!(harness.read(cx, |viewer, _| viewer.session().all_files_collapsed()));
-        harness.simulate_keystrokes(cx, "shift-z");
+        harness.click(cx, "toggle-all-files-collapsed")?;
         assert!(!harness.read(cx, |viewer, _| viewer.session().all_files_collapsed()));
         Ok(())
     });

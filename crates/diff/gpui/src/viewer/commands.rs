@@ -1,4 +1,4 @@
-use super::{DiffViewer, ViewerPane};
+use super::{DiffViewer, Overlay, ViewerPane};
 use crate::{DiffViewerEvent, ui::prelude::ThemePicker};
 use clankerdiff_core::{
     CommandContext, DiffReviewCommand, InteractionPhase, RepositoryAction, ReviewCapabilities, ReviewCommand,
@@ -9,18 +9,10 @@ use gpui::{Context, ListOffset, Window, px};
 impl DiffViewer {
     #[must_use]
     pub fn command_context(&self) -> CommandContext {
-        let phase = if self.theme_picker.is_some() {
-            InteractionPhase::ThemePicker
-        } else if self.commit_picker.is_some() {
-            InteractionPhase::CommitPicker
-        } else if self.repository_prompt.is_some() {
-            InteractionPhase::RepositoryPrompt
-        } else if self.shortcuts_open {
-            InteractionPhase::Help
-        } else if self.session.draft().is_some() {
-            InteractionPhase::Draft
-        } else {
-            InteractionPhase::Browse
+        let phase = match &self.overlay {
+            Some(overlay) => overlay.phase(),
+            None if self.session.draft().is_some() => InteractionPhase::Draft,
+            None => InteractionPhase::Browse,
         };
         CommandContext {
             phase,
@@ -37,19 +29,13 @@ impl DiffViewer {
     pub fn command_enabled(&self, command: &DiffReviewCommand) -> bool {
         command.enabled(&self.command_context())
             && !matches!(command, DiffReviewCommand::Review(ReviewCommand::ScrollHelp(_)))
-            && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
-            && match command {
-                DiffReviewCommand::StepTarget(delta) => self.session.stepped_target(*delta).is_some(),
-                DiffReviewCommand::NavigateBack => self.session.back_location().is_some(),
-                DiffReviewCommand::NavigateForward => self.session.forward_location().is_some(),
-                _ => true,
-            }
+            && self.session.command_available(command)
     }
 
     pub fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>) {
         self.capabilities = capabilities;
         if !capabilities.repository {
-            self.clear_repository_prompt();
+            self.close_overlay(InteractionPhase::RepositoryPrompt);
         }
         cx.notify();
     }
@@ -67,7 +53,9 @@ impl DiffViewer {
         if !self.command_enabled(&command) {
             return false;
         }
-        self.close_names(cx);
+        if !command.keeps_definition_card() {
+            self.close_names(cx);
+        }
         match command {
             C::Focus(pane) => {
                 if self.pane == pane {
@@ -196,10 +184,18 @@ impl DiffViewer {
                 cx.emit(DiffViewerEvent::RepositoryAction(action));
                 return true;
             }
+            C::ToggleSidebar => {
+                let collapsed = self.sidebar_collapsed();
+                self.set_sidebar_collapsed(!collapsed, cx);
+                return true;
+            }
             C::ShowDefinition => return self.show_definition_at_selection(cx),
+            C::GoToDefinition => return self.names.card().is_some() && self.jump_to_card_choice(cx),
+            C::NextDefinition => return self.cycle_card_choice(cx),
+            C::CloseDefinition => return self.close_names(cx),
             command @ (C::JumpTo(_) | C::NavigateBack | C::NavigateForward) => return self.navigate(command, cx),
             command @ (C::SetScope(_) | C::CycleScope | C::StepTarget(_) | C::GoToPage(_)) => {
-                let closed = self.commit_picker.take().is_some();
+                let closed = self.close_overlay(InteractionPhase::CommitPicker).is_some();
                 cx.notify();
                 let Some(event) = self.session.target_event(&command) else {
                     return closed;
@@ -209,10 +205,10 @@ impl DiffViewer {
             }
             C::OpenCommitPicker => self.open_commit_picker(window, cx),
             C::MoveCommitPicker(delta) => {
-                let Some(picker) = self.commit_picker.as_ref() else {
+                let Some(Overlay::Commits(overlay)) = &self.overlay else {
                     return false;
                 };
-                picker.move_highlight(delta, cx);
+                overlay.picker.update(cx, |picker, cx| picker.move_highlight(delta, cx));
                 return true;
             }
             C::Refresh => {
@@ -277,11 +273,11 @@ impl DiffViewer {
                 InteractionPhase::ThemePicker => {
                     return self.update_theme_picker(cx, ThemePicker::cancel);
                 }
-                InteractionPhase::RepositoryPrompt => self.clear_repository_prompt(),
-                InteractionPhase::CommitPicker => self.commit_picker = None,
-                InteractionPhase::Help => self.shortcuts_open = false,
+                InteractionPhase::RepositoryPrompt | InteractionPhase::CommitPicker | InteractionPhase::Help => {
+                    self.overlay = None;
+                }
             },
-            C::Review(R::ShowHelp) => self.shortcuts_open = true,
+            C::Review(R::ShowHelp) => self.open_palette(window, cx),
             C::Review(R::ScrollHelp(_)) => return false,
             C::Review(R::OpenThemePicker) => self.open_theme_picker(window, cx),
             C::Review(R::SelectTheme(index)) => {

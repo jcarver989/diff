@@ -1,26 +1,19 @@
 use crate::{
     DiffViewer,
     comment_editor::init_input,
-    definition_card::Hold,
     style,
     ui::{
         menu::{MenuItem, with_menu},
-        prelude::{Button, ButtonVariant, ControlSize, IconButton, IconName, Typography, TypographyExt, rem},
-        tokens::{RADIUS_CONTROL, RADIUS_INNER, ROW_HEIGHT},
-    },
-    viewer::{
-        CancelNameHints, CloseDefinition, GoToDefinition, NavigateBack, NavigateForward, NextDefinition, PickName,
+        prelude::{Button, ButtonVariant, ControlSize, Typography, TypographyExt},
     },
 };
-use clankerdiff_core::{DiffReviewCommand, SourceLocation, TargetLocation};
-use clankerdiff_symbols::{Mark, SymbolReference};
+use clankerdiff_core::{DiffReviewCommand, SourceLocation};
+use clankerdiff_symbols::{Hold, SymbolReference};
 use gpui::{
-    AnyElement, Context, Div, HighlightStyle, InteractiveText, KeyDownEvent, Modifiers, ModifiersChangedEvent,
-    MouseButton, SharedString, StyledText, UnderlineStyle, WeakEntity, Window, combine_highlights, div, prelude::*, px,
+    AnyElement, Context, Div, HighlightStyle, InteractiveText, Modifiers, ModifiersChangedEvent, MouseButton,
+    SharedString, StyledText, UnderlineStyle, WeakEntity, Window, combine_highlights, div, prelude::*, px,
 };
 use std::{ops::Range, rc::Rc};
-
-pub(crate) const HISTORY_BUTTONS: usize = 2;
 
 impl DiffViewer {
     pub(crate) fn navigate(&mut self, command: DiffReviewCommand, cx: &mut Context<Self>) -> bool {
@@ -50,59 +43,12 @@ impl DiffViewer {
             .child(message)
     }
 
-    pub(crate) fn name_hint_row(&self) -> Option<usize> {
-        self.presentation().row_showing_source(&self.names.hints()?.origin)
-    }
-
-    pub(crate) fn pick_name(&mut self, _: &PickName, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::ShowDefinition, window, cx);
-    }
-
     pub(crate) fn show_definition_at_selection(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(origin) = self.session().selected_source_line() else {
             return false;
         };
-        let opened =
-            self.update_names(cx, |names, session, index, enabled| names.open_at(origin, session, index, enabled));
-        self.hold_card(Hold::Pinned);
-        opened
-    }
-
-    pub(crate) fn cancel_name_hints(&mut self, _: &CancelNameHints, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_names(cx);
-    }
-
-    pub(crate) fn name_hint_key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.names.hints().is_none() || event.keystroke.modifiers.modified() {
-            return;
-        }
-        let Ok(key) = event.keystroke.key.parse() else {
-            return;
-        };
-        if self.update_names(cx, |names, session, _, enabled| names.pick_hint(key, session, enabled)) {
-            cx.stop_propagation();
-            self.hold_card(Hold::Pinned);
-        }
-    }
-
-    pub(crate) fn close_definition(&mut self, _: &CloseDefinition, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_names(cx);
-    }
-
-    pub(crate) fn go_to_definition(&mut self, _: &GoToDefinition, _: &mut Window, cx: &mut Context<Self>) {
-        self.jump_to_card_choice(cx);
-    }
-
-    pub(crate) fn next_definition(&mut self, _: &NextDefinition, _: &mut Window, cx: &mut Context<Self>) {
-        self.cycle_card_choice(cx);
-    }
-
-    pub(crate) fn navigate_back(&mut self, _: &NavigateBack, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::NavigateBack, window, cx);
-    }
-
-    pub(crate) fn navigate_forward(&mut self, _: &NavigateForward, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::NavigateForward, window, cx);
+        self.card_timer = None;
+        self.update_names(cx, |names, session, index, enabled| names.open_at(origin, session, index, enabled))
     }
 
     pub(crate) fn modifiers_changed(&mut self, event: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -121,15 +67,14 @@ impl DiffViewer {
         highlights: Vec<(Range<usize>, HighlightStyle)>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let marked = self.names.pick().is_some_and(|pick| pick.origin() == &location);
-        if !self.links_visible && !marked {
+        let card_columns = self.names.card_columns(&location);
+        if !self.links_visible && card_columns.is_none() {
             return StyledText::new(text).with_highlights(highlights).into_any_element();
         }
         let references = self.line_references(&location, &text);
-        let names = self.names.marks(&location, &references);
-        let card_here = self.card_at(&location);
+        let card_here = card_columns.is_some();
         let styled = StyledText::new(text.clone())
-            .with_highlights(combine_highlights(highlights, self.mark_highlights(&references, &names)));
+            .with_highlights(combine_highlights(highlights, self.mark_highlights(&references, card_columns.as_ref())));
         let anchor = card_here.then(|| self.render_card_anchor(&text, cx)).flatten();
         let key = line_key(&location);
         let interactive = line_links(&key, location.clone(), styled, references, cx);
@@ -149,21 +94,17 @@ impl DiffViewer {
     fn mark_highlights(
         &self,
         references: &[SymbolReference],
-        names: &[(Range<usize>, Mark)],
+        card_columns: Option<&Range<usize>>,
     ) -> Vec<(Range<usize>, HighlightStyle)> {
         let theme = self.theme();
         let accent = style::color(theme.diff.accent);
-        let (hinted, carded) = (style::color(theme.hinted_name()), style::color(theme.carded_name()));
+        let carded = style::color(theme.carded_name());
         let underline =
             self.links_visible.then_some(UnderlineStyle { color: Some(accent), thickness: px(1.0), wavy: false });
         references
             .iter()
             .filter_map(|reference| {
-                let background =
-                    names.iter().find(|(range, _)| range == &reference.span.columns).map(|(_, mark)| match mark {
-                        Mark::Hinted => hinted,
-                        Mark::Card => carded,
-                    });
+                let background = card_columns.filter(|columns| *columns == &reference.span.columns).map(|_| carded);
                 (background.is_some() || underline.is_some()).then(|| {
                     let style = HighlightStyle { background_color: background, underline, ..HighlightStyle::default() };
                     (reference.span.columns.clone(), style)
@@ -208,55 +149,6 @@ impl DiffViewer {
             }
             _ => {}
         }
-    }
-
-    pub(crate) fn render_name_hints(&self) -> Option<AnyElement> {
-        let hints = self.names.hints()?;
-        let theme = self.ui_theme();
-        let colors = theme.colors;
-        let palette = &self.theme().diff;
-        let entries = hints.keyed().map(|(key, SymbolReference { name, .. })| {
-            div()
-                .flex()
-                .items_center()
-                .gap_1p5()
-                .child(
-                    div()
-                        .px_1()
-                        .rounded(rem(RADIUS_INNER))
-                        .bg(colors.warning)
-                        .text_color(colors.canvas)
-                        .typography(Typography::Code)
-                        .child(key.to_string()),
-                )
-                .child(div().typography(Typography::Code).text_color(colors.text).child(name.clone()))
-        });
-        Some(
-            div()
-                .debug_selector(|| "name-hints".to_owned())
-                .w_full()
-                .px_3()
-                .pb_2()
-                .bg(style::color(palette.background))
-                .child(
-                    div()
-                        .h(rem(ROW_HEIGHT))
-                        .px_3()
-                        .flex()
-                        .items_center()
-                        .gap_4()
-                        .rounded(rem(RADIUS_CONTROL))
-                        .border_1()
-                        .border_color(colors.border)
-                        .bg(colors.surface_selected)
-                        .typography(Typography::Caption)
-                        .child(div().text_color(colors.text_secondary).child("Show definition"))
-                        .children(entries)
-                        .child(div().flex_1())
-                        .child(div().text_color(colors.text_secondary).child("Esc cancel")),
-                )
-                .into_any_element(),
-        )
     }
 
     pub(crate) fn render_symbol_path(&mut self, file_index: usize, cx: &mut Context<Self>) -> Option<Div> {
@@ -305,48 +197,6 @@ impl DiffViewer {
             .size(ControlSize::Small);
         let menu = with_menu(&selector, button, MouseButton::Left, move |_, _| symbol_menu(items, &viewer), &theme);
         div().flex().items_center().gap_0p5().child(div().text_color(theme.colors.text_muted).child("›")).child(menu)
-    }
-
-    pub(crate) fn render_history_buttons(&self, cx: &Context<Self>) -> [IconButton; HISTORY_BUTTONS] {
-        let label = |direction: &str, key: char, target: Option<&TargetLocation>| -> SharedString {
-            let Some(target) = target else {
-                return format!("{direction} (Ctrl-{key})").into();
-            };
-            format!("{direction} to {}:{} (Ctrl-{key})", target.path.display_path().file_name(), target.line_number)
-                .into()
-        };
-        [
-            self.history_button(
-                "navigate-back",
-                IconName::ArrowLeft,
-                label("Back", 'O', self.session().back_location()),
-                DiffReviewCommand::NavigateBack,
-                cx,
-            ),
-            self.history_button(
-                "navigate-forward",
-                IconName::ArrowRight,
-                label("Forward", 'I', self.session().forward_location()),
-                DiffReviewCommand::NavigateForward,
-                cx,
-            ),
-        ]
-    }
-
-    fn history_button(
-        &self,
-        id: &'static str,
-        icon: IconName,
-        label: SharedString,
-        command: DiffReviewCommand,
-        cx: &Context<Self>,
-    ) -> IconButton {
-        let enabled = self.command_enabled(&command);
-        IconButton::new(id, icon, label, self.ui_theme()).disabled(!enabled).on_click(cx.listener(
-            move |viewer, _, window, cx| {
-                viewer.handle_command(command.clone(), window, cx);
-            },
-        ))
     }
 
     fn top_source_location(&self, file_index: usize) -> Option<SourceLocation> {
