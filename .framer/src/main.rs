@@ -65,10 +65,7 @@ fn rustfmt() -> Rustfmt {
 }
 
 fn ci() -> Ci {
-    Ci::new()
-        .setup(GpuiApp::linux_dependencies())
-        .compiling_job(features_job())
-        .compiling_job(wasm_job())
+    Ci::new().setup(GpuiApp::linux_dependencies()).compiling_job(features_job()).compiling_job(wasm_job())
 }
 
 fn features_job() -> CompilingJob {
@@ -85,7 +82,11 @@ fn wasm_job() -> CompilingJob {
 }
 
 fn release() -> Release {
-    let release_plz =
-        ReleasePlz::new().publish_to_crates_io().set("release", false).set("git_only", false).set("publish", false);
+    let release_plz = ReleasePlz::new()
+        .publish_to_crates_io()
+        .setup(GpuiApp::linux_dependencies())
+        .set("release", false)
+        .set("git_only", false)
+        .set("publish", false);
     Release::new().release_plz(release_plz).dist(Dist::new().allow_dirty_ci())
 }
