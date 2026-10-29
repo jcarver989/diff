@@ -265,6 +265,18 @@ impl ReviewSession {
     }
 
     #[must_use]
+    pub fn command_available(&self, command: &DiffReviewCommand) -> bool {
+        match command {
+            DiffReviewCommand::StepTarget(delta) => self.stepped_target(*delta).is_some(),
+            DiffReviewCommand::GoToPage(index) => self.page_target(*index).is_some(),
+            DiffReviewCommand::NavigateBack => self.back_location().is_some(),
+            DiffReviewCommand::NavigateForward => self.forward_location().is_some(),
+            DiffReviewCommand::CopyReview => !self.review().is_empty(),
+            _ => true,
+        }
+    }
+
+    #[must_use]
     pub fn target_event(&self, command: &DiffReviewCommand) -> Option<DiffReviewEvent> {
         let target = match command {
             DiffReviewCommand::SetScope(scope) => ReviewTarget::WorkingTree(*scope),
@@ -701,6 +713,11 @@ impl ReviewSession {
     #[must_use]
     pub fn selected_presented_row(&self) -> Option<&PresentedRow> {
         self.presentation.row(self.selected_row)
+    }
+
+    #[must_use]
+    pub fn selected_layout(&self) -> Layout {
+        self.selected_presented_row().map_or(self.layout(), |row| self.presentation.file_layout(row.file_index))
     }
 
     #[must_use]

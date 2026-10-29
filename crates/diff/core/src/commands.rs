@@ -145,7 +145,11 @@ pub enum DiffReviewCommand {
     BeginCommit,
     BeginDiscard,
     RepositoryAction(RepositoryAction),
+    ToggleSidebar,
     ShowDefinition,
+    GoToDefinition,
+    NextDefinition,
+    CloseDefinition,
     JumpTo(TargetLocation),
     NavigateBack,
     NavigateForward,
@@ -158,6 +162,26 @@ impl From<ReviewCommand> for DiffReviewCommand {
 }
 
 impl DiffReviewCommand {
+    #[must_use]
+    pub const fn in_palette(&self) -> bool {
+        !matches!(
+            self,
+            Self::Review(ReviewCommand::ShowHelp) | Self::GoToDefinition | Self::NextDefinition | Self::CloseDefinition
+        )
+    }
+
+    #[must_use]
+    pub const fn keeps_definition_card(&self) -> bool {
+        matches!(
+            self,
+            Self::ShowDefinition
+                | Self::GoToDefinition
+                | Self::NextDefinition
+                | Self::CloseDefinition
+                | Self::JumpTo(_)
+        )
+    }
+
     #[must_use]
     pub fn enabled(&self, context: &CommandContext) -> bool {
         if context.source_view
@@ -207,7 +231,7 @@ impl DiffReviewCommand {
             | Self::RepositoryAction(_) => context.capabilities.repository && !context.repository_pending,
             Self::SubmitReview => context.capabilities.submit,
             Self::CopyReview => context.capabilities.clipboard,
-            Self::Focus(FocusPane::Files) | Self::ToggleFocus => context.navigation_available,
+            Self::Focus(FocusPane::Files) | Self::ToggleFocus | Self::ToggleSidebar => context.navigation_available,
             _ => true,
         };
         capability
