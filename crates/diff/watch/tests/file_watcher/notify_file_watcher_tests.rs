@@ -107,6 +107,34 @@ async fn reading_files_does_not_invalidate() -> TestResult {
 }
 
 #[tokio::test]
+async fn rewatching_a_large_tree_does_not_invalidate_by_itself() -> TestResult {
+    let directory = TempDirBuilder::new().entries((0..300).map(|index| (format!("dir-{index}"), ""))).build()?;
+    let root = directory.path().canonicalize()?;
+    let mut watcher = NotifyFileWatcher::new([root.clone()], Duration::from_millis(50), |_| async { false })?;
+    fs::create_dir(root.join("new"))?;
+    assert_no_invalidation(&mut watcher).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn directories_moved_into_the_tree_are_watched() -> TestResult {
+    let outside = TempDirBuilder::new().entries([("moved/file.txt", "original")]).build()?;
+    let directory = TempDirBuilder::new().build()?;
+    let root = directory.path().canonicalize()?;
+    let (observed, mut batches) = mpsc::unbounded_channel();
+    let mut watcher = NotifyFileWatcher::new([root.clone()], Duration::from_millis(50), move |paths| {
+        assert!(observed.send(paths).is_ok(), "batch receiver must remain open");
+        async { false }
+    })?;
+    fs::rename(outside.path().join("moved"), root.join("moved"))?;
+    wait_for_path(&mut batches, &root.join("moved")).await;
+    fs::write(root.join("moved/file.txt"), "changed")?;
+    wait_for_path(&mut batches, &root.join("moved/file.txt")).await;
+    assert_no_invalidation(&mut watcher).await;
+    Ok(())
+}
+
+#[tokio::test]
 async fn dropping_watcher_cancels_the_callers_in_flight_filter() -> TestResult {
     let (entered, ready) = oneshot::channel();
     let (lifetime, cancelled) = oneshot::channel::<()>();

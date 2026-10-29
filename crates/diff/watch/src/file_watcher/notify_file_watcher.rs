@@ -2,7 +2,7 @@ use super::FileWatcher;
 use ignore::WalkBuilder;
 use notify::{
     Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
-    event::{Flag, ModifyKind},
+    event::{CreateKind, Flag, ModifyKind, RenameMode},
 };
 use std::{
     collections::BTreeSet,
@@ -111,7 +111,9 @@ fn watch_all(
     let events_tx = events_tx.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
         let event = event.unwrap_or_else(|_| Event::new(EventKind::Any).set_flag(Flag::Rescan));
-        let _ = events_tx.send(event);
+        if !event.kind.is_access() {
+            let _ = events_tx.send(event);
+        }
     })
     .map_err(FileWatchError::Create)?;
     for entry in walks.iter().flat_map(WalkBuilder::build) {
@@ -139,7 +141,7 @@ impl Batch {
             self.rescan = true;
             return;
         };
-        if self.rescan || event.kind.is_access() {
+        if self.rescan {
             return;
         }
         if event.need_rescan() || event.paths.is_empty() {
@@ -153,11 +155,18 @@ impl Batch {
 }
 
 fn needs_rewatch(event: &Event) -> bool {
-    !event.kind.is_modify()
-        || matches!(event.kind, EventKind::Modify(ModifyKind::Name(_)))
-        || event.paths.iter().any(|path| {
-            path.file_name().is_some_and(|name| name == ".gitignore" || name == "exclude" || name == "config")
-        })
+    let changes_ignore_rules = event
+        .paths
+        .iter()
+        .any(|path| path.file_name().is_some_and(|name| name == ".gitignore" || name == "exclude" || name == "config"));
+    changes_ignore_rules
+        || match event.kind {
+            EventKind::Modify(ModifyKind::Name(mode)) => {
+                mode != RenameMode::From && event.paths.last().is_none_or(|path| !path.is_file())
+            }
+            EventKind::Create(CreateKind::File) | EventKind::Modify(_) => false,
+            _ => true,
+        }
 }
 
 async fn process_events<T>(
