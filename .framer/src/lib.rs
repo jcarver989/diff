@@ -75,8 +75,7 @@ impl Preset for GpuiApp {
         let mut keys = TomlKeys::new("Cargo.toml")
             .set(dependency("gpui"), gpui("gpui-pre").with("default-features", false))
             .set(dependency("gpui_platform"), gpui("gpui-pre-platform").with("features", features()))
-            .set(dependency("gpui-base"), GPUI_BASE_VERSION)
-            .set(KeyPath::new(["patch", "crates-io", "gpui-pre"]), path_table(&self.path("patches/gpui")));
+            .set(dependency("gpui-base"), GPUI_BASE_VERSION);
         if self.web {
             keys = keys.set(dependency("gpui_web"), gpui("gpui-pre-web").with("default-features", false));
         }
@@ -112,8 +111,4 @@ fn gpui(package: &str) -> Table {
 
 fn features() -> Array {
     GPUI_PLATFORM_FEATURES.iter().map(|feature| Value::from(*feature)).collect()
-}
-
-fn path_table(path: &str) -> Table {
-    Table(InlineTable::new()).with("path", path)
 }
