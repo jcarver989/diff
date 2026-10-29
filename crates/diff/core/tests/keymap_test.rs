@@ -15,6 +15,13 @@ fn the_pane_and_layout_choose_what_a_key_does() {
     assert_eq!(command(Chord::new(Key::Enter), files), Some(DiffReviewCommand::OpenSelected));
     assert_eq!(command(Chord::new(Key::Enter), split), Some(DiffReviewCommand::RevealGap(RevealAmount::Step)));
     assert_eq!(command(Chord::char(' '), split), None);
+    assert_eq!(command(Chord::char('a'), files), Some(DiffReviewCommand::StageAll));
+    assert_eq!(command(Chord::char('A'), files), Some(DiffReviewCommand::UnstageAll));
+    assert_eq!(command(Chord::char('a'), unified), None);
+    assert_eq!(command(Chord::char('O'), unified), Some(DiffReviewCommand::RevealGap(RevealAmount::All)));
+    assert_eq!(command(Chord::char('O'), files), None);
+    assert_eq!(command(Chord::char('Z'), files), Some(DiffReviewCommand::ToggleAllFilesCollapsed));
+    assert_eq!(command(Chord::char('t'), files), Some(ReviewCommand::OpenThemePicker.into()));
 }
 
 #[test]

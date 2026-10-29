@@ -55,13 +55,13 @@ fn collapse_keys_toggle_the_selected_file_and_every_file() {
     let collapse = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
     let collapse_all = KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::SHIFT);
     assert_eq!(state.command_for_key(collapse), Some(DiffCommand::ToggleFileCollapsed(None)));
-    assert_eq!(state.command_for_key(collapse_all), None);
+    assert_eq!(state.command_for_key(collapse_all), Some(DiffCommand::ToggleAllFilesCollapsed));
     let _ = state.handle_input(ReviewInput::Key(collapse));
     assert!(state.session().is_file_collapsed(0));
     assert!(!state.session().is_file_collapsed(1));
     let _ = state.handle_input(ReviewInput::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(!state.session().is_file_collapsed(0));
-    state.handle_command(DiffCommand::ToggleAllFilesCollapsed);
+    let _ = state.handle_input(ReviewInput::Key(collapse_all));
     assert!(state.session().all_files_collapsed());
     state.handle_command(DiffCommand::ToggleAllFilesCollapsed);
     assert!(!state.session().all_files_collapsed());
