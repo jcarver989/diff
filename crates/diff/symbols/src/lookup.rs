@@ -5,87 +5,11 @@ use clankerdiff_core::{
 };
 use std::{collections::HashMap, mem, ops::Range};
 
-pub const HINT_KEYS: [char; 9] = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'];
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NamePick {
-    Hints(NameHints),
-    Card(DefinitionCard),
-}
-
-impl NamePick {
-    #[must_use]
-    pub fn at(index: &SymbolIndex, origin: SourceLocation) -> Option<Self> {
-        let mut names: Vec<SymbolReference> = Vec::new();
-        for reference in index.references_at(&origin) {
-            if !names.iter().any(|existing| existing.name == reference.name) {
-                names.push(reference.clone());
-            }
-        }
-        names.truncate(HINT_KEYS.len());
-        match names.as_slice() {
-            [] => None,
-            [reference] => Some(Self::Card(DefinitionCard::new(origin, reference))),
-            _ => Some(Self::Hints(NameHints { origin, names })),
-        }
-    }
-
-    #[must_use]
-    pub const fn origin(&self) -> &SourceLocation {
-        match self {
-            Self::Hints(hints) => &hints.origin,
-            Self::Card(card) => &card.origin,
-        }
-    }
-
-    fn marks(&self, references: &[SymbolReference]) -> Vec<(Range<usize>, Mark)> {
-        let (hints, card) = match self {
-            Self::Hints(hints) => (Some(hints), None),
-            Self::Card(card) => (None, Some(card)),
-        };
-        references
-            .iter()
-            .filter_map(|reference| {
-                let mark = if hints.is_some_and(|hints| hints.contains(&reference.name)) {
-                    Mark::Hinted
-                } else if card.is_some_and(|card| card.columns == reference.span.columns) {
-                    Mark::Card
-                } else {
-                    return None;
-                };
-                Some((reference.span.columns.clone(), mark))
-            })
-            .collect()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NameHints {
-    pub origin: SourceLocation,
-    pub names: Vec<SymbolReference>,
-}
-
-impl NameHints {
-    pub fn keyed(&self) -> impl Iterator<Item = (char, &SymbolReference)> {
-        HINT_KEYS.into_iter().zip(&self.names)
-    }
-
-    #[must_use]
-    pub fn pick(&self, key: char) -> Option<DefinitionCard> {
-        let index = HINT_KEYS.iter().position(|hint| *hint == key)?;
-        Some(DefinitionCard::new(self.origin.clone(), self.names.get(index)?))
-    }
-
-    #[must_use]
-    pub fn contains(&self, name: &str) -> bool {
-        self.names.iter().any(|reference| reference.name == name)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mark {
-    Hinted,
-    Card,
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Hold {
+    Hover,
+    #[default]
+    Pinned,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -294,31 +218,28 @@ impl DefinitionCard {
 
 #[derive(Debug, Clone, Default)]
 pub struct NameLookup {
-    pick: Option<NamePick>,
+    card: Option<DefinitionCard>,
+    hover: CardHover,
     cache: LookupCache,
     outgoing: Vec<Lookup>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CardHover {
+    hold: Hold,
+    token_hovered: bool,
+    card_hovered: bool,
+}
+
 impl NameLookup {
     #[must_use]
-    pub const fn pick(&self) -> Option<&NamePick> {
-        self.pick.as_ref()
-    }
-
-    #[must_use]
-    pub const fn hints(&self) -> Option<&NameHints> {
-        match &self.pick {
-            Some(NamePick::Hints(hints)) => Some(hints),
-            _ => None,
-        }
-    }
-
-    #[must_use]
     pub const fn card(&self) -> Option<&DefinitionCard> {
-        match &self.pick {
-            Some(NamePick::Card(card)) => Some(card),
-            _ => None,
-        }
+        self.card.as_ref()
+    }
+
+    #[must_use]
+    pub fn card_columns(&self, location: &SourceLocation) -> Option<Range<usize>> {
+        self.card.as_ref().filter(|card| &card.origin == location).map(|card| card.columns.clone())
     }
 
     pub fn open_at(
@@ -328,85 +249,93 @@ impl NameLookup {
         index: &SymbolIndex,
         enabled: bool,
     ) -> bool {
-        match NamePick::at(index, origin) {
-            Some(NamePick::Card(card)) => self.show(card, session, enabled),
-            Some(hints) => self.pick = Some(hints),
-            None => return false,
+        let mut names: Vec<&SymbolReference> = Vec::new();
+        for reference in index.references_at(&origin) {
+            if !names.iter().any(|existing| existing.name == reference.name) {
+                names.push(reference);
+            }
         }
+        let shown = self
+            .card
+            .as_ref()
+            .filter(|card| card.origin == origin)
+            .and_then(|card| names.iter().position(|reference| reference.name == card.name));
+        let next = shown.map_or(0, |position| (position + 1) % names.len().max(1));
+        let Some(reference) = names.get(next) else {
+            return false;
+        };
+        let card = DefinitionCard::new(origin, reference);
+        self.show(card, session, enabled, Hold::Pinned);
         true
     }
 
-    pub fn show(&mut self, mut card: DefinitionCard, session: &ReviewSession, enabled: bool) {
+    pub fn show(&mut self, mut card: DefinitionCard, session: &ReviewSession, enabled: bool, hold: Hold) {
         if enabled {
             self.outgoing.extend(self.cache.show(&mut card, session));
         }
-        self.pick = Some(NamePick::Card(card));
+        self.card = Some(card);
+        self.hover = CardHover { hold, token_hovered: hold == Hold::Hover, card_hovered: false };
     }
 
-    pub fn pick_hint(&mut self, key: char, session: &ReviewSession, enabled: bool) -> bool {
-        let Some(card) = self.hints().and_then(|hints| hints.pick(key)) else {
-            return false;
-        };
-        self.show(card, session, enabled);
-        true
+    pub const fn pin(&mut self) {
+        self.hover.hold = Hold::Pinned;
+    }
+
+    pub const fn hover_token(&mut self, hovered: bool) {
+        self.hover.token_hovered = hovered;
+    }
+
+    pub const fn hover_card(&mut self, hovered: bool) {
+        self.hover.card_hovered = hovered;
+    }
+
+    #[must_use]
+    pub fn lingering(&self) -> bool {
+        self.card.is_some() && self.hover.hold == Hold::Hover && !self.hover.token_hovered && !self.hover.card_hovered
     }
 
     pub fn cycle(&mut self, index: &SymbolIndex) -> bool {
-        self.card_mut().is_some_and(|card| card.cycle(index))
+        let cycled = self.card.as_mut().is_some_and(|card| card.cycle(index));
+        if cycled {
+            self.pin();
+        }
+        cycled
     }
 
     pub fn activate(&mut self, index: &SymbolIndex) -> Activation {
-        let Some(card) = self.card_mut() else {
+        let Some(card) = self.card.as_mut() else {
             return Activation::Idle;
         };
         if card.follow() {
+            self.hover.hold = Hold::Pinned;
             return Activation::Wait;
         }
         card.target(index).map_or(Activation::Idle, Activation::Jump)
     }
 
     pub fn finish(&mut self, reply: LookupReply, session: &mut ReviewSession, index: &SymbolIndex) -> Settled {
-        let card = match &mut self.pick {
-            Some(NamePick::Card(card)) => Some(card),
-            _ => None,
-        };
-        self.cache.finish(reply, session, card, index)
+        self.cache.finish(reply, session, self.card.as_mut(), index)
     }
 
     pub fn navigated(&mut self, session: &mut ReviewSession, enabled: bool) {
-        self.pick = None;
+        self.card = None;
         if session.pending_reference().is_some() {
             self.outgoing.extend(self.cache.source(session, enabled));
         }
     }
 
     pub fn document_changed(&mut self, session: &mut ReviewSession, enabled: bool) {
-        self.pick = None;
+        self.card = None;
         self.cache.clear();
         self.outgoing.extend(self.cache.source(session, enabled));
     }
 
     pub fn close(&mut self) -> bool {
-        self.pick.take().is_some()
+        self.card.take().is_some()
     }
 
     pub fn take_lookups(&mut self) -> Vec<Lookup> {
         mem::take(&mut self.outgoing)
-    }
-
-    #[must_use]
-    pub fn marks(&self, location: &SourceLocation, references: &[SymbolReference]) -> Vec<(Range<usize>, Mark)> {
-        match &self.pick {
-            Some(pick) if pick.origin() == location => pick.marks(references),
-            _ => Vec::new(),
-        }
-    }
-
-    const fn card_mut(&mut self) -> Option<&mut DefinitionCard> {
-        match &mut self.pick {
-            Some(NamePick::Card(card)) => Some(card),
-            _ => None,
-        }
     }
 }
 

@@ -3,40 +3,40 @@ use clankerdiff_core::{
     Resolution, ReviewSession, SourceLocation, TargetLocation,
     testing::{DocumentBuilder, ResolutionBuilder, external, location, source, target},
 };
-use clankerdiff_symbols::{Activation, DefinitionCard, Mark, NameLookup, NamePick, Settled, SymbolCache, SymbolIndex};
-use std::{error::Error, ops::Range, sync::Arc};
+use clankerdiff_symbols::{Activation, DefinitionCard, Hold, NameLookup, Settled, SymbolCache, SymbolIndex};
+use std::{error::Error, sync::Arc};
 
 #[test]
 fn a_line_with_one_name_opens_its_card_directly() -> Result<(), Box<dyn Error>> {
-    let index = index();
-    let Some(NamePick::Card(card)) = NamePick::at(&index, location("src/main.rs", 3)?) else {
-        return Err("expected a card".into());
-    };
-    assert_eq!(card.name, "helper");
-    assert_eq!(card.target(&index), Some(target("src/a/util.rs", 1)?));
+    let (session, index) = fixture();
+    let mut names = NameLookup::default();
+    assert!(names.open_at(location("src/main.rs", 3)?, &session, &index, false));
+    assert_eq!(card(&names)?.name, "helper");
+    assert_eq!(card(&names)?.target(&index), Some(target("src/a/util.rs", 1)?));
     Ok(())
 }
 
 #[test]
-fn a_line_with_several_names_offers_one_hint_key_per_distinct_name() -> Result<(), Box<dyn Error>> {
-    let index = index();
-    let Some(NamePick::Hints(hints)) = NamePick::at(&index, location("src/main.rs", 2)?) else {
-        return Err("expected hints".into());
-    };
-    let keyed: Vec<_> = hints.keyed().map(|(key, reference)| (key, reference.name.as_str())).collect();
-    assert_eq!(keyed, [('a', "Cache"), ('s', "build")]);
-    assert!(hints.contains("build"));
-    let card = hints.pick('s').ok_or("s picks build")?;
-    assert_eq!(card.name, "build");
-    assert_eq!(card.origin, location("src/main.rs", 2)?);
-    assert!(hints.pick('d').is_none());
-    assert!(hints.pick('z').is_none());
+fn opening_again_on_the_same_line_steps_through_its_distinct_names() -> Result<(), Box<dyn Error>> {
+    let (session, index) = fixture();
+    let mut names = NameLookup::default();
+    let line = location("src/main.rs", 2)?;
+    let mut opened = Vec::new();
+    for _ in 0..3 {
+        assert!(names.open_at(line.clone(), &session, &index, false));
+        opened.push(card(&names)?.name.clone());
+    }
+    assert_eq!(opened, ["Cache", "build", "Cache"]);
+    assert_eq!(card(&names)?.origin, line);
     Ok(())
 }
 
 #[test]
 fn a_line_without_names_has_nothing_to_look_up() -> Result<(), Box<dyn Error>> {
-    assert!(NamePick::at(&index(), location("src/main.rs", 5)?).is_none());
+    let (session, index) = fixture();
+    let mut names = NameLookup::default();
+    assert!(!names.open_at(location("src/main.rs", 5)?, &session, &index, false));
+    assert!(names.card().is_none());
     Ok(())
 }
 
@@ -59,32 +59,47 @@ fn a_name_defined_once_or_not_at_all_does_not_cycle() -> Result<(), Box<dyn Erro
     let (session, index) = fixture();
     let mut names = NameLookup::default();
     assert!(names.open_at(location("src/main.rs", 2)?, &session, &index, false));
-    assert!(!names.pick_hint('z', &session, false));
-    assert!(names.pick_hint('s', &session, false));
-    assert!(!names.cycle(&index));
-    assert!(names.open_at(location("src/main.rs", 2)?, &session, &index, false));
-    assert!(names.pick_hint('a', &session, false));
     assert!(!names.cycle(&index));
     assert_eq!(card(&names)?.content(&index).message.as_deref(), Some("No definition of Cache in this diff"));
     assert_eq!(names.activate(&index), Activation::Idle);
+    assert!(names.open_at(location("src/main.rs", 2)?, &session, &index, false));
+    assert_eq!(card(&names)?.name, "build");
+    assert!(!names.cycle(&index));
     Ok(())
 }
 
 #[test]
-fn hints_and_cards_mark_the_names_on_their_line() -> Result<(), Box<dyn Error>> {
+fn only_the_card_name_is_marked_on_its_line() -> Result<(), Box<dyn Error>> {
     let (session, index) = fixture();
     let mut names = NameLookup::default();
     let line = location("src/main.rs", 2)?;
     assert!(names.open_at(line.clone(), &session, &index, false));
-    let references = index.references_at(&line);
-    let marked: Vec<Mark> = names.marks(&line, references).into_iter().map(|(_, mark)| mark).collect();
-    assert_eq!(marked, [Mark::Hinted, Mark::Hinted]);
-    assert_eq!(names.marks(&location("src/main.rs", 3)?, references), UNMARKED);
-    assert!(names.pick_hint('s', &session, false));
-    let marked: Vec<Mark> = names.marks(&line, references).into_iter().map(|(_, mark)| mark).collect();
-    assert_eq!(marked, [Mark::Card]);
+    assert_eq!(names.card_columns(&line), Some(16..21));
+    assert_eq!(names.card_columns(&location("src/main.rs", 3)?), None);
     assert!(names.close());
-    assert_eq!(names.marks(&line, references), UNMARKED);
+    assert_eq!(names.card_columns(&line), None);
+    Ok(())
+}
+
+#[test]
+fn a_hovered_card_lingers_once_neither_its_name_nor_the_card_is_hovered() -> Result<(), Box<dyn Error>> {
+    let (session, index) = fixture();
+    let mut names = NameLookup::default();
+    let line = location("src/main.rs", 3)?;
+    let reference = index.references_at(&line).first().ok_or("helper is referenced")?.clone();
+    names.show(DefinitionCard::new(line.clone(), &reference), &session, false, Hold::Hover);
+    assert!(!names.lingering());
+    names.hover_token(false);
+    names.hover_card(true);
+    assert!(!names.lingering());
+    names.hover_card(false);
+    assert!(names.lingering());
+    assert!(names.cycle(&index));
+    assert!(!names.lingering(), "cycling pins the card");
+
+    assert!(names.open_at(line, &session, &index, false));
+    names.hover_token(false);
+    assert!(!names.lingering(), "a card opened from the keyboard stays pinned");
     Ok(())
 }
 
@@ -162,7 +177,8 @@ fn a_followed_card_jumps_once_its_answer_settles() -> Result<(), Box<dyn Error>>
     assert_eq!(settled, Settled::Jump(target("src/a/util.rs", 1)?));
 
     assert!(names.open_at(location("src/main.rs", 2)?, &session, &index, true));
-    assert!(names.pick_hint('s', &session, true));
+    names.take_lookups();
+    assert!(names.open_at(location("src/main.rs", 2)?, &session, &index, true));
     let request = sent(&mut names)?;
     assert_eq!(names.activate(&index), Activation::Wait);
     let failed = names.finish(reply(&request, Err("timed out".into())), &mut session, &index);
@@ -176,7 +192,7 @@ fn old_side_names_disabled_lookups_and_cleared_answers_are_not_looked_up() -> Re
     let mut names = NameLookup::default();
     let reference = index.references_at(&location("src/main.rs", 3)?).first().ok_or("helper")?.clone();
     let old = SourceLocation { side: DiffSide::Old, ..location("src/main.rs", 3)? };
-    names.show(DefinitionCard::new(old, &reference), &session, true);
+    names.show(DefinitionCard::new(old, &reference), &session, true, Hold::Pinned);
     assert_eq!(names.take_lookups(), NONE);
     assert!(!card(&names)?.is_pending());
     assert_eq!(names.activate(&index), Activation::Jump(target("src/a/util.rs", 1)?));
@@ -189,7 +205,7 @@ fn old_side_names_disabled_lookups_and_cleared_answers_are_not_looked_up() -> Re
     assert_eq!(names.take_lookups(), NONE);
     names.document_changed(&mut session, true);
     assert_eq!(names.take_lookups(), NONE);
-    assert!(names.pick().is_none());
+    assert!(names.card().is_none());
     let answer = Ok(ResolutionBuilder::new().external(3, STD, 4).answer());
     assert_eq!(names.finish(reply(&request, answer), &mut session, &index), Settled::Ignored);
     Ok(())
@@ -262,7 +278,6 @@ fn answers_that_arrive_out_of_order_or_after_a_new_document_are_ignored() -> Res
 
 const STD: &str = "std · alloc/src/util.rs";
 const NONE: [Lookup; 0] = [];
-const UNMARKED: [(Range<usize>, Mark); 0] = [];
 
 fn helper(session: &ReviewSession, index: &SymbolIndex) -> Result<NameLookup, Box<dyn Error>> {
     let mut names = NameLookup::default();
