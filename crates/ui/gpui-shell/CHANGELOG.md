@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/jcarver989/diff/compare/clankerdiff-gpui-shell-v0.7.1...clankerdiff-gpui-shell-v0.8.0) - 2026-10-29
+
+### Other
+
+- release ([#119](https://github.com/jcarver989/diff/pull/119))
+
 ## [0.7.1](https://github.com/jcarver989/diff/releases/tag/clankerdiff-gpui-shell-v0.7.1) - 2026-10-29
 
 ### Added

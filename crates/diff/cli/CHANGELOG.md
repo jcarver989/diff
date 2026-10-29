@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/jcarver989/diff/compare/clankerdiff-cli-v0.7.1...clankerdiff-cli-v0.8.0) - 2026-10-29
+
+### Added
+
+- bound the GPUI diff preview and cap the lspd log ([#123](https://github.com/jcarver989/diff/pull/123))
+
 ## [0.7.0](https://github.com/jcarver989/diff/compare/clankerdiff-cli-v0.6.0...clankerdiff-cli-v0.7.0) - 2026-10-29
 
 ### Added
