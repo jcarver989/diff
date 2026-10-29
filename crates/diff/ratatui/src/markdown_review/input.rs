@@ -6,7 +6,7 @@ use crate::{
     keybindings,
     theme_picker::ThemePicker,
 };
-use clankerdiff_core::{CommandContext, ReviewCapabilities};
+use clankerdiff_core::{CommandContext, KeyState, ReviewCapabilities};
 use clankerdiff_markdown::{MarkdownCommentDraft, MarkdownReviewError};
 #[cfg(feature = "crossterm-backend")]
 use crossterm::event::Event;
@@ -47,8 +47,12 @@ impl MarkdownReviewState {
         if self.interaction_phase() != InteractionPhase::Browse {
             return None;
         }
-        keybindings::binding_for_key(&self.keybindings, key, self.focus == MarkdownFocusPane::Document, false)
-            .map(|binding| binding.command)
+        keybindings::binding_in_state(
+            &self.keybindings,
+            key,
+            KeyState { document: self.focus == MarkdownFocusPane::Document, ..KeyState::default() },
+        )
+        .map(|binding| binding.command)
     }
 
     pub(crate) fn help_bindings(&self) -> impl Iterator<Item = &KeyBinding<MarkdownReviewCommand>> {

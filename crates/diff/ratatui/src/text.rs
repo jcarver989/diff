@@ -6,7 +6,7 @@ use std::iter::from_fn;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct FitOptions<'a> {
     pub width: usize,
     pub wrap: bool,
@@ -128,6 +128,16 @@ pub(crate) fn fit_spans_from<'a>(
         })?;
         Some((Line::from(spans), end))
     })
+}
+
+pub(crate) fn row_pieces(text: &str, options: FitOptions<'_>, from: FitPosition) -> Vec<(usize, usize, usize)> {
+    let mut used = 0;
+    let mut pieces = Vec::new();
+    FitCursor::new(options, from).next_row(text, |offset, piece| {
+        pieces.push((offset, used, piece.width()));
+        used += piece.width();
+    });
+    pieces
 }
 
 fn emit_continuation(options: FitOptions<'_>, next_width: usize, mut emit: impl FnMut(&str)) -> usize {

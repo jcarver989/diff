@@ -7,17 +7,13 @@ use clankerdiff_core::{DiffDocument, DiffReviewEvent, Lookup, LookupReply, Revie
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use clankerdiff_ratatui::{
     DiffReviewState, DiffReviewWidget, InputOutcome, MarkdownReviewEvent, MarkdownReviewState, MarkdownReviewWidget,
-    ThemeChoice, handle_crossterm_event, handle_markdown_crossterm_event,
+    TerminalSession, ThemeChoice, handle_crossterm_event, handle_markdown_crossterm_event,
 };
-use crossterm::{
-    event::{self, Event},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
+use crossterm::event::{self, Event};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     env,
-    io::{self, IsTerminal, Write, stderr, stdin},
+    io::{self, IsTerminal, stderr, stdin},
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -34,8 +30,6 @@ use tokio::sync::oneshot::{Receiver, error::TryRecvError};
 pub const COMMAND_ENV: &str = "CLANKERDIFF_TUI_COMMAND";
 const COMMAND_PLACEHOLDER: &str = "{command}";
 const MAX_COALESCED_EVENTS: usize = 256;
-const ENABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1000h\x1b[?1006h";
-const DISABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1006l\x1b[?1000l";
 
 pub fn launch(socket_path: &Path) -> Result<(), TuiError> {
     let launcher = env::var(COMMAND_ENV).map_err(|_| TuiError::MissingCommand)?;
@@ -119,7 +113,7 @@ fn run_diff_review(client: &DiffClient) -> Result<Option<ReviewSubmission>, TuiE
     if !stdin().is_terminal() || !stderr().is_terminal() {
         return Err(TuiError::NoTerminal);
     }
-    let _session = TerminalSession::enter()?;
+    let _session = TerminalSession::enter(stderr())?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stderr()))?;
     let mut terminal_size = terminal.size()?;
     let mut state = DiffReviewState::new(Arc::new(DiffDocument::empty()));
@@ -214,7 +208,7 @@ pub fn run_markdown(document: Arc<MarkdownDocument>) -> Result<Option<MarkdownRe
     if !stdin().is_terminal() || !stderr().is_terminal() {
         return Err(TuiError::NoTerminal);
     }
-    let _session = TerminalSession::enter()?;
+    let _session = TerminalSession::enter(stderr())?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stderr()))?;
     let mut terminal_size = terminal.size()?;
     let mut state = MarkdownReviewState::with_theme(document, crate::preferences::load_theme());
@@ -261,38 +255,6 @@ enum MarkdownEventOutcome {
     Continue,
     Cancelled,
     Submitted(MarkdownReviewSubmission),
-}
-
-struct TerminalSession;
-
-impl TerminalSession {
-    fn enter() -> io::Result<Self> {
-        enable_raw_mode()?;
-        if let Err(error) = execute!(stderr(), EnterAlternateScreen) {
-            let _ = disable_raw_mode();
-            return Err(error);
-        }
-        if let Err(error) = write_all_flushed(ENABLE_MOUSE_BUTTONS) {
-            let _ = execute!(stderr(), LeaveAlternateScreen);
-            let _ = disable_raw_mode();
-            return Err(error);
-        }
-        Ok(Self)
-    }
-}
-
-impl Drop for TerminalSession {
-    fn drop(&mut self) {
-        let _ = write_all_flushed(DISABLE_MOUSE_BUTTONS);
-        let _ = disable_raw_mode();
-        let _ = execute!(stderr(), LeaveAlternateScreen);
-    }
-}
-
-fn write_all_flushed(bytes: &[u8]) -> io::Result<()> {
-    let mut output = stderr();
-    output.write_all(bytes)?;
-    output.flush()
 }
 
 #[derive(Debug, Error)]

@@ -11,7 +11,7 @@ use clankerdiff_core::{
     ViewMode,
 };
 use clankerdiff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme, empty_spans};
-use clankerdiff_theme::{Fingerprint, ReviewTheme};
+use clankerdiff_ui_core::{Fingerprint, ReviewTheme};
 use ratatui::{
     style::Style,
     text::{Line, Span},
@@ -204,7 +204,7 @@ struct PreviewRenderer<'a> {
 
 impl PreviewRenderer<'_> {
     fn render(&mut self, row: &PresentedRow, limit: usize) -> Vec<Line<'static>> {
-        match self.presentation.layout() {
+        match self.presentation.file_layout(row.file_index) {
             Layout::Unified => match row.primary_cell() {
                 Some(cell) => self.render_cell(row, cell, self.width, limit),
                 None => vec![self.blank(None, self.width)],

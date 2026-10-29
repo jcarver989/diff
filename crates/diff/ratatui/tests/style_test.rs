@@ -1,6 +1,8 @@
 use clankerdiff_core::DiffTone;
 use clankerdiff_ratatui::{RatatuiTheme, RatatuiUiTheme, composite_color, layered_style};
-use clankerdiff_theme::{ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, Rgba, SelectionState};
+use clankerdiff_ui_core::{
+    ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, Rgba, SelectionState,
+};
 use ratatui::style::{Color, Modifier};
 use std::error::Error;
 

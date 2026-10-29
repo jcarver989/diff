@@ -2,7 +2,7 @@
 
 use crate::color::{composite_color, native_color, page_color};
 use clankerdiff_core::{DiffTone, FileStatus};
-use clankerdiff_theme::{
+use clankerdiff_ui_core::{
     ButtonVariant, ControlState, ModalSize, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle, UiPalette,
 };
 use ratatui::{
@@ -165,4 +165,12 @@ pub(crate) const fn file_status_color(status: FileStatus, theme: &RatatuiTheme) 
         FileStatus::Deleted => theme.deletion,
         FileStatus::Modified | FileStatus::Renamed | FileStatus::Copied => theme.ui.accent,
     }
+}
+
+pub(crate) fn stat_spans(added: usize, deleted: usize, theme: &RatatuiTheme) -> [Span<'static>; 3] {
+    [
+        Span::styled(format!("+{added}"), Style::new().fg(theme.addition)),
+        Span::raw(" "),
+        Span::styled(format!("−{deleted}"), Style::new().fg(theme.deletion)),
+    ]
 }

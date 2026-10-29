@@ -25,7 +25,7 @@ pub fn highlighted_line(source: &str, spans: &[HighlightSpan], base: Style) -> L
 pub(crate) fn styled_spans<'a>(
     source: &'a str,
     highlights: &[HighlightSpan],
-    overlays: &[(Range<usize>, Color)],
+    overlays: &[(Range<usize>, Style)],
     base: Style,
 ) -> Vec<Span<'a>> {
     let valid = |range: &Range<usize>| {
@@ -35,7 +35,7 @@ pub(crate) fn styled_spans<'a>(
             && source.is_char_boundary(range.end)
     };
     let highlights: Vec<&HighlightSpan> = highlights.iter().filter(|highlight| valid(&highlight.range)).collect();
-    let overlays: Vec<&(Range<usize>, Color)> = overlays.iter().filter(|(range, _)| valid(range)).collect();
+    let overlays: Vec<&(Range<usize>, Style)> = overlays.iter().filter(|(range, _)| valid(range)).collect();
     let mut cuts: Vec<usize> = highlights
         .iter()
         .map(|highlight| &highlight.range)
@@ -50,8 +50,10 @@ pub(crate) fn styled_spans<'a>(
         .windows(2)
         .map(|pair| {
             let (start, end) = (pair[0], pair[1]);
-            let base =
-                overlays.iter().find(|(range, _)| range.contains(&start)).map_or(base, |(_, tint)| base.bg(*tint));
+            let base = overlays
+                .iter()
+                .filter(|(range, _)| range.contains(&start))
+                .fold(base, |style, (_, overlay)| style.patch(*overlay));
             while highlights.next_if(|highlight| highlight.range.end <= start).is_some() {}
             let style = highlights
                 .peek()

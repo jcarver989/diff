@@ -1,19 +1,21 @@
 use crate::{
     DiffReviewCommand, InteractionPhase, KeyBinding, NavigationPane, ReviewOptions, ThemeChoice,
     default_diff_keybindings,
+    palette::CommandPalette,
     patch_layout::{PatchContentLayout, PatchVisualLayout},
     render::{FILE_CHEVRON_WIDTH, GAP_EXPAND_WIDTH},
+    text::{FitOptions, FitPosition},
     theme_picker::ThemePicker,
 };
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{
     CommitPicker, DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, Lookup,
-    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, ViewMode,
-    ViewportAnchor,
+    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, SourceLocation,
+    ViewMode, ViewportAnchor,
 };
-use clankerdiff_symbols::{NameLookup, NamePick, SymbolCache, SymbolIndex};
+use clankerdiff_symbols::{DefinitionCard, NameLookup, SymbolCache, SymbolIndex};
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use ratatui::layout::{Position, Rect};
 use std::{
     collections::hash_map::DefaultHasher,
@@ -41,6 +43,57 @@ pub(crate) struct HitLayout {
     pub drawer: Rect,
     pub drawer_stage_column: Option<u16>,
     pub patch: Rect,
+    pub card: Option<Rect>,
+    pub overlay: Option<Rect>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Hit {
+    pub area: Rect,
+    pub command: DiffReviewCommand,
+    pub tooltip: String,
+}
+
+impl Hit {
+    pub(crate) fn new(area: Rect, command: DiffReviewCommand, tooltip: impl Into<String>) -> Self {
+        Self { area, command, tooltip: tooltip.into() }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct PatchHits {
+    pub rows: Vec<(u16, usize)>,
+    pub code_cells: Vec<CodeCell>,
+}
+
+impl PatchHits {
+    pub(crate) fn clear(&mut self) {
+        self.rows.clear();
+        self.code_cells.clear();
+    }
+
+    pub(crate) fn replace_row(&mut self, y: u16, row: usize) {
+        self.rows.retain(|(screen_y, _)| *screen_y != y);
+        self.code_cells.retain(|cell| cell.area.y != y);
+        self.rows.push((y, row));
+    }
+
+    pub(crate) fn row_at(&self, y: u16) -> Option<usize> {
+        self.rows.iter().find_map(|(screen_y, row)| (*screen_y == y).then_some(*row))
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct CodeCell {
+    pub area: Rect,
+    pub gutter: Rect,
+    pub row: usize,
+    pub side: DiffSide,
+    pub commentable: bool,
+    pub location: SourceLocation,
+    pub text: Arc<str>,
+    pub fit: FitOptions<'static>,
+    pub from: FitPosition,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -54,6 +107,25 @@ enum DrawerFollow {
 pub(crate) enum RepositoryPrompt {
     Commit { message: String },
     Discard { path: clankerdiff_core::RepoPath, status: FileStatus },
+}
+
+#[derive(Debug)]
+pub(crate) enum Overlay {
+    Commands(CommandPalette),
+    Commits(CommitPicker),
+    Themes(Box<ThemePicker>),
+    Repository(RepositoryPrompt),
+}
+
+impl Overlay {
+    pub(crate) const fn phase(&self) -> InteractionPhase {
+        match self {
+            Self::Commands(_) => InteractionPhase::Help,
+            Self::Commits(_) => InteractionPhase::CommitPicker,
+            Self::Themes(_) => InteractionPhase::ThemePicker,
+            Self::Repository(_) => InteractionPhase::RepositoryPrompt,
+        }
+    }
 }
 
 /// Status of the most recent repository mutation requested by the UI.
@@ -114,18 +186,18 @@ pub struct DiffReviewState {
     diff_viewport: Option<DiffViewportBookmark>,
     pending_scroll: Option<PendingScroll>,
     followed_file: Option<usize>,
-    pub(crate) help: bool,
-    pub(crate) help_scroll: usize,
-    pub(crate) theme_picker: Option<ThemePicker>,
-    pub(crate) commit_picker: Option<CommitPicker>,
+    pub(crate) overlay: Option<Overlay>,
     pub(crate) names: NameLookup,
+    pub(crate) links_visible: bool,
     symbols: SymbolCache,
-    pub(crate) repository_prompt: Option<RepositoryPrompt>,
     pub(crate) repository_status: RepositoryOperationStatus,
     pub(crate) background_error: Option<String>,
     deferred_document: Option<Arc<DiffDocument>>,
     pub(crate) hit_layout: HitLayout,
-    pub(crate) visible_rows: Vec<(u16, usize)>,
+    pub(crate) patch_hits: PatchHits,
+    pub(crate) hits: Vec<Hit>,
+    pub(crate) pointer: Option<Position>,
+    pub(crate) sidebar_hidden: bool,
     pub(crate) cursor_position: Option<Position>,
     pub(crate) dirty: bool,
 }
@@ -165,18 +237,18 @@ impl DiffReviewState {
             diff_viewport: None,
             pending_scroll: Some(PendingScroll::Follow),
             followed_file: None,
-            help: false,
-            help_scroll: 0,
-            theme_picker: None,
-            commit_picker: None,
+            overlay: None,
             names: NameLookup::default(),
+            links_visible: false,
             symbols: SymbolCache::default(),
-            repository_prompt: None,
             repository_status: RepositoryOperationStatus::Idle,
             background_error: None,
             deferred_document: None,
             hit_layout: HitLayout::default(),
-            visible_rows: Vec::new(),
+            patch_hits: PatchHits::default(),
+            hits: Vec::new(),
+            pointer: None,
+            sidebar_hidden: false,
             cursor_position: None,
             dirty: true,
         };
@@ -233,10 +305,26 @@ impl DiffReviewState {
         self.session.presentation()
     }
 
-    /// Returns the open name hints or definition card, if any.
     #[must_use]
-    pub const fn lookup(&self) -> Option<&NamePick> {
-        self.names.pick()
+    pub const fn definition_card(&self) -> Option<&DefinitionCard> {
+        self.names.card()
+    }
+
+    pub(crate) fn close_overlay(&mut self, phase: InteractionPhase) -> Option<Overlay> {
+        self.overlay.take_if(|overlay| overlay.phase() == phase)
+    }
+
+    pub(crate) fn hit_at(&self, position: Position) -> Option<&Hit> {
+        self.hits.iter().rev().find(|hit| hit.area.contains(position))
+    }
+
+    pub(crate) fn toggle_sidebar(&mut self) {
+        self.sidebar_hidden = !self.sidebar_hidden;
+        if self.sidebar_hidden {
+            self.focus = FocusPane::Diff;
+        }
+        self.hit_layout = HitLayout::default();
+        self.request_follow();
     }
 
     pub fn take_lookups(&mut self) -> Vec<Lookup> {
@@ -395,7 +483,7 @@ impl DiffReviewState {
     /// Marks a repository mutation as in flight while retaining the current snapshot.
     pub fn set_repository_pending(&mut self) {
         self.repository_status = RepositoryOperationStatus::Pending;
-        self.repository_prompt = None;
+        self.close_overlay(InteractionPhase::RepositoryPrompt);
         self.mark_dirty();
     }
 
@@ -408,7 +496,7 @@ impl DiffReviewState {
     /// Shows a repository mutation error while retaining the current snapshot.
     pub fn set_repository_error(&mut self, message: impl Into<String>) {
         self.repository_status = RepositoryOperationStatus::Error(message.into());
-        self.repository_prompt = None;
+        self.close_overlay(InteractionPhase::RepositoryPrompt);
         self.mark_dirty();
     }
 
@@ -454,18 +542,19 @@ impl DiffReviewState {
     }
 
     pub(crate) fn begin_commit(&mut self) {
-        self.repository_prompt = Some(RepositoryPrompt::Commit { message: String::new() });
+        self.overlay = Some(Overlay::Repository(RepositoryPrompt::Commit { message: String::new() }));
     }
 
     pub(crate) fn begin_discard(&mut self) {
         let Some(file) = self.selected_file().and_then(|index| self.document().files.get(index)) else {
             return;
         };
-        self.repository_prompt = Some(RepositoryPrompt::Discard { path: file.path.clone(), status: file.status });
+        let prompt = RepositoryPrompt::Discard { path: file.path.clone(), status: file.status };
+        self.overlay = Some(Overlay::Repository(prompt));
     }
 
     pub fn set_theme(&mut self, theme: ReviewTheme) {
-        self.theme_picker = None;
+        self.close_overlay(InteractionPhase::ThemePicker);
         self.apply_theme(theme);
     }
 
@@ -486,7 +575,6 @@ impl DiffReviewState {
 
     pub fn set_keybindings(&mut self, bindings: impl Into<Vec<KeyBinding<DiffReviewCommand>>>) {
         self.keybindings = bindings.into();
-        self.help_scroll = 0;
         self.mark_dirty();
     }
 
@@ -505,7 +593,7 @@ impl DiffReviewState {
     }
 
     pub fn set_theme_choices(&mut self, themes: impl Into<Arc<[ThemeChoice]>>) {
-        if let Some(picker) = self.theme_picker.take() {
+        if let Some(Overlay::Themes(picker)) = self.close_overlay(InteractionPhase::ThemePicker) {
             self.set_theme(picker.cancel());
         }
         self.theme_choices = themes.into();
@@ -868,9 +956,27 @@ impl DiffReviewState {
         hasher.finish()
     }
 
+    pub(crate) fn comment_at(&mut self, position: Position) -> bool {
+        let Some((row, side)) = self
+            .patch_hits
+            .code_cells
+            .iter()
+            .find(|cell| cell.commentable && cell.gutter.contains(position))
+            .map(|cell| (cell.row, cell.side))
+        else {
+            return false;
+        };
+        if !self.session.select_row(row) {
+            return false;
+        }
+        self.session.set_selected_side(side);
+        self.pending_scroll = None;
+        self.mark_dirty();
+        true
+    }
+
     pub(crate) fn select_clicked_row(&mut self, position: Position) -> bool {
-        let clicked =
-            self.visible_rows.iter().find(|(screen_row, _)| *screen_row == position.y).map(|(_, index)| *index);
+        let clicked = self.patch_hits.row_at(position.y);
         if let Some(row) =
             clicked.and_then(|index| self.presentation().row(index)).filter(|row| row.kind == RowKind::FileHeader)
         {
@@ -886,6 +992,11 @@ impl DiffReviewState {
         if let Some(index) = clicked
             && self.session.select_row(index)
         {
+            if let Some(side) =
+                self.patch_hits.code_cells.iter().find(|cell| cell.area.contains(position)).map(|cell| cell.side)
+            {
+                self.session.set_selected_side(side);
+            }
             if self.session.presentation().gap_info(index).is_some() {
                 if position.x < self.hit_layout.patch.x.saturating_add(GAP_EXPAND_WIDTH) {
                     self.reveal_selected_gap(RevealAmount::Step);
@@ -906,7 +1017,7 @@ impl DiffReviewState {
 mod tests {
     use super::*;
     use clankerdiff_core::FileDiff;
-    use clankerdiff_theme::ThemeId;
+    use clankerdiff_ui_core::ThemeId;
 
     #[test]
     fn new_uses_the_default_sage_theme() {

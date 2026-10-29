@@ -59,9 +59,9 @@ fn caller_widths_determine_navigation_hit_regions() -> Result<(), Box<dyn Error>
     markdown.set_options(options);
     let mut buffer = Buffer::empty(Rect::new(0, 0, 70, 20));
     DiffReviewWidget::new().borders(false).render(area, &mut buffer, &mut diff);
-    let _ = diff.handle_input(click(6, 3));
+    let _ = diff.handle_input(click(6, 4));
     assert_eq!(diff.focus(), FocusPane::Files);
-    let _ = diff.handle_input(click(20, 3));
+    let _ = diff.handle_input(click(20, 4));
     assert_eq!(diff.focus(), FocusPane::Diff);
     MarkdownReviewWidget::new().borders(false).render(area, &mut buffer, &mut markdown);
     markdown.handle_input(click(6, 3))?;
@@ -80,12 +80,8 @@ fn help_and_footer_use_caller_bindings() -> Result<(), Box<dyn Error>> {
     markdown.set_keybindings(vec![KeyBinding::new(shortcut, MarkdownReviewCommand::Approve, "host approve")]);
     let area = Rect::new(0, 0, 100, 30);
     let mut buffer = Buffer::empty(area);
-    DiffReviewWidget::new().render(area, &mut buffer, &mut diff);
-    assert!(text(&buffer).contains("Ctrl-F(5) host reload"));
-    diff.handle_command(ReviewCommand::ShowHelp);
-    DiffReviewWidget::new().render(area, &mut buffer, &mut diff);
-    assert!(text(&buffer).contains("host reload"));
-    assert!(!text(&buffer).contains("stage/unstage"));
+    assert_eq!(palette_keys(&mut diff, "Refresh repository").as_deref(), Some("Ctrl-F(5)"));
+    assert_eq!(palette_keys(&mut diff, "Add comment").as_deref(), Some("comment"), "unbound commands still list");
     markdown.handle_command(ReviewCommand::ShowHelp)?;
     MarkdownReviewWidget::new().render(area, &mut buffer, &mut markdown);
     assert!(text(&buffer).contains("host approve"));
@@ -113,14 +109,13 @@ fn help_filters_capabilities_and_resolves_overrides_in_browse_context() -> Resul
     ]);
     diff.set_capabilities(ReviewCapabilities { repository: false, refresh: false, scope: false, ..Default::default() });
     markdown.set_capabilities(ReviewCapabilities { submit: false, ..Default::default() });
-    diff.handle_command(ReviewCommand::ShowHelp);
     markdown.handle_command(ReviewCommand::ShowHelp)?;
     let area = Rect::new(0, 0, 100, 30);
-    let mut buffer = Buffer::empty(area);
-    DiffReviewWidget::new().render(area, &mut buffer, &mut diff);
-    let rendered = text(&buffer);
-    assert!(rendered.contains("current label") && rendered.contains("submit supported"));
-    assert!(!rendered.contains("unsupported") && !rendered.contains("replaced label"));
+    assert_eq!(palette_keys(&mut diff, "Add comment").as_deref(), Some("c"));
+    assert_eq!(palette_keys(&mut diff, "Submit review").as_deref(), Some("s"));
+    for unsupported in ["Stage all", "Refresh repository", "Show unstaged changes"] {
+        assert_eq!(palette_keys(&mut diff, unsupported), None, "{unsupported}");
+    }
     let mut buffer = Buffer::empty(area);
     MarkdownReviewWidget::new().render(area, &mut buffer, &mut markdown);
     let rendered = text(&buffer);
@@ -147,13 +142,11 @@ fn hidden_navigation_removes_unreachable_bindings_from_help() -> Result<(), Box<
     let options = ReviewOptions { navigation: NavigationPane::Hidden, ..Default::default() };
     diff.set_options(options.clone());
     markdown.set_options(options);
-    diff.handle_command(ReviewCommand::ShowHelp);
     markdown.handle_command(ReviewCommand::ShowHelp)?;
     let area = Rect::new(0, 0, 100, 30);
-    let mut buffer = Buffer::empty(area);
-    DiffReviewWidget::new().render(area, &mut buffer, &mut diff);
-    assert!(text(&buffer).contains("document command"));
-    assert!(!text(&buffer).contains("navigation command"));
+    assert_eq!(palette_keys(&mut diff, "Next item").as_deref(), Some("F(2)"));
+    assert_eq!(palette_keys(&mut diff, "Previous item").as_deref(), Some("item"), "an unreachable key is not listed");
+    assert_eq!(palette_keys(&mut diff, "Switch pane"), None);
     let mut buffer = Buffer::empty(area);
     MarkdownReviewWidget::new().render(area, &mut buffer, &mut markdown);
     assert!(text(&buffer).contains("document command"));
@@ -169,10 +162,11 @@ fn footers_deduplicate_aliases_and_keep_help_and_status_visible() {
         let area = Rect::new(0, 0, width, 20);
         let mut buffer = Buffer::empty(area);
         DiffReviewWidget::new().borders(false).render(area, &mut buffer, &mut diff);
-        let hint = footer(&buffer);
-        assert!(hint.contains("? help") && hint.contains("0 comments"), "{hint}");
-        assert!(hint.matches("previous").count() <= 1);
-        assert!(hint.matches("next").count() <= 1);
+        let bar = footer(&buffer);
+        assert!(bar.contains("? commands") && bar.trim_end().ends_with("Cancel"), "{bar}");
+        if width >= 80 {
+            assert!(bar.contains("0 review comments"), "{bar}");
+        }
         let mut buffer = Buffer::empty(area);
         MarkdownReviewWidget::new().borders(false).render(area, &mut buffer, &mut markdown);
         let hint = footer(&buffer);
@@ -185,6 +179,23 @@ fn footers_deduplicate_aliases_and_keep_help_and_status_visible() {
 fn footer(buffer: &Buffer) -> String {
     let y = buffer.area.bottom() - 1;
     (buffer.area.x..buffer.area.right()).map(|x| buffer[(x, y)].symbol()).collect()
+}
+
+fn palette_keys(diff: &mut DiffReviewState, title: &str) -> Option<String> {
+    diff.handle_command(ReviewCommand::ShowHelp);
+    for character in title.chars() {
+        let _ = diff.handle_input(ReviewInput::Key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)));
+    }
+    let area = Rect::new(0, 0, 100, 30);
+    let mut buffer = Buffer::empty(area);
+    DiffReviewWidget::new().render(area, &mut buffer, diff);
+    diff.handle_command(ReviewCommand::Cancel);
+    let row = (area.y..area.bottom())
+        .map(|y| (area.x..area.right()).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+        .find(|row| row.contains(&format!("  {title}")))?;
+    let entry = &row[row.find(title)?..];
+    let entry = &entry[..entry.find('│')?];
+    entry.split_whitespace().last().map(str::to_owned)
 }
 
 fn diff() -> DiffReviewState {

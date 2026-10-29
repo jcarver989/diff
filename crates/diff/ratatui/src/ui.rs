@@ -1,15 +1,16 @@
 //! Renderer-native components backed by shared semantic design roles.
 
 use crate::{RatatuiTheme, RatatuiUiTheme};
-use clankerdiff_theme::ControlState;
-pub use clankerdiff_theme::{ButtonVariant, ModalSize, NoticeTone, SelectionState};
+pub use clankerdiff_ui_core::{ButtonVariant, ModalSize, NoticeTone, SelectionState};
+use clankerdiff_ui_core::{ControlState, InteractionState, PickerRow, PickerState};
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Position, Rect},
     style::Style,
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, List, ListState, Paragraph, StatefulWidget, Widget},
+    widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
 };
+use unicode_width::UnicodeWidthStr;
 
 pub(crate) const ACTION_BAR_HEIGHT: u16 = 1;
 
@@ -21,18 +22,13 @@ pub(crate) struct FrameRegions {
 
 pub(crate) struct AppFrame<'a> {
     title: Line<'a>,
-    trailing_title: Option<Line<'a>>,
     borders: bool,
     footer: bool,
     theme: &'a RatatuiTheme,
 }
 impl<'a> AppFrame<'a> {
     pub(crate) fn new(title: impl Into<Line<'a>>, borders: bool, theme: &'a RatatuiTheme) -> Self {
-        Self { title: title.into(), trailing_title: None, borders, footer: true, theme }
-    }
-    pub(crate) fn trailing_title(mut self, title: Option<Line<'a>>) -> Self {
-        self.trailing_title = title;
-        self
+        Self { title: title.into(), borders, footer: true, theme }
     }
     pub(crate) const fn footer(mut self, footer: bool) -> Self {
         self.footer = footer;
@@ -43,13 +39,10 @@ impl<'a> AppFrame<'a> {
         buffer.set_style(area, Style::new().fg(self.theme.ui.text).bg(self.theme.ui.canvas));
         let inner = if self.borders {
             let padded = |line: Line<'a>| Line::from([vec![Span::raw(" ")], line.spans, vec![Span::raw(" ")]].concat());
-            let mut block = Block::new()
+            let block = Block::new()
                 .borders(Borders::ALL)
                 .title(padded(self.title))
                 .border_style(Style::new().fg(self.theme.ui.accent));
-            if let Some(trailing) = self.trailing_title {
-                block = block.title_top(padded(trailing).right_aligned());
-            }
             let inner = block.inner(area);
             block.render(area, buffer);
             inner
@@ -113,24 +106,109 @@ impl Widget for ActionLabel<'_> {
     }
 }
 
+pub(crate) struct Button<'a> {
+    label: &'a str,
+    variant: ButtonVariant,
+    state: ControlState,
+    theme: &'a RatatuiTheme,
+}
+impl<'a> Button<'a> {
+    pub(crate) const fn new(label: &'a str, theme: &'a RatatuiTheme) -> Self {
+        Self { label, variant: ButtonVariant::Ghost, state: ControlState::new(InteractionState::Rest), theme }
+    }
+    pub(crate) const fn variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+    pub(crate) const fn selected(mut self, selected: bool) -> Self {
+        self.state.selected = selected;
+        self
+    }
+    pub(crate) const fn disabled(mut self, disabled: bool) -> Self {
+        if disabled {
+            self.state.interaction = InteractionState::Disabled;
+        }
+        self
+    }
+    pub(crate) fn hovered_at(mut self, area: Rect, pointer: Option<Position>) -> Self {
+        if self.state.interaction == InteractionState::Rest && pointer.is_some_and(|pointer| area.contains(pointer)) {
+            self.state.interaction = InteractionState::Hovered;
+        }
+        self
+    }
+    pub(crate) fn style(&self) -> Style {
+        let style = self.theme.ui.control_style(self.variant, self.state);
+        if self.variant == ButtonVariant::Ghost && self.state.interaction == InteractionState::Disabled {
+            return Style::new().fg(self.theme.ui.border);
+        }
+        style
+    }
+}
+impl Widget for Button<'_> {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
+        Paragraph::new(format!(" {} ", self.label)).style(self.style()).render(area, buffer);
+    }
+}
+
+pub(crate) struct Notification<'a> {
+    message: &'a str,
+    tone: NoticeTone,
+    theme: &'a RatatuiTheme,
+}
+impl<'a> Notification<'a> {
+    pub(crate) const fn error(message: &'a str, theme: &'a RatatuiTheme) -> Self {
+        Self { message, tone: NoticeTone::Error, theme }
+    }
+    pub(crate) fn height(&self, width: u16) -> u16 {
+        let inner = usize::from(width.saturating_sub(4)).max(1);
+        u16::try_from(self.message.width().div_ceil(inner).max(1) + 2).unwrap_or(u16::MAX)
+    }
+}
+impl Widget for Notification<'_> {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
+        let tone = self.theme.ui.notice_style(self.tone);
+        let block = Block::bordered()
+            .padding(ratatui::widgets::Padding::horizontal(1))
+            .style(self.theme.ui.selection_style(SelectionState::None))
+            .border_style(Style::new().fg(tone.fg.unwrap_or(self.theme.ui.destructive)));
+        Clear.render(area, buffer);
+        let inner = block.inner(area);
+        block.render(area, buffer);
+        Paragraph::new(self.message)
+            .style(tone.bg(self.theme.ui.surface))
+            .wrap(Wrap { trim: true })
+            .render(inner, buffer);
+    }
+}
+
 pub(crate) struct Modal<'a> {
     title: &'a str,
     hint: Option<&'a str>,
     size: ModalSize,
+    width: Option<u16>,
+    height: Option<u16>,
     theme: &'a RatatuiTheme,
 }
 impl<'a> Modal<'a> {
     pub(crate) const fn new(title: &'a str, size: ModalSize, theme: &'a RatatuiTheme) -> Self {
-        Self { title, hint: None, size, theme }
+        Self { title, hint: None, size, width: None, height: None, theme }
     }
     pub(crate) const fn hint(mut self, hint: &'a str) -> Self {
         self.hint = Some(hint);
         self
     }
+    pub(crate) const fn width(mut self, width: u16) -> Self {
+        self.width = Some(width);
+        self
+    }
+    pub(crate) const fn height(mut self, inner_height: u16) -> Self {
+        self.height = Some(inner_height.saturating_add(2));
+        self
+    }
     pub(crate) fn render(self, area: Rect, buffer: &mut Buffer) -> Rect {
         let (max_width, max_height) = RatatuiUiTheme::modal_size(self.size);
-        let width = area.width.saturating_sub(4).min(max_width);
-        let height = area.height.saturating_sub(4).min(max_height);
+        let width = area.width.saturating_sub(4).min(self.width.unwrap_or(max_width));
+        let height = area.height.saturating_sub(4).min(self.height.unwrap_or(max_height));
         let popup = Rect::new(
             area.x + area.width.saturating_sub(width) / 2,
             area.y + area.height.saturating_sub(height) / 2,
@@ -149,31 +227,60 @@ impl<'a> Modal<'a> {
     }
 }
 
-pub(crate) struct ModalList<'a> {
-    modal: Modal<'a>,
-    selected: usize,
-    theme: &'a RatatuiTheme,
+pub(crate) struct PickerArea {
+    pub cursor: Option<Position>,
+    pub rows: Vec<(Rect, usize)>,
 }
-impl<'a> ModalList<'a> {
-    pub(crate) const HIGHLIGHT: &'static str = "› ";
 
-    pub(crate) const fn new(modal: Modal<'a>, selected: usize, theme: &'a RatatuiTheme) -> Self {
-        Self { modal, selected, theme }
+pub(crate) fn render_picker<'l>(
+    area: Rect,
+    buffer: &mut Buffer,
+    theme: &RatatuiTheme,
+    picker: &PickerState,
+    query: Option<&str>,
+    pointer: Option<Position>,
+    lines: impl FnOnce(usize) -> Vec<Line<'l>>,
+) -> PickerArea {
+    const HIGHLIGHT: &str = "› ";
+    let base = theme.ui.selection_style(SelectionState::None);
+    let mut list = area;
+    let cursor = query.filter(|_| !area.is_empty()).map(|query| {
+        let prompt = Line::from(vec![Span::styled(HIGHLIGHT, base.fg(theme.ui.text_muted)), Span::raw(query)]);
+        let column = u16::try_from(prompt.width()).unwrap_or(u16::MAX);
+        Paragraph::new(prompt).style(base).render(Rect { height: 1, ..area }, buffer);
+        list = Rect { y: area.y + 1, height: area.height - 1, ..area };
+        Position::new(area.x.saturating_add(column).min(area.right().saturating_sub(1)), area.y)
+    });
+    if picker.matches().is_empty() {
+        Paragraph::new(" No matches").style(base.fg(theme.ui.text_muted)).render(list, buffer);
     }
-
-    pub(crate) fn render<'l>(self, area: Rect, buffer: &mut Buffer, rows: impl FnOnce(usize) -> Vec<Line<'l>>) {
-        let popup = self.modal.render(area, buffer);
-        if popup.is_empty() {
-            return;
-        }
-        let width = usize::from(popup.width).saturating_sub(Self::HIGHLIGHT.chars().count());
-        let list = List::new(rows(width))
-            .style(self.theme.ui.selection_style(SelectionState::None))
-            .highlight_style(self.theme.ui.selection_style(SelectionState::Selected))
-            .highlight_symbol(Self::HIGHLIGHT);
-        let mut state = ListState::default().with_selected(Some(self.selected));
-        StatefulWidget::render(list, popup, buffer, &mut state);
+    let lines = lines(usize::from(list.width).saturating_sub(HIGHLIGHT.width()));
+    let rows = picker.rows();
+    let highlighted = picker.highlighted_position();
+    let current =
+        rows.iter().position(|row| matches!(row, PickerRow::Option { position, .. } if *position == highlighted));
+    let offset = current.map_or(0, |row| (row + 1).saturating_sub(usize::from(list.height)));
+    let mut hits = Vec::new();
+    for (y, row) in (list.top()..list.bottom()).zip(rows.into_iter().skip(offset)) {
+        let area = Rect { y, height: 1, ..list };
+        let (index, style, marker) = match row {
+            PickerRow::Group(title) => {
+                Paragraph::new(format!(" {title}")).style(base.fg(theme.ui.accent)).render(area, buffer);
+                continue;
+            }
+            PickerRow::Option { position, index } if position == highlighted => {
+                (index, theme.ui.selection_style(SelectionState::Selected), HIGHLIGHT)
+            }
+            PickerRow::Option { index, .. } if pointer.is_some_and(|pointer| area.contains(pointer)) => {
+                (index, base.bg(theme.ui.surface_hover), "  ")
+            }
+            PickerRow::Option { index, .. } => (index, base, "  "),
+        };
+        let line = lines.get(index).cloned().unwrap_or_default();
+        Paragraph::new(Line::from([vec![Span::raw(marker)], line.spans].concat())).style(style).render(area, buffer);
+        hits.push((area, index));
     }
+    PickerArea { cursor, rows: hits }
 }
 
 pub(crate) struct EmptyState<'a> {

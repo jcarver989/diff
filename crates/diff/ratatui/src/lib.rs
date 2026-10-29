@@ -20,6 +20,7 @@ pub mod markdown;
 mod markdown_layout;
 mod markdown_review;
 mod options;
+mod palette;
 mod patch_layout;
 mod render;
 mod state;
@@ -30,14 +31,17 @@ pub mod testing;
 mod text;
 pub mod theme;
 mod theme_picker;
+mod toolbar;
 pub mod ui;
 mod widgets;
 
 pub use clankerdiff_core::ReviewCapabilities;
 pub use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewError};
-pub use clankerdiff_theme::ReviewTheme;
+pub use clankerdiff_ui_core::ReviewTheme;
 pub use color::{composite_color, layered_style, page_color};
 pub use commands::{DiffReviewCommand, MarkdownReviewCommand, ReviewCommand};
+#[cfg(feature = "crossterm-backend")]
+pub use crossterm_adapter::TerminalSession;
 pub use diff_preview::{DiffPreviewOptions, DiffPreviewState, DiffPreviewStats, render_diff_preview};
 #[cfg(feature = "crossterm-backend")]
 pub use input::handle_crossterm_event;

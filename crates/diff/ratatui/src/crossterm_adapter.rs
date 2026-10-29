@@ -2,10 +2,54 @@ use crate::{
     InputOutcome, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, ReviewInput,
     interaction::{self, ReviewWidget},
 };
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::{
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, KeyboardEnhancementFlags, ModifierKeyCode,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
+    execute,
+    terminal::{
+        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, supports_keyboard_enhancement,
+    },
+};
+use std::io::{self, Write};
+
+pub struct TerminalSession<W: Write> {
+    writer: W,
+    keyboard_enhancement: bool,
+}
+
+impl<W: Write> TerminalSession<W> {
+    pub fn enter(writer: W) -> io::Result<Self> {
+        enable_raw_mode()?;
+        let mut session = Self { writer, keyboard_enhancement: false };
+        execute!(session.writer, EnterAlternateScreen, EnableMouseCapture)?;
+        if supports_keyboard_enhancement().unwrap_or(false) {
+            let flags = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+                | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+                | KeyboardEnhancementFlags::REPORT_EVENT_TYPES;
+            session.keyboard_enhancement = execute!(session.writer, PushKeyboardEnhancementFlags(flags)).is_ok();
+        }
+        Ok(session)
+    }
+}
+
+impl<W: Write> Drop for TerminalSession<W> {
+    fn drop(&mut self) {
+        if self.keyboard_enhancement {
+            let _ = execute!(self.writer, PopKeyboardEnhancementFlags);
+        }
+        let _ = disable_raw_mode();
+        let _ = execute!(self.writer, DisableMouseCapture, LeaveAlternateScreen);
+    }
+}
 
 pub(crate) fn handle_event<T: ReviewWidget>(state: &mut T, event: Event) -> Result<InputOutcome<T::Event>, T::Error> {
     let input = match event {
+        Event::Key(key) if let event::KeyCode::Modifier(modifier) = key.code => {
+            ReviewInput::Modifiers(held_modifiers(key, modifier))
+        }
         Event::Key(key) if key.kind != KeyEventKind::Release => ReviewInput::Key(key.into()),
         Event::Paste(text) => ReviewInput::Paste(text),
         Event::Mouse(mouse) => ReviewInput::Mouse(mouse.into()),
@@ -16,6 +60,21 @@ pub(crate) fn handle_event<T: ReviewWidget>(state: &mut T, event: Event) -> Resu
         _ => return Ok(InputOutcome::Ignored),
     };
     interaction::handle_input(state, input)
+}
+
+fn held_modifiers(key: event::KeyEvent, modifier: ModifierKeyCode) -> KeyModifiers {
+    let mut held = KeyModifiers::from(key.modifiers);
+    let changed = match modifier {
+        ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift => KeyModifiers::SHIFT,
+        ModifierKeyCode::LeftControl | ModifierKeyCode::RightControl => KeyModifiers::CONTROL,
+        ModifierKeyCode::LeftAlt | ModifierKeyCode::RightAlt => KeyModifiers::ALT,
+        ModifierKeyCode::LeftSuper | ModifierKeyCode::RightSuper => KeyModifiers::SUPER,
+        ModifierKeyCode::LeftHyper | ModifierKeyCode::RightHyper => KeyModifiers::HYPER,
+        ModifierKeyCode::LeftMeta | ModifierKeyCode::RightMeta => KeyModifiers::META,
+        ModifierKeyCode::IsoLevel3Shift | ModifierKeyCode::IsoLevel5Shift => KeyModifiers::NONE,
+    };
+    held.set(changed, key.kind != KeyEventKind::Release);
+    held
 }
 
 impl From<event::KeyModifiers> for KeyModifiers {
