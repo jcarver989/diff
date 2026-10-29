@@ -70,6 +70,7 @@ impl DiffViewer {
         let start = self.session().visible_range().start;
         let wheel_lines =
             wheel_line_scroller(list_state.clone(), self.diff_row_height() * WHEEL_ROWS_PER_LINE, cx.entity_id());
+        let row_height_hints = uniform_row_height_hints(list_state.clone(), self.diff_row_height());
         let list = list(
             list_state,
             cx.processor(move |viewer, offset: usize, _window, cx| viewer.render_visible_row(start + offset, cx)),
@@ -100,6 +101,7 @@ impl DiffViewer {
                             .overflow_hidden()
                             .child(wheel_lines)
                             .child(list)
+                            .child(row_height_hints)
                             .child(
                                 div().absolute().top(sticky_top).left_0().right_0().child(self.render_file_divider(
                                     file_index,
@@ -663,6 +665,19 @@ impl DiffViewer {
         };
         self.review().comments_for_anchor(&anchor).count()
     }
+}
+
+fn uniform_row_height_hints(list_state: ListState, row_height: Pixels) -> impl IntoElement {
+    let laid_out_width = list_state.viewport_bounds().size.width;
+    canvas(
+        move |_, _, _| {
+            if list_state.viewport_bounds().size.width != laid_out_width {
+                list_state.with_uniform_item_height(row_height);
+            }
+        },
+        |_, (), _, _| {},
+    )
+    .absolute()
 }
 
 /// Scrolls `list_state` by `line_height` per line of line-based scroll input, such as a mouse wheel notch.
