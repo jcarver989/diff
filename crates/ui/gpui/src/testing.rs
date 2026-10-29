@@ -78,14 +78,28 @@ impl WindowDriver {
     }
 
     pub fn drag(&self, cx: &mut TestAppContext, selector: &'static str, to: Point<Pixels>) -> Result<(), HarnessError> {
+        self.drag_and_hold(cx, selector, to)?;
+        self.release(cx, to);
+        Ok(())
+    }
+
+    pub fn drag_and_hold(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+        to: Point<Pixels>,
+    ) -> Result<(), HarnessError> {
         let from = self.center(cx, selector)?;
         let mut visual = VisualTestContext::from_window(self.window, cx);
         visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
         visual.simulate_mouse_move(from + point(px(4.0), px(0.0)), MouseButton::Left, Modifiers::default());
         visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
-        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
-        self.draw(cx);
         Ok(())
+    }
+
+    pub fn release(&self, cx: &mut TestAppContext, at: Point<Pixels>) {
+        VisualTestContext::from_window(self.window, cx).simulate_mouse_up(at, MouseButton::Left, Modifiers::default());
+        self.draw(cx);
     }
 
     pub fn scroll(
