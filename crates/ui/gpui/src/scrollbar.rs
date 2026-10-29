@@ -165,7 +165,8 @@ fn scroll_fraction(list: &ListState) -> f32 {
 }
 
 fn set_scroll_fraction(list: &ListState, fraction: f32) {
-    list.set_offset_from_scrollbar(point(px(0.0), -list.max_offset_for_scrollbar().y * fraction));
+    let offset = if fraction >= 1.0 { Pixels::MAX } else { list.max_offset_for_scrollbar().y * fraction };
+    list.set_offset_from_scrollbar(point(px(0.0), -offset));
 }
 
 fn set_offset_from_pointer(

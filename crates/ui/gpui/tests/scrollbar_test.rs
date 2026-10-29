@@ -3,7 +3,7 @@ use clankerdiff_gpui_ui::{
     testing::ComponentHarnessBuilder,
 };
 use clankerdiff_ui_core::ReviewTheme;
-use gpui::{AnyElement, ListAlignment, ListState, TestAppContext, div, list, point, prelude::*, px};
+use gpui::{AnyElement, FollowMode, ListAlignment, ListState, TestAppContext, div, list, point, prelude::*, px};
 use std::{cell::Cell, rc::Rc};
 
 #[gpui::test]
@@ -118,6 +118,29 @@ fn releasing_the_thumb_keeps_it_where_it_was_dropped_when_rows_grow_during_the_d
             assert!(!rows.is_scrollbar_dragging());
             let released = fraction(&rows);
             assert!((released - dropped).abs() < 0.01, "dropped at {dropped}, released at {released}");
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn dragging_a_padded_lists_thumb_to_the_bottom_resumes_following_its_tail(cx: &mut TestAppContext) {
+    let rows = ListState::new(100, ListAlignment::Top, px(0.0)).measure_all();
+    rows.set_follow_mode(FollowMode::Tail);
+    let rendered = rows.clone();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            let rows = list(rendered.clone(), |_, _, _| div().h(px(40.0)).into_any_element()).py(px(24.0));
+            scrolled_beside(&rendered, 0, rows)
+        },
+        |harness, cx| {
+            let track = harness.bounds(cx, "scrollbar-0").ok_or("missing scrollbar")?;
+            harness.drag(cx, "scrollbar-0-thumb", point(track.center().x, track.top()))?;
+            assert!(!rows.is_following_tail(), "dragging away from the end stops following");
+
+            harness.drag(cx, "scrollbar-0-thumb", point(track.center().x, track.bottom()))?;
+            assert!(rows.is_following_tail(), "dragging back to the end follows again");
             Ok(())
         },
     );
