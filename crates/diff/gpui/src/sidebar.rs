@@ -10,8 +10,9 @@ use crate::{
     viewer::{MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH},
 };
 use clankerdiff_core::{DiffReviewCommand, FileTreeEntry, StageState};
-use gpui::{Context, PathBuilder, Role, canvas, div, point, prelude::*, px};
+use gpui::{AnyElement, Context, PathBuilder, Role, canvas, div, point, prelude::*, px, uniform_list};
 use gpui_base::{Checkbox, CheckboxIndicator, CheckboxState};
+use std::ops::Range;
 
 impl DiffViewer {
     pub(crate) fn render_sidebar_toggle(&self, cx: &mut Context<Self>) -> IconButton {
@@ -98,30 +99,22 @@ impl DiffViewer {
     pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> ResizablePanel {
         let theme = self.ui_theme();
         let colors = theme.colors;
-        let mut rows = div()
+        let rows = div()
             .id("diff-files")
             .debug_selector(|| "diff-files".to_owned())
             .role(Role::Tree)
             .flex_1()
             .min_h_0()
-            .overflow_y_scroll()
-            .track_scroll(&self.sidebar_scroll_handle)
             .p_1()
-            .flex()
-            .flex_col();
-
-        let selected = self.sidebar_tree.selected_position();
-        for (position, entry) in self.sidebar_tree.entries().iter().enumerate() {
-            let selected = selected == Some(position);
-            match entry.file {
-                None => rows = rows.child(self.render_directory_row(position, entry, selected, cx)),
-                Some(index) => {
-                    if let Some(row) = self.render_file_row(index, entry, selected, cx) {
-                        rows = rows.child(row);
-                    }
-                }
-            }
-        }
+            .child(
+                uniform_list(
+                    "diff-file-rows",
+                    self.sidebar_tree.entries().len(),
+                    cx.processor(|viewer, range: Range<usize>, _window, cx| viewer.render_sidebar_rows(range, cx)),
+                )
+                .size_full()
+                .track_scroll(&self.sidebar_scroll_handle),
+            );
 
         let viewer = cx.entity().downgrade();
         let reset = viewer.clone();
@@ -137,6 +130,22 @@ impl DiffViewer {
             .bg(colors.surface)
             .when(self.pane == ViewerPane::Files, |panel| panel.border_color(colors.accent))
             .child(rows)
+    }
+
+    fn render_sidebar_rows(&mut self, range: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        self.sidebar_rendered_rows = range.clone();
+        let selected = self.sidebar_tree.selected_position();
+        let entries = self.sidebar_tree.entries();
+        range
+            .filter_map(|position| {
+                let entry = entries.get(position)?;
+                let selected = selected == Some(position);
+                match entry.file {
+                    None => Some(self.render_directory_row(position, entry, selected, cx).into_any_element()),
+                    Some(index) => self.render_file_row(index, entry, selected, cx).map(IntoElement::into_any_element),
+                }
+            })
+            .collect()
     }
 
     fn render_directory_row(

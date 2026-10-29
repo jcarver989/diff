@@ -170,6 +170,11 @@ impl DiffViewerHarness {
     }
 
     #[must_use]
+    pub fn selected_file(&self, cx: &TestAppContext) -> Option<usize> {
+        self.read(cx, |viewer, _| viewer.selected_file())
+    }
+
+    #[must_use]
     pub fn selected_row(&self, cx: &TestAppContext) -> Option<usize> {
         self.read(cx, |viewer, _| viewer.session().selected_row())
     }

@@ -18,6 +18,11 @@ pub fn advance_clock(cx: &mut TestAppContext, duration: Duration) {
     }
 }
 
+#[must_use]
+pub fn selector(name: String) -> &'static str {
+    Box::leak(name.into_boxed_str())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum HarnessError {
     #[error("no painted element is tagged `{0}`")]
