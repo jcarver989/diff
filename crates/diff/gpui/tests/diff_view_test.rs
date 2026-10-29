@@ -7,6 +7,7 @@ use clankerdiff_gpui::{
     ViewModeChanged,
     testing::{DiffViewerHarness, DiffViewerHarnessBuilder},
 };
+use clankerdiff_gpui_ui::testing::selector;
 use gpui::{ScrollDelta, TestAppContext, point, px};
 use std::{cell::RefCell, rc::Rc};
 
@@ -277,8 +278,8 @@ fn gaps_expand_from_their_gutter_button_and_only_select_from_the_rule(cx: &mut T
             })
             .ok_or("gap between hunks")?;
         let before = hidden(harness, cx);
-        let rule: &'static str = Box::leak(format!("diff-gap:{gap}").into_boxed_str());
-        let button: &'static str = Box::leak(format!("diff-gap-expand-{gap}").into_boxed_str());
+        let rule = selector(format!("diff-gap:{gap}"));
+        let button = selector(format!("diff-gap-expand-{gap}"));
         assert!(harness.bounds(cx, button).is_some());
         harness.click(cx, rule)?;
         assert_eq!(harness.selected_row(cx), Some(gap));

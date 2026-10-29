@@ -4,7 +4,7 @@ use clankerdiff_core::{
     CommandContext, DiffReviewCommand, InteractionPhase, RepositoryAction, ReviewCapabilities, ReviewCommand,
     ReviewSession,
 };
-use gpui::{Context, ListOffset, Window, px};
+use gpui::{Context, ListOffset, ScrollStrategy, Window, px};
 
 impl DiffViewer {
     #[must_use]
@@ -223,9 +223,10 @@ impl DiffViewer {
                 cx.emit(DiffViewerEvent::CopyFormattedReview(self.session.submission().formatted));
                 return true;
             }
-            C::Scroll { pane: ViewerPane::Files, lines } => self
-                .sidebar_scroll_handle
-                .scroll_to_item(self.sidebar_scroll_handle.top_item().saturating_add_signed(lines)),
+            C::Scroll { pane: ViewerPane::Files, lines } => self.sidebar_scroll_handle.scroll_to_item_strict(
+                self.sidebar_visible_rows().start.saturating_add_signed(lines),
+                ScrollStrategy::Top,
+            ),
             C::Scroll { pane: ViewerPane::Diff, lines } => {
                 let top = self.diff_list_state.logical_scroll_top();
                 self.diff_list_state.scroll_to(ListOffset {

@@ -28,7 +28,8 @@ use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHigh
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use gpui::{
     Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, ListAlignment,
-    ListOffset, ListState, Pixels, Rems, ScrollHandle, Subscription, Task, Window, actions, div, prelude::*, px, rems,
+    ListOffset, ListState, Pixels, Rems, ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window, actions,
+    div, prelude::*, px, rems,
 };
 use std::sync::Arc;
 
@@ -107,7 +108,7 @@ pub struct DiffViewer {
     diff_list_split: bool,
     diff_viewport: Option<DiffViewportBookmark>,
     pub(crate) sidebar_tree: FileTree,
-    pub(crate) sidebar_scroll_handle: ScrollHandle,
+    pub(crate) sidebar_scroll_handle: UniformListScrollHandle,
     pub(crate) pane: ViewerPane,
     pub(crate) comment_target: Option<CommentTarget>,
     pub(crate) comment_editor: Option<Entity<CommentEditor>>,
@@ -159,7 +160,7 @@ impl DiffViewer {
             diff_list_split: false,
             diff_viewport: None,
             sidebar_tree,
-            sidebar_scroll_handle: ScrollHandle::new(),
+            sidebar_scroll_handle: UniformListScrollHandle::new(),
             pane: ViewerPane::Diff,
             comment_target: None,
             comment_editor: None,
@@ -847,7 +848,7 @@ impl DiffViewer {
 
     fn reveal_sidebar_selection(&self) {
         if let Some(index) = self.sidebar_tree.selected_position() {
-            self.sidebar_scroll_handle.scroll_to_item(index);
+            self.sidebar_scroll_handle.scroll_to_item(index, ScrollStrategy::Nearest);
         }
     }
 
@@ -882,14 +883,7 @@ impl DiffViewer {
                 let height = self.diff_list_state.viewport_bounds().size.height;
                 (height / self.diff_row_height()).floor().max(1.0) as isize
             }
-            ViewerPane::Files => self
-                .sidebar_scroll_handle
-                .bottom_item()
-                .saturating_sub(self.sidebar_scroll_handle.top_item())
-                .saturating_add(1)
-                .max(1)
-                .try_into()
-                .unwrap_or(isize::MAX),
+            ViewerPane::Files => self.sidebar_visible_rows().len().max(1).try_into().unwrap_or(isize::MAX),
         };
         self.move_item(direction.saturating_mul(rows), cx);
     }
