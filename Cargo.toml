@@ -1,6 +1,5 @@
 [workspace]
 members = ["crates/util/*", "crates/ui/*", "crates/diff/*"]
-exclude = ["patches/gpui"]
 resolver = "3"
 
 [workspace.package]
@@ -95,7 +94,4 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
-
-[patch.crates-io]
-gpui-pre = { path = "patches/gpui" }
 

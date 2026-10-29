@@ -1973,6 +1973,7 @@ dependencies = [
  "gpui-base",
  "gpui-pre",
  "thiserror 2.0.21",
+ "web-time",
 ]
 
 [[package]]
@@ -3733,6 +3734,8 @@ dependencies = [
 [[package]]
 name = "gpui-pre"
 version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e87a42bb37c7cb4e76dd1ac0ce88851e46e976e0373a47ab3e0757abffee54d"
 dependencies = [
  "accesskit",
  "anyhow",

@@ -196,7 +196,7 @@ fn toolbar_groups(toolbar: &Toolbar, theme: &RatatuiTheme) -> Vec<Group> {
     }
     groups.push(Group::new(4, toolbar.layouts.iter().map(button).collect()).right());
     if let Some(stat) = toolbar.stat {
-        let spans = [vec![Span::raw("  ")], stat_spans(stat.added, stat.deleted, theme).to_vec(), vec![Span::raw(" ")]];
+        let spans = [vec![Span::raw("  ")], stat_spans(stat, theme).to_vec(), vec![Span::raw(" ")]];
         groups.push(Group::new(1, vec![Item::Text(spans.concat())]).right());
     }
     groups

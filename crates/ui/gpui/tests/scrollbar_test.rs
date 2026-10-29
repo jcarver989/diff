@@ -1,9 +1,10 @@
 use clankerdiff_gpui_ui::{
-    prelude::{ListScrollbar, UiTheme},
+    prelude::{ListScrollbar, UiTheme, uniform_height_hints},
     testing::ComponentHarnessBuilder,
 };
 use clankerdiff_ui_core::ReviewTheme;
-use gpui::{AnyElement, ListAlignment, ListState, TestAppContext, div, list, point, prelude::*, px};
+use gpui::{AnyElement, FollowMode, ListAlignment, ListState, TestAppContext, div, list, point, prelude::*, px};
+use std::{cell::Cell, rc::Rc};
 
 #[gpui::test]
 fn a_list_that_fits_its_viewport_has_no_scrollbar(cx: &mut TestAppContext) {
@@ -87,26 +88,118 @@ fn dragging_one_scrollbar_leaves_another_list_alone(cx: &mut TestAppContext) {
     );
 }
 
+#[gpui::test]
+fn releasing_the_thumb_keeps_it_where_it_was_dropped_when_rows_grow_during_the_drag(cx: &mut TestAppContext) {
+    let rows = ListState::new(100, ListAlignment::Top, px(0.0)).measure_all();
+    let grown = Rc::new(Cell::new(false));
+    let (rendered, rendered_grown) = (rows.clone(), grown.clone());
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            let grown = rendered_grown.clone();
+            let height = move |index| if index == 90 && grown.get() { px(440.0) } else { px(40.0) };
+            scrolled_beside(
+                &rendered,
+                0,
+                list(rendered.clone(), move |index, _, _| div().h(height(index)).into_any_element()),
+            )
+        },
+        |harness, cx| {
+            let track = harness.bounds(cx, "scrollbar-0").ok_or("missing scrollbar")?;
+            harness.drag_and_hold(cx, "scrollbar-0-thumb", track.center())?;
+            let dropped = fraction(&rows);
+            assert!((dropped - 0.5).abs() < 0.01, "dragged to {dropped}");
+
+            grown.set(true);
+            rows.remeasure_items(90..91);
+            harness.draw(cx);
+            harness.release(cx, track.center());
+
+            assert!(!rows.is_scrollbar_dragging());
+            let released = fraction(&rows);
+            assert!((released - dropped).abs() < 0.01, "dropped at {dropped}, released at {released}");
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn dragging_a_padded_lists_thumb_to_the_bottom_resumes_following_its_tail(cx: &mut TestAppContext) {
+    let rows = ListState::new(100, ListAlignment::Top, px(0.0)).measure_all();
+    rows.set_follow_mode(FollowMode::Tail);
+    let rendered = rows.clone();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            let rows = list(rendered.clone(), |_, _, _| div().h(px(40.0)).into_any_element()).py(px(24.0));
+            scrolled_beside(&rendered, 0, rows)
+        },
+        |harness, cx| {
+            let track = harness.bounds(cx, "scrollbar-0").ok_or("missing scrollbar")?;
+            harness.drag(cx, "scrollbar-0-thumb", point(track.center().x, track.top()))?;
+            assert!(!rows.is_following_tail(), "dragging away from the end stops following");
+
+            harness.drag(cx, "scrollbar-0-thumb", point(track.center().x, track.bottom()))?;
+            assert!(rows.is_following_tail(), "dragging back to the end follows again");
+            Ok(())
+        },
+    );
+}
+
+#[gpui::test]
+fn height_hints_keep_unmeasured_rows_in_the_scroll_range_when_the_width_changes(cx: &mut TestAppContext) {
+    let rows = ListState::new(100, ListAlignment::Top, px(0.0)).with_uniform_item_height(px(40.0));
+    let rendered = rows.clone();
+    ComponentHarnessBuilder::default().run(
+        cx,
+        move |_, _| {
+            div()
+                .relative()
+                .size_full()
+                .child(list(rendered.clone(), |_, _, _| div().h(px(40.0)).into_any_element()).size_full())
+                .child(uniform_height_hints(rendered.clone(), px(40.0)))
+                .into_any_element()
+        },
+        |harness, cx| {
+            let before = rows.max_offset_for_scrollbar().y;
+            assert_eq!(before, px(100.0 * 40.0 - 600.0));
+
+            harness.resize(cx, 700.0, 600.0);
+
+            assert_eq!(rows.max_offset_for_scrollbar().y, before);
+            Ok(())
+        },
+    );
+}
+
 fn layout(lists: &[ListState]) -> AnyElement {
-    let theme = UiTheme::new(&ReviewTheme::default());
     div()
         .size_full()
         .flex()
         .children(lists.iter().enumerate().map(|(index, rows)| {
-            div()
-                .flex_1()
-                .h_full()
-                .flex()
-                .child(list(rows.clone(), |_, _, _| div().h(px(40.0)).into_any_element()).flex_1().h_full())
-                .child(ListScrollbar::new(
-                    gpui::ElementId::Name(format!("scrollbar-{index}").into()),
-                    rows.clone(),
-                    theme,
-                ))
+            scrolled_beside(rows, index, list(rows.clone(), |_, _, _| div().h(px(40.0)).into_any_element()))
         }))
+        .into_any_element()
+}
+
+fn scrolled_beside(rows: &ListState, index: usize, list: gpui::List) -> AnyElement {
+    div()
+        .flex_1()
+        .h_full()
+        .flex()
+        .child(list.flex_1().h_full())
+        .child(ListScrollbar::new(
+            gpui::ElementId::Name(format!("scrollbar-{index}").into()),
+            rows.clone(),
+            UiTheme::new(&ReviewTheme::default()),
+        ))
         .into_any_element()
 }
 
 fn offset(rows: &ListState) -> gpui::Pixels {
     -rows.scroll_px_offset_for_scrollbar().y
+}
+
+fn fraction(rows: &ListState) -> f32 {
+    offset(rows) / rows.max_offset_for_scrollbar().y
 }

@@ -4,7 +4,7 @@ use crate::{
 };
 use gpui::{
     App, DragMoveEvent, ElementId, Empty, IntoElement, ListState, MouseButton, MouseDownEvent, Pixels, RenderOnce,
-    Window, div, point, prelude::*, px,
+    Window, canvas, div, point, prelude::*, px,
 };
 use std::cell::Cell;
 
@@ -29,7 +29,6 @@ impl ListScrollbar {
 impl RenderOnce for ListScrollbar {
     fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let list = self.list;
-        let max_offset = list.max_offset_for_scrollbar().y;
         let viewport_height = list.viewport_bounds().size.height;
         if viewport_height <= px(0.0) {
             // The list lays out after its first paint; draw again once its viewport is known.
@@ -38,15 +37,13 @@ impl RenderOnce for ListScrollbar {
             }
             return Empty.into_any_element();
         }
-        if max_offset <= px(0.0) {
+        if list.max_offset_for_scrollbar().y <= px(0.0) {
             return Empty.into_any_element();
         }
 
-        let current_offset = -list.scroll_px_offset_for_scrollbar().y;
         let min_thumb_height = rem(SCROLLBAR_MIN_THUMB_HEIGHT).to_pixels(window.rem_size());
         let thumb_height = thumb_height(viewport_height, min_thumb_height);
-        let scroll_fraction = (current_offset / max_offset).clamp(0.0, 1.0);
-        let thumb_top = (viewport_height - thumb_height) * scroll_fraction;
+        let thumb_top = (viewport_height - thumb_height) * scroll_fraction(&list);
         let colors = self.theme.colors;
         let selector = self.id.to_string();
         let thumb_selector = format!("{selector}-thumb");
@@ -55,7 +52,7 @@ impl RenderOnce for ListScrollbar {
             thumb_offset: Cell::new(px(0.0)),
             min_thumb_height,
             list: list.clone(),
-            started: Cell::new(false),
+            fraction: Cell::new(None),
         };
         let scrollbar = self.id.clone();
         let click_list = list.clone();
@@ -77,12 +74,14 @@ impl RenderOnce for ListScrollbar {
                 if drag.scrollbar != scrollbar {
                     return;
                 }
-                set_offset_from_pointer(
+                if let Some(fraction) = set_offset_from_pointer(
                     &drag.list,
                     event.event.position.y,
                     drag.thumb_offset.get(),
                     drag.min_thumb_height,
-                );
+                ) {
+                    drag.fraction.set(Some(fraction));
+                }
                 window.refresh();
             })
             .child(
@@ -108,6 +107,20 @@ impl RenderOnce for ListScrollbar {
     }
 }
 
+#[must_use]
+pub fn uniform_height_hints(list: ListState, height: Pixels) -> impl IntoElement {
+    let laid_out_width = list.viewport_bounds().size.width;
+    canvas(
+        move |_, _, _| {
+            if list.viewport_bounds().size.width != laid_out_width {
+                list.with_uniform_item_height(height);
+            }
+        },
+        |_, (), _, _| {},
+    )
+    .absolute()
+}
+
 const SCROLLBAR_THUMB_WIDTH: f32 = 6.0;
 const SCROLLBAR_INSET: f32 = 3.0;
 const THUMB_REST_OPACITY: f32 = 0.4;
@@ -117,21 +130,22 @@ struct ScrollbarDrag {
     thumb_offset: Cell<Pixels>,
     min_thumb_height: Pixels,
     list: ListState,
-    started: Cell<bool>,
+    fraction: Cell<Option<f32>>,
 }
 
 impl ScrollbarDrag {
     fn start(&self, thumb_offset: Pixels) {
         self.thumb_offset.set(thumb_offset);
         self.list.scrollbar_drag_started();
-        self.started.set(true);
+        self.fraction.set(Some(scroll_fraction(&self.list)));
     }
 }
 
 impl Drop for ScrollbarDrag {
     fn drop(&mut self) {
-        if self.started.get() {
+        if let Some(fraction) = self.fraction.get() {
             self.list.scrollbar_drag_ended();
+            set_scroll_fraction(&self.list, fraction);
         }
     }
 }
@@ -142,15 +156,34 @@ fn thumb_height(viewport_height: Pixels, min_thumb_height: Pixels) -> Pixels {
     min_thumb_height.min(viewport_height / 2.0)
 }
 
-fn set_offset_from_pointer(list: &ListState, pointer_y: Pixels, thumb_offset: Pixels, min_thumb_height: Pixels) {
+fn scroll_fraction(list: &ListState) -> f32 {
+    let max_offset = list.max_offset_for_scrollbar().y;
+    if max_offset <= px(0.0) {
+        return 0.0;
+    }
+    (-list.scroll_px_offset_for_scrollbar().y / max_offset).clamp(0.0, 1.0)
+}
+
+fn set_scroll_fraction(list: &ListState, fraction: f32) {
+    let offset = if fraction >= 1.0 { Pixels::MAX } else { list.max_offset_for_scrollbar().y * fraction };
+    list.set_offset_from_scrollbar(point(px(0.0), -offset));
+}
+
+fn set_offset_from_pointer(
+    list: &ListState,
+    pointer_y: Pixels,
+    thumb_offset: Pixels,
+    min_thumb_height: Pixels,
+) -> Option<f32> {
     let viewport = list.viewport_bounds();
     let max_offset = list.max_offset_for_scrollbar().y;
     let thumb_height = thumb_height(viewport.size.height, min_thumb_height);
     let track_space = viewport.size.height - thumb_height;
     if max_offset <= px(0.0) || track_space <= px(0.0) {
-        return;
+        return None;
     }
 
-    let thumb_top = (pointer_y - viewport.origin.y - thumb_offset).clamp(px(0.0), track_space);
-    list.set_offset_from_scrollbar(point(px(0.0), -max_offset * (thumb_top / track_space)));
+    let fraction = (pointer_y - viewport.origin.y - thumb_offset).clamp(px(0.0), track_space) / track_space;
+    set_scroll_fraction(list, fraction);
+    Some(fraction)
 }

@@ -5,9 +5,23 @@ use gpui::{
     ScrollWheelEvent, TestAppContext, VisualTestContext, Window, WindowBounds, WindowHandle, WindowOptions, div, point,
     prelude::*, px, size,
 };
-use std::{error::Error, ops::Deref};
+use std::{error::Error, ops::Deref, time::Duration};
 
 type RenderFn = Box<dyn Fn(&mut Window, &mut App) -> AnyElement + 'static>;
+
+const CLOCK_STEP: Duration = Duration::from_millis(10);
+
+pub fn advance_clock(cx: &mut TestAppContext, duration: Duration) {
+    for _ in 0..duration.as_millis() / CLOCK_STEP.as_millis() {
+        cx.executor().advance_clock(CLOCK_STEP);
+        cx.run_until_parked();
+    }
+}
+
+#[must_use]
+pub fn selector(name: String) -> &'static str {
+    Box::leak(name.into_boxed_str())
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum HarnessError {
@@ -78,14 +92,28 @@ impl WindowDriver {
     }
 
     pub fn drag(&self, cx: &mut TestAppContext, selector: &'static str, to: Point<Pixels>) -> Result<(), HarnessError> {
+        self.drag_and_hold(cx, selector, to)?;
+        self.release(cx, to);
+        Ok(())
+    }
+
+    pub fn drag_and_hold(
+        &self,
+        cx: &mut TestAppContext,
+        selector: &'static str,
+        to: Point<Pixels>,
+    ) -> Result<(), HarnessError> {
         let from = self.center(cx, selector)?;
         let mut visual = VisualTestContext::from_window(self.window, cx);
         visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
         visual.simulate_mouse_move(from + point(px(4.0), px(0.0)), MouseButton::Left, Modifiers::default());
         visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
-        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
-        self.draw(cx);
         Ok(())
+    }
+
+    pub fn release(&self, cx: &mut TestAppContext, at: Point<Pixels>) {
+        VisualTestContext::from_window(self.window, cx).simulate_mouse_up(at, MouseButton::Left, Modifiers::default());
+        self.draw(cx);
     }
 
     pub fn scroll(
@@ -183,10 +211,12 @@ impl WindowDriver {
 
 struct HarnessRoot {
     render: RenderFn,
+    renders: usize,
 }
 
 impl Render for HarnessRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.renders += 1;
         InterfaceSize::apply(window, cx);
         div().size_full().child((self.render)(window, cx))
     }
@@ -231,22 +261,37 @@ impl ComponentHarnessBuilder {
             ..WindowOptions::default()
         };
         let window: WindowHandle<HarnessRoot> = cx.update(|cx| {
-            cx.open_window(options, |_, cx| cx.new(|_| HarnessRoot { render: Box::new(render) }))
+            cx.open_window(options, |_, cx| cx.new(|_| HarnessRoot { render: Box::new(render), renders: 0 }))
                 .expect("open GPUI test window")
         });
-        let harness = ComponentHarness(WindowDriver::new(window));
+        let harness = ComponentHarness { driver: WindowDriver::new(window), root: window };
         harness.draw(cx);
         harness
     }
 }
 
-pub struct ComponentHarness(WindowDriver);
+pub struct ComponentHarness {
+    driver: WindowDriver,
+    root: WindowHandle<HarnessRoot>,
+}
+
+impl ComponentHarness {
+    pub fn renders_over(&self, cx: &mut TestAppContext, duration: Duration) -> usize {
+        let before = self.renders(cx);
+        advance_clock(cx, duration);
+        self.renders(cx) - before
+    }
+
+    fn renders(&self, cx: &TestAppContext) -> usize {
+        self.root.read_with(cx, |root, _| root.renders).expect("read the GPUI test root")
+    }
+}
 
 impl Deref for ComponentHarness {
     type Target = WindowDriver;
 
     fn deref(&self) -> &WindowDriver {
-        &self.0
+        &self.driver
     }
 }
 

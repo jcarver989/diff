@@ -28,7 +28,6 @@ fn main() -> ExitCode {
 fn workspace() -> Workspace {
     Workspace::new()
         .members(["crates/util/*", "crates/ui/*", "crates/diff/*"])
-        .exclude(["patches/gpui"])
         .extra_manifests(["tests/consumer-fixture/Cargo.toml"])
         .repository("https://github.com/jcarver989/diff")
 }

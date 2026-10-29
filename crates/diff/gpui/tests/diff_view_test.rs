@@ -7,6 +7,7 @@ use clankerdiff_gpui::{
     ViewModeChanged,
     testing::{DiffViewerHarness, DiffViewerHarnessBuilder},
 };
+use clankerdiff_gpui_ui::testing::selector;
 use gpui::{ScrollDelta, TestAppContext, point, px};
 use std::{cell::RefCell, rc::Rc};
 
@@ -54,7 +55,7 @@ fn wheel_scrolling_crosses_files_without_changing_selection_or_draft(cx: &mut Te
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         assert!(harness.bounds(cx, "diff-active-file:1").is_some());
         assert_eq!(harness.selected_row(cx), selected);
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(0));
+        assert_eq!(harness.selected_file(cx), Some(0));
         assert_eq!(harness.draft_body(cx), body);
         assert!(harness.comment_focused(cx)?);
         harness.simulate_input(cx, " still editing");
@@ -192,7 +193,7 @@ fn the_sidebar_follows_the_top_file_without_expanding_collapsed_directories(cx: 
         }
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(1));
         assert!(harness.dispatch_command(cx, DiffReviewCommand::MoveSelection(1))?);
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(2));
+        assert_eq!(harness.selected_file(cx), Some(2));
         Ok(())
     });
 }
@@ -245,7 +246,7 @@ fn clicking_a_file_divider_selects_that_file(cx: &mut TestAppContext) {
     }
     .run(cx, |harness, cx| {
         harness.click(cx, "diff-file-header:1")?;
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(1));
+        assert_eq!(harness.selected_file(cx), Some(1));
         Ok(())
     });
 }
@@ -277,8 +278,8 @@ fn gaps_expand_from_their_gutter_button_and_only_select_from_the_rule(cx: &mut T
             })
             .ok_or("gap between hunks")?;
         let before = hidden(harness, cx);
-        let rule: &'static str = Box::leak(format!("diff-gap:{gap}").into_boxed_str());
-        let button: &'static str = Box::leak(format!("diff-gap-expand-{gap}").into_boxed_str());
+        let rule = selector(format!("diff-gap:{gap}"));
+        let button = selector(format!("diff-gap-expand-{gap}"));
         assert!(harness.bounds(cx, button).is_some());
         harness.click(cx, rule)?;
         assert_eq!(harness.selected_row(cx), Some(gap));
@@ -305,7 +306,7 @@ fn file_header_chevrons_collapse_and_expand_a_file(cx: &mut TestAppContext) {
         assert!(harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
         assert_eq!(file_rows(harness, cx, 0), 1);
         assert!(harness.bounds(cx, "diff-file-header:1").is_some());
-        assert_eq!(harness.read(cx, |viewer, _| viewer.selected_file()), Some(0));
+        assert_eq!(harness.selected_file(cx), Some(0));
         harness.click(cx, "diff-file-collapse:0")?;
         assert!(!harness.read(cx, |viewer, _| viewer.session().is_file_collapsed(0)));
         assert_eq!(file_rows(harness, cx, 0), expanded);

@@ -24,7 +24,6 @@
       "keys": [
         "workspace.resolver",
         "workspace.members",
-        "workspace.exclude",
         "workspace.package.edition",
         "workspace.package.license",
         "workspace.package.repository",
@@ -35,7 +34,6 @@
         "workspace.dependencies.gpui",
         "workspace.dependencies.gpui_platform",
         "workspace.dependencies.gpui-base",
-        "patch.crates-io.gpui-pre",
         "workspace.dependencies.gpui_web",
         "workspace.dependencies.clankerdiff-fingerprint.path",
         "workspace.dependencies.clankerdiff-remote.path",

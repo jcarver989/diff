@@ -1,7 +1,7 @@
 //! Conversion from renderer-neutral diff styles to GPUI styles.
 
 use crate::ui::typography::{Typography, TypographyExt};
-use clankerdiff_core::FileStatus;
+use clankerdiff_core::{FileStatus, LineStat};
 pub(crate) use clankerdiff_gpui_ui::theme::color;
 use clankerdiff_syntax::HighlightSpan;
 use clankerdiff_ui_core::{DiffPalette, FontStyle, Rgba};
@@ -41,17 +41,17 @@ pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette)
 }
 
 #[must_use]
-pub fn stat_badges(palette: &DiffPalette, additions: usize, deletions: usize) -> [Div; 2] {
+pub fn stat_badges(palette: &DiffPalette, stat: LineStat) -> [Div; 2] {
     [
         div()
             .flex_shrink_0()
             .typography(Typography::Code)
             .text_color(color(palette.addition))
-            .child(format!("+{additions}")),
+            .child(format!("+{}", stat.added)),
         div()
             .flex_shrink_0()
             .typography(Typography::Code)
             .text_color(color(palette.deletion))
-            .child(format!("−{deletions}")),
+            .child(format!("−{}", stat.deleted)),
     ]
 }

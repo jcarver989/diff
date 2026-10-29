@@ -1,7 +1,7 @@
 //! Ratatui conversions for renderer-neutral diff themes.
 
 use crate::color::{composite_color, native_color, page_color};
-use clankerdiff_core::{DiffTone, FileStatus};
+use clankerdiff_core::{DiffTone, FileStatus, LineStat};
 use clankerdiff_ui_core::{
     ButtonVariant, ControlState, ModalSize, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle, UiPalette,
 };
@@ -167,10 +167,10 @@ pub(crate) const fn file_status_color(status: FileStatus, theme: &RatatuiTheme) 
     }
 }
 
-pub(crate) fn stat_spans(added: usize, deleted: usize, theme: &RatatuiTheme) -> [Span<'static>; 3] {
+pub(crate) fn stat_spans(stat: LineStat, theme: &RatatuiTheme) -> [Span<'static>; 3] {
     [
-        Span::styled(format!("+{added}"), Style::new().fg(theme.addition)),
+        Span::styled(format!("+{}", stat.added), Style::new().fg(theme.addition)),
         Span::raw(" "),
-        Span::styled(format!("−{deleted}"), Style::new().fg(theme.deletion)),
+        Span::styled(format!("−{}", stat.deleted), Style::new().fg(theme.deletion)),
     ]
 }
