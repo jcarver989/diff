@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.7.1...clankerdiff-ratatui-v0.8.0) - 2026-10-29
+
+### Added
+
+- drop the gpui patch, add a Waveform indicator, virtualize the sidebar ([#122](https://github.com/jcarver989/diff/pull/122))
+
 ## [0.7.1](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.7.0...clankerdiff-ratatui-v0.7.1) - 2026-10-29
 
 ### Fixed
