@@ -25,9 +25,11 @@ clankerdiff-gpui.workspace = true
 clankerdiff-gpui-shell.workspace = true
 gpui.workspace = true
 gpui-base.workspace = true
+log = { workspace = true, features = ["release_max_level_info"] }
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing = { workspace = true, features = ["release_max_level_info"] }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -12,6 +12,8 @@ mod hooks;
 mod language_catalog;
 #[cfg(feature = "daemon")]
 mod language_server;
+#[cfg(feature = "daemon")]
+mod log_file;
 mod pending_requests;
 mod protocol;
 #[cfg(feature = "test-support")]

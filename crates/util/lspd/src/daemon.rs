@@ -225,15 +225,19 @@ pub use entry::run_if_requested;
 
 mod entry {
     use super::{DaemonError, LspDaemon, SpawnOptions, Timeouts};
+    use crate::log_file::LogFile;
     use clap::Parser;
-    use std::fs::{OpenOptions, create_dir_all};
     use std::path::PathBuf;
     use std::process::ExitCode;
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::select;
     use tokio::signal::unix::{SignalKind, signal};
     use tracing_subscriber::EnvFilter;
     use tracing_subscriber::fmt::writer::BoxMakeWriter;
+
+    const QUIET_DEPENDENCIES: &str = "globset=warn,ignore=warn,notify=warn";
+    const LOG_FILE_LIMIT: u64 = 10 * 1024 * 1024;
 
     #[derive(Debug, thiserror::Error)]
     enum RunError {
@@ -282,14 +286,12 @@ mod entry {
         let _ = nix::unistd::setsid();
         let idle_timeout = (args.idle_timeout > 0).then(|| Duration::from_secs(args.idle_timeout));
         let timeouts = Timeouts { request: Duration::from_secs(args.request_timeout), ..Timeouts::default() };
-        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&args.log_level));
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new(format!("{},{QUIET_DEPENDENCIES}", args.log_level)));
         let writer = match &args.log_file {
             Some(path) => {
-                if let Some(parent) = path.parent() {
-                    let _ = create_dir_all(parent);
-                }
-                let file = OpenOptions::new().create(true).append(true).open(path).map_err(RunError::LogFileOpen)?;
-                BoxMakeWriter::new(file)
+                let file = LogFile::open(path, LOG_FILE_LIMIT).map_err(RunError::LogFileOpen)?;
+                BoxMakeWriter::new(Arc::new(file))
             }
             None => BoxMakeWriter::new(std::io::stderr),
         };
