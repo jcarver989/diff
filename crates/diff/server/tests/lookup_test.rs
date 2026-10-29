@@ -2,8 +2,8 @@ mod support;
 
 use clankerdiff_client::{DiffClient, DiffScope};
 use clankerdiff_core::{
-    DefinitionRequest, DiffSide, Fingerprint, Lookup, LookupReply, LookupRequest, RepoPath, Resolution, SourceDocument,
-    SourceLocation, SourcePath,
+    DefinitionRequest, DefinitionTarget, DiffSide, Fingerprint, Lookup, LookupFailure, LookupReply, LookupRequest,
+    LookupStatus, LookupUnavailable, RepoPath, Resolution, SourceDocument, SourceLocation, SourcePath,
     testing::{external, location, repo, target},
 };
 use clankerdiff_git::testing::{RepoFixture, RepoFixtureBuilder};
@@ -11,6 +11,7 @@ use clankerdiff_lspd::{
     LanguageId,
     testing::{TestDaemon, TestWorkspace},
 };
+use clankerdiff_server::ServerOptions;
 use std::{error::Error, sync::Arc, time::Duration};
 use support::{TestServer, WAIT};
 use tokio::time::{sleep, timeout};
@@ -24,9 +25,11 @@ const EXTERNAL: &str = "// the standard library\npub struct u32;\n";
 async fn names_resolve_inside_the_diff_inside_the_repo_and_outside_it() -> Result<(), Box<dyn Error>> {
     let lookup = LookupFixture::start().await?;
 
-    let Resolution { targets, hover } = lookup.definition(location("src/lib.rs", 2)?, 15).await?;
+    let Resolution { targets, hover, status, current_version } =
+        lookup.definition(location("src/lib.rs", 2)?, 15).await?;
     assert_eq!(targets.iter().map(|target| target.location.clone()).collect::<Vec<_>>(), [target("src/lib.rs", 5)?]);
     assert!(hover.is_some_and(|hover| hover.contains("line=1; character=15")));
+    assert_eq!((status, current_version), (LookupStatus::Complete, false));
 
     let Resolution { targets, .. } = lookup.definition(location("src/lib.rs", 2)?, 4).await?;
     assert_eq!(targets[0].location, target("src/util.rs", 1)?);
@@ -55,7 +58,7 @@ async fn sources_outside_the_allowlist_are_refused() -> Result<(), Box<dyn Error
 }
 
 #[tokio::test]
-async fn names_the_language_server_cannot_answer_fall_back_to_matching_by_name() -> Result<(), Box<dyn Error>> {
+async fn lookups_no_language_server_can_answer_say_why() -> Result<(), Box<dyn Error>> {
     let lookup = LookupFixture::start().await?;
 
     let content = lookup.content("src/lib.rs")?;
@@ -64,37 +67,64 @@ async fn names_the_language_server_cannot_answer_fall_back_to_matching_by_name()
         column: 7,
         content,
     };
-    assert_eq!(lookup.answer(old).await?, Resolution::default());
-    assert_eq!(lookup.definition(location("notes.txt", 1)?, 0).await?, Resolution::default());
+    let unavailable = |reason| Resolution::unavailable(reason);
+    assert_eq!(lookup.answer(old).await?, unavailable(LookupUnavailable::NotInCurrentVersion));
+    let text = lookup.definition(location("notes.txt", 1)?, 0).await?;
+    assert_eq!(text, unavailable(LookupUnavailable::NoLanguageServer));
     Ok(())
 }
 
 #[tokio::test]
-async fn a_review_whose_code_differs_from_the_disk_is_not_sent_to_the_language_server() -> Result<(), Box<dyn Error>> {
+async fn a_reviewed_line_that_is_unchanged_on_disk_is_looked_up_in_the_current_version() -> Result<(), Box<dyn Error>> {
     let lookup = LookupFixture::start().await?;
-    lookup.fixture.repo.git(&["add", "src/lib.rs"]);
-    lookup.fixture.repo.write("src/lib.rs", format!("{CHANGED}// edited after staging\n"));
-    lookup.client.set_target(DiffScope::Staged).await?;
+    lookup.stage_then_write(&format!("// edited after staging\n{CHANGED}")).await?;
 
-    assert_eq!(lookup.definition(location("src/lib.rs", 2)?, 4).await?, Resolution::default());
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_language_server_that_never_initializes_times_out_within_the_lookup_budget() -> Result<(), Box<dyn Error>> {
-    let lookup = LookupFixture::start_with(&["--wedge-on", "initialize"]).await?;
-
-    assert_eq!(lookup.definition(location("src/lib.rs", 2)?, 4).await?, Resolution::default());
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_hover_that_never_answers_keeps_the_definitions() -> Result<(), Box<dyn Error>> {
-    let lookup = LookupFixture::start_with(&["--wedge-on", "textDocument/hover"]).await?;
-
-    let Resolution { targets, hover } = lookup.definition(location("src/lib.rs", 2)?, 4).await?;
+    let Resolution { targets, status, current_version, .. } = lookup.definition(location("src/lib.rs", 2)?, 4).await?;
     assert_eq!(targets.iter().map(|target| target.location.clone()).collect::<Vec<_>>(), [target("src/util.rs", 1)?]);
-    assert_eq!(hover, None);
+    assert_eq!((status, current_version), (LookupStatus::Complete, true));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_reviewed_line_that_changed_on_disk_is_not_sent_to_the_language_server() -> Result<(), Box<dyn Error>> {
+    let lookup = LookupFixture::start().await?;
+    lookup.stage_then_write(&CHANGED.replace("helper() + total()", "helper() * total()")).await?;
+
+    let resolution = lookup.definition(location("src/lib.rs", 2)?, 4).await?;
+    assert_eq!(resolution, Resolution::unavailable(LookupUnavailable::ChangedSinceReview));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_language_server_that_never_initializes_reports_a_timeout() -> Result<(), Box<dyn Error>> {
+    let options = ServerOptions { lookup_timeout: Duration::from_millis(500), ..ServerOptions::default() };
+    let lookup = LookupFixture::start_with(&["--wedge-on", "initialize"], options).await?;
+
+    let resolution = lookup.definition(location("src/lib.rs", 2)?, 4).await?;
+    assert_eq!(resolution, Resolution::failed(LookupFailure::TimedOut));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_hover_that_never_answers_keeps_the_definitions_without_waiting_out_the_timeout() -> Result<(), Box<dyn Error>>
+{
+    let lookup = LookupFixture::start_with(&["--wedge-on", "textDocument/hover"], ServerOptions::default()).await?;
+
+    let Resolution { targets, hover, status, .. } = lookup.definition(location("src/lib.rs", 2)?, 4).await?;
+    assert_eq!(targets.iter().map(|target| target.location.clone()).collect::<Vec<_>>(), [target("src/util.rs", 1)?]);
+    assert_eq!((hover, status), (None, LookupStatus::Complete));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_definition_that_never_answers_still_returns_the_hover() -> Result<(), Box<dyn Error>> {
+    let options = ServerOptions { lookup_timeout: Duration::from_secs(3), ..ServerOptions::default() };
+    let lookup = LookupFixture::start_with(&["--wedge-on", "textDocument/definition"], options).await?;
+
+    let Resolution { targets, hover, status, .. } = lookup.definition(location("src/lib.rs", 2)?, 4).await?;
+    assert_eq!(targets, NO_TARGETS);
+    assert!(hover.is_some_and(|hover| hover.contains("line=1; character=4")));
+    assert_eq!(status, LookupStatus::Failed(LookupFailure::TimedOut));
     Ok(())
 }
 
@@ -111,7 +141,7 @@ async fn rust_analyzer_resolves_std_names_into_the_sysroot() -> Result<(), Box<d
     let fixture = TestServer::open(repo).await?;
     let client = fixture.client().await?;
     let snapshot = client.state().snapshot.clone().ok_or("snapshot")?;
-    let request = DefinitionRequest::at(&snapshot, location("src/lib.rs", 4)?, 4).ok_or("a new-side name")?;
+    let request = DefinitionRequest::at(&snapshot, location("src/lib.rs", 4)?, 4)?;
     for _ in 0..120 {
         if let LookupReply::Definition { resolution, .. } = client.lookup(lookup(request.clone().into())).await
             && let Some(target) = resolution.targets.first()
@@ -127,6 +157,8 @@ async fn rust_analyzer_resolves_std_names_into_the_sysroot() -> Result<(), Box<d
     Err("rust-analyzer never resolved Arc".into())
 }
 
+const NO_TARGETS: [DefinitionTarget; 0] = [];
+
 struct LookupFixture {
     client: DiffClient,
     fixture: TestServer,
@@ -136,10 +168,10 @@ struct LookupFixture {
 
 impl LookupFixture {
     async fn start() -> Result<Self, Box<dyn Error>> {
-        Self::start_with(&[]).await
+        Self::start_with(&[], ServerOptions::default()).await
     }
 
-    async fn start_with(server_args: &[&str]) -> Result<Self, Box<dyn Error>> {
+    async fn start_with(server_args: &[&str], options: ServerOptions) -> Result<Self, Box<dyn Error>> {
         let repo = RepoFixtureBuilder::new()
             .file("Cargo.toml", "[package]\nname = \"lookups\"\nversion = \"0.1.0\"\n")
             .file("src/lib.rs", COMMITTED)
@@ -150,13 +182,29 @@ impl LookupFixture {
         repo.write("notes.txt", "helper\n");
         let external = TestWorkspace::new().file("sync.rs", EXTERNAL);
         let daemon = daemon(&repo, &external, server_args)?;
-        let fixture = TestServer::open(repo).await?;
+        let fixture = TestServer::open_with(repo, options).await?;
         let client = fixture.client().await?;
         client
             .subscribe()
             .wait_until(WAIT, |state| state.snapshot.as_ref().is_some_and(|snapshot| snapshot.files.len() == 2))
             .await?;
         Ok(Self { client, fixture, _daemon: daemon, _external: external })
+    }
+
+    async fn stage_then_write(&self, worktree: &str) -> Result<(), Box<dyn Error>> {
+        self.fixture.repo.git(&["add", "src/lib.rs"]);
+        self.fixture.repo.write("src/lib.rs", worktree);
+        self.client.set_target(DiffScope::Staged).await?;
+        let path = RepoPath::new("src/lib.rs")?;
+        self.client
+            .subscribe()
+            .wait_until(WAIT, |state| {
+                state.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot.source(&path, DiffSide::New).is_some_and(|source| source.text() == CHANGED)
+                })
+            })
+            .await?;
+        Ok(())
     }
 
     fn content(&self, path: &str) -> Result<Fingerprint, Box<dyn Error>> {
@@ -166,7 +214,7 @@ impl LookupFixture {
 
     async fn definition(&self, at: SourceLocation, column: usize) -> Result<Resolution, Box<dyn Error>> {
         let snapshot = self.client.state().snapshot.clone().ok_or("snapshot")?;
-        let request = DefinitionRequest::at(&snapshot, at, column).ok_or("a new-side name in the snapshot")?;
+        let request = DefinitionRequest::at(&snapshot, at, column)?;
         self.answer(request).await
     }
 

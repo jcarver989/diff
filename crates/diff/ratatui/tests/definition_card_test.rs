@@ -307,6 +307,35 @@ fn ctrl_hover_finds_names_on_the_old_side_of_a_split_row() -> Result<(), Box<dyn
 }
 
 #[test]
+fn ctrl_hovering_an_unchanged_name_on_the_old_side_shows_the_current_versions_docs() -> Result<(), Box<dyn Error>> {
+    let document = DocumentBuilder::new()
+        .changed(
+            "src/main.rs",
+            "fn main() {\n    let one = 1;\n    Arc::new(one);\n}\n",
+            "fn main() {\n    let one = 2;\n    Arc::new(one);\n}\n",
+        )
+        .build();
+    let mut harness =
+        ReviewHarnessBuilder { document, ..ReviewHarnessBuilder::default() }.dimensions(200, 30).with_lookups().build();
+    harness.state_mut().set_view_mode(ViewMode::Split);
+    harness.draw();
+    let (x, y) = name_at(&harness, "Arc::new(one);", "Arc")?;
+    harness.input(mouse_with(MouseEventKind::Moved, x, y, KeyModifiers::CONTROL));
+    let card = harness.state().definition_card().ok_or("the old side opens a card")?;
+    assert_eq!((card.name.as_str(), card.origin.side), ("Arc", DiffSide::Old));
+    let lookup = harness.last_lookup().ok_or("the old side is looked up")?;
+    assert!(matches!(&lookup.request, LookupRequest::Definition(request) if request.at == location("src/main.rs", 3)?));
+
+    harness
+        .answer_lookup(lookup, Ok(ResolutionBuilder::new().hover("A thread-safe reference-counted pointer.").answer()));
+    harness.draw();
+    harness.assert_contains("A thread-safe reference-counted pointer.");
+    harness.assert_contains("current version docs");
+    assert!(!harness.text().contains("No definition"), "{}", harness.text());
+    Ok(())
+}
+
+#[test]
 fn ctrl_hover_finds_names_on_a_wrapped_segment() -> Result<(), Box<dyn Error>> {
     let padding = "0, ".repeat(24);
     let source = format!("fn main() {{\n    let values = [{padding}]; double(2);\n}}\nfn double(value: u32) {{}}\n");

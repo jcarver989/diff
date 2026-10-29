@@ -105,7 +105,7 @@ impl DiffReviewState {
 
     pub(crate) fn go_to_definition(&mut self) -> InputOutcome<DiffReviewEvent> {
         let index = self.symbols();
-        match self.names.activate(&index) {
+        match self.names.activate(&self.session, &index, self.capabilities.lookups) {
             Activation::Wait => InputOutcome::Consumed,
             Activation::Jump(target) => {
                 self.names.close();

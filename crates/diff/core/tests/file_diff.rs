@@ -1,5 +1,6 @@
 use clankerdiff_core::{
     DiffError, DiffSide, FileDiff, FileStatus, PatchLineKind, RepoPath, SourceDocument, SourceUnavailable, StageState,
+    parse_git_diff,
 };
 use std::{error::Error, fmt::Write, sync::Arc};
 
@@ -95,5 +96,27 @@ fn renamed_from_ignores_an_unchanged_old_path() -> Result<(), Box<dyn Error>> {
     assert_eq!(file.renamed_from(), None);
     file.old_path = Some(RepoPath::new("old.rs")?);
     assert_eq!(file.renamed_from().map(RepoPath::as_str), Some("old.rs"));
+    Ok(())
+}
+
+#[test]
+fn unchanged_old_lines_map_through_the_hunks_to_their_new_line() -> Result<(), Box<dyn Error>> {
+    let mut old = String::new();
+    for line in 1..=20 {
+        writeln!(old, "line {line}")?;
+    }
+    let new = old.replace("line 2\n", "added\nchanged 2\n").replace("line 19\n", "");
+    let diff = FileDiff::from_texts("main.rs", &old, &new)?;
+    let mapped: Vec<_> = [1, 2, 3, 10, 18, 19, 20, 21].map(|line| diff.unchanged_new_line(line)).to_vec();
+    assert_eq!(mapped, [Some(1), None, Some(4), Some(11), Some(19), None, Some(20), Some(21)]);
+    Ok(())
+}
+
+#[test]
+fn zero_context_hunks_map_lines_on_either_side_of_an_insertion() -> Result<(), Box<dyn Error>> {
+    let patch = "diff --git a/main.rs b/main.rs\n--- a/main.rs\n+++ b/main.rs\n@@ -3,0 +4,2 @@\n+one\n+two\n";
+    let files = parse_git_diff(patch.as_bytes())?;
+    let diff = files.first().ok_or("a parsed file")?;
+    assert_eq!([3, 4].map(|line| diff.unchanged_new_line(line)), [Some(3), Some(6)]);
     Ok(())
 }

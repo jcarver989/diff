@@ -1,7 +1,7 @@
 use crate::{
     CommitId, CommitStack, CommitSummary, DefinitionTarget, DiffDocument, DiffSide, FileDiff, FileStatus, Hunk,
-    LookupAnswer, PatchLine, RepoPath, RepoPathError, Resolution, ReviewTarget, SourceDocument, SourceLocation,
-    SourcePath, SourceResult, SourceUnavailable, StageState, TargetLocation,
+    LookupAnswer, LookupStatus, PatchLine, RepoPath, RepoPathError, Resolution, ReviewTarget, SourceDocument,
+    SourceLocation, SourcePath, SourceResult, SourceUnavailable, StageState, TargetLocation,
 };
 use std::sync::Arc;
 
@@ -285,6 +285,8 @@ impl DocumentBuilder {
 pub struct ResolutionBuilder {
     targets: Vec<DefinitionTarget>,
     hover: Option<String>,
+    status: LookupStatus,
+    current_version: bool,
 }
 
 impl ResolutionBuilder {
@@ -325,8 +327,25 @@ impl ResolutionBuilder {
     }
 
     #[must_use]
+    pub fn status(mut self, status: LookupStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    #[must_use]
+    pub const fn current_version(mut self) -> Self {
+        self.current_version = true;
+        self
+    }
+
+    #[must_use]
     pub fn build(self) -> Resolution {
-        Resolution { targets: self.targets, hover: self.hover }
+        Resolution {
+            targets: self.targets,
+            hover: self.hover,
+            status: self.status,
+            current_version: self.current_version,
+        }
     }
 
     #[must_use]

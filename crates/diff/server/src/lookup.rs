@@ -1,10 +1,11 @@
 use crate::server::Context;
 use clankerdiff_core::{
-    DefinitionRequest, DefinitionTarget, DiffDocument, DiffSide, LookupAnswer, LookupRequest, RepoPath, Resolution,
-    SourceDocument, SourcePath, SourceUnavailable, TargetLocation,
+    DefinitionRequest, DefinitionTarget, DiffDocument, DiffSide, LookupAnswer, LookupFailure, LookupRequest,
+    LookupStatus, LookupUnavailable, RepoPath, Resolution, SourceDocument, SourcePath, SourceUnavailable,
+    TargetLocation,
 };
 use clankerdiff_git::{GitRepository, read_source_file};
-use clankerdiff_lspd::{LanguageId, LspClient, WorkspaceKey, path_to_uri, uri_to_path};
+use clankerdiff_lspd::{ClientError, LanguageId, LspClient, WorkspaceKey, path_to_uri, uri_to_path};
 use lsp_types::{Hover, HoverContents, Location, MarkedString};
 use std::{
     collections::HashMap,
@@ -22,7 +23,7 @@ use tokio::{
 };
 
 const MAX_RUNNING: usize = 32;
-const LSP_BUDGET: Duration = Duration::from_secs(1);
+const HOVER_GRACE: Duration = Duration::from_secs(1);
 const RUST_LIBRARY: &str = "/lib/rustlib/src/rust/library/";
 const CARGO_REGISTRY: &str = "/.cargo/registry/src/";
 const NODE_MODULES: &str = "/node_modules/";
@@ -60,15 +61,17 @@ impl Lookups {
             }
             LookupRequest::Source(_) => None,
         };
-        let lookup = Request { repository: context.repository.clone(), client, snapshot };
+        let lookup =
+            Request { repository: context.repository.clone(), client, snapshot, timeout: context.lookup_timeout };
         self.running.spawn(async move {
-            if busy {
-                return (id, Err(LookupError::Busy), Vec::new());
-            }
             match request {
+                LookupRequest::Source(_) if busy => (id, Err(LookupError::Busy), Vec::new()),
                 LookupRequest::Source(source) => (id, lookup.source(&source, external).await, Vec::new()),
+                LookupRequest::Definition(_) if busy => {
+                    (id, Ok(LookupAnswer::Definition(Resolution::failed(LookupFailure::Busy))), Vec::new())
+                }
                 LookupRequest::Definition(definition) => {
-                    let (resolution, externals) = lookup.definition(&definition).await.unwrap_or_default();
+                    let (resolution, externals) = lookup.definition(&definition).await;
                     (id, Ok(LookupAnswer::Definition(resolution)), externals)
                 }
             }
@@ -91,6 +94,7 @@ struct Request {
     repository: GitRepository,
     client: Option<LspClient>,
     snapshot: Arc<DiffDocument>,
+    timeout: Duration,
 }
 
 impl Request {
@@ -105,35 +109,67 @@ impl Request {
             .map_err(|reason| LookupError::Unavailable { path: source.to_string(), reason })
     }
 
-    async fn definition(&self, request: &DefinitionRequest) -> Option<(Resolution, Externals)> {
-        let client = self.client.as_ref()?;
+    async fn definition(&self, request: &DefinitionRequest) -> (Resolution, Externals) {
+        let Some(client) = self.client.as_ref() else {
+            return (Resolution::unavailable(LookupUnavailable::NoLanguageServer), Vec::new());
+        };
         let at = &request.at;
         if at.side == DiffSide::Old {
-            return None;
+            return (Resolution::unavailable(LookupUnavailable::NotInCurrentVersion), Vec::new());
         }
-        let source = self.repository.read_worktree_source(&at.path).await.ok()?;
-        if source.content_id() != request.content {
-            return None;
-        }
-        let (line, character) = position(&source, at.line_number, request.column)?;
+        let Some((source, line_number)) = self.worktree_line(request).await else {
+            return (Resolution::unavailable(LookupUnavailable::ChangedSinceReview), Vec::new());
+        };
+        let Some((line, character)) = position(&source, line_number, request.column) else {
+            return (Resolution::unavailable(LookupUnavailable::ChangedSinceReview), Vec::new());
+        };
         let root = self.repository.root();
-        let uri = path_to_uri(&root.join(at.path.as_str())).ok()?;
-        let deadline = Instant::now() + LSP_BUDGET;
-        let (locations, hover) = tokio::join!(
-            timeout_at(deadline, client.definition_locations(uri.clone(), line, character)),
-            timeout_at(deadline, client.hover(uri, line, character)),
-        );
+        let uri = match path_to_uri(&root.join(at.path.as_str())) {
+            Ok(uri) => uri,
+            Err(error) => return (Resolution::failed(LookupFailure::Server(error.to_string())), Vec::new()),
+        };
+        let deadline = Instant::now() + self.timeout;
+        let definition = timeout_at(deadline, client.definition_locations(uri.clone(), line, character));
+        let hover = timeout_at(deadline, client.hover(uri, line, character));
+        tokio::pin!(definition, hover);
+        let (locations, hover) = tokio::select! {
+            locations = &mut definition => {
+                let grace = (Instant::now() + HOVER_GRACE).min(deadline);
+                (locations, timeout_at(grace, &mut hover).await.and_then(|hover| hover))
+            }
+            hover = &mut hover => (definition.await, hover),
+        };
+        let (locations, status) = match locations {
+            Ok(Ok(locations)) => (locations, LookupStatus::Complete),
+            Ok(Err(error)) => (Vec::new(), LookupStatus::Failed(failure(error))),
+            Err(_) => (Vec::new(), LookupStatus::Failed(LookupFailure::TimedOut)),
+        };
         let root = fs::canonicalize(root).await.unwrap_or_else(|_| root.to_path_buf());
         let mut sources = HashMap::new();
         let (mut targets, mut externals) = (Vec::new(), Vec::new());
-        for location in locations.ok()?.ok()? {
+        for location in locations {
             if let Some((target, external)) = self.definition_target(&root, &location, &mut sources).await {
                 targets.push(target);
                 externals.extend(external);
             }
         }
         let hover = hover.ok().and_then(Result::ok).flatten().and_then(hover_markdown);
-        Some((Resolution { targets, hover }, externals))
+        let current_version = source.content_id() != request.content;
+        (Resolution { targets, hover, status, current_version }, externals)
+    }
+
+    async fn worktree_line(&self, request: &DefinitionRequest) -> Option<(Arc<SourceDocument>, usize)> {
+        let at = &request.at;
+        let source = self.repository.read_worktree_source(&at.path).await.ok()?;
+        if source.content_id() == request.content {
+            return Some((source, at.line_number));
+        }
+        let reviewed = self
+            .snapshot
+            .source(&at.path, DiffSide::New)
+            .filter(|reviewed| reviewed.content_id() == request.content)?;
+        let line_number = reviewed.matching_line(&source, at.line_number)?;
+        Some((source, line_number))
     }
 
     async fn definition_target(
@@ -192,6 +228,13 @@ fn position(source: &SourceDocument, line_number: usize, column: usize) -> Optio
     let prefix = line.get(..column)?;
     let character = prefix.encode_utf16().count();
     Some((u32::try_from(line_index).ok()?, u32::try_from(character).ok()?))
+}
+
+fn failure(error: ClientError) -> LookupFailure {
+    match error {
+        ClientError::TimedOut { .. } => LookupFailure::TimedOut,
+        error => LookupFailure::Server(error.to_string()),
+    }
 }
 
 fn hover_markdown(hover: Hover) -> Option<String> {

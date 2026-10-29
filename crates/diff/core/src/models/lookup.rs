@@ -1,7 +1,8 @@
 use super::{DiffDocument, DiffSide, RepoPath};
-use crate::{Fingerprint, SourceDocument, SourceLocation};
+use crate::{Fingerprint, SourceDocument, SourceLocation, SourceUnavailable};
 use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Arc};
+use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +41,43 @@ pub enum LookupReply {
 pub struct Resolution {
     pub targets: Vec<DefinitionTarget>,
     pub hover: Option<String>,
+    #[serde(default)]
+    pub status: LookupStatus,
+    #[serde(default)]
+    pub current_version: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LookupStatus {
+    #[default]
+    Complete,
+    Unavailable(LookupUnavailable),
+    Failed(LookupFailure),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Error)]
+#[serde(rename_all = "snake_case")]
+pub enum LookupUnavailable {
+    #[error("no language server handles this file")]
+    NoLanguageServer,
+    #[error("this line isn't in the current version, so it can't be looked up")]
+    NotInCurrentVersion,
+    #[error("the file on disk has changed since this version")]
+    ChangedSinceReview,
+    #[error("the file's full source isn't available")]
+    SourceUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Error)]
+#[serde(rename_all = "snake_case")]
+pub enum LookupFailure {
+    #[error("the language server didn't answer in time")]
+    TimedOut,
+    #[error("too many lookups are already running")]
+    Busy,
+    #[error("{0}")]
+    Server(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,13 +101,39 @@ pub enum SourcePath {
 }
 
 impl DefinitionRequest {
+    pub fn at(document: &DiffDocument, at: SourceLocation, column: usize) -> Result<Self, LookupUnavailable> {
+        let file = document
+            .file_index(&at.path)
+            .and_then(|index| document.files.get(index))
+            .ok_or(LookupUnavailable::SourceUnavailable)?;
+        let new = match file.source(DiffSide::New) {
+            Ok(new) => new,
+            Err(SourceUnavailable::Absent) if at.side == DiffSide::Old => {
+                return Err(LookupUnavailable::NotInCurrentVersion);
+            }
+            Err(_) => return Err(LookupUnavailable::SourceUnavailable),
+        };
+        let line_number = match at.side {
+            DiffSide::New => at.line_number,
+            DiffSide::Old => file
+                .unchanged_new_line(at.line_number)
+                .filter(|&line| new.line(line).is_some())
+                .ok_or(LookupUnavailable::NotInCurrentVersion)?,
+        };
+        let at = SourceLocation { side: DiffSide::New, line_number, ..at };
+        Ok(Self { at, column, content: new.content_id() })
+    }
+}
+
+impl Resolution {
     #[must_use]
-    pub fn at(document: &DiffDocument, at: SourceLocation, column: usize) -> Option<Self> {
-        if at.side != DiffSide::New {
-            return None;
-        }
-        let content = document.source(&at.path, DiffSide::New)?.content_id();
-        Some(Self { at, column, content })
+    pub const fn failed(failure: LookupFailure) -> Self {
+        Self { targets: Vec::new(), hover: None, status: LookupStatus::Failed(failure), current_version: false }
+    }
+
+    #[must_use]
+    pub const fn unavailable(reason: LookupUnavailable) -> Self {
+        Self { targets: Vec::new(), hover: None, status: LookupStatus::Unavailable(reason), current_version: false }
     }
 }
 
@@ -87,8 +151,12 @@ impl LookupReply {
             (LookupRequest::Definition(request), Ok(LookupAnswer::Definition(resolution))) => {
                 Self::Definition { token, request, resolution }
             }
-            (LookupRequest::Definition(request), _) => {
-                Self::Definition { token, request, resolution: Resolution::default() }
+            (LookupRequest::Definition(request), Ok(LookupAnswer::Source(_))) => {
+                let resolution = Resolution::failed(LookupFailure::Server("the server sent a source".to_owned()));
+                Self::Definition { token, request, resolution }
+            }
+            (LookupRequest::Definition(request), Err(error)) => {
+                Self::Definition { token, request, resolution: Resolution::failed(LookupFailure::Server(error)) }
             }
             (LookupRequest::Source(path), Ok(LookupAnswer::Source(document))) => {
                 Self::Source { token, path, result: Ok(document) }

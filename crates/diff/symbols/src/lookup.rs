@@ -1,7 +1,7 @@
 use crate::{SymbolIndex, SymbolReference};
 use clankerdiff_core::{
-    DefinitionRequest, DefinitionTarget, Lookup, LookupReply, LookupRequest, RepoPath, Resolution, ReviewSession,
-    SourceLocation, TargetLocation,
+    DefinitionRequest, DefinitionTarget, DiffSide, Lookup, LookupReply, LookupRequest, LookupStatus, LookupUnavailable,
+    RepoPath, Resolution, ReviewSession, SourceLocation, TargetLocation,
 };
 use std::{collections::HashMap, mem, ops::Range};
 
@@ -20,15 +20,15 @@ pub struct DefinitionCard {
     choice: usize,
     cycled: bool,
     following: bool,
+    request: Option<DefinitionRequest>,
     answer: Answer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Answer {
-    Local,
+    Local(Option<LookupUnavailable>),
     Pending,
-    Resolved { targets: Vec<DefinitionTarget>, hover: Option<String> },
-    MatchedByName,
+    Semantic(Resolution),
 }
 
 struct Candidate<'a> {
@@ -74,13 +74,19 @@ impl DefinitionCard {
             choice: 0,
             cycled: false,
             following: false,
-            answer: Answer::Local,
+            request: None,
+            answer: Answer::Local(None),
         }
     }
 
     #[must_use]
     pub const fn is_pending(&self) -> bool {
         matches!(self.answer, Answer::Pending)
+    }
+
+    #[must_use]
+    pub const fn is_failed(&self) -> bool {
+        matches!(&self.answer, Answer::Semantic(Resolution { status: LookupStatus::Failed(_), .. }))
     }
 
     fn follow(&mut self) -> bool {
@@ -95,28 +101,19 @@ impl DefinitionCard {
 
     #[must_use]
     pub fn content<'a>(&'a self, index: &'a SymbolIndex) -> CardContent<'a> {
-        let uses = format!("{} in this diff", uses_label(index.uses(&self.name).len()));
-        let uses = match self.answer {
-            Answer::Pending => format!("looking up · {uses}"),
-            Answer::MatchedByName => format!("matched by name · {uses}"),
-            Answer::Local | Answer::Resolved { .. } => uses,
-        };
         let mut candidates = self.candidates(index);
         let count = candidates.len();
+        let uses = format!("{} in this diff", uses_label(index.uses(&self.name).len()));
+        let uses = self.label(count).map_or_else(|| uses.clone(), |label| format!("{label} · {uses}"));
         if count == 0 {
-            let pending = self.is_pending();
-            let message = if pending {
-                format!("Looking up {}…", self.name)
-            } else {
-                format!("No definition of {} in this diff", self.name)
-            };
+            let docs = self.hover();
             return CardContent {
-                message: Some(message),
+                message: self.empty_message(docs.is_some()),
                 code: None,
-                docs: None,
+                docs,
                 place: None,
                 uses,
-                can_jump: pending,
+                can_jump: self.is_pending() || self.is_failed(),
                 can_cycle: false,
             };
         }
@@ -133,13 +130,49 @@ impl DefinitionCard {
         }
     }
 
+    fn label(&self, count: usize) -> Option<&'static str> {
+        match &self.answer {
+            Answer::Pending => Some("looking up"),
+            Answer::Semantic(resolution) if self.semantic_targets().is_some() => {
+                self.current_version(resolution).then_some("current version")
+            }
+            Answer::Semantic(_) if count > 0 => Some("matched by name"),
+            Answer::Semantic(resolution) if resolution.hover.is_some() => {
+                Some(if self.current_version(resolution) { "current version docs" } else { "docs only" })
+            }
+            Answer::Local(_) | Answer::Semantic(_) => None,
+        }
+    }
+
+    fn current_version(&self, resolution: &Resolution) -> bool {
+        resolution.current_version || self.origin.side == DiffSide::Old
+    }
+
+    fn empty_message(&self, documented: bool) -> Option<String> {
+        let name = &self.name;
+        let not_in_diff = |reason: &LookupUnavailable| format!("No definition of {name} in this diff; {reason}");
+        match &self.answer {
+            Answer::Pending => Some(format!("Looking up {name}…")),
+            Answer::Local(None) => Some(format!("No definition of {name} in this diff")),
+            Answer::Local(Some(reason)) => Some(not_in_diff(reason)),
+            Answer::Semantic(resolution) => match &resolution.status {
+                LookupStatus::Complete if documented => None,
+                LookupStatus::Complete => Some(format!("No definition of {name} found")),
+                LookupStatus::Unavailable(reason) => Some(not_in_diff(reason)),
+                LookupStatus::Failed(failure) => {
+                    Some(format!("Couldn't look up {name}: {failure}. Go to definition to retry"))
+                }
+            },
+        }
+    }
+
     fn cycle(&mut self, index: &SymbolIndex) -> bool {
         let count = self.candidates(index).len();
         if count < 2 {
             return false;
         }
         self.choice = (self.position(count) + 1) % count;
-        self.cycled = true;
+        self.cycled |= self.semantic_targets().is_none();
         true
     }
 
@@ -154,8 +187,25 @@ impl DefinitionCard {
         if self.choice < count { self.choice } else { 0 }
     }
 
+    const fn semantic(&self) -> Option<&Resolution> {
+        match &self.answer {
+            Answer::Semantic(resolution) => Some(resolution),
+            Answer::Local(_) | Answer::Pending => None,
+        }
+    }
+
+    fn hover(&self) -> Option<&str> {
+        self.semantic()?.hover.as_deref()
+    }
+
+    fn semantic_targets(&self) -> Option<&[DefinitionTarget]> {
+        let targets = &self.semantic()?.targets;
+        (!self.cycled && !targets.is_empty()).then_some(targets.as_slice())
+    }
+
     fn candidates<'a>(&'a self, index: &'a SymbolIndex) -> Vec<Candidate<'a>> {
-        if let Answer::Resolved { targets, hover } = &self.answer {
+        if let Some(targets) = self.semantic_targets() {
+            let hover = self.hover();
             return targets
                 .iter()
                 .map(|target| Candidate {
@@ -166,7 +216,7 @@ impl DefinitionCard {
                         .as_deref()
                         .filter(|_| hover.is_none())
                         .map(|preview| (target.location.path.display_path(), preview)),
-                    docs: hover.as_deref(),
+                    docs: hover,
                 })
                 .collect();
         }
@@ -185,27 +235,25 @@ impl DefinitionCard {
             .collect()
     }
 
-    fn request(&self, session: &ReviewSession) -> Option<DefinitionRequest> {
+    fn request(&self, session: &ReviewSession) -> Result<DefinitionRequest, Option<LookupUnavailable>> {
         if session.shows_external(&self.origin.path) {
-            return None;
+            return Err(None);
         }
-        DefinitionRequest::at(session.presentation().document(), self.origin.clone(), self.columns.start)
+        DefinitionRequest::at(session.presentation().document(), self.origin.clone(), self.columns.start).map_err(Some)
     }
 
     fn answers(&self, request: &DefinitionRequest) -> bool {
-        request.at == self.origin && request.column == self.columns.start
+        self.request.as_ref() == Some(request)
     }
 
     fn resolve(&mut self, resolution: &Resolution) {
-        if matches!(self.answer, Answer::Resolved { .. }) {
+        if self.semantic().is_some() {
             return;
         }
-        self.answer = if resolution.targets.is_empty() || self.cycled {
-            Answer::MatchedByName
-        } else {
+        self.answer = Answer::Semantic(resolution.clone());
+        if self.semantic_targets().is_some() {
             self.choice = 0;
-            Answer::Resolved { targets: resolution.targets.clone(), hover: resolution.hover.clone() }
-        };
+        }
     }
 
     fn settle(&self, index: &SymbolIndex) -> Settled {
@@ -302,10 +350,14 @@ impl NameLookup {
         cycled
     }
 
-    pub fn activate(&mut self, index: &SymbolIndex) -> Activation {
+    pub fn activate(&mut self, session: &ReviewSession, index: &SymbolIndex, enabled: bool) -> Activation {
         let Some(card) = self.card.as_mut() else {
             return Activation::Idle;
         };
+        if enabled && card.is_failed() && card.target(index).is_none() {
+            card.answer = Answer::Local(None);
+            self.outgoing.extend(self.cache.show(card, session));
+        }
         if card.follow() {
             self.hover.hold = Hold::Pinned;
             return Activation::Wait;
@@ -348,7 +400,14 @@ struct LookupCache {
 
 impl LookupCache {
     fn show(&mut self, card: &mut DefinitionCard, session: &ReviewSession) -> Option<Lookup> {
-        let request = card.request(session)?;
+        let request = match card.request(session) {
+            Ok(request) => request,
+            Err(reason) => {
+                card.answer = Answer::Local(reason);
+                return None;
+            }
+        };
+        card.request = Some(request.clone());
         if let Some(resolution) = self.answers.get(&request) {
             card.resolve(resolution);
             return None;
@@ -397,7 +456,7 @@ impl LookupCache {
                 if let Some(card) = card.as_deref_mut() {
                     card.resolve(&resolution);
                 }
-                if !resolution.targets.is_empty() {
+                if settled(&resolution) {
                     self.answers.insert(request, resolution);
                 }
                 card.map_or(Settled::Ignored, |card| card.settle(index))
@@ -427,6 +486,14 @@ impl LookupCache {
             self.waiting.remove(request);
         }
         current
+    }
+}
+
+fn settled(resolution: &Resolution) -> bool {
+    match resolution.status {
+        LookupStatus::Complete => !resolution.targets.is_empty() || resolution.hover.is_some(),
+        LookupStatus::Unavailable(_) => true,
+        LookupStatus::Failed(_) => false,
     }
 }
 

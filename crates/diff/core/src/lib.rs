@@ -33,9 +33,10 @@ pub use keymap::{
 pub use models as model;
 pub use models::{
     CommitId, CommitKind, CommitStack, CommitSummary, CommitTitle, DefinitionRequest, DefinitionTarget, DiffDocument,
-    DiffScope, DiffSide, FileDiff, FileStatus, Hunk, LineStat, Lookup, LookupAnswer, LookupReply, LookupRequest,
-    ModeChange, PageKind, PageLabel, PatchLine, PatchLineKind, RepoPath, Resolution, ReviewTarget, SourcePath,
-    StageState, TargetLocation, UNCOMMITTED_CHANGES, commit_description,
+    DiffScope, DiffSide, FileDiff, FileStatus, Hunk, LineStat, Lookup, LookupAnswer, LookupFailure, LookupReply,
+    LookupRequest, LookupStatus, LookupUnavailable, ModeChange, PageKind, PageLabel, PatchLine, PatchLineKind,
+    RepoPath, Resolution, ReviewTarget, SourcePath, StageState, TargetLocation, UNCOMMITTED_CHANGES,
+    commit_description,
 };
 pub use parser::{
     GitStatusEntry, UntrackedFile, parse_detached_git_diff, parse_git_diff, parse_git_diff_with_path_mapper,

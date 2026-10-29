@@ -287,6 +287,23 @@ impl FileDiff {
     }
 
     #[must_use]
+    pub fn unchanged_new_line(&self, old_line: usize) -> Option<usize> {
+        let mut offset = 0;
+        for hunk in &self.hunks {
+            if let Some(line) = hunk.lines.iter().find(|line| line.old_line_no == Some(old_line)) {
+                return line.new_line_no.filter(|_| line.kind == PatchLineKind::Context);
+            }
+            let (old_end, new_end) =
+                (hunk_end(hunk.old_start, hunk.old_count), hunk_end(hunk.new_start, hunk.new_count));
+            if old_line < old_end {
+                break;
+            }
+            offset = new_end.cast_signed() - old_end.cast_signed();
+        }
+        old_line.checked_add_signed(offset).filter(|&line| line > 0)
+    }
+
+    #[must_use]
     pub fn changed_lines(&self, side: DiffSide) -> BTreeSet<usize> {
         let kind = match side {
             DiffSide::Old => PatchLineKind::Removed,
@@ -302,4 +319,8 @@ impl FileDiff {
             })
             .collect()
     }
+}
+
+const fn hunk_end(start: usize, count: usize) -> usize {
+    if count == 0 { start + 1 } else { start + count }
 }

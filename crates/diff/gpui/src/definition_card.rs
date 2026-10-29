@@ -108,7 +108,7 @@ impl DiffViewer {
     }
 
     pub(crate) fn jump_to_card_choice(&mut self, cx: &mut Context<Self>) -> bool {
-        match self.update_names(cx, |names, _, index, _| names.activate(index)) {
+        match self.update_names(cx, |names, session, index, enabled| names.activate(session, index, enabled)) {
             Activation::Idle => false,
             Activation::Wait => true,
             Activation::Jump(target) => self.jump_to(target, cx),

@@ -29,6 +29,7 @@ use tokio::{sync::mpsc, time::timeout};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+const DEFAULT_LOOKUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReviewCompletion {
@@ -36,9 +37,16 @@ pub enum ReviewCompletion {
     Cancelled { target: ReviewTarget },
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct ServerOptions {
     pub watch: WatchOptions,
+    pub lookup_timeout: Duration,
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        Self { watch: WatchOptions::default(), lookup_timeout: DEFAULT_LOOKUP_TIMEOUT }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -57,6 +65,7 @@ pub(crate) struct Context {
     pub repository: GitRepository,
     pub root: Arc<str>,
     pub watcher: RepositoryHandle,
+    pub lookup_timeout: Duration,
     completion: CompletionSink,
 }
 
@@ -133,6 +142,7 @@ impl DiffServer {
                 root: Arc::from(repository.root().to_string_lossy().as_ref()),
                 repository,
                 watcher: watcher.handle(),
+                lookup_timeout: options.lookup_timeout,
                 completion: CompletionSink { accepted: AtomicBool::new(false), sender: completion_tx },
             }),
             tasks: TaskTracker::new(),

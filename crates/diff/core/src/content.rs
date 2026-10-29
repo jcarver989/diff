@@ -2,6 +2,7 @@
 
 use crate::{DiffSide, Fingerprint, RepoPath, SourceSequenceId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use similar::{DiffOp, TextDiff};
 use std::sync::Arc;
 
 /// Maximum UTF-8 bytes accepted for one complete source version.
@@ -167,6 +168,25 @@ impl SourceDocument {
     #[must_use]
     pub const fn trailing_newline(&self) -> bool {
         self.trailing_newline
+    }
+
+    #[must_use]
+    pub fn matching_line(&self, other: &Self, line_number: usize) -> Option<usize> {
+        let index = line_number.checked_sub(1).filter(|&index| index < self.line_count())?;
+        if self.content_id == other.content_id {
+            return Some(line_number);
+        }
+        let (lines, other_lines) = (self.lines(), other.lines());
+        TextDiff::from_slices(&lines, &other_lines).ops().iter().find_map(|op| match *op {
+            DiffOp::Equal { old_index, new_index, len } if (old_index..old_index + len).contains(&index) => {
+                Some(new_index + index - old_index + 1)
+            }
+            _ => None,
+        })
+    }
+
+    fn lines(&self) -> Vec<&str> {
+        (1..=self.line_count()).filter_map(|number| self.line(number)).collect()
     }
 }
 
