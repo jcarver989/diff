@@ -71,8 +71,7 @@ fn modals_consume_keys_and_outside_mouse_is_ignored() {
     assert!(matches!(state.handle_input(key(KeyCode::F(1))), InputOutcome::Consumed));
     let _ = state.handle_input(key(KeyCode::Esc));
     state.set_theme_choices(vec![ThemeChoice::new("Current", state.theme().clone())]);
-    assert!(matches!(state.handle_input(key(KeyCode::Char('t'))), InputOutcome::Ignored));
-    state.handle_command(ReviewCommand::OpenThemePicker);
+    assert!(matches!(state.handle_input(key(KeyCode::Char('t'))), InputOutcome::Consumed));
     assert_eq!(state.interaction_phase(), InteractionPhase::ThemePicker);
     let _ = state.handle_input(key(KeyCode::Esc));
     assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
