@@ -169,6 +169,9 @@ fn scrolling_the_open_theme_picker_keeps_the_background_in_place(cx: &mut TestAp
         .scroll(cx, "theme-picker-backdrop", gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.0), gpui::px(240.0))))
         .expect("the theme picker backdrop is painted");
     assert!(harness.read(cx, |viewer, _| viewer.theme_picker_open()), "scrolling the picker keeps it open");
+    harness
+        .scroll(cx, "theme-picker-backdrop", gpui::ScrollDelta::Lines(gpui::point(0.0, 3.0)))
+        .expect("the theme picker backdrop is painted");
     let after = harness.diff_scroll_top(cx);
     assert_eq!(scrolled.item_ix, after.item_ix);
     assert_eq!(scrolled.offset_in_item, after.offset_in_item);

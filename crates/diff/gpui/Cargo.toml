@@ -1,6 +1,5 @@
 [package]
 name = "clankerdiff-gpui"
-publish = false
 description = "Reusable GPUI diff review component"
 version.workspace = true
 edition.workspace = true

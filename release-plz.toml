@@ -78,3 +78,23 @@ publish = true
 name = "clankerdiff-watch"
 release = true
 publish = true
+
+[[package]]
+name = "clankerdiff-remote"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-gpui-ui"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-gpui-shell"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-gpui"
+release = true
+publish = true

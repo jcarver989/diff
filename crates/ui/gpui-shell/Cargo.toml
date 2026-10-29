@@ -1,6 +1,5 @@
 [package]
 name = "clankerdiff-gpui-shell"
-publish = false
 description = "Native desktop bootstrap for GPUI apps: a Tokio runtime, quit semantics and the standard menus"
 version.workspace = true
 edition.workspace = true

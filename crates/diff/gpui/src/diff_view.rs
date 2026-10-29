@@ -18,8 +18,9 @@ use clankerdiff_core::{
     ReviewComment, RowKind,
 };
 use gpui::{
-    Action, AnyElement, Context, Div, Entity, HighlightStyle, MouseButton, Pixels, SharedString, Stateful, StyledText,
-    Window, div, list, prelude::*, px,
+    Action, AnyElement, Context, DispatchPhase, Div, Entity, EntityId, HighlightStyle, HitboxBehavior, ListState,
+    MouseButton, Pixels, ScrollDelta, ScrollWheelEvent, SharedString, Stateful, StyledText, Window, canvas, div, list,
+    prelude::*, px,
 };
 use std::ops::Range;
 
@@ -40,7 +41,6 @@ impl DiffViewer {
         let palette = self.theme().diff.clone();
         self.sync_diff_list();
         let list_state = self.diff_list_state.clone();
-        list_state.set_wheel_line_height(self.diff_row_height() * WHEEL_ROWS_PER_LINE);
         let Some(file_index) = self.active_file() else {
             return div()
                 .debug_selector(|| "diff-pane".to_owned())
@@ -68,6 +68,8 @@ impl DiffViewer {
             .and_then(|next| list_state.bounds_for_item(next))
             .map_or(px(0.0), |next| (next.top() - viewport.top() - divider_height).min(px(0.0)));
         let start = self.session().visible_range().start;
+        let wheel_lines =
+            wheel_line_scroller(list_state.clone(), self.diff_row_height() * WHEEL_ROWS_PER_LINE, cx.entity_id());
         let list = list(
             list_state,
             cx.processor(move |viewer, offset: usize, _window, cx| viewer.render_visible_row(start + offset, cx)),
@@ -89,13 +91,23 @@ impl DiffViewer {
                     .flex_1()
                     .flex()
                     .overflow_hidden()
-                    .child(div().relative().flex_1().min_w_0().h_full().overflow_hidden().child(list).child(
-                        div().absolute().top(sticky_top).left_0().right_0().child(self.render_file_divider(
-                            file_index,
-                            FileDividerPlacement::Sticky,
-                            cx,
-                        )),
-                    ))
+                    .child(
+                        div()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(wheel_lines)
+                            .child(list)
+                            .child(
+                                div().absolute().top(sticky_top).left_0().right_0().child(self.render_file_divider(
+                                    file_index,
+                                    FileDividerPlacement::Sticky,
+                                    cx,
+                                )),
+                            ),
+                    )
                     .child(scrollbar),
             )
     }
@@ -651,6 +663,30 @@ impl DiffViewer {
         };
         self.review().comments_for_anchor(&anchor).count()
     }
+}
+
+/// Scrolls `list_state` by `line_height` per line of line-based scroll input, such as a mouse wheel notch.
+///
+/// GPUI's list converts each line to a fixed 20px, so line input is taken in the capture phase, before the list sees
+/// it. Pixel-based input, such as a trackpad, still reaches the list.
+fn wheel_line_scroller(list_state: ListState, line_height: Pixels, viewer: EntityId) -> impl IntoElement {
+    canvas(
+        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+        move |_, hitbox, window, _| {
+            window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
+                let ScrollDelta::Lines(lines) = event.delta else {
+                    return;
+                };
+                if phase == DispatchPhase::Capture && lines.y != 0.0 && hitbox.should_handle_scroll(window) {
+                    list_state.scroll_by(-line_height * lines.y);
+                    cx.notify(viewer);
+                    cx.stop_propagation();
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_full()
 }
 
 #[cfg(test)]

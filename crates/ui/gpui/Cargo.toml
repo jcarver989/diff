@@ -1,6 +1,5 @@
 [package]
 name = "clankerdiff-gpui-ui"
-publish = false
 description = "Shared GPUI design system: fonts, rem-based tokens, icons, and components"
 version.workspace = true
 edition.workspace = true
