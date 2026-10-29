@@ -205,7 +205,7 @@ fn render_drawer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, t
                         Span::styled(entry.name.clone(), Style::new().fg(theme.ui.text)),
                     ],
                     [
-                        stat_spans(entry.stat.added, entry.stat.deleted, theme).to_vec(),
+                        stat_spans(entry.stat, theme).to_vec(),
                         vec![Span::styled(format!(" {}", file.status.code()), status)],
                     ]
                     .concat(),
@@ -422,7 +422,7 @@ fn render_file_divider(
         left.push(Span::styled(name.clone(), Style::new().fg(theme.ui.text_secondary)));
     }
     let right = source_label.map_or_else(
-        || Line::from([stat_spans(file.additions(), file.deletions(), theme).to_vec(), vec![Span::raw(" ")]].concat()),
+        || Line::from([stat_spans(file.line_stat(), theme).to_vec(), vec![Span::raw(" ")]].concat()),
         |label| Line::styled(format!("{label} "), Style::new().fg(theme.ui.text_muted)),
     );
     let right_width = u16::try_from(right.width()).unwrap_or(u16::MAX).min(area.width);

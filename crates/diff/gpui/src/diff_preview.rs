@@ -37,8 +37,8 @@ impl DiffPreviewCache {
 
     /// The lines `patch` adds and removes, or `None` when it does not parse.
     pub fn stats(&mut self, patch: &str) -> Option<(usize, usize)> {
-        let files = &self.entry(patch).as_ref().ok()?.document().files;
-        Some(files.iter().fold((0, 0), |(added, removed), file| (added + file.additions(), removed + file.deletions())))
+        let stat = self.entry(patch).as_ref().ok()?.document().line_stat();
+        Some((stat.added, stat.deleted))
     }
 
     fn entry(&mut self, patch: &str) -> &Result<DiffPresentation, DiffError> {

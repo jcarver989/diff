@@ -228,9 +228,7 @@ impl DiffViewer {
                             .text_color(style::color(palette.muted))
                             .child(label)
                     }))
-                    .when(source_label.is_none(), |bar| {
-                        bar.children(stat_badges(palette, file.additions(), file.deletions()))
-                    })
+                    .when(source_label.is_none(), |bar| bar.children(stat_badges(palette, file.line_stat())))
                     .when(comments != 0, |bar| {
                         bar.child(
                             div()

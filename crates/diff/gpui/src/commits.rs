@@ -250,9 +250,7 @@ impl CommitPreview {
                             .map(|number| fact(IconName::GitPullRequest, format!("#{number}").into())),
                     )
                     .children(page.stat.map(|stat| fact(IconName::File, count(stat.files, "file").into())))
-                    .children(page.stat.map(|stat| {
-                        div().flex().gap_1p5().children(stat_badges(&self.palette, stat.added, stat.deleted))
-                    }))
+                    .children(page.stat.map(|stat| div().flex().gap_1p5().children(stat_badges(&self.palette, stat))))
                     .child(fact(IconName::MessageCircle, comments_label(page.comments).into())),
             )
             .children(page.stat.and_then(|stat| change_bar(stat, &self.palette)))

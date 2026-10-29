@@ -68,7 +68,7 @@ impl DiffViewer {
                             .items_center()
                             .gap_2()
                             .whitespace_nowrap()
-                            .children(stat_badges(&self.theme().diff, stat.added, stat.deleted))
+                            .children(stat_badges(&self.theme().diff, stat))
                     })),
             )
     }

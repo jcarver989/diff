@@ -90,7 +90,7 @@ fn render_preview(area: Rect, buffer: &mut Buffer, page: &CommitPage, theme: &Ra
     }
     if let Some(stat) = page.stat {
         facts.push(Span::raw("  "));
-        facts.extend(stat_spans(stat.added, stat.deleted, theme));
+        facts.extend(stat_spans(stat, theme));
     }
     let [body, footer] = Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas(inner);
     Paragraph::new(lines).style(base).wrap(Wrap { trim: false }).render(body, buffer);
@@ -150,7 +150,7 @@ fn commit_rows(pages: &[CommitPage], width: usize, theme: &RatatuiTheme) -> Vec<
 }
 
 fn padded_stat(stat: Option<LineStat>, theme: &RatatuiTheme) -> Vec<Span<'static>> {
-    let spans = stat.map_or_else(Vec::new, |stat| stat_spans(stat.added, stat.deleted, theme).to_vec());
+    let spans = stat.map_or_else(Vec::new, |stat| stat_spans(stat, theme).to_vec());
     let width: usize = spans.iter().map(Span::width).sum();
     [vec![Span::raw(" ".repeat(STAT_WIDTH.saturating_sub(width)))], spans].concat()
 }
