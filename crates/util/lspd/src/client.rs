@@ -327,8 +327,6 @@ async fn spawn_daemon(socket_path: &Path) -> ClientResult<()> {
         .arg(socket_path)
         .arg("--log-file")
         .arg(&log_file)
-        .arg("--log-level")
-        .arg("debug")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());

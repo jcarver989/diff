@@ -35,6 +35,7 @@ clankerdiff-markdown = { workspace = true, features = ["review"] }
 clankerdiff-ui-core.workspace = true
 clankerdiff-gpui-desktop = { workspace = true, optional = true }
 clankerdiff-ratatui = { workspace = true, features = ["crossterm-backend"] }
+log = { workspace = true, features = ["release_max_level_info"] }
 ratatui = { workspace = true, features = ["crossterm"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -42,6 +43,7 @@ shlex.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing = { workspace = true, features = ["release_max_level_info"] }
 
 [dev-dependencies]
 clankerdiff-git = { workspace = true, features = ["test-support"] }

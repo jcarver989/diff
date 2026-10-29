@@ -19,6 +19,7 @@ pub(crate) struct WatchedFiles {
     pub(crate) events: mpsc::UnboundedReceiver<Event>,
     pub(crate) debounce: Option<Pin<Box<Sleep>>>,
     registrations: HashMap<String, Vec<FileSystemWatcher>>,
+    patterns: BTreeMap<String, WatchKind>,
     globs: GlobSet,
     kinds: Vec<WatchKind>,
     changes: BTreeMap<Uri, FileChangeType>,
@@ -49,6 +50,7 @@ impl WatchedFiles {
             events,
             debounce: None,
             registrations: HashMap::new(),
+            patterns: BTreeMap::new(),
             globs: GlobSet::empty(),
             kinds: Vec::new(),
             changes: BTreeMap::new(),
@@ -100,17 +102,24 @@ impl WatchedFiles {
     }
 
     fn rebuild(&mut self) {
-        let mut builder = GlobSetBuilder::new();
-        self.kinds.clear();
+        let mut patterns = BTreeMap::new();
         for watcher in self.registrations.values().flatten() {
             let pattern = match &watcher.glob_pattern {
                 GlobPattern::String(pattern) => pattern,
                 GlobPattern::Relative(relative) => &relative.pattern,
             };
+            *patterns.entry(pattern.clone()).or_insert(WatchKind::empty()) |= watcher.kind.unwrap_or(WatchKind::all());
+        }
+        if patterns == self.patterns {
+            return;
+        }
+        let mut builder = GlobSetBuilder::new();
+        self.kinds.clear();
+        for (pattern, &kind) in &patterns {
             match Glob::new(pattern) {
                 Ok(glob) => {
                     builder.add(glob);
-                    self.kinds.push(watcher.kind.unwrap_or(WatchKind::all()));
+                    self.kinds.push(kind);
                 }
                 Err(err) => tracing::warn!("Invalid glob pattern '{pattern}': {err}"),
             }
@@ -119,6 +128,7 @@ impl WatchedFiles {
             tracing::error!("Failed to build glob set: {err}");
             GlobSet::empty()
         });
+        self.patterns = patterns;
     }
 }
 

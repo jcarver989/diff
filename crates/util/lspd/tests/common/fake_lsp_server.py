@@ -20,7 +20,7 @@ texts, opens, save_counts, held = {}, {}, {}, {}
 cancelled_since_open, wedged = set(), set()
 refresh_supported = status_supported = loading = released = False
 root_path = None
-next_request_id = 0
+next_request_id = watcher_generation = 0
 
 
 def write_frame(body):
@@ -48,6 +48,18 @@ def request(method, params):
     global next_request_id
     next_request_id += 1
     write({"id": f"fake-{next_request_id}", "method": method, "params": params})
+
+
+def watcher_registration():
+    return {"id": f"fake-watcher-{watcher_generation}", "method": "workspace/didChangeWatchedFiles"}
+
+
+def register_watchers():
+    global watcher_generation
+    watcher_generation += 1
+    watchers = [{"globPattern": f"{root_path}/**/*"}]
+    registration = {**watcher_registration(), "registerOptions": {"watchers": watchers}}
+    request("client/registerCapability", {"registrations": [registration]})
 
 
 def read_message():
@@ -162,9 +174,7 @@ while (message := read_message()) is not None:
     elif method == "initialized":
         send_status()
         if cli.pull_diagnostics:
-            watchers = [{"globPattern": f"{root_path}/**/*"}]
-            registration = {"id": "fake-watcher", "method": "workspace/didChangeWatchedFiles"}
-            request("client/registerCapability", {"registrations": [{**registration, "registerOptions": {"watchers": watchers}}]})
+            register_watchers()
     elif method == "workspace/didChangeWatchedFiles":
         if cli.pull_diagnostics and refresh_supported:
             request("workspace/diagnostic/refresh", None)
@@ -197,6 +207,11 @@ while (message := read_message()) is not None:
             wedged.discard(params["id"])
             write({"id": params["id"], "error": {"code": -32800, "message": "request cancelled"}})
             notify("lspd/testing/requestReceived", {"method": method})
+    elif method == "fake/reregisterWatchers":
+        previous = watcher_registration()
+        register_watchers()
+        request("client/unregisterCapability", {"unregisterations": [previous]})
+        respond(message, None)
     elif method == "fake/finishLoading":
         loading = False
         send_status()
