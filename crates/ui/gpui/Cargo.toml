@@ -18,6 +18,7 @@ clankerdiff-ui-core.workspace = true
 gpui.workspace = true
 gpui-base.workspace = true
 thiserror.workspace = true
+web-time.workspace = true
 
 [[test]]
 name = "interface_size_test"
@@ -49,6 +50,14 @@ required-features = ["test-support"]
 
 [[test]]
 name = "icon_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "waveform_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "indicator_layer_test"
 required-features = ["test-support"]
 
 [[test]]

@@ -1973,6 +1973,7 @@ dependencies = [
  "gpui-base",
  "gpui-pre",
  "thiserror 2.0.21",
+ "web-time",
 ]
 
 [[package]]

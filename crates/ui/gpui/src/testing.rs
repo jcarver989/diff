@@ -5,9 +5,18 @@ use gpui::{
     ScrollWheelEvent, TestAppContext, VisualTestContext, Window, WindowBounds, WindowHandle, WindowOptions, div, point,
     prelude::*, px, size,
 };
-use std::{error::Error, ops::Deref};
+use std::{error::Error, ops::Deref, time::Duration};
 
 type RenderFn = Box<dyn Fn(&mut Window, &mut App) -> AnyElement + 'static>;
+
+const CLOCK_STEP: Duration = Duration::from_millis(10);
+
+pub fn advance_clock(cx: &mut TestAppContext, duration: Duration) {
+    for _ in 0..duration.as_millis() / CLOCK_STEP.as_millis() {
+        cx.executor().advance_clock(CLOCK_STEP);
+        cx.run_until_parked();
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum HarnessError {

@@ -2,6 +2,7 @@
 
 use super::{
     icon::{Icon, IconName},
+    indicator_layer::IndicatorOccluder,
     theme::{UiStyle, UiTheme},
     tokens::{self, rem},
     tree::indent,
@@ -1038,6 +1039,7 @@ impl RenderOnce for Backdrop {
                 }
             })
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .child(IndicatorOccluder::new("occluder").absolute().inset_0())
             .children(self.children)
     }
 }
