@@ -5,8 +5,8 @@ use clankerdiff_core::{
     testing::{DocumentBuilder, commit_id},
 };
 use clankerdiff_ratatui::{
-    DiffReviewState, DiffReviewStatus, InputOutcome, InteractionPhase, KeyCode, KeyEvent, KeyModifiers,
-    ReviewCapabilities, ReviewInput,
+    DiffReviewCommand, DiffReviewState, DiffReviewStatus, InputOutcome, InteractionPhase, KeyCode, KeyEvent,
+    KeyModifiers, ReviewCapabilities, ReviewInput,
 };
 use std::sync::Arc;
 
@@ -82,10 +82,14 @@ fn brackets_step_through_commits_and_back_to_the_working_tree() {
 }
 
 #[test]
-fn braces_jump_to_the_first_commit_and_the_working_tree() {
+fn the_first_commit_and_the_working_tree_are_commands_without_keys() {
     let mut state = DiffReviewState::new(document(commit_id(2), "first"));
-    assert_eq!(emitted_target(&mut state, '{'), Some(ReviewTarget::Commit(commit_id(1))));
-    assert_eq!(emitted_target(&mut state, '}'), Some(ReviewTarget::WorkingTree(DiffScope::Both)));
+    assert_eq!(emitted_target(&mut state, '{'), None);
+    assert_eq!(command_target(&mut state, DiffReviewCommand::GoToPage(0)), Some(ReviewTarget::Commit(commit_id(1))));
+    assert_eq!(
+        command_target(&mut state, DiffReviewCommand::GoToPage(usize::MAX)),
+        Some(ReviewTarget::WorkingTree(DiffScope::Both))
+    );
 }
 
 #[test]
@@ -144,6 +148,13 @@ fn document(target: impl Into<ReviewTarget>, version: &str) -> Arc<DiffDocument>
 
 fn emitted_target(state: &mut DiffReviewState, key: char) -> Option<ReviewTarget> {
     match state.handle_input(ReviewInput::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE))) {
+        InputOutcome::Emitted(DiffReviewEvent::SetTarget(target)) => Some(target),
+        _ => None,
+    }
+}
+
+fn command_target(state: &mut DiffReviewState, command: DiffReviewCommand) -> Option<ReviewTarget> {
+    match state.handle_command(command) {
         InputOutcome::Emitted(DiffReviewEvent::SetTarget(target)) => Some(target),
         _ => None,
     }

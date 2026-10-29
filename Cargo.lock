@@ -1843,7 +1843,7 @@ dependencies = [
  "clankerdiff-protocol",
  "clankerdiff-ratatui",
  "clankerdiff-server",
- "clankerdiff-theme",
+ "clankerdiff-ui-core",
  "clap",
  "crossterm",
  "ratatui",
@@ -1879,7 +1879,7 @@ name = "clankerdiff-core"
 version = "0.6.0"
 dependencies = [
  "clankerdiff-fingerprint",
- "clankerdiff-theme",
+ "clankerdiff-ui-core",
  "diffy",
  "serde",
  "serde_json",
@@ -1920,7 +1920,7 @@ dependencies = [
  "clankerdiff-markdown",
  "clankerdiff-symbols",
  "clankerdiff-syntax",
- "clankerdiff-theme",
+ "clankerdiff-ui-core",
  "gpui-base",
  "gpui-pre",
  "gpui-pre-platform",
@@ -1938,11 +1938,9 @@ dependencies = [
  "clankerdiff-lspd",
  "clankerdiff-markdown",
  "clankerdiff-server",
- "clankerdiff-theme",
+ "clankerdiff-ui-core",
  "gpui-base",
  "gpui-pre",
- "schemars",
- "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -1971,10 +1969,9 @@ dependencies = [
 name = "clankerdiff-gpui-ui"
 version = "0.6.0"
 dependencies = [
- "clankerdiff-theme",
+ "clankerdiff-ui-core",
  "gpui-base",
  "gpui-pre",
- "nucleo-matcher",
  "thiserror 2.0.21",
 ]
 
@@ -1987,7 +1984,7 @@ dependencies = [
  "clankerdiff-core",
  "clankerdiff-gpui",
  "clankerdiff-markdown",
- "clankerdiff-theme",
+ "clankerdiff-ui-core",
  "console_error_panic_hook",
  "gpui-pre",
  "gpui-pre-web",
@@ -2058,7 +2055,7 @@ dependencies = [
  "clankerdiff-markdown",
  "clankerdiff-symbols",
  "clankerdiff-syntax",
- "clankerdiff-theme",
+ "clankerdiff-ui-core",
  "criterion",
  "crossterm",
  "imbl",
@@ -2180,7 +2177,7 @@ dependencies = [
  "ast-grep-core",
  "cc",
  "clankerdiff-fingerprint",
- "clankerdiff-theme",
+ "clankerdiff-ui-core",
  "imbl",
  "lru 0.19.0",
  "thiserror 2.0.21",
@@ -2188,11 +2185,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "clankerdiff-theme"
+name = "clankerdiff-ui-core"
 version = "0.6.0"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
+ "nucleo-matcher",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

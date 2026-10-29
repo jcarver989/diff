@@ -54,7 +54,7 @@ highlights remain unchanged, and the next attempt rebuilds the discarded parser 
 
 ```rust
 use clankerdiff_syntax::{Fingerprint, SyntaxError, SyntaxHighlighter, SyntaxStream};
-use clankerdiff_theme::SyntaxTheme;
+use clankerdiff_ui_core::SyntaxTheme;
 
 fn example() -> Result<(), SyntaxError> {
     let theme = SyntaxTheme::default();

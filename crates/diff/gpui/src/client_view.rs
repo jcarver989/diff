@@ -4,7 +4,7 @@ use crate::{
 };
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{DiffDocument, DiffReviewCommand, DiffReviewEvent, Lookup, LookupReply, ReviewSubmission};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, ClipboardItem, Context, Entity, EventEmitter, Subscription, Window, div, prelude::*};
 use std::sync::Arc;
 

@@ -1,10 +1,11 @@
-//! Renderer-neutral colors, semantic diff palettes, and syntax themes.
-
 mod appearance;
+mod fuzzy;
+mod picker;
 mod selection;
 mod terminal;
 mod ui;
 pub use appearance::{Appearance, AppearanceMode, ThemePair, ThemePreference};
+pub use picker::{PickerOption, PickerRow, PickerState};
 pub use selection::{ThemeChoice, ThemeSelection};
 pub use terminal::TerminalPalette;
 
@@ -535,11 +536,6 @@ impl ReviewTheme {
     #[must_use]
     pub const fn id(&self) -> &ThemeId {
         &self.id
-    }
-
-    #[must_use]
-    pub const fn hinted_name(&self) -> Rgba {
-        Rgba { a: 71, ..self.ui.warning }
     }
 
     #[must_use]

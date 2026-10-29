@@ -15,10 +15,9 @@ test-support = ["gpui/test-support", "gpui-base/test-support"]
 workspace = true
 
 [dependencies]
-clankerdiff-theme.workspace = true
+clankerdiff-ui-core.workspace = true
 gpui.workspace = true
 gpui-base.workspace = true
-nucleo-matcher.workspace = true
 thiserror.workspace = true
 
 [[test]]

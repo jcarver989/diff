@@ -2,17 +2,15 @@
 
 use clankerdiff_core::{DiffDocument, DiffScope, ReviewCapabilities, ReviewSubmission};
 use clankerdiff_git::GitRepository;
-use clankerdiff_ratatui::{DiffReviewEvent, DiffReviewState, DiffReviewWidget, ThemeChoice, handle_crossterm_event};
-use crossterm::{
-    event::{self, Event},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+use clankerdiff_ratatui::{
+    DiffReviewEvent, DiffReviewState, DiffReviewWidget, TerminalSession, ThemeChoice, handle_crossterm_event,
 };
+use crossterm::event::{self, Event};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     env,
     error::Error,
-    io::{self, Write, stdout},
+    io::{self, stdout},
     path::PathBuf,
     sync::Arc,
     time::Duration,
@@ -39,46 +37,6 @@ enum Outcome {
 /// terminal already has before it draws once.
 const MAX_COALESCED_EVENTS: usize = 256;
 
-/// Button presses (`?1000h`) reported as SGR (`?1006h`), and nothing else.
-///
-/// Crossterm's `EnableMouseCapture` also asks for `?1002h`/`?1003h`, which
-/// report every pointer step. That is one event, and one frame, per pixel of
-/// mouse movement, for input the widget ignores.
-const ENABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1000h\x1b[?1006h";
-const DISABLE_MOUSE_BUTTONS: &[u8] = b"\x1b[?1006l\x1b[?1000l";
-
-struct TerminalSession;
-
-impl TerminalSession {
-    fn enter() -> io::Result<Self> {
-        enable_raw_mode()?;
-        if let Err(error) = execute!(stdout(), EnterAlternateScreen) {
-            let _ = disable_raw_mode();
-            return Err(error);
-        }
-        if let Err(error) = write_all_flushed(ENABLE_MOUSE_BUTTONS) {
-            let _ = execute!(stdout(), LeaveAlternateScreen);
-            let _ = disable_raw_mode();
-            return Err(error);
-        }
-        Ok(Self)
-    }
-}
-
-impl Drop for TerminalSession {
-    fn drop(&mut self) {
-        let _ = write_all_flushed(DISABLE_MOUSE_BUTTONS);
-        let _ = disable_raw_mode();
-        let _ = execute!(stdout(), LeaveAlternateScreen);
-    }
-}
-
-fn write_all_flushed(bytes: &[u8]) -> io::Result<()> {
-    let mut out = stdout();
-    out.write_all(bytes)?;
-    out.flush()
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let options = parse_options(env::args().skip(1))?;
@@ -102,7 +60,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_tui(document: Arc<DiffDocument>) -> io::Result<Outcome> {
-    let _session = TerminalSession::enter()?;
+    let _session = TerminalSession::enter(stdout())?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
     let mut state = DiffReviewState::new(document);

@@ -2,7 +2,7 @@ use clankerdiff_gpui_ui::{
     prelude::{Button, IconName, MenuItem, UiTheme, with_menu},
     testing::ComponentHarnessBuilder,
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{IntoElement, MouseButton, TestAppContext};
 use std::{cell::Cell, rc::Rc};
 

@@ -18,7 +18,7 @@ use clankerdiff_markdown::{
     MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
 };
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::{ReviewTheme, ThemeChoice};
+use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, Rems, ScrollHandle,
     Subscription, Window, actions, div, prelude::*,

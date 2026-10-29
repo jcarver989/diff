@@ -104,7 +104,6 @@ fn run_application(
 }
 
 pub use clankerdiff_gpui_shell::menus::{About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom};
-pub use menus::SetScope;
 
 #[cfg(test)]
 mod tests {
@@ -159,9 +158,7 @@ mod tests {
         }
 
         let view_actions = action_names(&menus[2]);
-        assert!(view_actions.contains(&"desktop_menu::SetScope".to_owned()));
-        assert!(view_actions.contains(&"diff_viewer::NextCommit".to_owned()));
-        assert!(view_actions.contains(&"diff_viewer::PreviousCommit".to_owned()));
+        assert_eq!(view_actions.iter().filter(|name| *name == "diff_viewer::RunCommand").count(), 5);
 
         let window_actions = action_names(&menus[3]);
         assert!(window_actions.contains(&"app_menu::Minimize".to_owned()));

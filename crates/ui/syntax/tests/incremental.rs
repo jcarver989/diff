@@ -1,7 +1,7 @@
 mod support;
 
 use clankerdiff_syntax::{HighlightStats, SyntaxError};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use std::{fmt::Write, str, sync::Arc};
 use support::{CacheBuilder, TestResult, line};
 

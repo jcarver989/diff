@@ -1,4 +1,5 @@
 use crate::{CommitTitle, LineStat, ReviewTarget};
+use clankerdiff_ui_core::{PickerOption, PickerState};
 
 const MINUTE: u64 = 60;
 const HOUR: u64 = 60 * MINUTE;
@@ -36,7 +37,7 @@ impl CommitPage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitPicker {
     pages: Vec<CommitPage>,
-    highlighted: usize,
+    picker: PickerState,
 }
 
 impl CommitPicker {
@@ -45,8 +46,12 @@ impl CommitPicker {
         if pages.is_empty() {
             return None;
         }
-        let highlighted = pages.iter().position(|page| page.current).unwrap_or(0);
-        Some(Self { pages, highlighted })
+        let options = pages.iter().map(|page| PickerOption::new(page.subject.clone())).collect();
+        let mut picker = PickerState::new(options).unfiltered();
+        if let Some(current) = pages.iter().position(|page| page.current) {
+            picker.highlight(current);
+        }
+        Some(Self { pages, picker })
     }
 
     #[must_use]
@@ -55,13 +60,17 @@ impl CommitPicker {
     }
 
     #[must_use]
+    pub const fn picker(&self) -> &PickerState {
+        &self.picker
+    }
+
+    #[must_use]
     pub const fn highlighted(&self) -> usize {
-        self.highlighted
+        self.picker.highlighted_position()
     }
 
     pub fn move_by(&mut self, delta: isize) {
-        let last = self.pages.len().saturating_sub(1);
-        self.highlighted = self.highlighted.saturating_add_signed(delta).min(last);
+        self.picker.move_by(delta);
     }
 }
 

@@ -80,7 +80,7 @@ impl StatefulWidget for MarkdownReviewWidget {
             render_help(area, buffer, state, &theme);
         }
         if let Some(picker) = &state.theme_picker {
-            render_theme_picker(area, buffer, picker, &theme);
+            render_theme_picker(area, buffer, picker, &theme, None);
         }
         state.dirty = false;
     }

@@ -1,11 +1,17 @@
 //! Diff review harness, input builders, and a one-shot renderer.
 
-use super::{BackendStats, CountingBackend, buffer_row_text, buffer_text, key};
-use crate::KeyCode;
-use crate::{DiffReviewState, DiffReviewWidget, ReviewInput};
-use clankerdiff_core::{DiffDocument, Lookup, LookupAnswer, LookupReply, ReviewCapabilities};
+use super::{BackendStats, CountingBackend, buffer_row_text, buffer_text, key, mouse};
+use crate::{
+    DiffReviewEvent, DiffReviewState, DiffReviewWidget, InputOutcome, KeyCode, MouseButton, MouseEventKind, ReviewInput,
+};
+use clankerdiff_core::{DiffDocument, Lookup, LookupAnswer, LookupReply, ReviewCapabilities, testing::DocumentBuilder};
 use clankerdiff_syntax::HighlightStats;
-use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
+use ratatui::{
+    Terminal,
+    backend::TestBackend,
+    buffer::Buffer,
+    layout::{Position, Rect},
+};
 use std::sync::Arc;
 
 /// Deterministic work performed while drawing one frame.
@@ -117,9 +123,24 @@ impl ReviewHarness {
         self.state.mark_dirty();
     }
 
-    pub fn input(&mut self, input: ReviewInput) {
-        let _ = self.state.handle_input(input);
+    pub fn input(&mut self, input: ReviewInput) -> InputOutcome<DiffReviewEvent> {
+        let outcome = self.state.handle_input(input);
         self.lookups.extend(self.state.take_lookups());
+        outcome
+    }
+
+    pub fn click_at(&mut self, position: Position) -> InputOutcome<DiffReviewEvent> {
+        self.input(mouse(MouseEventKind::Down(MouseButton::Left), position.x, position.y))
+    }
+
+    pub fn click(&mut self, text: &str) -> Result<InputOutcome<DiffReviewEvent>, String> {
+        let position = self.find(text)?;
+        Ok(self.click_at(position))
+    }
+
+    pub fn hover(&mut self, text: &str) -> Result<InputOutcome<DiffReviewEvent>, String> {
+        let position = self.find(text)?;
+        Ok(self.input(mouse(MouseEventKind::Moved, position.x, position.y)))
     }
 
     #[must_use]
@@ -143,7 +164,7 @@ impl ReviewHarness {
     }
 
     pub fn input_and_draw(&mut self, input: ReviewInput) -> FrameStats {
-        self.input(input);
+        let _ = self.input(input);
         self.draw()
     }
 
@@ -175,6 +196,26 @@ impl ReviewHarness {
     #[must_use]
     pub fn row_containing(&self, text: &str) -> Option<u16> {
         (0..self.buffer().area.height).find(|&row| self.row_text(row).contains(text))
+    }
+
+    #[must_use]
+    pub fn position_of(&self, text: &str) -> Option<Position> {
+        (0..self.buffer().area.height).find_map(|row| {
+            let line = self.row_text(row);
+            let column = line[..line.find(text)?].chars().count();
+            Some(Position::new(u16::try_from(column).ok()?, row))
+        })
+    }
+
+    #[must_use]
+    pub fn position_in(&self, line: &str, text: &str) -> Option<Position> {
+        let start = self.position_of(line)?;
+        let offset = u16::try_from(line[..line.find(text)?].chars().count()).ok()?;
+        Some(Position::new(start.x + offset, start.y))
+    }
+
+    fn find(&self, text: &str) -> Result<Position, String> {
+        self.position_of(text).ok_or_else(|| format!("{text:?} is not shown:\n{}", self.text()))
     }
 
     /// Asserts against rendered output and includes the complete buffer on failure.
@@ -238,4 +279,12 @@ pub fn type_review_text(state: &mut DiffReviewState, text: &str) {
     for character in text.chars() {
         let _ = state.handle_input(key(KeyCode::Char(character)));
     }
+}
+
+#[must_use]
+pub fn caller_and_callee_document() -> Arc<DiffDocument> {
+    DocumentBuilder::new()
+        .changed("src/lib.rs", "", "pub fn double(value: u32) -> u32 {\n    value * 2\n}\n")
+        .changed("src/main.rs", "fn main() {}\n", "fn main() {\n    double(1);\n}\n")
+        .build()
 }

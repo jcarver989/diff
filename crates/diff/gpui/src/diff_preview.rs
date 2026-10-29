@@ -6,7 +6,7 @@ use clankerdiff_core::{
     parse_detached_git_diff,
 };
 use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, Div, FontWeight, StyledText, div, prelude::*, px};
 use std::{collections::VecDeque, sync::Arc};
 

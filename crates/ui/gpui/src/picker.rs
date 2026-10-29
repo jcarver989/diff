@@ -6,17 +6,13 @@ use super::{
     tokens::{self, rem},
     typography::{Typography, TypographyExt},
 };
-use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeSelection};
+use clankerdiff_ui_core::{Appearance, PickerOption, PickerState, ReviewTheme, ThemeChoice, ThemeSelection};
 use gpui::{
     AnyElement, App, Context, Div, Entity, EventEmitter, FocusHandle, Hsla, IntoElement, KeyBinding, NoAction,
     ParentElement, Rems, RenderOnce, ScrollHandle, SharedString, Subscription, Window, div, prelude::*, relative,
 };
 use gpui_base::input::{Enter, Escape, Input, InputEvent, InputState, MoveDown, MoveUp};
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{CaseMatching, Normalization, Pattern},
-};
-use std::{cmp::Reverse, rc::Rc, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
 type PositionHandler = Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
 type PreviewRenderer = Rc<dyn Fn(usize, &mut Window, &mut App) -> AnyElement + 'static>;
@@ -25,25 +21,6 @@ const MARKER_SIZE: f32 = 7.0;
 const PENDING_MARKER_SIZE: f32 = 8.0;
 
 pub const CONTEXT: &str = "SearchPicker";
-
-#[must_use]
-pub fn fuzzy_filter<T: AsRef<str>>(query: &str, keys: impl IntoIterator<Item = T>) -> Vec<usize> {
-    let keys = keys.into_iter();
-    if query.trim().is_empty() {
-        return (0..keys.count()).collect();
-    }
-    let mut matcher = Matcher::new(Config::DEFAULT);
-    let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
-    let mut buf = Vec::new();
-    let mut scored: Vec<(u32, usize)> = keys
-        .enumerate()
-        .filter_map(|(index, key)| {
-            pattern.score(Utf32Str::new(key.as_ref(), &mut buf), &mut matcher).map(|score| (score, index))
-        })
-        .collect();
-    scored.sort_by_key(|&(score, _)| Reverse(score));
-    scored.into_iter().map(|(_, index)| index).collect()
-}
 
 #[derive(Debug, Clone)]
 pub struct PickerDetail {
@@ -182,15 +159,20 @@ impl PickerItem {
         self
     }
 
-    fn match_text(&self) -> String {
-        [self.prefix.as_ref(), Some(&self.label), self.subtitle.as_ref()]
+    fn option(&self) -> PickerOption {
+        let text = [self.prefix.as_ref(), Some(&self.label), self.subtitle.as_ref()]
             .into_iter()
             .flatten()
             .chain(self.details.iter().map(|detail| &detail.text))
             .chain(self.keywords.as_ref())
             .map(SharedString::as_ref)
             .collect::<Vec<&str>>()
-            .join(" ")
+            .join(" ");
+        let option = PickerOption::new(text).disabled(self.disabled);
+        match &self.group {
+            Some(group) => option.group(group.to_string()),
+            None => option,
+        }
     }
 }
 
@@ -471,9 +453,7 @@ pub struct SearchPicker {
     status: Option<SharedString>,
     search: Option<(Entity<InputState>, Subscription)>,
     items: Vec<PickerItem>,
-    matches: Vec<usize>,
-    highlighted: usize,
-    filtered: bool,
+    state: PickerState,
     width: Option<Rems>,
     height: Option<Rems>,
     max_list_height: Option<Rems>,
@@ -496,7 +476,7 @@ impl SearchPicker {
 
     #[must_use]
     pub fn new(id: impl Into<SharedString>, items: Vec<PickerItem>, theme: UiTheme, cx: &mut Context<Self>) -> Self {
-        let mut picker = Self {
+        Self {
             id: id.into(),
             theme,
             title: None,
@@ -504,10 +484,8 @@ impl SearchPicker {
             empty: "No matches".into(),
             status: None,
             search: None,
+            state: PickerState::new(items.iter().map(PickerItem::option).collect()),
             items,
-            matches: Vec::new(),
-            highlighted: 0,
-            filtered: true,
             width: None,
             height: None,
             max_list_height: None,
@@ -515,9 +493,7 @@ impl SearchPicker {
             focus_handle: cx.focus_handle(),
             needs_focus: true,
             scroll: ScrollHandle::new(),
-        };
-        picker.refilter("");
-        picker
+        }
     }
 
     #[must_use]
@@ -537,7 +513,7 @@ impl SearchPicker {
             if matches!(event, InputEvent::Change) {
                 let query = input.read(cx).value().to_string();
                 this.apply_query(&query, cx);
-                if !this.filtered {
+                if !this.state.is_filtered() {
                     cx.emit(SearchPickerEvent::Query(query));
                 }
             }
@@ -566,7 +542,7 @@ impl SearchPicker {
 
     #[must_use]
     pub fn unfiltered(mut self) -> Self {
-        self.filtered = false;
+        self.state = self.state.unfiltered();
         self
     }
 
@@ -596,35 +572,37 @@ impl SearchPicker {
 
     #[must_use]
     pub fn highlight(mut self, index: usize) -> Self {
-        if let Some(position) = self.matches.iter().position(|&matched| matched == index) {
-            self.highlighted = position;
-            self.scroll.scroll_to_item(position);
+        if self.state.highlight(index) {
+            self.scroll.scroll_to_item(self.state.highlighted_position());
         }
         self
     }
 
     pub fn set_items(&mut self, items: Vec<PickerItem>, cx: &mut Context<Self>) {
+        let before = self.state.highlighted();
+        self.state.set_options(items.iter().map(PickerItem::option).collect());
         self.items = items;
-        let query = self.query(cx);
-        self.apply_query(&query, cx);
+        self.highlight_changed(before, cx);
     }
 
     pub fn move_highlight(&mut self, by: isize, cx: &mut Context<Self>) {
-        if let Some(next) = self.highlighted.checked_add_signed(by).and_then(|start| self.next_enabled(start, by)) {
-            self.set_highlighted_position(next, cx);
+        let before = self.state.highlighted();
+        if self.state.move_by(by) {
+            self.scroll.scroll_to_item(self.state.highlighted_position());
+            self.highlight_changed(before, cx);
         }
     }
 
     pub fn highlight_item(&mut self, index: usize, cx: &mut Context<Self>) {
-        if let Some(position) =
-            self.matches.iter().position(|&matched| matched == index).filter(|_| !self.items[index].disabled)
-        {
-            self.set_highlighted_position(position, cx);
+        let before = self.state.highlighted();
+        if self.state.highlight(index) {
+            self.scroll.scroll_to_item(self.state.highlighted_position());
+            self.highlight_changed(before, cx);
         }
     }
 
     pub fn choose_highlighted(&mut self, cx: &mut Context<Self>) {
-        self.choose(self.highlighted, cx);
+        self.choose(self.state.highlighted_position(), cx);
     }
 
     pub fn dismiss(&mut self, cx: &mut Context<Self>) {
@@ -641,65 +619,29 @@ impl SearchPicker {
         self.search.as_ref().map(|(input, _)| input.read(cx).value().to_string()).unwrap_or_default()
     }
 
-    fn refilter(&mut self, query: &str) {
-        self.matches = if self.filtered {
-            fuzzy_filter(query, self.items.iter().map(PickerItem::match_text))
-        } else {
-            (0..self.items.len()).collect()
-        };
-        let items = &self.items;
-        self.matches.sort_by_key(|&index| {
-            items[index].group.as_ref().map(|group| items.iter().position(|item| item.group.as_ref() == Some(group)))
-        });
-        self.highlighted = self.next_enabled(0, 1).unwrap_or(0);
-        self.scroll.scroll_to_item(self.highlighted);
-    }
-
     fn apply_query(&mut self, query: &str, cx: &mut Context<Self>) {
-        let before = self.highlighted_item();
-        self.refilter(query);
-        if let Some(index) = self.highlighted_item().filter(|&index| Some(index) != before) {
-            cx.emit(SearchPickerEvent::Highlighted(index));
-        }
-        cx.notify();
-    }
-
-    fn set_highlighted_position(&mut self, position: usize, cx: &mut Context<Self>) {
-        self.scroll.scroll_to_item(position);
-        self.update_highlight(position, cx);
+        let before = self.state.highlighted();
+        self.state.set_query(query);
+        self.scroll.scroll_to_item(self.state.highlighted_position());
+        self.highlight_changed(before, cx);
     }
 
     fn hover(&mut self, position: usize, cx: &mut Context<Self>) {
-        if position != self.highlighted {
-            self.update_highlight(position, cx);
+        let before = self.state.highlighted();
+        if position != self.state.highlighted_position() && self.state.highlight_position(position) {
+            self.highlight_changed(before, cx);
         }
     }
 
-    fn update_highlight(&mut self, position: usize, cx: &mut Context<Self>) {
-        let before = self.highlighted_item();
-        self.highlighted = position;
-        if let Some(index) = self.highlighted_item().filter(|&index| Some(index) != before) {
+    fn highlight_changed(&self, before: Option<usize>, cx: &mut Context<Self>) {
+        if let Some(index) = self.state.highlighted().filter(|&index| Some(index) != before) {
             cx.emit(SearchPickerEvent::Highlighted(index));
         }
         cx.notify();
     }
 
-    fn highlighted_item(&self) -> Option<usize> {
-        self.matches.get(self.highlighted).copied().filter(|&index| !self.items[index].disabled)
-    }
-
-    fn next_enabled(&self, start: usize, by: isize) -> Option<usize> {
-        let mut position = start;
-        loop {
-            if !self.items[*self.matches.get(position)?].disabled {
-                return Some(position);
-            }
-            position = position.checked_add_signed(by)?;
-        }
-    }
-
     fn choose(&mut self, position: usize, cx: &mut Context<Self>) {
-        if let Some(&index) = self.matches.get(position).filter(|&&index| !self.items[index].disabled) {
+        if let Some(&index) = self.state.matches().get(position).filter(|&&index| !self.items[index].disabled) {
             cx.emit(SearchPickerEvent::Chose(index));
         }
     }
@@ -766,15 +708,15 @@ impl Render for SearchPicker {
                 .child(div().flex_1().min_w_0().child(Input::new(input)))
         });
         let preview = self.preview.clone().map(|render| {
-            self.highlighted_item().map_or_else(|| div().into_any_element(), |index| render(index, window, cx))
+            self.state.highlighted().map_or_else(|| div().into_any_element(), |index| render(index, window, cx))
         });
         let body = if let Some(status) = self.status.clone() {
             PickerList::new(id.clone(), self.theme).empty(status)
         } else {
             PickerList::new(id.clone(), self.theme)
                 .align_with(&self.items)
-                .items(self.matches.iter().map(|&index| self.items[index].clone()))
-                .highlighted(Some(self.highlighted))
+                .items(self.state.matches().iter().map(|&index| self.items[index].clone()))
+                .highlighted(Some(self.state.highlighted_position()))
                 .empty(self.empty.clone())
                 .track_scroll(&self.scroll)
                 .on_choose(cx.listener(|this, position: &usize, _, cx| this.choose(*position, cx)))

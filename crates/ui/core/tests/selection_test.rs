@@ -1,4 +1,4 @@
-use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeSelection};
+use clankerdiff_ui_core::{Appearance, ReviewTheme, ThemeChoice, ThemeSelection};
 use std::{error::Error, sync::Arc};
 
 #[test]

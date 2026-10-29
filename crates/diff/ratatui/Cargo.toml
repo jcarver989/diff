@@ -9,7 +9,7 @@ repository.workspace = true
 
 [features]
 default = []
-test-support = []
+test-support = ["clankerdiff-core/test-support"]
 crossterm-backend = ["ratatui/crossterm", "dep:crossterm"]
 
 [lints]
@@ -26,7 +26,7 @@ clankerdiff-core.workspace = true
 clankerdiff-markdown = { workspace = true, features = ["review"] }
 clankerdiff-symbols.workspace = true
 clankerdiff-syntax.workspace = true
-clankerdiff-theme.workspace = true
+clankerdiff-ui-core.workspace = true
 ratatui.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
@@ -91,4 +91,16 @@ required-features = ["test-support"]
 
 [[test]]
 name = "definition_card_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "input_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "palette_test"
+required-features = ["test-support"]
+
+[[test]]
+name = "toolbar_test"
 required-features = ["test-support"]

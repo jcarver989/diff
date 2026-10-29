@@ -5,7 +5,7 @@ mod support;
 use clankerdiff_core::{DiffDocument, ViewMode, testing::DocumentBuilder};
 use clankerdiff_ratatui::{KeyCode, MouseEventKind, NavigationPane, ReviewOptions};
 use clankerdiff_syntax::{Fingerprint, SyntaxError, SyntaxHighlighter, SyntaxTheme};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use std::{error::Error, fmt::Write, str, sync::Arc};
 use support::{MarkdownStreamFixture, ReviewHarness, key, mouse};
 

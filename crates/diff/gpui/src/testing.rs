@@ -16,7 +16,7 @@ use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReview, MarkdownReviewCommand, MarkdownReviewEvent, MarkdownTargetId,
 };
 use clankerdiff_symbols::DefinitionCard;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{
     App, Bounds, Capslock, Context, ElementInputHandler, Entity, EventEmitter, Focusable, InputHandler, ListOffset,
     Modifiers, ModifiersChangedEvent, MouseMoveEvent, Pixels, Point, Render, TestAppContext, Window, WindowBounds,

@@ -40,7 +40,7 @@
         "workspace.dependencies.clankerdiff-fingerprint.path",
         "workspace.dependencies.clankerdiff-remote.path",
         "workspace.dependencies.clankerdiff-lspd.path",
-        "workspace.dependencies.clankerdiff-theme.path",
+        "workspace.dependencies.clankerdiff-ui-core.path",
         "workspace.dependencies.clankerdiff-syntax.path",
         "workspace.dependencies.clankerdiff-gpui-ui.path",
         "workspace.dependencies.clankerdiff-gpui-shell.path",

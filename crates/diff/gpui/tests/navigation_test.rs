@@ -23,35 +23,34 @@ fn shift_d_shows_the_only_name_on_a_line_and_escape_closes_it_without_cancelling
 }
 
 #[gpui::test]
-fn shift_d_on_a_line_with_several_names_offers_lettered_choices(cx: &mut TestAppContext) {
+fn shift_d_again_steps_to_the_next_name_on_the_line(cx: &mut TestAppContext) {
     builder().run(cx, |harness, cx| {
         harness.select_line(cx, &location("src/lib.rs", 2)?)?;
         harness.simulate_keystrokes(cx, "shift-d");
         harness.draw(cx);
-        assert!(harness.bounds(cx, "name-hints").is_some());
-        assert!(harness.bounds(cx, "definition-card").is_none());
-        harness.simulate_keystrokes(cx, "s");
+        let first = harness.definition_card_name(cx);
+        assert!(first.is_some() && first.as_deref() != Some("offset"));
+        harness.simulate_keystrokes(cx, "shift-d");
         harness.draw(cx);
-        assert!(harness.bounds(cx, "name-hints").is_none());
         assert_eq!(harness.definition_card_name(cx).as_deref(), Some("offset"));
         Ok(())
     });
 }
 
 #[gpui::test]
-fn escape_dismisses_lettered_choices(cx: &mut TestAppContext) {
+fn escape_closes_the_card_without_cancelling_the_review(cx: &mut TestAppContext) {
     builder().run(cx, |harness, cx| {
         harness.select_line(cx, &location("src/lib.rs", 2)?)?;
         harness.simulate_keystrokes(cx, "shift-d escape");
         harness.draw(cx);
-        assert!(harness.bounds(cx, "name-hints").is_none());
+        assert!(harness.bounds(cx, "definition-card").is_none());
         assert!(!harness.events(cx).contains(&DiffReviewEvent::Cancel));
         Ok(())
     });
 }
 
 #[gpui::test]
-fn enter_jumps_to_the_definition_and_ctrl_o_and_ctrl_i_walk_history(cx: &mut TestAppContext) {
+fn enter_jumps_to_the_definition_and_ctrl_o_and_forward_walk_history(cx: &mut TestAppContext) {
     builder().run(cx, |harness, cx| {
         let origin = location("src/main.rs", 2)?;
         let target = location("src/lib.rs", 1)?;
@@ -63,7 +62,7 @@ fn enter_jumps_to_the_definition_and_ctrl_o_and_ctrl_i_walk_history(cx: &mut Tes
         assert!(harness.bounds(cx, "navigate-back").is_some());
         harness.simulate_keystrokes(cx, "ctrl-o");
         assert_eq!(harness.selected_line(cx), Some(origin));
-        harness.simulate_keystrokes(cx, "ctrl-i");
+        harness.click(cx, "navigate-forward")?;
         assert_eq!(harness.selected_line(cx), Some(target));
         Ok(())
     });

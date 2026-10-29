@@ -11,7 +11,7 @@ use crate::{
 };
 use clankerdiff_markdown::{MarkdownInline, MarkdownTableAlignment};
 use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, ClipboardItem, Div, FontWeight, Rems, StyledText, div, prelude::*, px};
 
 pub(super) const LIST_INDENT: f32 = 22.0;

@@ -27,7 +27,11 @@ impl TestServer {
     }
 
     pub async fn open(repo: RepoFixture) -> Result<Self, Box<dyn Error>> {
-        let server = DiffServer::open(repo.repository().await.root(), ServerOptions::default()).await?;
+        Self::open_with(repo, ServerOptions::default()).await
+    }
+
+    pub async fn open_with(repo: RepoFixture, options: ServerOptions) -> Result<Self, Box<dyn Error>> {
+        let server = DiffServer::open(repo.repository().await.root(), options).await?;
         Ok(Self { repo, server })
     }
 

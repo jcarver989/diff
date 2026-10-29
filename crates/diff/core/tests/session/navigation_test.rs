@@ -1,7 +1,7 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffSide, ReviewSession, ReviewTarget, SourceLocation, TargetLocation,
+    DiffReviewCommand, DiffSide, ReviewSession, ReviewTarget, SourceLocation, TargetLocation,
     testing::{DocumentBuilder, commit_id, external, location, repo, source},
 };
 use std::{error::Error, fmt::Write};
@@ -23,6 +23,25 @@ fn jumping_records_history_that_back_and_forward_walk() -> Result<(), Box<dyn Er
     assert_eq!(session.back_location(), Some(&origin.into()));
     assert!(session.forward_location().is_none());
     assert!(!session.navigate_forward());
+    Ok(())
+}
+
+#[test]
+fn history_and_review_commands_are_available_only_with_something_to_act_on() -> Result<(), Box<dyn Error>> {
+    let mut session = session();
+    for command in [DiffReviewCommand::NavigateBack, DiffReviewCommand::NavigateForward, DiffReviewCommand::CopyReview]
+    {
+        assert!(!session.command_available(&command), "{command:?}");
+    }
+    assert!(session.command_available(&DiffReviewCommand::Refresh));
+    assert!(session.jump_to(location("src/lib.rs", 2)?));
+    assert!(session.command_available(&DiffReviewCommand::NavigateBack));
+    assert!(session.navigate_back());
+    assert!(session.command_available(&DiffReviewCommand::NavigateForward));
+    let anchor = session.selected_anchor().ok_or("a commentable line")?;
+    session.review_mut().add_comment(anchor, "note");
+    assert!(session.command_available(&DiffReviewCommand::CopyReview));
+    assert!(!session.command_available(&DiffReviewCommand::StepTarget(1)), "a working tree has no commits to step");
     Ok(())
 }
 

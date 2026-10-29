@@ -4,7 +4,7 @@ use clankerdiff_ratatui::{
     StreamingMarkdownState,
 };
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::{ReviewTheme, Rgba};
+use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use std::{error::Error, sync::Arc};
 
 const VIEWPORT_ROWS: usize = 4;

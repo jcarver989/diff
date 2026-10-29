@@ -10,7 +10,7 @@ pub const CRATES: [(&str, &str); 18] = [
     ("clankerdiff-fingerprint", "crates/util/fingerprint"),
     ("clankerdiff-remote", "crates/util/remote"),
     ("clankerdiff-lspd", "crates/util/lspd"),
-    ("clankerdiff-theme", "crates/ui/theme"),
+    ("clankerdiff-ui-core", "crates/ui/core"),
     ("clankerdiff-syntax", "crates/ui/syntax"),
     ("clankerdiff-gpui-ui", "crates/ui/gpui"),
     ("clankerdiff-gpui-shell", "crates/ui/gpui-shell"),

@@ -1,58 +1,7 @@
-use crate::{
-    DiffViewer,
-    ui::prelude::{CODE_FONT, Modal, ModalSize, Typography, TypographyExt, UiTheme, rem},
-};
+use crate::ui::prelude::{CODE_FONT, Modal, ModalSize, Typography, TypographyExt, UiTheme, rem};
 use gpui::{App, Window, div, prelude::*};
 
-const NAVIGATION: Shortcuts = &[
-    ("j / k, ↑ / ↓", "move selection"),
-    ("h / l, ← / →", "change pane, fold, or select side"),
-    ("Tab", "change pane"),
-    ("b", "hide / show changed files"),
-    ("g / G, Home / End", "first / last item"),
-    ("PgUp / PgDn", "move a page"),
-    ("[ / ]", "previous / next commit"),
-    ("{ / }", "first commit / uncommitted changes"),
-    ("p", "pick commit (↑ / ↓, Enter, Esc)"),
-    ("o", "toggle source / diff"),
-    ("Enter", "expand context / open file"),
-    ("O", "expand all context"),
-    ("f", "toggle all diff context"),
-    ("z / Z", "collapse / expand file or all files"),
-    ("⌘/Ctrl-hover, Shift-D", "show definition (Enter go, Tab next, Esc close)"),
-    ("⌘/Ctrl-click", "go to definition"),
-    ("Ctrl-O / Ctrl-I", "back / forward after a jump"),
-];
-const GIT: Shortcuts = &[
-    ("Space", "stage / unstage file or directory"),
-    ("a / A", "stage / unstage all"),
-    ("C", "commit staged changes"),
-    ("d", "discard selected file"),
-    ("S", "cycle scope (unstaged/staged/both)"),
-    ("⌘/Ctrl-R", "refresh repository"),
-];
-const REVIEW: Shortcuts = &[
-    ("c / e / x", "add / edit / delete comment"),
-    ("u", "undo last comment"),
-    ("s / y", "submit / copy review"),
-    ("v", "toggle split / unified"),
-    ("V", "auto layout"),
-    ("t", "choose theme (↑ / ↓, Enter, Esc)"),
-    ("Esc / Ctrl-G", "cancel review"),
-];
-const DRAFT: Shortcuts = &[("Enter", "save comment"), ("Shift-Enter", "insert newline"), ("Esc", "cancel comment")];
-
 pub(crate) type Shortcuts = &'static [(&'static str, &'static str)];
-
-impl DiffViewer {
-    pub(crate) fn render_shortcuts(&self) -> ShortcutHelp {
-        ShortcutHelp::new(&self.ui_theme())
-            .section("Navigation", NAVIGATION)
-            .section("Review", REVIEW)
-            .section("Git", GIT)
-            .section("Comment editor", DRAFT)
-    }
-}
 
 #[derive(IntoElement)]
 pub(crate) struct ShortcutHelp {

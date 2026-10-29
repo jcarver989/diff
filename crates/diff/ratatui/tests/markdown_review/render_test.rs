@@ -4,7 +4,7 @@ use clankerdiff_ratatui::{
     InputOutcome, InteractionPhase, KeyCode, MarkdownReviewState, MarkdownReviewWidget, MouseButton, MouseEventKind,
     NavigationPane, ReviewOptions,
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 use std::{error::Error, fmt::Write, sync::Arc};
 

@@ -2,7 +2,7 @@ pub mod commands;
 
 use clankerdiff_core::{DiffDocument, DiffScope};
 use clankerdiff_markdown::MarkdownDocument;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -219,7 +219,7 @@ mod wasm {
         ui::{InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE, prelude::UI_FONT},
     };
     use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
-    use clankerdiff_theme::ReviewTheme;
+    use clankerdiff_ui_core::ReviewTheme;
     use gpui::{
         App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
         WindowOptions, div, prelude::*, px, size,
@@ -943,7 +943,7 @@ pub use wasm::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clankerdiff_theme::ThemeId;
+    use clankerdiff_ui_core::ThemeId;
 
     #[test]
     fn completion_is_request_scoped_and_independent_of_content() {

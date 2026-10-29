@@ -22,7 +22,7 @@ pub use clankerdiff_markdown::{
     parse_markdown, rendered_text, resolve_anchor,
 };
 use clankerdiff_syntax::{DocumentHighlights, HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxStream};
-use clankerdiff_theme::{ReviewTheme, Rgba};
+use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},

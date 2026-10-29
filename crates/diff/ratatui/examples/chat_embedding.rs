@@ -4,7 +4,7 @@ use clankerdiff_ratatui::{
     DiffPreviewOptions, DiffPreviewState, MarkdownLayoutOptions, MarkdownRenderer, StreamingMarkdownState,
 };
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {

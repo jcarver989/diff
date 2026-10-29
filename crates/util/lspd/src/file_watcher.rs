@@ -34,7 +34,9 @@ impl WatchedFiles {
     pub(crate) fn new(root: &Path) -> Self {
         let (tx, events) = mpsc::unbounded_channel();
         let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-            if let Ok(event) = event {
+            if let Ok(event) = event
+                && !event.kind.is_access()
+            {
                 let _ = tx.send(event);
             }
         })

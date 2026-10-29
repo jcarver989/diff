@@ -1,5 +1,5 @@
 use clankerdiff_gpui_ui::theme::{UiTheme, color, window_appearance};
-use clankerdiff_theme::{
+use clankerdiff_ui_core::{
     Appearance, ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, Rgba, SelectionState,
 };
 use std::error::Error;

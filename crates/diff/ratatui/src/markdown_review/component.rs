@@ -5,7 +5,7 @@ use crate::{
 };
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewError};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 #[cfg(feature = "crossterm-backend")]
 use crossterm::event::Event;
 use ratatui::{Frame, layout::Rect};

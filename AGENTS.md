@@ -7,7 +7,7 @@ This repository holds reusable GPUI app building blocks and Diff, a performant d
 Crates are grouped by domain under `crates/`:
 
 - `crates/util/`: general-purpose crates with no UI and no diff concepts (`fingerprint`, `remote`).
-- `crates/ui/`: themes, syntax highlighting and the GPUI design system and app shell (`theme`, `syntax`, `gpui`, `gpui-shell`).
+- `crates/ui/`: renderer-neutral UI behavior and themes, syntax highlighting, and the GPUI design system and app shell (`core`, `syntax`, `gpui`, `gpui-shell`).
 - `crates/diff/`: the diff and markdown review domain (`core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `gpui`, `ratatui`, `cli`, `desktop`, `web`).
 
 A crate may depend only on crates in its own domain or a lower one: `util` < `ui` < `diff`. `just layer-check` enforces this. Put new code in the lowest domain it fits; anything another app could use without diff concepts belongs in `ui/` or `util/`.

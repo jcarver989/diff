@@ -3,7 +3,7 @@ use bitflags::bitflags;
 pub use clankerdiff_core::InteractionPhase;
 use clankerdiff_core::{CommentDraft, ViewMode};
 use clankerdiff_markdown::MarkdownCommentDraft;
-use clankerdiff_theme::ThemeId;
+use clankerdiff_ui_core::ThemeId;
 use ratatui::layout::Position;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +19,10 @@ impl<T> InputOutcome<T> {
     #[must_use]
     pub const fn is_consumed(&self) -> bool {
         !matches!(self, Self::Ignored)
+    }
+    #[must_use]
+    pub fn or_consumed(self) -> Self {
+        if self.is_consumed() { self } else { Self::Consumed }
     }
     #[must_use]
     pub fn into_event(self) -> Option<T> {
@@ -140,6 +144,7 @@ pub enum ReviewInput {
     Key(KeyEvent),
     Paste(String),
     Mouse(MouseEvent),
+    Modifiers(KeyModifiers),
 }
 
 impl From<KeyEvent> for ReviewInput {
@@ -226,6 +231,15 @@ pub(crate) trait ReviewWidget {
     fn handle_picker_key(&mut self, _key: KeyEvent) -> InputOutcome<Self::Event> {
         InputOutcome::Consumed
     }
+    fn handle_help_key(&mut self, _key: KeyEvent) -> Option<InputOutcome<Self::Event>> {
+        None
+    }
+    fn handle_overlay_mouse(&mut self, _mouse: MouseEvent) -> InputOutcome<Self::Event> {
+        InputOutcome::Consumed
+    }
+    fn handle_modifiers(&mut self, _modifiers: KeyModifiers) -> InputOutcome<Self::Event> {
+        InputOutcome::Ignored
+    }
     fn paste_prompt(&mut self, _text: &str) {}
 }
 
@@ -256,22 +270,18 @@ pub(crate) fn handle_input<T: ReviewWidget>(
             if phase == InteractionPhase::Draft {
                 state.handle_draft_mouse(mouse)
             } else if phase != InteractionPhase::Browse {
-                InputOutcome::Consumed
-            } else if !state.contains(Position::new(mouse.column, mouse.row))
-                || !matches!(
-                    mouse.kind,
-                    MouseEventKind::Down(_) | MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-                )
-            {
-                InputOutcome::Ignored
-            } else {
+                state.handle_overlay_mouse(mouse)
+            } else if reaches_widget(state, mouse) {
                 let outcome = state.handle_mouse(mouse);
                 if outcome.is_consumed() {
                     state.mark_dirty();
                 }
                 outcome
+            } else {
+                InputOutcome::Ignored
             }
         }
+        ReviewInput::Modifiers(modifiers) => state.handle_modifiers(modifiers),
     };
     Ok(outcome)
 }
@@ -305,6 +315,9 @@ fn handle_key<T: ReviewWidget>(state: &mut T, key: KeyEvent) -> Result<InputOutc
             return Ok(outcome);
         }
         InteractionPhase::Help => {
+            if let Some(outcome) = state.handle_help_key(key) {
+                return Ok(outcome);
+            }
             if !is_plain_key(key) {
                 return Ok(InputOutcome::Consumed);
             }
@@ -323,6 +336,16 @@ fn handle_key<T: ReviewWidget>(state: &mut T, key: KeyEvent) -> Result<InputOutc
         InteractionPhase::Browse => return state.handle_browse_key(key),
     };
     state.handle_review_command(command)
+}
+
+fn reaches_widget<T: ReviewWidget>(state: &T, mouse: MouseEvent) -> bool {
+    match mouse.kind {
+        MouseEventKind::Moved => true,
+        MouseEventKind::Down(_) | MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+            state.contains(Position::new(mouse.column, mouse.row))
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn is_plain_key(key: KeyEvent) -> bool {

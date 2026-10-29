@@ -1,6 +1,6 @@
 //! GPUI-facing semantic theme tokens.
 
-use clankerdiff_theme::{
+use clankerdiff_ui_core::{
     Appearance, ButtonVariant, ControlState, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle,
     TerminalPalette, ThemePreference, UiPalette,
 };

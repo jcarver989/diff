@@ -1,7 +1,7 @@
 use clankerdiff_core::{FileDiff, ViewMode};
 use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, page_color, render_diff_preview};
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::{DiffTone, ReviewTheme};
+use clankerdiff_ui_core::{DiffTone, ReviewTheme};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -12,13 +12,20 @@ use ratatui::{
 use std::{error::Error, sync::Arc};
 
 #[test]
-fn split_additions_fill_missing_left_side_and_empty_source_lines() -> Result<(), Box<dyn Error>> {
-    assert_split_backgrounds("", "let added = 1;\n\n", &[(None, Some(DiffTone::Added)); 2])
-}
-
-#[test]
-fn split_deletions_fill_missing_right_side_and_empty_source_lines() -> Result<(), Box<dyn Error>> {
-    assert_split_backgrounds("let removed = 1;\n\n", "", &[(Some(DiffTone::Removed), None); 2])
+fn split_previews_show_one_sided_files_in_one_column() -> Result<(), Box<dyn Error>> {
+    let options = DiffPreviewOptions {
+        view_mode: ViewMode::Split,
+        include_gaps: false,
+        overflow_summary: false,
+        ..Default::default()
+    };
+    for (before, after) in [("", "let value = 1;\n"), ("let value = 1;\n", "")] {
+        let mut state = DiffPreviewState::new(FileDiff::from_texts("example.rs", before, after)?);
+        let rows = text(&state.render(96, &ReviewTheme::default(), &mut SyntaxHighlighter::default(), options));
+        let column = rows[0].find("let value").ok_or("line is not rendered")?;
+        assert!(rows[0][..column].chars().count() < 12, "{rows:?}");
+    }
+    Ok(())
 }
 
 #[test]
@@ -289,8 +296,6 @@ fn split_wrapped_rows_keep_diff_backgrounds_on_padding() -> Result<(), Box<dyn E
         assert_split_backgrounds(whitespace, &long, &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3])?;
         assert_split_backgrounds(&long, whitespace, &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3])?;
     }
-    assert_split_backgrounds("", &long, &[(None, Some(DiffTone::Added)); 3])?;
-    assert_split_backgrounds(&long, "", &[(Some(DiffTone::Removed), None); 3])?;
     assert_split_backgrounds("short\n", &long, &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3])?;
     assert_split_backgrounds(&long, "short\n", &[(Some(DiffTone::Removed), Some(DiffTone::Added)); 3])
 }

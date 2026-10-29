@@ -1,12 +1,14 @@
 #![allow(missing_docs)] // GPUI's `actions!` macro cannot attach per-action rustdoc.
 
 mod commands;
+mod overlay;
+
+use overlay::RepositoryPrompt;
+pub(crate) use overlay::{Overlay, PickerOverlay};
 
 use crate::{
     DiffViewerEvent, ThemeChanged, ViewModeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
-    commits::CommitPickerOverlay,
-    definition_card::CardHover,
     style::color,
     ui::{
         prelude::{
@@ -16,17 +18,17 @@ use crate::{
         tokens::{BASE_SIZE, CODE_ROW_HEIGHT},
     },
 };
+use clankerdiff_core::{Chord, DiffReviewCommand, Key, KeyScope, ReviewCapabilities, ReviewCommand, diff_shortcuts};
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, LineAnchor, PresentedCell,
-    PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession, ViewMode, ViewportAnchor,
+    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileTree, InteractionPhase, Layout, LineAnchor, PresentedCell,
+    PresentedRow, RepositoryAction, RevealAmount, Review, ReviewSession, ViewMode, ViewportAnchor,
 };
-use clankerdiff_core::{DiffReviewCommand, ReviewCapabilities, ReviewCommand};
 use clankerdiff_symbols::{NameLookup, SymbolCache, SymbolIndex};
 use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter, empty_spans};
-use clankerdiff_theme::{ReviewTheme, ThemeChoice};
+use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, ListAlignment, ListOffset,
-    ListState, Pixels, Rems, ScrollHandle, Subscription, Task, Window, actions, div, prelude::*, px, rems,
+    Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, ListAlignment,
+    ListOffset, ListState, Pixels, Rems, ScrollHandle, Subscription, Task, Window, actions, div, prelude::*, px, rems,
 };
 use std::sync::Arc;
 
@@ -36,77 +38,11 @@ const DEFAULT_SIDEBAR_FRACTION: f32 = 0.25;
 const DEFAULT_MIN_SIDEBAR_WIDTH: Rems = rem(320.0);
 const MIN_DIFF_WIDTH: Rems = rem(320.0);
 
-const BROWSE_ACTIVATION: &str = "DiffViewer && mode == browse && !CommentDismissControl && !StageCheckbox";
-const DIFF_ACTIVATION: &str =
-    "DiffViewer && mode == browse && pane == diff && !CommentDismissControl && !StageCheckbox";
-const FILES_ACTIVATION: &str =
-    "DiffViewer && mode == browse && pane == files && !CommentDismissControl && !StageCheckbox";
+actions!(diff_viewer, [SubmitComment, CancelComment, ConfirmDiscard, CancelRepositoryPrompt]);
 
-actions!(
-    diff_viewer,
-    [
-        NextFile,
-        PreviousFile,
-        NextHunk,
-        PreviousHunk,
-        NextItem,
-        PreviousItem,
-        FirstItem,
-        LastItem,
-        PageUp,
-        PageDown,
-        TogglePane,
-        ToggleSidebar,
-        FocusFiles,
-        FocusDiff,
-        SelectOldSide,
-        SelectNewSide,
-        ExpandOrOpen,
-        Collapse,
-        ToggleLayout,
-        UseAutoLayout,
-        ExpandGap,
-        ActivateGap,
-        ExpandGapAll,
-        ToggleFullFile,
-        ToggleFileCollapsed,
-        ToggleAllFilesCollapsed,
-        ToggleSourceView,
-        AddComment,
-        EditComment,
-        DeleteComment,
-        UndoComment,
-        SubmitComment,
-        CancelComment,
-        CopyReview,
-        SubmitReview,
-        ShowShortcuts,
-        HideShortcuts,
-        ShowThemePicker,
-        Refresh,
-        ToggleStage,
-        StageAll,
-        UnstageAll,
-        CycleScope,
-        NextCommit,
-        PreviousCommit,
-        FirstCommit,
-        LastCommit,
-        ShowCommitPicker,
-        CommitChanges,
-        DiscardChanges,
-        ConfirmDiscard,
-        CancelRepositoryPrompt,
-        Cancel,
-        PickName,
-        CancelNameHints,
-        CloseDefinition,
-        GoToDefinition,
-        NextDefinition,
-        NavigateBack,
-        NavigateForward
-    ]
-);
+#[derive(Debug, Clone, PartialEq, Action)]
+#[action(namespace = diff_viewer, no_json)]
+pub struct RunCommand(pub DiffReviewCommand);
 
 /// Renderer-specific sizing and virtualization settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -141,12 +77,6 @@ pub(crate) struct CommentTarget {
     pub(crate) side: DiffSide,
 }
 
-#[derive(Debug, Clone)]
-enum RepositoryPrompt {
-    Commit,
-    Discard { path: RepoPath, status: FileStatus },
-}
-
 pub use clankerdiff_core::FocusPane as ViewerPane;
 
 struct SidebarLayout {
@@ -162,12 +92,10 @@ struct DiffViewportBookmark {
 
 /// Shared GPUI diff review view.
 ///
-#[expect(clippy::struct_excessive_bools, reason = "View flags toggle independently")]
 pub struct DiffViewer {
     pub(crate) session: ReviewSession,
     pub(crate) capabilities: ReviewCapabilities,
-    theme_picker: Option<ThemePickerOverlay>,
-    pub(crate) commit_picker: Option<CommitPickerOverlay>,
+    pub(crate) overlay: Option<Overlay>,
     pub(crate) theme: ReviewTheme,
     pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) options: DiffViewerOptions,
@@ -181,14 +109,10 @@ pub struct DiffViewer {
     pub(crate) sidebar_tree: FileTree,
     pub(crate) sidebar_scroll_handle: ScrollHandle,
     pub(crate) pane: ViewerPane,
-    shortcuts_open: bool,
     pub(crate) comment_target: Option<CommentTarget>,
     pub(crate) comment_editor: Option<Entity<CommentEditor>>,
     comment_editor_subscription: Option<Subscription>,
     comment_editor_focus: Option<FocusHandle>,
-    repository_prompt: Option<RepositoryPrompt>,
-    repository_editor: Option<Entity<CommentEditor>>,
-    repository_editor_subscription: Option<Subscription>,
     repository_error: Option<String>,
     background_error: Option<String>,
     repository_pending: bool,
@@ -196,7 +120,6 @@ pub struct DiffViewer {
     pub(crate) links_visible: bool,
     symbols: SymbolCache,
     pub(crate) names: NameLookup,
-    pub(crate) hover: CardHover,
     pub(crate) card_timer: Option<Task<()>>,
 }
 
@@ -224,8 +147,7 @@ impl DiffViewer {
         let mut viewer = Self {
             session,
             capabilities: ReviewCapabilities::default(),
-            theme_picker: None,
-            commit_picker: None,
+            overlay: None,
             theme,
             highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
             options,
@@ -239,14 +161,10 @@ impl DiffViewer {
             sidebar_tree,
             sidebar_scroll_handle: ScrollHandle::new(),
             pane: ViewerPane::Diff,
-            shortcuts_open: false,
             comment_target: None,
             comment_editor: None,
             comment_editor_subscription: None,
             comment_editor_focus: None,
-            repository_prompt: None,
-            repository_editor: None,
-            repository_editor_subscription: None,
             repository_error: None,
             background_error: None,
             repository_pending: false,
@@ -254,103 +172,26 @@ impl DiffViewer {
             links_visible: false,
             symbols: SymbolCache::default(),
             names: NameLookup::default(),
-            hover: CardHover::default(),
             card_timer: None,
         };
         viewer.sync_diff_list();
         viewer
     }
 
-    /// Installs the actions' default keyboard shortcuts on an application.
     pub fn bind_keys(cx: &mut App) {
-        const BROWSE: &str = "DiffViewer && mode == browse";
-        const DIFF: &str = "DiffViewer && mode == browse && pane == diff";
-        const DIFF_SPLIT: &str = "DiffViewer && mode == browse && pane == diff && layout == split";
-        const DIFF_UNIFIED: &str = "DiffViewer && mode == browse && pane == diff && layout == unified";
-        const FILES: &str = "DiffViewer && mode == browse && pane == files";
         const DRAFT: &str = "DiffViewer && mode == draft";
-        const SHORTCUTS: &str = "DiffViewer && mode == shortcuts";
-        const CARD: &str = "DiffViewer && mode == browse && card";
-        const CARD_ACTIVATION: &str =
-            "DiffViewer && mode == browse && card && !CommentDismissControl && !StageCheckbox";
-        const REFERENCE: &str = "DiffViewer && mode == browse && reference && !card";
-        const HINTS: &str = "DiffViewer && mode == hints";
-        cx.bind_keys([
-            KeyBinding::new("down", NextItem, Some(BROWSE)),
-            KeyBinding::new("j", NextItem, Some(BROWSE)),
-            KeyBinding::new("up", PreviousItem, Some(BROWSE)),
-            KeyBinding::new("k", PreviousItem, Some(BROWSE)),
-            KeyBinding::new("home", FirstItem, Some(BROWSE)),
-            KeyBinding::new("g", FirstItem, Some(BROWSE)),
-            KeyBinding::new("end", LastItem, Some(BROWSE)),
-            KeyBinding::new("shift-g", LastItem, Some(BROWSE)),
-            KeyBinding::new("pageup", PageUp, Some(BROWSE)),
-            KeyBinding::new("pagedown", PageDown, Some(BROWSE)),
-            KeyBinding::new("tab", TogglePane, Some(BROWSE_ACTIVATION)),
-            KeyBinding::new("b", ToggleSidebar, Some(BROWSE)),
-            KeyBinding::new("h", FocusFiles, Some(DIFF)),
-            KeyBinding::new("left", SelectOldSide, Some(DIFF_SPLIT)),
-            KeyBinding::new("left", FocusFiles, Some(DIFF_UNIFIED)),
-            KeyBinding::new("right", SelectNewSide, Some(DIFF_SPLIT)),
-            KeyBinding::new("h", Collapse, Some(FILES)),
-            KeyBinding::new("left", Collapse, Some(FILES)),
-            KeyBinding::new("l", ExpandOrOpen, Some(FILES)),
-            KeyBinding::new("right", ExpandOrOpen, Some(FILES)),
-            KeyBinding::new("enter", ExpandOrOpen, Some(FILES_ACTIVATION)),
-            KeyBinding::new("space", ToggleStage, Some(FILES_ACTIVATION)),
-            KeyBinding::new("a", StageAll, Some(FILES)),
-            KeyBinding::new("shift-a", UnstageAll, Some(FILES)),
-            KeyBinding::new("shift-c", CommitChanges, Some(BROWSE)),
-            KeyBinding::new("d", DiscardChanges, Some(BROWSE)),
-            KeyBinding::new("y", ConfirmDiscard, Some("DiffViewer && mode == repository-discard")),
-            KeyBinding::new("n", CancelRepositoryPrompt, Some("DiffViewer && mode == repository-discard")),
-            KeyBinding::new("escape", CancelRepositoryPrompt, Some("DiffViewer && mode == repository-discard")),
-            KeyBinding::new("c", AddComment, Some(DIFF)),
-            KeyBinding::new("e", EditComment, Some(DIFF)),
-            KeyBinding::new("x", DeleteComment, Some(DIFF)),
-            KeyBinding::new("u", UndoComment, Some(DIFF)),
-            KeyBinding::new("s", SubmitReview, Some(DIFF)),
-            KeyBinding::new("y", CopyReview, Some(DIFF)),
-            KeyBinding::new("o", ToggleSourceView, Some(BROWSE)),
-            KeyBinding::new("shift-o", ExpandGapAll, Some(DIFF)),
-            KeyBinding::new("f", ToggleFullFile, Some(DIFF)),
-            KeyBinding::new("z", ToggleFileCollapsed, Some(DIFF)),
-            KeyBinding::new("shift-z", ToggleAllFilesCollapsed, Some(BROWSE)),
-            KeyBinding::new("enter", ExpandGap, Some(DIFF_ACTIVATION)),
-            KeyBinding::new("v", ToggleLayout, Some(BROWSE)),
-            KeyBinding::new("shift-v", UseAutoLayout, Some(BROWSE)),
-            KeyBinding::new("shift-s", CycleScope, Some(BROWSE)),
-            KeyBinding::new("]", NextCommit, Some(BROWSE)),
-            KeyBinding::new("[", PreviousCommit, Some(BROWSE)),
-            KeyBinding::new("shift-[", FirstCommit, Some(BROWSE)),
-            KeyBinding::new("shift-]", LastCommit, Some(BROWSE)),
-            KeyBinding::new("p", ShowCommitPicker, Some(BROWSE)),
-            KeyBinding::new("shift-/", ShowShortcuts, Some(BROWSE)),
-            KeyBinding::new("escape", HideShortcuts, Some(SHORTCUTS)),
-            KeyBinding::new("shift-/", HideShortcuts, Some(SHORTCUTS)),
-            KeyBinding::new("t", ShowThemePicker, Some(BROWSE)),
-            KeyBinding::new("cmd-shift-t", ShowThemePicker, Some(BROWSE)),
-            KeyBinding::new("ctrl-shift-t", ShowThemePicker, Some(BROWSE)),
-            KeyBinding::new("cmd-r", Refresh, Some(BROWSE)),
-            KeyBinding::new("ctrl-r", Refresh, Some(BROWSE)),
-            KeyBinding::new("escape", Cancel, Some(BROWSE)),
-            KeyBinding::new("ctrl-g", Cancel, Some(BROWSE)),
-            KeyBinding::new("cmd-]", NextFile, Some(BROWSE)),
-            KeyBinding::new("cmd-[", PreviousFile, Some(BROWSE)),
+        const DISCARD: &str = "DiffViewer && mode == repository-discard";
+        let shortcuts = diff_shortcuts().into_iter().map(|(chord, scope, entry)| {
+            KeyBinding::new(&keystroke(chord), RunCommand(entry.command.clone()), Some(&key_context(chord, scope)))
+        });
+        cx.bind_keys(shortcuts.chain([
             KeyBinding::new("cmd-enter", SubmitComment, Some(DRAFT)),
             KeyBinding::new("ctrl-enter", SubmitComment, Some(DRAFT)),
             KeyBinding::new("escape", CancelComment, Some(DRAFT)),
-            KeyBinding::new("cmd-shift-c", CopyReview, Some(BROWSE)),
-            KeyBinding::new("cmd-shift-enter", SubmitReview, Some(BROWSE)),
-            KeyBinding::new("shift-d", PickName, Some(DIFF)),
-            KeyBinding::new("ctrl-o", NavigateBack, Some(BROWSE)),
-            KeyBinding::new("ctrl-i", NavigateForward, Some(BROWSE)),
-            KeyBinding::new("escape", NavigateBack, Some(REFERENCE)),
-            KeyBinding::new("escape", CloseDefinition, Some(CARD)),
-            KeyBinding::new("enter", GoToDefinition, Some(CARD_ACTIVATION)),
-            KeyBinding::new("tab", NextDefinition, Some(CARD_ACTIVATION)),
-            KeyBinding::new("escape", CancelNameHints, Some(HINTS)),
-        ]);
+            KeyBinding::new("y", ConfirmDiscard, Some(DISCARD)),
+            KeyBinding::new("n", CancelRepositoryPrompt, Some(DISCARD)),
+            KeyBinding::new("escape", CancelRepositoryPrompt, Some(DISCARD)),
+        ]));
         SearchPicker::bind_keys(cx);
     }
 
@@ -419,16 +260,15 @@ impl DiffViewer {
         self.pane
     }
 
-    /// Returns whether the keyboard shortcut reference is open.
     #[must_use]
-    pub const fn shortcuts_open(&self) -> bool {
-        self.shortcuts_open
+    pub const fn commands_open(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::Commands(_)))
     }
 
     /// Returns whether the theme picker is open.
     #[must_use]
     pub const fn theme_picker_open(&self) -> bool {
-        self.theme_picker.is_some()
+        matches!(self.overlay, Some(Overlay::Themes(_)))
     }
 
     /// Returns the current diff list scroll position.
@@ -478,7 +318,7 @@ impl DiffViewer {
 
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
         if self.session.commits() != document.commits.as_ref() {
-            self.commit_picker = None;
+            self.close_overlay(InteractionPhase::CommitPicker);
         }
         self.card_timer = None;
         self.sidebar_tree.rebuild(&document);
@@ -538,7 +378,7 @@ impl DiffViewer {
         self.repository_pending = pending;
         if pending {
             self.repository_error = None;
-            self.clear_repository_prompt();
+            self.close_overlay(InteractionPhase::RepositoryPrompt);
         }
         cx.notify();
     }
@@ -547,7 +387,7 @@ impl DiffViewer {
     pub fn set_repository_error(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
         self.repository_pending = false;
         self.repository_error = Some(message.into());
-        self.clear_repository_prompt();
+        self.close_overlay(InteractionPhase::RepositoryPrompt);
         cx.notify();
     }
 
@@ -572,31 +412,39 @@ impl DiffViewer {
     }
 
     pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>) {
-        self.theme_picker = None;
+        self.close_overlay(InteractionPhase::ThemePicker);
         self.apply_theme(theme, cx);
     }
 
     fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         init_input(cx);
         let (theme, ui) = (self.theme.clone(), self.ui_theme());
-        self.theme_picker =
-            Some(ThemePickerOverlay::open(&theme, ThemeChoice::catalog(), ui, window, cx, |viewer, event, _, cx| {
+        let overlay =
+            ThemePickerOverlay::open(&theme, ThemeChoice::catalog(), ui, window, cx, |viewer, event, _, cx| {
                 viewer.on_theme_picker_event(event, cx);
-            }));
+            });
+        self.overlay = Some(Overlay::Themes(overlay));
     }
 
     fn on_theme_picker_event(&mut self, event: &ThemePickerEvent, cx: &mut Context<Self>) {
         match event {
             ThemePickerEvent::Preview(theme) => self.apply_theme(theme.clone(), cx),
             ThemePickerEvent::Commit(theme) => {
-                self.theme_picker = None;
+                self.overlay = None;
                 self.apply_theme(theme.clone(), cx);
                 cx.emit(ThemeChanged { id: theme.id().to_string() });
             }
             ThemePickerEvent::Cancel(theme) => {
-                self.theme_picker = None;
+                self.overlay = None;
                 self.apply_theme(theme.clone(), cx);
             }
+        }
+    }
+
+    const fn theme_picker_overlay(&self) -> Option<&ThemePickerOverlay> {
+        match &self.overlay {
+            Some(Overlay::Themes(overlay)) => Some(overlay),
+            _ => None,
         }
     }
 
@@ -605,10 +453,10 @@ impl DiffViewer {
         cx: &mut Context<Self>,
         update: impl FnOnce(&mut ThemePicker, &mut Context<ThemePicker>),
     ) -> bool {
-        let Some(picker) = self.theme_picker.as_ref().map(ThemePickerOverlay::picker) else {
+        let Some(Overlay::Themes(overlay)) = &self.overlay else {
             return false;
         };
-        picker.update(cx, update);
+        overlay.picker().update(cx, update);
         true
     }
 
@@ -934,26 +782,6 @@ impl DiffViewer {
         cx.notify();
     }
 
-    fn expand_gap_action(&mut self, _: &ExpandGap, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::RevealGap(RevealAmount::Step), window, cx);
-    }
-
-    fn activate_gap_action(&mut self, _: &ActivateGap, window: &mut Window, cx: &mut Context<Self>) {
-        let selected_gap =
-            self.session.selected_row().is_some_and(|row| self.session.presentation().gap_info(row).is_some());
-        if selected_gap {
-            self.handle_command(DiffReviewCommand::RevealGap(RevealAmount::Step), window, cx);
-        }
-    }
-
-    fn expand_gap_all_action(&mut self, _: &ExpandGapAll, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::RevealGap(RevealAmount::All), window, cx);
-    }
-
-    fn toggle_source_view_action(&mut self, _: &ToggleSourceView, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::ToggleSourceView, window, cx);
-    }
-
     pub fn toggle_source_view(&mut self, cx: &mut Context<Self>) -> bool {
         let entering = self.session.source_view().is_none();
         let bookmark = self.diff_viewport_bookmark();
@@ -971,23 +799,6 @@ impl DiffViewer {
         true
     }
 
-    fn toggle_full_file_action(&mut self, _: &ToggleFullFile, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::ToggleFullFile, window, cx);
-    }
-
-    fn toggle_file_collapsed_action(&mut self, _: &ToggleFileCollapsed, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::ToggleFileCollapsed(None), window, cx);
-    }
-
-    fn toggle_all_files_collapsed_action(
-        &mut self,
-        _: &ToggleAllFilesCollapsed,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.handle_command(DiffReviewCommand::ToggleAllFilesCollapsed, window, cx);
-    }
-
     pub(crate) fn symbols(&mut self) -> Arc<SymbolIndex> {
         self.symbols.index(self.session.presentation().document())
     }
@@ -1000,21 +811,6 @@ impl DiffViewer {
             .ok()
             .and_then(|highlights| highlights.line_shared(source.target_line))
             .unwrap_or_else(empty_spans)
-    }
-
-    fn move_file(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(current) = self.selected_file() else {
-            return;
-        };
-        if let Some(index) = self.presentation().offset_file(current, delta) {
-            self.handle_command(DiffReviewCommand::SelectFile(index), window, cx);
-        }
-    }
-
-    fn move_hunk(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(index) = self.session.hunk_target(delta) {
-            self.handle_command(DiffReviewCommand::SelectRow(index), window, cx);
-        }
     }
 
     pub(crate) fn reveal_selected_row(&self) {
@@ -1098,78 +894,6 @@ impl DiffViewer {
         self.move_item(direction.saturating_mul(rows), cx);
     }
 
-    fn next_item(&mut self, _: &NextItem, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::MoveSelection(1), window, cx);
-    }
-
-    fn previous_item(&mut self, _: &PreviousItem, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::MoveSelection(-1), window, cx);
-    }
-
-    fn first_item(&mut self, _: &FirstItem, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::First, window, cx);
-    }
-
-    fn last_item(&mut self, _: &LastItem, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::Last, window, cx);
-    }
-
-    fn page_up(&mut self, _: &PageUp, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::Page(-1), window, cx);
-    }
-
-    fn page_down(&mut self, _: &PageDown, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::Page(1), window, cx);
-    }
-
-    fn next_file(&mut self, _: &NextFile, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_file(1, window, cx);
-    }
-
-    fn previous_file(&mut self, _: &PreviousFile, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_file(-1, window, cx);
-    }
-
-    fn next_hunk(&mut self, _: &NextHunk, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_hunk(1, window, cx);
-    }
-
-    fn previous_hunk(&mut self, _: &PreviousHunk, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_hunk(-1, window, cx);
-    }
-
-    fn toggle_pane(&mut self, _: &TogglePane, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::ToggleFocus, window, cx);
-    }
-
-    fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        self.set_sidebar_collapsed(!self.sidebar.collapsed, cx);
-    }
-
-    fn focus_files(&mut self, _: &FocusFiles, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx);
-    }
-
-    fn focus_diff(&mut self, _: &FocusDiff, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::Focus(ViewerPane::Diff), window, cx);
-    }
-
-    fn select_old_side(&mut self, _: &SelectOldSide, window: &mut Window, cx: &mut Context<Self>) {
-        if self.layout().is_split() {
-            self.handle_command(DiffReviewCommand::SelectSide(DiffSide::Old), window, cx);
-        }
-    }
-
-    fn select_new_side(&mut self, _: &SelectNewSide, window: &mut Window, cx: &mut Context<Self>) {
-        if self.layout().is_split() {
-            self.handle_command(DiffReviewCommand::SelectSide(DiffSide::New), window, cx);
-        }
-    }
-
-    fn expand_or_open(&mut self, _: &ExpandOrOpen, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::OpenSelected, window, cx);
-    }
-
     fn open_selected_entry(&mut self, cx: &mut Context<Self>) {
         let Some(entry) = self.sidebar_tree.selected().cloned() else {
             return;
@@ -1185,10 +909,6 @@ impl DiffViewer {
         cx.notify();
     }
 
-    fn collapse(&mut self, _: &Collapse, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::CollapseSelected, window, cx);
-    }
-
     fn collapse_selected_entry(&mut self, cx: &mut Context<Self>) {
         if let Some(entry) = self.sidebar_tree.selected().cloned()
             && entry.file.is_none()
@@ -1199,57 +919,34 @@ impl DiffViewer {
         }
     }
 
-    fn toggle_stage(&mut self, _: &ToggleStage, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::ToggleStage, window, cx);
-    }
-
-    fn stage_all(&mut self, _: &StageAll, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::StageAll, window, cx);
-    }
-
-    fn unstage_all(&mut self, _: &UnstageAll, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::UnstageAll, window, cx);
-    }
-
-    fn begin_commit_action(&mut self, _: &CommitChanges, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::BeginCommit, window, cx);
-    }
-
     fn open_commit_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let editor = cx.new(|cx| {
             CommentEditor::with_placeholder(String::new(), self.theme.clone(), "Commit message…", window, cx)
         });
-        self.repository_editor_subscription = Some(cx.subscribe_in(
-            &editor,
-            window,
-            |viewer, _editor, event: &CommentEditorEvent, window, cx| match event {
+        let subscription =
+            cx.subscribe_in(&editor, window, |viewer, _editor, event: &CommentEditorEvent, window, cx| match event {
                 CommentEditorEvent::Changed(_) => cx.notify(),
                 CommentEditorEvent::Submit => viewer.finish_repository_commit(window, cx),
                 CommentEditorEvent::Cancel => {
                     viewer.handle_command(ReviewCommand::Cancel, window, cx);
                 }
-            },
-        ));
-        self.repository_prompt = Some(RepositoryPrompt::Commit);
-        self.repository_editor = Some(editor.clone());
+            });
         editor.focus_handle(cx).focus(window, cx);
+        self.overlay = Some(Overlay::Repository(RepositoryPrompt::Commit { editor, _subscription: subscription }));
         cx.notify();
-    }
-
-    fn begin_discard_action(&mut self, _: &DiscardChanges, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::BeginDiscard, window, cx);
     }
 
     fn open_discard_prompt(&mut self, cx: &mut Context<Self>) {
         let Some(file) = self.selected_file().and_then(|index| self.document().files.get(index)) else {
             return;
         };
-        self.repository_prompt = Some(RepositoryPrompt::Discard { path: file.path.clone(), status: file.status });
+        let prompt = RepositoryPrompt::Discard { path: file.path.clone(), status: file.status };
+        self.overlay = Some(Overlay::Repository(prompt));
         cx.notify();
     }
 
     fn finish_repository_commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(editor) = &self.repository_editor else {
+        let Some(Overlay::Repository(RepositoryPrompt::Commit { editor, .. })) = &self.overlay else {
             return;
         };
         let message = editor.read(cx).body().trim().to_owned();
@@ -1258,16 +955,18 @@ impl DiffViewer {
             cx.notify();
             return;
         }
-        self.clear_repository_prompt();
+        self.overlay = None;
         self.handle_command(DiffReviewCommand::RepositoryAction(RepositoryAction::Commit { message }), window, cx);
         cx.notify();
     }
 
     fn confirm_discard(&mut self, _: &ConfirmDiscard, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(RepositoryPrompt::Discard { path, status }) = self.repository_prompt.clone() else {
+        let discarding =
+            |overlay: &mut Overlay| matches!(overlay, Overlay::Repository(RepositoryPrompt::Discard { .. }));
+        let Some(Overlay::Repository(RepositoryPrompt::Discard { path, status })) = self.overlay.take_if(discarding)
+        else {
             return;
         };
-        self.clear_repository_prompt();
         self.handle_command(
             DiffReviewCommand::RepositoryAction(RepositoryAction::Discard { path, status }),
             window,
@@ -1280,58 +979,8 @@ impl DiffViewer {
         self.handle_command(ReviewCommand::Cancel, window, cx);
     }
 
-    fn clear_repository_prompt(&mut self) {
-        self.repository_prompt = None;
-        self.repository_editor = None;
-        self.repository_editor_subscription = None;
-    }
-
-    pub(crate) fn cycle_scope(&mut self, _: &CycleScope, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::CycleScope, window, cx);
-    }
-
-    fn next_commit(&mut self, _: &NextCommit, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::StepTarget(1), window, cx);
-    }
-
-    fn previous_commit(&mut self, _: &PreviousCommit, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::StepTarget(-1), window, cx);
-    }
-
-    fn first_commit(&mut self, _: &FirstCommit, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::GoToPage(0), window, cx);
-    }
-
-    fn last_commit(&mut self, _: &LastCommit, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::GoToPage(usize::MAX), window, cx);
-    }
-
-    fn show_commit_picker(&mut self, _: &ShowCommitPicker, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::OpenCommitPicker, window, cx);
-    }
-
-    fn toggle_layout(&mut self, _: &ToggleLayout, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::ToggleLayout, window, cx);
-    }
-
-    fn use_auto_layout(&mut self, _: &UseAutoLayout, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::SetViewMode(ViewMode::Auto), window, cx);
-    }
-
-    fn add_comment_action(&mut self, _: &AddComment, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::BeginComment, window, cx);
-    }
-
-    fn edit_comment_action(&mut self, _: &EditComment, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::EditComment, window, cx);
-    }
-
-    fn delete_comment_action(&mut self, _: &DeleteComment, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::DeleteComment, window, cx);
-    }
-
-    fn undo_comment(&mut self, _: &UndoComment, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::UndoComment, window, cx);
+    fn run_command(&mut self, action: &RunCommand, window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_command(action.0.clone(), window, cx);
     }
 
     fn submit_comment(&mut self, _: &SubmitComment, window: &mut Window, cx: &mut Context<Self>) {
@@ -1342,57 +991,56 @@ impl DiffViewer {
         self.handle_command(ReviewCommand::Cancel, window, cx);
     }
 
-    pub(crate) fn copy_review(&mut self, _: &CopyReview, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::CopyReview, window, cx);
-    }
-
-    fn show_shortcuts(&mut self, _: &ShowShortcuts, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::ShowHelp, window, cx);
-    }
-
-    fn hide_shortcuts(&mut self, _: &HideShortcuts, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::Cancel, window, cx);
-    }
-
-    pub(crate) fn show_theme_picker(&mut self, _: &ShowThemePicker, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::OpenThemePicker, window, cx);
-    }
-
-    fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::Refresh, window, cx);
-    }
-
-    pub(crate) fn submit_review(&mut self, _: &SubmitReview, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(DiffReviewCommand::SubmitReview, window, cx);
-    }
-
-    pub(crate) fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
-        self.handle_command(ReviewCommand::Cancel, window, cx);
-    }
-
-    fn render_repository_prompt(&self) -> impl IntoElement {
-        let palette = &self.theme.diff;
-        let prompt = self.repository_prompt.clone();
-        let title = match &prompt {
-            Some(RepositoryPrompt::Commit) => "Commit staged changes".to_owned(),
-            Some(RepositoryPrompt::Discard { path, .. }) => format!("Discard changes to {path}?"),
-            None => String::new(),
+    fn render_repository_prompt(&self) -> Option<impl IntoElement> {
+        let Some(Overlay::Repository(prompt)) = &self.overlay else {
+            return None;
         };
-        Modal::new("repository-prompt", title, self.ui_theme())
-            .children(self.repository_editor.clone())
-            .when(self.repository_editor.is_some(), |panel| {
-                panel.child(div().mt_2().text_color(color(palette.muted)).child("Enter to commit · Esc to cancel"))
-            })
-            .when(matches!(prompt, Some(RepositoryPrompt::Discard { .. })), |panel| {
-                panel
+        let palette = &self.theme.diff;
+        let hint = |text| div().mt_2().text_color(color(palette.muted)).child(text);
+        Some(match prompt {
+            RepositoryPrompt::Commit { editor, .. } => {
+                Modal::new("repository-prompt", "Commit staged changes", self.ui_theme())
+                    .child(editor.clone())
+                    .child(hint("Enter to commit · Esc to cancel"))
+            }
+            RepositoryPrompt::Discard { path, .. } => {
+                Modal::new("repository-prompt", format!("Discard changes to {path}?"), self.ui_theme())
                     .child(
                         div()
                             .text_color(color(palette.deletion))
                             .child("This removes both staged and unstaged changes."),
                     )
-                    .child(div().mt_2().text_color(color(palette.muted)).child("y to confirm · n or Esc to cancel"))
-            })
+                    .child(hint("y to confirm · n or Esc to cancel"))
+            }
+        })
     }
+}
+
+fn keystroke(chord: Chord) -> String {
+    let key = match chord.key {
+        Key::Char(' ') => "space".to_owned(),
+        Key::Char('?') => "shift-/".to_owned(),
+        Key::Char(character) if character.is_ascii_uppercase() => format!("shift-{}", character.to_ascii_lowercase()),
+        Key::Char(character) => character.to_string(),
+        Key::Esc => "escape".to_owned(),
+        key => format!("{key:?}").to_lowercase(),
+    };
+    if chord.ctrl { format!("ctrl-{key}") } else { key }
+}
+
+fn key_context(chord: Chord, scope: KeyScope) -> String {
+    let scope = match scope {
+        KeyScope::Any => "",
+        KeyScope::Navigation => " && pane == files",
+        KeyScope::Document => " && pane == diff",
+        KeyScope::Split => " && pane == diff && layout == split",
+        KeyScope::Unified => " && pane == diff && layout == unified",
+        KeyScope::Card => " && card",
+        KeyScope::Reference => " && reference && !card",
+    };
+    let activates = matches!(chord.key, Key::Enter | Key::Tab | Key::Char(' '));
+    let controls = if activates { " && !CommentDismissControl && !StageCheckbox" } else { "" };
+    format!("DiffViewer && mode == browse{scope}{controls}")
 }
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
@@ -1413,7 +1061,6 @@ fn clamp_sidebar_width(width: Rems, available: Rems) -> Rems {
 }
 
 impl Render for DiffViewer {
-    #[expect(clippy::too_many_lines, reason = "GPUI action and overlay wiring is declarative")]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rem_size = window.rem_size();
         if self.rem_size != rem_size {
@@ -1438,31 +1085,20 @@ impl Render for DiffViewer {
         self.follow_active_file();
         let palette = self.theme.diff.clone();
         let focus_handle = self.focus_handle.get_or_insert_with(|| cx.focus_handle()).clone();
-        if window.focused(cx).is_none() && self.comment_editor.is_none() && self.repository_editor.is_none() {
+        let editing_commit = matches!(self.overlay, Some(Overlay::Repository(RepositoryPrompt::Commit { .. })));
+        if window.focused(cx).is_none() && self.comment_editor.is_none() && !editing_commit {
             focus_handle.focus(window, cx);
         }
-        let mode = if self.theme_picker.is_some() {
-            "themes"
-        } else if self.commit_picker.is_some() {
-            "commits"
-        } else if self.shortcuts_open {
-            "shortcuts"
-        } else if matches!(self.repository_prompt, Some(RepositoryPrompt::Discard { .. })) {
-            "repository-discard"
-        } else if self.repository_editor.is_some() {
-            "repository-commit"
-        } else if self.comment_editor.is_some() {
-            "draft"
-        } else if self.names.hints().is_some() {
-            "hints"
-        } else {
-            "browse"
+        let mode = match &self.overlay {
+            Some(overlay) => overlay.mode(),
+            None if self.comment_editor.is_some() => "draft",
+            None => "browse",
         };
         let pane = match self.pane {
             ViewerPane::Files => "files",
             ViewerPane::Diff => "diff",
         };
-        let layout = if self.layout().is_split() { "split" } else { "unified" };
+        let layout = if self.session.selected_layout().is_split() { "split" } else { "unified" };
         let mut key_context = KeyContext::default();
         key_context.add("DiffViewer");
         key_context.set("mode", mode);
@@ -1481,68 +1117,12 @@ impl Render for DiffViewer {
             .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
                 focus_handle.focus(window, cx);
             })
-            .on_action(cx.listener(Self::next_item))
-            .on_action(cx.listener(Self::previous_item))
-            .on_action(cx.listener(Self::first_item))
-            .on_action(cx.listener(Self::last_item))
-            .on_action(cx.listener(Self::page_up))
-            .on_action(cx.listener(Self::page_down))
-            .on_action(cx.listener(Self::toggle_pane))
-            .on_action(cx.listener(Self::toggle_sidebar))
-            .on_action(cx.listener(Self::focus_files))
-            .on_action(cx.listener(Self::focus_diff))
-            .on_action(cx.listener(Self::select_old_side))
-            .on_action(cx.listener(Self::select_new_side))
-            .on_action(cx.listener(Self::expand_or_open))
-            .on_action(cx.listener(Self::collapse))
-            .on_action(cx.listener(Self::next_file))
-            .on_action(cx.listener(Self::previous_file))
-            .on_action(cx.listener(Self::next_hunk))
-            .on_action(cx.listener(Self::previous_hunk))
-            .on_action(cx.listener(Self::cycle_scope))
-            .on_action(cx.listener(Self::next_commit))
-            .on_action(cx.listener(Self::previous_commit))
-            .on_action(cx.listener(Self::first_commit))
-            .on_action(cx.listener(Self::last_commit))
-            .on_action(cx.listener(Self::show_commit_picker))
-            .on_action(cx.listener(Self::toggle_layout))
-            .on_action(cx.listener(Self::use_auto_layout))
-            .on_action(cx.listener(Self::expand_gap_action))
-            .on_action(cx.listener(Self::activate_gap_action))
-            .on_action(cx.listener(Self::expand_gap_all_action))
-            .on_action(cx.listener(Self::toggle_full_file_action))
-            .on_action(cx.listener(Self::toggle_file_collapsed_action))
-            .on_action(cx.listener(Self::toggle_all_files_collapsed_action))
-            .on_action(cx.listener(Self::toggle_source_view_action))
-            .on_action(cx.listener(Self::toggle_stage))
-            .on_action(cx.listener(Self::stage_all))
-            .on_action(cx.listener(Self::unstage_all))
-            .on_action(cx.listener(Self::begin_commit_action))
-            .on_action(cx.listener(Self::begin_discard_action))
-            .on_action(cx.listener(Self::confirm_discard))
-            .on_action(cx.listener(Self::cancel_repository_prompt))
-            .on_action(cx.listener(Self::add_comment_action))
-            .on_action(cx.listener(Self::edit_comment_action))
-            .on_action(cx.listener(Self::delete_comment_action))
-            .on_action(cx.listener(Self::undo_comment))
+            .on_action(cx.listener(Self::run_command))
             .on_action(cx.listener(Self::submit_comment))
             .on_action(cx.listener(Self::cancel_comment))
-            .on_action(cx.listener(Self::copy_review))
-            .on_action(cx.listener(Self::submit_review))
-            .on_action(cx.listener(Self::show_shortcuts))
-            .on_action(cx.listener(Self::hide_shortcuts))
-            .on_action(cx.listener(Self::show_theme_picker))
-            .on_action(cx.listener(Self::refresh))
-            .on_action(cx.listener(Self::cancel))
-            .on_action(cx.listener(Self::pick_name))
-            .on_action(cx.listener(Self::cancel_name_hints))
-            .on_action(cx.listener(Self::close_definition))
-            .on_action(cx.listener(Self::go_to_definition))
-            .on_action(cx.listener(Self::next_definition))
-            .on_action(cx.listener(Self::navigate_back))
-            .on_action(cx.listener(Self::navigate_forward))
+            .on_action(cx.listener(Self::confirm_discard))
+            .on_action(cx.listener(Self::cancel_repository_prompt))
             .on_modifiers_changed(cx.listener(Self::modifiers_changed))
-            .on_key_down(cx.listener(Self::name_hint_key))
             .size_full()
             .relative()
             .flex()
@@ -1572,10 +1152,9 @@ impl Render for DiffViewer {
                     )
                     .when(self.options.review_bar, |viewer| viewer.child(self.render_review_bar(cx)))
             })
-            .children(self.render_commit_picker(cx))
-            .when(self.shortcuts_open, |viewer| viewer.child(self.render_shortcuts()))
-            .when_some(self.theme_picker.as_ref(), |viewer, picker| viewer.child(picker.render(self.ui_theme())))
-            .when(self.repository_prompt.is_some(), |viewer| viewer.child(self.render_repository_prompt()))
+            .children(self.render_picker_overlay(cx))
+            .when_some(self.theme_picker_overlay(), |viewer, picker| viewer.child(picker.render(self.ui_theme())))
+            .children(self.render_repository_prompt())
             .when_some(self.repository_error().map(str::to_owned), |viewer, error| {
                 viewer.child(
                     div().absolute().bottom_4().left_4().right_4().child(Notification::error(error, self.ui_theme())),

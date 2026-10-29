@@ -2,7 +2,7 @@ use crate::{
     style,
     ui::prelude::{Icon, IconName, rem},
 };
-use clankerdiff_theme::DiffPalette;
+use clankerdiff_ui_core::DiffPalette;
 use gpui::{Div, SharedString, div, prelude::*};
 
 /// Builds a hover-revealed add-comment affordance.

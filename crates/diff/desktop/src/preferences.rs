@@ -1,6 +1,6 @@
 use clankerdiff_core::ViewMode;
 use clankerdiff_gpui_shell::persist::{self, config_dir};
-use clankerdiff_theme::{Appearance, ReviewTheme, ThemePair};
+use clankerdiff_ui_core::{Appearance, ReviewTheme, ThemePair};
 use std::{io, path::PathBuf};
 
 pub struct ThemeStore {

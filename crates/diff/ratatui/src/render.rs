@@ -1,42 +1,39 @@
 //! Visible-range Ratatui rendering.
 
 use crate::{
-    DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme, RepositoryOperationStatus,
+    DiffReviewState, DiffReviewStatus, FocusPane, RatatuiTheme,
     annotation::render_annotation_line,
     color::{native_color, page_color},
     commit_picker::render_commit_picker,
-    definition_card::{NameMarks, hints_footer},
-    patch_layout::{PatchContentLayout, PatchVisualRow},
-    state::{HitLayout, RepositoryPrompt},
-    style::{diff_indicator, file_status_color},
+    definition_card::NameOverlays,
+    palette::render_palette,
+    patch_layout::{PatchContentLayout, PatchRowGeometry, PatchVisualRow},
+    state::{CodeCell, HitLayout, Overlay, RepositoryPrompt},
+    style::{diff_indicator, file_status_color, stat_spans},
     syntax::styled_spans,
     text::{FitOptions, fit_spans_from},
     theme_picker::render_theme_picker,
-    ui::{ActionBar, AppFrame, EmptyState, Modal, ModalSize, NoticeTone, render_modal_text},
+    toolbar::{render_review_bar, render_toolbar},
+    ui::{AppFrame, EmptyState, Modal, ModalSize, NoticeTone, Notification, SelectionState},
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
-use clankerdiff_core::{
-    DiffScope, DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PageLabel, PresentedCell, PresentedRow, RowKind,
-    ViewMode,
-};
-use clankerdiff_symbols::Mark;
+use clankerdiff_core::{DiffSide, DiffTone, FileDiff, FileTree, GapInfo, PresentedCell, PresentedRow, RowKind};
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Position, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph, StatefulWidget, Widget},
 };
-use std::ops::Range;
 
 const DRAWER_BREAKPOINT: u16 = 72;
 pub(crate) const GAP_EXPAND_WIDTH: u16 = 3;
 pub(crate) const FILE_CHEVRON_WIDTH: u16 = 2;
 const DRAWER_MIN_WIDTH: u16 = 20;
 const DRAWER_MAX_WIDTH: u16 = 36;
-const LAYOUT_STATUS_MIN_WIDTH: u16 = 60;
+const TOOLBAR_HEIGHT: u16 = 1;
 
 /// Embeddable stateful diff review widget.
 #[derive(Debug, Clone)]
@@ -79,70 +76,34 @@ impl StatefulWidget for DiffReviewWidget {
     fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
         state.cursor_position = None;
         state.hit_layout = HitLayout::default();
-        state.visible_rows.clear();
+        state.patch_hits.clear();
+        state.hits.clear();
         let theme = RatatuiTheme::from(&state.theme);
-        let title = frame_title(&self.title, state, &theme);
-        let regions = AppFrame::new(title, self.borders, &theme)
-            .trailing_title(diff_summary(state, &theme))
-            .footer(state.options.footer || state.repository_prompt.is_some())
+        let regions = AppFrame::new(Line::from(self.title.as_str()), self.borders, &theme)
+            .footer(state.options.footer)
             .render(area, buffer);
-        let body = regions.body;
-        let footer = regions.footer;
+        let [toolbar, body] =
+            Layout::vertical([Constraint::Length(TOOLBAR_HEIGHT.min(regions.body.height)), Constraint::Min(0)])
+                .areas(regions.body);
+        render_toolbar(toolbar, buffer, state, &theme);
         render_body(body, buffer, state, &theme);
-        render_footer(footer, buffer, state, &theme);
+        render_review_bar(regions.footer, buffer, state, &theme);
         state.render_definition_card(buffer, &theme);
-        if state.help {
-            render_help(area, buffer, state, &theme);
-        }
-        if let Some(picker) = &state.commit_picker {
-            render_commit_picker(area, buffer, picker, &theme);
-        }
-        if let Some(picker) = &state.theme_picker {
-            render_theme_picker(area, buffer, picker, &theme);
-        }
+        render_notification(body, buffer, state, &theme);
+        let overlay = match &state.overlay {
+            Some(Overlay::Repository(_)) => render_repository_prompt(area, buffer, state, &theme),
+            Some(Overlay::Commands(_)) => render_palette(area, buffer, state, &theme),
+            Some(Overlay::Commits(_)) => render_commit_picker(area, buffer, state, &theme),
+            Some(Overlay::Themes(picker)) => Some(render_theme_picker(area, buffer, picker, &theme, state.pointer)),
+            None => None,
+        };
+        state.hit_layout.overlay = overlay.map(outset);
         state.dirty = false;
     }
 }
 
-fn frame_title<'a>(title: &'a str, state: &DiffReviewState, theme: &RatatuiTheme) -> Line<'a> {
-    let muted = Style::new().fg(theme.ui.text_muted);
-    let separator = || Span::styled(" · ", muted);
-    let mut spans = vec![Span::raw(title)];
-    if let Some(label) = state.session().page_label().filter(PageLabel::is_paged) {
-        spans.push(separator());
-        let subject = label.subject();
-        if let Some(short_id) = label.short_id() {
-            spans.push(Span::styled(short_id.to_owned(), if subject.is_some() { muted } else { Style::new() }));
-            spans.extend(subject.map(|_| Span::raw(" ")));
-        }
-        spans.extend(subject.map(|subject| Span::raw(subject.to_owned())));
-        if let Some(position) = label.position_label() {
-            spans.extend([separator(), Span::styled(position, muted)]);
-        }
-    }
-    if let Some(selected) = state.target().scope() {
-        let raised = Style::new().fg(theme.ui.text).bg(theme.ui.surface_selected).add_modifier(Modifier::BOLD);
-        spans.push(separator());
-        spans.extend(
-            DiffScope::ALL.map(|scope| {
-                Span::styled(format!(" {} ", scope.title()), if scope == selected { raised } else { muted })
-            }),
-        );
-    }
-    Line::from(spans)
-}
-
-fn diff_summary(state: &DiffReviewState, theme: &RatatuiTheme) -> Option<Line<'static>> {
-    let document = state.document();
-    if !matches!(state.status, DiffReviewStatus::Ready) || document.files.is_empty() {
-        return None;
-    }
-    let stat = document.line_stat();
-    Some(Line::from(vec![
-        Span::styled(format!("+{}", stat.added), Style::new().fg(theme.addition)),
-        Span::raw(" "),
-        Span::styled(format!("-{}", stat.deleted), Style::new().fg(theme.deletion)),
-    ]))
+const fn outset(area: Rect) -> Rect {
+    Rect::new(area.x.saturating_sub(1), area.y.saturating_sub(1), area.width + 2, area.height + 2)
 }
 
 fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
@@ -161,11 +122,15 @@ fn render_body(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, the
 }
 
 fn render_document(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
-    let drawer_width = state.options.navigation.width(
-        area.width,
-        DRAWER_BREAKPOINT,
-        (area.width / 3).clamp(DRAWER_MIN_WIDTH, DRAWER_MAX_WIDTH),
-    );
+    let drawer_width = if state.sidebar_hidden {
+        0
+    } else {
+        state.options.navigation.width(
+            area.width,
+            DRAWER_BREAKPOINT,
+            (area.width / 3).clamp(DRAWER_MIN_WIDTH, DRAWER_MAX_WIDTH),
+        )
+    };
     let (drawer, patch) = if drawer_width > 0 {
         let [drawer, separator, patch] =
             Layout::horizontal([Constraint::Length(drawer_width), Constraint::Length(1), Constraint::Min(1)])
@@ -217,42 +182,45 @@ fn render_drawer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, t
         let y = rows.y.saturating_add(u16::try_from(offset).unwrap_or(u16::MAX));
         let index = state.drawer_scroll.saturating_add(offset);
         let row = Rect::new(rows.x, y, rows.width, 1);
-        let [content, stage_area] =
-            Layout::horizontal([Constraint::Min(0), Constraint::Length(2_u16.min(row.width))]).areas(row);
-        let checkbox =
-            Rect::new(stage_area.x.saturating_add(stage_area.width.saturating_sub(1)), y, stage_area.width.min(1), 1);
         let indent = "  ".repeat(entry.depth);
-        let entry_stage = match entry.file {
+        let (left, right, entry_stage) = match entry.file {
             None => {
                 let marker = if entry.expanded { "▾" } else { "▸" };
-                Paragraph::new(Line::from(vec![
-                    Span::raw(format!("{indent}{marker} ")),
-                    Span::styled(format!("{}/", entry.name), Style::new().fg(theme.ui.accent)),
-                ]))
-                .render(content, buffer);
-                FileTree::stage_state_for(state.document(), &entry.path)
+                (
+                    vec![
+                        Span::styled(format!("{indent}{marker} "), Style::new().fg(theme.ui.text_muted)),
+                        Span::styled(entry.name.clone(), Style::new().fg(theme.ui.text)),
+                    ],
+                    Vec::new(),
+                    FileTree::stage_state_for(state.document(), &entry.path),
+                )
             }
             Some(file_index) => {
                 let Some(file) = state.document().files.get(file_index) else {
                     continue;
                 };
-                Paragraph::new(Line::from(vec![
-                    Span::raw(indent),
-                    Span::styled(
-                        file.status.code().to_string(),
-                        Style::new().fg(file_status_color(file.status, theme)),
-                    ),
-                    Span::raw(format!(" {}", entry.name)),
-                    Span::styled(
-                        format!(" +{} -{}", file.additions(), file.deletions()),
-                        Style::new().fg(theme.ui.text_muted),
-                    ),
-                ]))
-                .render(content, buffer);
-                file.staged
+                let status = Style::new().fg(file_status_color(file.status, theme));
+                (
+                    vec![
+                        Span::raw(format!("{indent}  ")),
+                        Span::styled(entry.name.clone(), Style::new().fg(theme.ui.text)),
+                    ],
+                    [
+                        stat_spans(file.additions(), file.deletions(), theme).to_vec(),
+                        vec![Span::styled(format!(" {}", file.status.code()), status)],
+                    ]
+                    .concat(),
+                    file.staged,
+                )
             }
         };
-        Paragraph::new(stage_marker(entry_stage)).render(checkbox, buffer);
+        let mut right = right;
+        right.push(Span::styled(format!(" {}", stage_marker(entry_stage)), Style::new().fg(theme.ui.text_muted)));
+        let right = Line::from(right);
+        let right_width = u16::try_from(right.width()).unwrap_or(u16::MAX).min(row.width);
+        let [content, trailing] = Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(row);
+        Paragraph::new(Line::from(left)).render(content, buffer);
+        Paragraph::new(right).render(trailing, buffer);
 
         if selected == Some(index) {
             buffer.set_style(
@@ -262,6 +230,8 @@ fn render_drawer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, t
                     .bg(theme.ui.accent)
                     .add_modifier(if state.focus == FocusPane::Files { Modifier::BOLD } else { Modifier::default() }),
             );
+        } else if state.pointer.is_some_and(|pointer| row.contains(pointer)) {
+            buffer.set_style(row, Style::new().bg(theme.ui.surface_hover));
         }
     }
 
@@ -290,7 +260,8 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
     let active_file = state.active_file();
     let top = visual_layout.row(state.scroll).map(|row| row.source());
     let symbol_path = top.map(|top| state.symbol_path(top)).unwrap_or_default();
-    let marks = state.name_marks();
+    let names = state.name_overlays();
+    let pointer = state.pointer;
 
     let DiffReviewState {
         session,
@@ -298,16 +269,15 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
         highlighter,
         focus,
         scroll,
-        visible_rows,
+        patch_hits,
         cursor_position,
         options,
         ..
     } = state;
-    visible_rows.clear();
+    patch_hits.clear();
     let presentation = session.presentation();
     let selected_row = session.selected_row();
     let selected_side = session.selected_side();
-    let layout = session.layout();
     let source_label = session.source_view_label();
     let mut visual_index = *scroll;
     let mut y = area.y;
@@ -333,20 +303,22 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
                     first_segment: segment,
                     patch_layout: visual_layout.content(),
                     tab_width: options.tab_width,
-                    marks: marks.as_ref(),
+                    names: &names,
+                    code_cells: &mut patch_hits.code_cells,
+                    pointer,
                 };
                 let selected = selected_row == Some(index) && *focus == FocusPane::Diff;
                 render_row(
                     Rect::new(area.x, y, area.width, height),
                     buffer,
                     &mut context,
-                    &RowStyle { selected, selected_side, layout, source_label },
+                    &RowStyle { selected, selected_side, source_label },
                 );
-                visible_rows.extend((y..y + height).map(|screen_y| (screen_y, index)));
+                patch_hits.rows.extend((y..y + height).map(|screen_y| (screen_y, index)));
             }
             Some(PatchVisualRow::Annotation { source, annotation, line }) => {
                 render_annotation_line(row_area, buffer, theme, annotation, line);
-                visible_rows.push((y, source));
+                patch_hits.rows.push((y, source));
                 if let Some(column) = annotation.cursor_column(line) {
                     *cursor_position =
                         Some(Position::new(area.x.saturating_add(column).min(area.right().saturating_sub(1)), y));
@@ -371,10 +343,10 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
                 collapsed: presentation.is_collapsed(file),
                 selected: selected_row == Some(header) && *focus == FocusPane::Diff,
                 symbol_path: &symbol_path,
+                pointer,
             },
         );
-        visible_rows.retain(|(screen_y, _)| *screen_y != area.y);
-        visible_rows.push((area.y, header));
+        patch_hits.replace_row(area.y, header);
     }
     render_vertical_scrollbar(track, buffer, visual_layout.len(), usize::from(area.height), *scroll);
 }
@@ -383,7 +355,7 @@ fn render_reference_status(area: Rect, buffer: &mut Buffer, state: &mut DiffRevi
     let Some(status) = state.reference_status() else {
         return false;
     };
-    state.visible_rows.clear();
+    state.patch_hits.clear();
     Paragraph::new(status)
         .style(Style::new().fg(theme.ui.text_muted).bg(theme.ui.canvas))
         .alignment(Alignment::Center)
@@ -393,6 +365,7 @@ fn render_reference_status(area: Rect, buffer: &mut Buffer, state: &mut DiffRevi
 
 fn render_gap_row(area: Rect, buffer: &mut Buffer, context: &CellContext<'_>, selected: bool) {
     let theme = context.theme;
+    let selected = selected || context.pointer.is_some_and(|pointer| area.contains(pointer));
     let info = context.presentation.gap_info(context.source);
     let rule = Style::new().fg(if selected { theme.ui.accent } else { theme.ui.border });
     let mut spans = vec![Span::styled(
@@ -416,6 +389,7 @@ struct FileDividerState<'a> {
     collapsed: bool,
     selected: bool,
     symbol_path: &'a [String],
+    pointer: Option<Position>,
 }
 
 fn render_file_divider(
@@ -433,8 +407,10 @@ fn render_file_divider(
         (None, true) => " ▸",
         (None, false) => " ▾",
     };
+    let chevron_area = Rect::new(area.x, area.y, FILE_CHEVRON_WIDTH.min(area.width), 1);
+    let chevron_hovered = state.pointer.is_some_and(|pointer| chevron_area.contains(pointer));
     let mut left = vec![
-        Span::styled(chevron, Style::new().fg(theme.ui.text_muted)),
+        Span::styled(chevron, Style::new().fg(if chevron_hovered { theme.ui.accent } else { theme.ui.text_muted })),
         Span::styled(format!(" {} ", file.status.code()), Style::new().fg(file_status_color(file.status, theme))),
         Span::styled(file.path.file_name().to_owned(), Style::new().fg(theme.ui.text).add_modifier(Modifier::BOLD)),
     ];
@@ -449,13 +425,7 @@ fn render_file_divider(
         left.push(Span::styled(name.clone(), Style::new().fg(theme.ui.text_secondary)));
     }
     let right = source_label.map_or_else(
-        || {
-            Line::from(vec![
-                Span::styled(format!("+{}", file.additions()), Style::new().fg(theme.addition)),
-                Span::raw(" "),
-                Span::styled(format!("-{} ", file.deletions()), Style::new().fg(theme.deletion)),
-            ])
-        },
+        || Line::from([stat_spans(file.additions(), file.deletions(), theme).to_vec(), vec![Span::raw(" ")]].concat()),
         |label| Line::styled(format!("{label} "), Style::new().fg(theme.ui.text_muted)),
     );
     let right_width = u16::try_from(right.width()).unwrap_or(u16::MAX).min(area.width);
@@ -467,7 +437,6 @@ fn render_file_divider(
 struct RowStyle {
     selected: bool,
     selected_side: DiffSide,
-    layout: clankerdiff_core::Layout,
     source_label: Option<&'static str>,
 }
 
@@ -481,11 +450,20 @@ struct CellContext<'a> {
     source: usize,
     first_segment: usize,
     patch_layout: &'a PatchContentLayout,
-    marks: Option<&'a NameMarks>,
+    names: &'a NameOverlays,
+    code_cells: &'a mut Vec<CodeCell>,
+    pointer: Option<Position>,
+}
+
+impl CellContext<'_> {
+    fn geometry(&self) -> PatchRowGeometry {
+        self.patch_layout.geometry(self.presentation.file_layout(self.row.file_index))
+    }
 }
 
 fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, style: &RowStyle) {
     let row = context.row;
+    let geometry = context.geometry();
     match row.kind {
         RowKind::FileHeader => render_file_divider(
             area,
@@ -497,6 +475,7 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
                 collapsed: context.presentation.is_collapsed(row.file_index),
                 selected: style.selected,
                 symbol_path: &[],
+                pointer: context.pointer,
             },
         ),
         RowKind::Meta => {
@@ -505,8 +484,7 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
                 .render(area, buffer);
         }
         RowKind::ExpandGap => render_gap_row(area, buffer, context, style.selected),
-        RowKind::Code | RowKind::ExpandedContext if style.layout.is_split() => {
-            let geometry = context.patch_layout.geometry();
+        RowKind::Code | RowKind::ExpandedContext if geometry.split => {
             let separator_width = u16::from(area.width > 0);
             let [left, separator, right] = Layout::horizontal([
                 Constraint::Length(geometry.left.width),
@@ -535,8 +513,13 @@ fn render_cell(
 ) {
     let tone = cell.map_or(DiffTone::Context, |cell| cell.tone);
     let (foreground, tone_background) = context.theme.tone(tone);
-    let background =
-        if selected { page_color(context.diff_theme, context.diff_theme.diff.selection) } else { tone_background };
+    let commentable = cell.is_some_and(|cell| cell.patch_source.is_some());
+    let hovered = commentable && context.pointer.is_some_and(|pointer| area.contains(pointer));
+    let background = if selected || hovered {
+        page_color(context.diff_theme, context.diff_theme.diff.selection)
+    } else {
+        tone_background
+    };
     buffer.set_style(area, Style::new().fg(foreground).bg(background));
     let Some(cell) = cell else {
         return;
@@ -548,10 +531,7 @@ fn render_cell(
     let Some(checkpoint) = context.patch_layout.checkpoint(context.source, side, context.first_segment) else {
         return;
     };
-    let geometry = match side {
-        DiffSide::Old => context.patch_layout.geometry().left,
-        DiffSide::New => context.patch_layout.geometry().right,
-    };
+    let geometry = context.geometry().pane(side);
     let highlights = crate::diff_preview::cell_highlights(
         context.highlighter,
         &context.diff_theme.syntax,
@@ -559,32 +539,25 @@ fn render_cell(
         context.row,
         cell,
     );
-    let tint = |mark| match mark {
-        Mark::Hinted => context.diff_theme.hinted_name(),
-        Mark::Card => context.diff_theme.carded_name(),
+    let card = Style::new().bg(native_color(context.diff_theme.carded_name(), background));
+    let location = context.presentation.source_location(context.row, cell);
+    let overlays = location.as_ref().map_or_else(Vec::new, |location| context.names.styles(location, card));
+    let source_spans = styled_spans(&cell.text, &highlights, &overlays, Style::new().bg(background));
+    let fit = FitOptions {
+        width: geometry.content_width,
+        wrap: true,
+        tab_width: usize::from(context.tab_width),
+        continuation: "",
     };
-    let marks: Vec<(Range<usize>, Color)> = context
-        .marks
-        .filter(|(origin, _)| context.presentation.source_location(context.row, cell).as_ref() == Some(origin))
-        .map(|(_, marks)| {
-            marks.iter().map(|(range, mark)| (range.clone(), native_color(tint(*mark), background))).collect()
-        })
-        .unwrap_or_default();
-    let source_spans = styled_spans(&cell.text, &highlights, &marks, Style::new().bg(background));
-    let lines = fit_spans_from(
-        source_spans,
-        FitOptions {
-            width: geometry.content_width,
-            wrap: true,
-            tab_width: usize::from(context.tab_width),
-            continuation: "",
-        },
-        checkpoint,
-    );
-    for (local_row, (line, _)) in lines.take(usize::from(area.height)).enumerate() {
+    let lines = fit_spans_from(source_spans, fit, checkpoint);
+    let mut from = checkpoint;
+    for (local_row, (line, end)) in lines.take(usize::from(area.height)).enumerate() {
         let segment = context.first_segment + local_row;
         let y = area.y + u16::try_from(local_row).unwrap_or(u16::MAX);
-        let number = if segment == 0 {
+        let add_comment = hovered && segment == 0;
+        let number = if add_comment {
+            "+".to_owned()
+        } else if segment == 0 {
             cell.line_number().map_or_else(String::new, |number| number.to_string())
         } else {
             "↪".to_owned()
@@ -595,7 +568,13 @@ fn render_cell(
             DiffTone::Removed => context.theme.deletion,
             DiffTone::Context | DiffTone::Meta => context.theme.gutter,
         };
-        let gutter_foreground = if segment == 0 { gutter_foreground } else { context.theme.ui.text_muted };
+        let gutter_foreground = if add_comment {
+            context.theme.ui.accent
+        } else if segment == 0 {
+            gutter_foreground
+        } else {
+            context.theme.ui.text_muted
+        };
         let gutter_area = Rect::new(area.x, y, geometry.gutter_width.min(area.width), 1);
         Paragraph::new(Line::from(vec![
             diff_indicator(tone, context.diff_theme, Style::new().bg(background)),
@@ -605,84 +584,78 @@ fn render_cell(
         let source_area =
             Rect::new(area.x.saturating_add(gutter_area.width), y, area.width.saturating_sub(gutter_area.width), 1);
         Paragraph::new(line).render(source_area, buffer);
-    }
-}
-
-fn render_footer(area: Rect, buffer: &mut Buffer, state: &mut DiffReviewState, theme: &RatatuiTheme) {
-    if area.is_empty() {
-        return;
-    }
-    if let Some(prompt) = &state.repository_prompt {
-        match prompt {
-            RepositoryPrompt::Commit { message } => {
-                let prefix = "commit › ";
-                Paragraph::new(format!("{prefix}{message}")).style(Style::new().fg(theme.ui.text)).render(area, buffer);
-                let x = area
-                    .x
-                    .saturating_add(u16::try_from(prefix.len() + message.len()).unwrap_or(u16::MAX))
-                    .min(area.right().saturating_sub(1));
-                state.cursor_position = Some(Position::new(x, area.y));
-            }
-            RepositoryPrompt::Discard { path, status } => {
-                Paragraph::new(format!("Discard all staged and unstaged changes to {path} ({status:?})? [y/N]"))
-                    .style(Style::new().fg(theme.deletion))
-                    .render(area, buffer);
-            }
+        if let Some(location) = &location {
+            context.code_cells.push(CodeCell {
+                area: source_area,
+                gutter: gutter_area,
+                row: context.source,
+                side,
+                commentable,
+                location: location.clone(),
+                text: cell.text.clone(),
+                fit,
+                from,
+            });
         }
-        return;
+        from = end;
     }
-    if let Some(message) = state.repository_error() {
-        EmptyState::new(message, NoticeTone::Error, theme).render(area, buffer);
-        return;
-    }
-    let layout = match (state.view_mode(), state.layout().is_split()) {
-        _ if area.width < LAYOUT_STATUS_MIN_WIDTH => "",
-        _ if state.session.source_view().is_some() => "source · ",
-        (ViewMode::Auto, true) => "auto: split · ",
-        (ViewMode::Auto, false) => "auto: unified · ",
-        (_, true) => "split · ",
-        (_, false) => "unified · ",
-    };
-    let review = state.review();
-    let outdated = review.outdated_count();
-    let status = format!(
-        "  {layout}{} comment{}{}",
-        review.len(),
-        if review.len() == 1 { "" } else { "s" },
-        if outdated == 0 { String::new() } else { format!(" ({outdated} outdated)") }
-    );
-    let hint = if matches!(state.repository_status, RepositoryOperationStatus::Pending) {
-        "Git operation in progress…".to_owned()
-    } else if let Some(hints) = state.names.hints() {
-        hints_footer(hints)
-    } else if state.session.draft().is_some() {
-        "[Enter] save  [Shift-Enter] newline  [Esc] cancel".to_owned()
-    } else {
-        state.footer_hint(usize::from(area.width).saturating_sub(status.len()))
-    };
-    ActionBar::new(
-        Line::from(vec![
-            Span::styled(hint, Style::new().fg(theme.ui.text_muted)),
-            Span::styled(status, Style::new().fg(theme.ui.accent)),
-        ]),
-        theme,
-    )
-    .render(area, buffer);
 }
 
-fn render_help(area: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme: &RatatuiTheme) {
-    let content = Modal::new("Review shortcuts", ModalSize::Medium, theme)
-        .hint("j/k scroll · ? / Esc close")
+fn render_notification(body: Rect, buffer: &mut Buffer, state: &DiffReviewState, theme: &RatatuiTheme) {
+    if matches!(state.overlay, Some(Overlay::Repository(_))) {
+        return;
+    }
+    let Some(message) = state.repository_error() else {
+        return;
+    };
+    let width = body.width.saturating_sub(4);
+    let notification = Notification::error(message, theme);
+    let height = notification.height(width).min(body.height);
+    if width == 0 || height == 0 {
+        return;
+    }
+    let area = Rect::new(body.x + 2, body.bottom().saturating_sub(height + 1).max(body.y), width, height);
+    notification.render(area, buffer);
+}
+
+fn render_repository_prompt(
+    area: Rect,
+    buffer: &mut Buffer,
+    state: &mut DiffReviewState,
+    theme: &RatatuiTheme,
+) -> Option<Rect> {
+    let Some(Overlay::Repository(prompt)) = &state.overlay else {
+        return None;
+    };
+    let base = theme.ui.selection_style(SelectionState::None);
+    let muted = base.fg(theme.ui.text_muted);
+    let (title, lines) = match prompt {
+        RepositoryPrompt::Commit { message } => (
+            "Commit staged changes".to_owned(),
+            vec![
+                Line::from(vec![Span::styled("› ", muted), Span::styled(message.clone(), base)]),
+                Line::default(),
+                Line::styled("Enter to commit · Esc to cancel", muted),
+            ],
+        ),
+        RepositoryPrompt::Discard { path, .. } => (
+            format!("Discard changes to {path}?"),
+            vec![
+                Line::styled("This removes both staged and unstaged changes.", base.fg(theme.deletion)),
+                Line::default(),
+                Line::styled("y to confirm · n or Esc to cancel", muted),
+            ],
+        ),
+    };
+    let content = Modal::new(&title, ModalSize::Compact, theme)
+        .height(u16::try_from(lines.len()).unwrap_or(u16::MAX))
+        .width(area.width.saturating_sub(4).min(64))
         .render(area, buffer);
-    render_modal_text(
-        content,
-        buffer,
-        state
-            .help_bindings()
-            .skip(state.help_scroll)
-            .map(|binding| format!("{} ({:?})", binding.hint(), binding.scope))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        theme,
-    );
+    if let RepositoryPrompt::Commit { message } = prompt {
+        let column = u16::try_from(2 + unicode_width::UnicodeWidthStr::width(message.as_str())).unwrap_or(u16::MAX);
+        state.cursor_position =
+            Some(Position::new(content.x.saturating_add(column).min(content.right().saturating_sub(1)), content.y));
+    }
+    Paragraph::new(lines).style(base).render(content, buffer);
+    Some(content)
 }

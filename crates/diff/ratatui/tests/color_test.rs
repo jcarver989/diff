@@ -1,5 +1,5 @@
 use clankerdiff_ratatui::{composite_color, layered_style, page_color};
-use clankerdiff_theme::{ReviewTheme, Rgba};
+use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use ratatui::style::Color;
 
 #[test]

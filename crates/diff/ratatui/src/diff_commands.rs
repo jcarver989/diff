@@ -1,6 +1,6 @@
 use crate::{
     DiffReviewCommand, DiffReviewEvent, DiffReviewState, DiffReviewStatus, FocusPane, InputOutcome, InteractionPhase,
-    KeyBinding, KeyEvent, NavigationPane, ReviewCommand, keybindings, theme_picker::ThemePicker,
+    KeyEvent, NavigationPane, ReviewCommand, keybindings, state::Overlay, theme_picker::ThemePicker,
 };
 use clankerdiff_core::{CommandContext, CommitPicker, RepositoryAction, ReviewCapabilities};
 use std::sync::Arc;
@@ -12,26 +12,7 @@ impl DiffReviewState {
         if self.interaction_phase() != InteractionPhase::Browse {
             return None;
         }
-        keybindings::binding_for_key(&self.keybindings, key, self.focus == FocusPane::Diff, self.layout().is_split())
-            .map(|binding| binding.command.clone())
-    }
-
-    pub(crate) fn help_bindings(&self) -> impl Iterator<Item = &KeyBinding<DiffReviewCommand>> {
-        let context = CommandContext { phase: InteractionPhase::Browse, ..self.command_context() };
-        keybindings::help_bindings(&self.keybindings, context.navigation_available, move |command| {
-            self.command_enabled_in(command, &context)
-        })
-    }
-
-    pub(crate) fn footer_hint(&self, width: usize) -> String {
-        keybindings::footer_hint(
-            &self.keybindings,
-            self.focus == FocusPane::Diff,
-            self.layout().is_split(),
-            |command| self.command_enabled(command),
-            &ReviewCommand::ShowHelp.into(),
-            width,
-        )
+        keybindings::binding_in_state(&self.keybindings, key, self.key_state()).map(|binding| binding.command.clone())
     }
 
     #[must_use]
@@ -51,7 +32,7 @@ impl DiffReviewState {
     pub fn set_capabilities(&mut self, capabilities: ReviewCapabilities) {
         self.capabilities = capabilities;
         if !capabilities.repository {
-            self.repository_prompt = None;
+            self.close_overlay(InteractionPhase::RepositoryPrompt);
         }
         self.mark_dirty();
     }
@@ -61,8 +42,8 @@ impl DiffReviewState {
         self.command_enabled_in(command, &self.command_context())
     }
 
-    fn command_enabled_in(&self, command: &DiffReviewCommand, context: &CommandContext) -> bool {
-        command.enabled(context) && (!matches!(command, DiffReviewCommand::CopyReview) || !self.review().is_empty())
+    pub(crate) fn command_enabled_in(&self, command: &DiffReviewCommand, context: &CommandContext) -> bool {
+        command.enabled(context) && self.session.command_available(command)
     }
 
     pub fn handle_command(&mut self, command: impl Into<DiffReviewCommand>) -> InputOutcome<DiffReviewEvent> {
@@ -78,7 +59,7 @@ impl DiffReviewState {
         if !self.command_enabled(&command) {
             return InputOutcome::Ignored;
         }
-        if self.names.close() {
+        if !command.keeps_definition_card() && self.names.close() {
             self.mark_dirty();
         }
         match command {
@@ -197,15 +178,16 @@ impl DiffReviewState {
                 ));
             }
             C::SetScope(_) | C::CycleScope | C::StepTarget(_) | C::GoToPage(_) => {
-                self.commit_picker = None;
+                self.close_overlay(InteractionPhase::CommitPicker);
                 self.mark_dirty();
                 return self.session.target_event(&command).map_or(InputOutcome::Ignored, InputOutcome::Emitted);
             }
             C::OpenCommitPicker => {
-                self.commit_picker = self.session.commit_pages(since_epoch()).and_then(CommitPicker::new);
+                self.overlay =
+                    self.session.commit_pages(since_epoch()).and_then(CommitPicker::new).map(Overlay::Commits);
             }
             C::MoveCommitPicker(delta) => {
-                if let Some(picker) = self.commit_picker.as_mut() {
+                if let Some(Overlay::Commits(picker)) = &mut self.overlay {
                     picker.move_by(delta);
                 }
             }
@@ -219,8 +201,26 @@ impl DiffReviewState {
             C::RepositoryAction(action) => {
                 return InputOutcome::Emitted(DiffReviewEvent::RepositoryAction(action));
             }
+            C::ToggleSidebar => self.toggle_sidebar(),
             C::ShowDefinition => {
                 if !self.show_definition_at_selection() {
+                    return InputOutcome::Ignored;
+                }
+            }
+            C::GoToDefinition => {
+                if self.names.card().is_none() {
+                    return InputOutcome::Ignored;
+                }
+                self.mark_dirty();
+                return self.go_to_definition().or_consumed();
+            }
+            C::NextDefinition => {
+                if !self.next_definition() {
+                    return InputOutcome::Ignored;
+                }
+            }
+            C::CloseDefinition => {
+                if !self.names.close() {
                     return InputOutcome::Ignored;
                 }
             }
@@ -258,47 +258,43 @@ impl DiffReviewState {
                 self.cursor_position = None;
                 self.request_follow();
             }
-            C::Review(R::Cancel) => match self.interaction_phase() {
-                InteractionPhase::Browse => return InputOutcome::Emitted(DiffReviewEvent::Cancel),
-                InteractionPhase::Draft => {
+            C::Review(R::Cancel) => match self.overlay.take() {
+                Some(Overlay::Themes(picker)) => self.apply_theme(picker.cancel()),
+                Some(_) => {}
+                None if self.session.draft().is_some() => {
                     self.session.cancel_draft();
                     self.cursor_position = None;
                     self.request_follow();
                 }
-                InteractionPhase::Help => self.help = false,
-                InteractionPhase::CommitPicker => self.commit_picker = None,
-                InteractionPhase::RepositoryPrompt => self.repository_prompt = None,
-                InteractionPhase::ThemePicker => {
-                    if let Some(picker) = self.theme_picker.take() {
-                        self.apply_theme(picker.cancel());
-                    }
-                }
+                None => return InputOutcome::Emitted(DiffReviewEvent::Cancel),
             },
-            C::Review(R::ShowHelp) => {
-                self.help = true;
-                self.help_scroll = 0;
-            }
+            C::Review(R::ShowHelp) => self.open_palette(),
             C::Review(R::ScrollHelp(lines)) => {
-                self.help_scroll =
-                    self.help_scroll.saturating_add_signed(lines).min(self.help_bindings().count().saturating_sub(1));
+                if let Some(Overlay::Commands(palette)) = &mut self.overlay {
+                    palette.picker.move_by(lines);
+                }
             }
             C::Review(R::OpenThemePicker) => {
-                self.theme_picker = ThemePicker::new(&self.theme, Arc::clone(&self.theme_choices));
+                self.overlay = ThemePicker::new(&self.theme, Arc::clone(&self.theme_choices))
+                    .map(|picker| Overlay::Themes(Box::new(picker)));
             }
             C::Review(R::SelectTheme(index)) => {
-                let Some(theme) = self.theme_picker.as_mut().and_then(|picker| picker.select(index)) else {
+                let Some(Overlay::Themes(picker)) = &mut self.overlay else {
+                    return InputOutcome::Ignored;
+                };
+                let Some(theme) = picker.select(index) else {
                     return InputOutcome::Ignored;
                 };
                 self.apply_theme(theme);
             }
             C::Review(R::MoveTheme(delta)) => {
-                if let Some(picker) = self.theme_picker.as_mut() {
+                if let Some(Overlay::Themes(picker)) = &mut self.overlay {
                     let theme = picker.select_relative(delta);
                     self.apply_theme(theme);
                 }
             }
             C::Review(R::CommitTheme) => {
-                let Some(picker) = self.theme_picker.take() else {
+                let Some(Overlay::Themes(picker)) = self.close_overlay(InteractionPhase::ThemePicker) else {
                     return InputOutcome::Ignored;
                 };
                 let theme = picker.commit();

@@ -21,8 +21,8 @@ pub use diff_side::DiffSide;
 pub use file_diff::{FileDiff, FileStatus, ModeChange, StageState};
 pub use hunk::Hunk;
 pub use lookup::{
-    DefinitionRequest, DefinitionTarget, Lookup, LookupAnswer, LookupReply, LookupRequest, Resolution, SourcePath,
-    TargetLocation,
+    DefinitionRequest, DefinitionTarget, Lookup, LookupAnswer, LookupFailure, LookupReply, LookupRequest, LookupStatus,
+    LookupUnavailable, Resolution, SourcePath, TargetLocation,
 };
 pub use patch_line::{PatchLine, PatchLineKind};
 pub use repo_path::RepoPath;

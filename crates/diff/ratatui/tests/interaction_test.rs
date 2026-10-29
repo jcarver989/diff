@@ -1,7 +1,7 @@
 use clankerdiff_core::{DiffReviewEvent, ViewMode, testing::DocumentBuilder};
 use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ratatui::{
-    DiffReviewCommand, DiffReviewState, DiffReviewWidget, InputOutcome, InteractionPhase, KeyCode, KeyEvent,
+    DiffReviewCommand, DiffReviewState, DiffReviewWidget, FocusPane, InputOutcome, InteractionPhase, KeyCode, KeyEvent,
     KeyModifiers, MarkdownReviewState, MouseEvent, MouseEventKind, NavigationPane, ReviewCommand, ReviewInput,
     ReviewOptions, ThemeChoice,
 };
@@ -25,6 +25,20 @@ fn portable_review_routes_input_without_a_terminal() -> Result<(), Box<dyn Error
     assert_eq!(state.review().len(), 1);
     assert!(matches!(state.handle_input(key(KeyCode::Esc)), InputOutcome::Emitted(DiffReviewEvent::Cancel)));
     Ok(())
+}
+
+#[test]
+fn left_leaves_one_sided_files_instead_of_selecting_a_side_in_split_layout() {
+    for (document, focus) in [
+        (DocumentBuilder::new().changed("a.rs", "old\n", "new\n").build(), FocusPane::Diff),
+        (DocumentBuilder::new().added("a.rs", "new\n").build(), FocusPane::Files),
+    ] {
+        let mut state = DiffReviewState::new(document);
+        state.set_view_mode(ViewMode::Split);
+        let _ = state.handle_command(DiffReviewCommand::Focus(FocusPane::Diff));
+        let _ = state.handle_input(key(KeyCode::Left));
+        assert_eq!(state.focus(), focus);
+    }
 }
 
 #[test]
@@ -57,7 +71,8 @@ fn modals_consume_keys_and_outside_mouse_is_ignored() {
     assert!(matches!(state.handle_input(key(KeyCode::F(1))), InputOutcome::Consumed));
     let _ = state.handle_input(key(KeyCode::Esc));
     state.set_theme_choices(vec![ThemeChoice::new("Current", state.theme().clone())]);
-    let _ = state.handle_input(key(KeyCode::Char('t')));
+    assert!(matches!(state.handle_input(key(KeyCode::Char('t'))), InputOutcome::Ignored));
+    state.handle_command(ReviewCommand::OpenThemePicker);
     assert_eq!(state.interaction_phase(), InteractionPhase::ThemePicker);
     let _ = state.handle_input(key(KeyCode::Esc));
     assert_eq!(state.interaction_phase(), InteractionPhase::Browse);
@@ -193,9 +208,9 @@ fn deep_scrolling_preserves_source_content_and_logical_selection() -> Result<(),
     let offset = u16::try_from(state.scroll_offset())?;
     assert!(offset > area.height);
     assert_eq!(state.selected_row(), selected);
-    let sticky: String = (0..area.width).map(|x| buffer[(x, 0)].symbol()).collect();
+    let sticky: String = (0..area.width).map(|x| buffer[(x, 1)].symbol()).collect();
     assert!(sticky.contains("long.rs"), "{sticky}");
-    for y in 1..area.height {
+    for y in 2..area.height {
         for x in 26..39 {
             assert_eq!(buffer[(x, y)].symbol(), reference[(x, y + offset)].symbol(), "at {x},{y}");
         }
@@ -208,8 +223,8 @@ fn deep_scrolling_preserves_source_content_and_logical_selection() -> Result<(),
         .ok_or("missing logical row")?;
     let _ = state.handle_input(ReviewInput::Mouse(MouseEvent {
         kind: MouseEventKind::Down(clankerdiff_ratatui::MouseButton::Left),
-        column: 2,
-        row: 2,
+        column: 21,
+        row: 3,
         modifiers: KeyModifiers::NONE,
     }));
     assert_eq!(state.selected_row(), Some(expected));
@@ -239,12 +254,12 @@ fn viewport_starting_inside_a_comment_keeps_source_hit_mapping() -> Result<(), B
     let _ = state.handle_input(key(KeyCode::PageUp));
     buffer.reset();
     DiffReviewWidget::new().borders(false).render(area, &mut buffer, &mut state);
-    let top: String = (0..area.width).map(|x| buffer[(x, 0)].symbol()).collect();
+    let top: String = (0..area.width).map(|x| buffer[(x, 1)].symbol()).collect();
     assert!(top.contains("note"), "{top}");
     let _ = state.handle_input(ReviewInput::Mouse(MouseEvent {
         kind: MouseEventKind::Down(clankerdiff_ratatui::MouseButton::Left),
         column: 3,
-        row: 0,
+        row: 1,
         modifiers: KeyModifiers::NONE,
     }));
     assert_eq!(state.selected_row(), Some(source));

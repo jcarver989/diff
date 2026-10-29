@@ -6,7 +6,7 @@ use crate::{
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId};
 use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use ratatui::layout::{Position, Rect};
 use std::{
     hash::{Hash, Hasher},

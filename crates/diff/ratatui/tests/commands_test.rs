@@ -7,7 +7,7 @@ use clankerdiff_ratatui::{
     InteractionPhase, KeyBinding, KeyCode, KeyEvent, KeyModifiers, MarkdownFocusPane,
     MarkdownReviewCommand as MarkdownCommand, MarkdownReviewState, MarkdownReviewWidget, ReviewCommand, ReviewInput,
 };
-use clankerdiff_theme::ThemeChoice;
+use clankerdiff_ui_core::ThemeChoice;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 use std::{error::Error, sync::Arc};
 
@@ -55,15 +55,15 @@ fn collapse_keys_toggle_the_selected_file_and_every_file() {
     let collapse = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
     let collapse_all = KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::SHIFT);
     assert_eq!(state.command_for_key(collapse), Some(DiffCommand::ToggleFileCollapsed(None)));
-    assert_eq!(state.command_for_key(collapse_all), Some(DiffCommand::ToggleAllFilesCollapsed));
+    assert_eq!(state.command_for_key(collapse_all), None);
     let _ = state.handle_input(ReviewInput::Key(collapse));
     assert!(state.session().is_file_collapsed(0));
     assert!(!state.session().is_file_collapsed(1));
     let _ = state.handle_input(ReviewInput::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(!state.session().is_file_collapsed(0));
-    let _ = state.handle_input(ReviewInput::Key(collapse_all));
+    state.handle_command(DiffCommand::ToggleAllFilesCollapsed);
     assert!(state.session().all_files_collapsed());
-    let _ = state.handle_input(ReviewInput::Key(collapse_all));
+    state.handle_command(DiffCommand::ToggleAllFilesCollapsed);
     assert!(!state.session().all_files_collapsed());
     state.handle_command(DiffCommand::ToggleSourceView);
     assert!(!state.command_enabled(&DiffCommand::ToggleAllFilesCollapsed));
@@ -71,18 +71,18 @@ fn collapse_keys_toggle_the_selected_file_and_every_file() {
 }
 
 #[test]
-fn layout_keys_flip_the_shown_layout_and_restore_auto() {
+fn the_layout_key_flips_the_shown_layout_and_auto_is_a_command() {
     let mut state = diff();
     let toggle = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE);
-    let auto = KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT);
+    let auto = DiffCommand::SetViewMode(ViewMode::Auto);
     assert_eq!(state.command_for_key(toggle), Some(DiffCommand::ToggleLayout));
-    assert_eq!(state.command_for_key(auto), Some(DiffCommand::SetViewMode(ViewMode::Auto)));
+    assert_eq!(state.command_for_key(KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT)), None);
 
     assert!(matches!(state.handle_input(ReviewInput::Key(toggle)), InputOutcome::ViewModeSelected(ViewMode::Split)));
     assert!(state.layout().is_split());
     assert!(matches!(state.handle_input(ReviewInput::Key(toggle)), InputOutcome::ViewModeSelected(ViewMode::Unified)));
-    assert!(matches!(state.handle_input(ReviewInput::Key(auto)), InputOutcome::ViewModeSelected(ViewMode::Auto)));
-    assert!(matches!(state.handle_input(ReviewInput::Key(auto)), InputOutcome::Consumed));
+    assert!(matches!(state.handle_command(auto.clone()), InputOutcome::ViewModeSelected(ViewMode::Auto)));
+    assert!(matches!(state.handle_command(auto), InputOutcome::Consumed));
 }
 
 #[test]
@@ -130,8 +130,8 @@ fn default_shortcuts_do_not_capture_composed_keys() -> Result<(), Box<dyn Error>
         assert!(matches!(markdown.handle_input(input)?, InputOutcome::Ignored));
     }
     assert_eq!(
-        state.command_for_key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)),
-        Some(DiffCommand::CycleScope)
+        state.command_for_key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::SHIFT)),
+        Some(DiffCommand::BeginCommit)
     );
     Ok(())
 }

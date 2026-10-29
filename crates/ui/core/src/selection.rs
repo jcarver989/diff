@@ -1,4 +1,4 @@
-use crate::{Appearance, ReviewTheme};
+use crate::{Appearance, PickerOption, PickerState, ReviewTheme};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -32,7 +32,7 @@ impl ThemeChoice {
 #[derive(Debug)]
 pub struct ThemeSelection {
     themes: Arc<[ThemeChoice]>,
-    selected: usize,
+    picker: PickerState,
     original: ReviewTheme,
 }
 
@@ -42,8 +42,12 @@ impl ThemeSelection {
         if themes.is_empty() {
             return None;
         }
-        let selected = themes.iter().position(|choice| choice.theme.id() == current.id()).unwrap_or(0);
-        Some(Self { themes, selected, original: current.clone() })
+        let mut picker =
+            PickerState::new(themes.iter().map(|choice| PickerOption::new(choice.name.clone())).collect()).unfiltered();
+        if let Some(selected) = themes.iter().position(|choice| choice.theme.id() == current.id()) {
+            picker.highlight(selected);
+        }
+        Some(Self { themes, picker, original: current.clone() })
     }
 
     #[must_use]
@@ -57,13 +61,18 @@ impl ThemeSelection {
     }
 
     #[must_use]
+    pub const fn picker(&self) -> &PickerState {
+        &self.picker
+    }
+
+    #[must_use]
     pub const fn selected(&self) -> usize {
-        self.selected
+        self.picker.highlighted_position()
     }
 
     #[must_use]
     pub fn selected_theme(&self) -> ReviewTheme {
-        self.themes[self.selected].theme.clone()
+        self.themes[self.selected()].theme.clone()
     }
 
     #[must_use]
@@ -77,13 +86,11 @@ impl ThemeSelection {
     }
 
     pub fn select_relative(&mut self, delta: isize) -> ReviewTheme {
-        self.selected = self.selected.saturating_add_signed(delta).min(self.themes.len() - 1);
+        self.picker.move_by(delta);
         self.selected_theme()
     }
 
     pub fn select(&mut self, selected: usize) -> Option<ReviewTheme> {
-        let theme = self.themes.get(selected)?.theme.clone();
-        self.selected = selected;
-        Some(theme)
+        self.picker.highlight(selected).then(|| self.selected_theme())
     }
 }

@@ -6,7 +6,7 @@ use clankerdiff_gpui_ui::{
     testing::ComponentHarnessBuilder,
     tokens::TREE_INDENT,
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, IntoElement, ParentElement, TestAppContext, div, prelude::*, px};
 use std::{
     cell::{Cell, RefCell},

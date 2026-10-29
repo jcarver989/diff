@@ -2,7 +2,7 @@ use clankerdiff_gpui_ui::{
     prelude::{InlineEdit, UiTheme},
     testing::ViewHarness,
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, IntoElement, Render, TestAppContext, Window, WindowOptions,
 };

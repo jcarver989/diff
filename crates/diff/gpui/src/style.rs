@@ -4,7 +4,7 @@ use crate::ui::typography::{Typography, TypographyExt};
 use clankerdiff_core::FileStatus;
 pub(crate) use clankerdiff_gpui_ui::theme::color;
 use clankerdiff_syntax::HighlightSpan;
-use clankerdiff_theme::{DiffPalette, FontStyle, Rgba};
+use clankerdiff_ui_core::{DiffPalette, FontStyle, Rgba};
 use gpui::{
     Div, FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, ParentElement, SharedString, Styled, StyledText,
     UnderlineStyle, div, px,

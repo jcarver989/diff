@@ -160,7 +160,7 @@ fn scrolling_the_open_theme_picker_keeps_the_background_in_place(cx: &mut TestAp
         ..DiffViewerHarnessBuilder::default()
     }
     .build(cx);
-    harness.simulate_keystrokes(cx, "t");
+    harness.click(cx, "select-theme").expect("the review bar offers themes");
     assert!(harness.read(cx, |viewer, _| viewer.theme_picker_open()), "theme picker opens");
     harness.scroll_to_bottom_of_diff(cx);
     let scrolled = harness.diff_scroll_top(cx);
@@ -263,6 +263,29 @@ fn dismissal_controls_support_keyboard_activation_without_viewer_actions(cx: &mu
             Ok(())
         });
     }
+}
+
+#[gpui::test]
+fn auto_split_renders_one_sided_files_in_one_column(cx: &mut TestAppContext) {
+    let document = DocumentBuilder::new()
+        .changed("a.rs", "old\n", "new\n")
+        .added("b.rs", "added\n")
+        .deleted("c.rs", "deleted\n")
+        .build();
+    DiffViewerHarnessBuilder { document, ..Default::default() }.with_window_size(1_600.0, 900.0).run(
+        cx,
+        |harness, cx| {
+            assert_eq!(harness.read(cx, |viewer, _| viewer.layout()), Layout::Split);
+            let old = harness.bounds(cx, "code:a.rs:old:1").ok_or("missing old side")?;
+            let new = harness.bounds(cx, "code:a.rs:new:1").ok_or("missing new side")?;
+            let added = harness.bounds(cx, "code:b.rs:new:1").ok_or("missing added line")?;
+            let deleted = harness.bounds(cx, "code:c.rs:old:1").ok_or("missing deleted line")?;
+            assert!(old.origin.x < new.origin.x);
+            assert_eq!(added.origin.x, old.origin.x);
+            assert_eq!(deleted.origin.x, old.origin.x);
+            Ok(())
+        },
+    );
 }
 
 #[gpui::test]

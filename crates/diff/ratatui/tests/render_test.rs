@@ -1,17 +1,17 @@
 #[cfg(feature = "test-support")]
 use clankerdiff_core::{
-    CommitSummary, DiffDocument, DiffScope, DiffSide, Layout, LineStat, RowKind, testing::commit_id,
+    CommitSummary, DiffDocument, DiffReviewEvent, DiffScope, DiffSide, Layout, LineStat, RowKind, testing::commit_id,
 };
 use clankerdiff_core::{ViewMode, testing::DocumentBuilder};
 #[cfg(feature = "test-support")]
 use clankerdiff_ratatui::{
-    DiffReviewCommand, FocusPane, InteractionPhase, KeyCode, MouseButton, MouseEventKind, ReviewCommand,
+    DiffReviewCommand, FocusPane, InputOutcome, InteractionPhase, KeyCode, MouseButton, MouseEventKind, ReviewCommand,
     composite_color, page_color,
     testing::{ReviewHarness, ReviewHarnessBuilder, mouse},
 };
 use clankerdiff_ratatui::{DiffReviewState, DiffReviewWidget, NavigationPane, ReviewOptions};
 #[cfg(feature = "test-support")]
-use clankerdiff_theme::{ReviewTheme, Rgba};
+use clankerdiff_ui_core::{ReviewTheme, Rgba};
 #[cfg(feature = "test-support")]
 use ratatui::style::{Color, Modifier};
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
@@ -21,18 +21,40 @@ use std::sync::Arc;
 
 #[cfg(feature = "test-support")]
 #[test]
-fn the_footer_names_the_layout_and_whether_auto_chose_it() {
+fn auto_split_renders_one_sided_files_in_one_column() -> Result<(), Box<dyn Error>> {
+    let document = DocumentBuilder::new()
+        .changed("a.rs", "let old = 1;\n", "let new = 2;\n")
+        .added("b.rs", "let added = 3;\n")
+        .deleted("c.rs", "let deleted = 4;\n")
+        .build();
+    let mut harness = ReviewHarness::new(document, 160, 24);
+    harness.draw();
+    assert_eq!(harness.state().layout(), Layout::Split);
+    let column = |text: &str| harness.position_of(text).map(|position| position.x).ok_or("line is not rendered");
+    let old = column("let old")?;
+    assert!(old < column("let new")?);
+    assert_eq!(column("let added")?, old);
+    assert_eq!(column("let deleted")?, old);
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn the_toolbar_raises_the_chosen_layout_and_clicking_auto_restores_it() -> Result<(), Box<dyn Error>> {
     let mut harness = ReviewHarness::new(DocumentBuilder::new().changed("a.rs", "old\n", "new\n").build(), 160, 12);
     harness.draw();
-    harness.assert_contains("auto: split · 0 comments");
+    assert_eq!(raised_layout(&harness)?, "Auto");
+    assert!(harness.state().layout().is_split());
 
     harness.press(KeyCode::Char('v'));
     harness.draw();
-    harness.assert_contains("unified · 0 comments");
+    assert_eq!(raised_layout(&harness)?, "Unified");
 
-    harness.press(KeyCode::Char('V'));
+    harness.click("Auto")?;
     harness.draw();
-    harness.assert_contains("auto: split · 0 comments");
+    assert_eq!(harness.state().view_mode(), ViewMode::Auto);
+    assert_eq!(raised_layout(&harness)?, "Auto");
+    Ok(())
 }
 
 #[cfg(feature = "test-support")]
@@ -79,8 +101,8 @@ fn source_round_trip_restores_an_independently_scrolled_viewport() {
         assert_eq!(harness.state().scroll_offset(), scroll);
         assert_eq!(harness.state().session().selected_row(), selected);
         if width == 110 {
-            let below_title = usize::from(width);
-            assert_eq!(harness.buffer().content[below_title..], expected.content[below_title..]);
+            let below_toolbar = usize::from(width) * 2;
+            assert_eq!(harness.buffer().content[below_toolbar..], expected.content[below_toolbar..]);
         }
     }
 }
@@ -290,7 +312,7 @@ fn modal_text_composites_against_the_rendered_surface() {
     harness.state_mut().handle_command(ReviewCommand::ShowHelp);
     harness.draw();
     assert_eq!(harness.state().interaction_phase(), InteractionPhase::Help);
-    harness.assert_contains("Review shortcuts");
+    harness.assert_contains("Commands");
     let modal_cells: Vec<_> = harness
         .buffer()
         .content()
@@ -298,9 +320,8 @@ fn modal_text_composites_against_the_rendered_surface() {
         .filter(|cell| cell.bg == Color::Rgb(128, 128, 128) && cell.symbol() != " ")
         .collect();
     assert_ne!(modal_cells.len(), 0);
-    for cell in modal_cells {
-        assert_eq!(cell.fg, Color::Rgb(64, 64, 64), "{}", cell.symbol());
-    }
+    let titled = modal_cells.iter().filter(|cell| cell.fg == Color::Rgb(64, 64, 64)).count();
+    assert!(titled * 2 > modal_cells.len(), "most modal text composites the shared text color");
 }
 
 #[test]
@@ -404,7 +425,7 @@ fn width_changes_reflow_cached_source_rows() {
 
 #[test]
 fn empty_split_cells_have_gutters_but_missing_cells_do_not() -> Result<(), Box<dyn Error>> {
-    for (old, new, present_x, missing_x) in [("\n", "", 0, 13), ("", "\n", 13, 0)] {
+    for (old, new, present_x, missing_x) in [("keep\n\n", "keep\n", 0, 13), ("keep\n", "keep\n\n", 13, 0)] {
         let mut state = DiffReviewState::new(DocumentBuilder::new().changed("plain.txt", old, new).build());
         state.set_options(ReviewOptions { navigation: NavigationPane::Hidden, footer: false, ..Default::default() });
         state.set_view_mode(ViewMode::Split);
@@ -533,10 +554,11 @@ fn clicking_a_divider_chevron_toggles_its_file() -> Result<(), Box<dyn Error>> {
 fn gaps_are_quiet_rules_that_expand_from_their_glyph() -> Result<(), Box<dyn Error>> {
     let old = (1..=60).map(|line| format!("line {line}\n")).collect::<String>();
     let new = old.replace("line 10\n", "changed 10\n").replace("line 50\n", "changed 50\n");
-    let mut harness = continuous_harness(DocumentBuilder::new().changed_with("a.rs", &old, &new, |mut file| {
+    let builder = DocumentBuilder::new().changed_with("a.rs", &old, &new, |mut file| {
         file.hunks[1].function_context = Some("fn later()".to_owned());
         file
-    }));
+    });
+    let mut harness = continuous_harness_sized(builder, 100, 16);
     harness.state_mut().set_view_mode(ViewMode::Unified);
     harness.draw();
     let gap = (0..harness.buffer().area.height)
@@ -563,32 +585,38 @@ fn source_rows(buffer: &Buffer) -> Vec<String> {
 
 #[cfg(feature = "test-support")]
 #[test]
-fn commit_pages_title_the_frame_and_show_only_their_comments() -> Result<(), Box<dyn Error>> {
+fn the_commit_stepper_names_the_page_and_each_page_shows_only_its_comments() -> Result<(), Box<dyn Error>> {
     let builder = DocumentBuilder::new().commit("Add parser").changed("a.rs", "old", "new");
-    let mut harness = ReviewHarness::new(builder.clone().target(commit_id(1)).build(), 100, 14);
+    let mut harness = ReviewHarness::new(builder.clone().target(commit_id(1)).build(), 130, 14);
     harness.state_mut().handle_command(DiffReviewCommand::Focus(FocusPane::Diff));
     let anchor = harness.state().session().selected_anchor().ok_or("missing anchor")?;
     harness.state_mut().review_mut().add_comment(anchor, "commit note");
     harness.draw();
-    harness.assert_contains("Diff Review · 0000001 Add parser · 1/2 ");
-    assert!(!harness.row_text(0).contains("Staged"));
+    assert!(harness.row_text(1).contains(" ‹  ›  0000001 Add parser ▾ 1/2 "), "{}", harness.row_text(1));
+    assert!(!harness.row_text(1).contains("Staged"));
     harness.assert_contains("commit note");
 
     harness.state_mut().set_document(builder.target(DiffScope::Both).build());
     harness.draw();
-    harness.assert_contains("Diff Review · Uncommitted changes · 2/2 ·  Unstaged  Staged  Both ");
+    let toolbar = harness.row_text(1);
+    assert!(
+        toolbar.contains("Uncommitted changes ▾ 2/2 ") && toolbar.contains(" Unstaged  Staged  Both "),
+        "{toolbar}"
+    );
     assert!(!harness.text().contains("commit note"));
+    harness.click("‹")?;
+    assert_eq!(harness.state().interaction_phase(), InteractionPhase::Browse);
     Ok(())
 }
 
 #[cfg(feature = "test-support")]
 #[test]
-fn the_frame_title_ends_with_the_colored_change_totals() {
+fn the_toolbar_ends_with_the_colored_change_totals() {
     let document = DocumentBuilder::new().changed("a.rs", "old\n", "new\nmore\n").changed("b.rs", "x\n", "").build();
     let mut harness = ReviewHarness::new(document, 100, 14);
     harness.draw();
-    let title = harness.row_text(0);
-    assert!(title.ends_with(" +2 -2 ┐"), "{title}");
+    let title = harness.row_text(1);
+    assert!(title.ends_with(" +2 −2 │"), "{title}");
     assert!(!title.contains("files changed"));
     let theme = harness.state().theme().clone();
     assert_eq!(foreground_of(&harness, "+2"), Some(page_color(&theme, theme.diff.addition)));
@@ -596,20 +624,64 @@ fn the_frame_title_ends_with_the_colored_change_totals() {
 
 #[cfg(feature = "test-support")]
 #[test]
-fn the_frame_title_raises_the_selected_scope_without_a_commit_stack() -> Result<(), Box<dyn Error>> {
+fn the_toolbar_raises_the_selected_scope_without_a_commit_stack() -> Result<(), Box<dyn Error>> {
     let document = DocumentBuilder::new().target(DiffScope::Staged).changed("a.rs", "old", "new").build();
     let mut harness = ReviewHarness::new(document, 100, 14);
     harness.draw();
-    let title = harness.row_text(0);
-    assert!(title.contains("Diff Review ·  Unstaged  Staged  Both "), "{title}");
+    let title = harness.row_text(1);
+    assert!(title.contains(" │  Unstaged  Staged  Both "), "{title}");
     let bold = |label: &str| -> Result<bool, Box<dyn Error>> {
-        let column = title.find(label).ok_or(label.to_owned())?;
-        let column = u16::try_from(title[..column].chars().count())?;
-        Ok(harness.buffer()[(column, 0)].modifier.contains(Modifier::BOLD))
+        let position = harness.position_of(label).ok_or(label.to_owned())?;
+        Ok(harness.buffer()[position].modifier.contains(Modifier::BOLD))
     };
     assert!(bold("Staged ")?);
     assert!(!bold("Unstaged")?);
     assert!(!bold("Both")?);
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn repository_prompts_open_as_modals_and_errors_as_notifications() -> Result<(), Box<dyn Error>> {
+    let mut harness = ReviewHarness::new(DocumentBuilder::new().changed("a.rs", "old\n", "new\n").build(), 120, 20);
+    harness.state_mut().handle_command(DiffReviewCommand::BeginCommit);
+    harness.type_text("Fix parser");
+    harness.draw();
+    harness.assert_contains("┌ Commit staged changes ");
+    harness.assert_contains("› Fix parser");
+    harness.assert_contains("Enter to commit · Esc to cancel");
+    harness.press(KeyCode::Esc);
+
+    harness.state_mut().handle_command(DiffReviewCommand::BeginDiscard);
+    harness.draw();
+    harness.assert_contains("┌ Discard changes to a.rs? ");
+    harness.assert_contains("This removes both staged and unstaged changes.");
+    harness.press(KeyCode::Char('n'));
+
+    harness.state_mut().set_repository_error("index.lock exists");
+    harness.draw();
+    let message = harness.row_containing("index.lock exists").ok_or("the error is shown")?;
+    assert!(harness.row_text(message - 1).contains("┌──"), "{}", harness.text());
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+#[test]
+fn wide_commit_pickers_preview_the_highlighted_commit_and_rows_are_clickable() -> Result<(), Box<dyn Error>> {
+    let document = DocumentBuilder::new()
+        .commit_with("feat(parser): add parser", |commit| CommitSummary { body: "Parses diffs.".to_owned(), ..commit })
+        .commit("Wire the parser into the session")
+        .target(commit_id(2))
+        .changed("a.rs", "old", "new")
+        .build();
+    let mut harness = ReviewHarness::new(document, 140, 30);
+    harness.state_mut().handle_command(DiffReviewCommand::OpenCommitPicker);
+    harness.press(KeyCode::Char('k'));
+    harness.draw();
+    harness.assert_contains("Feature · parser");
+    harness.assert_contains("Parses diffs.");
+    let outcome = harness.click("○ 1")?;
+    assert_eq!(outcome, InputOutcome::Emitted(DiffReviewEvent::SetTarget(commit_id(1).into())));
     Ok(())
 }
 
@@ -669,7 +741,12 @@ fn render(old: &str, new: &str, tab_width: u16, width: u16) -> Buffer {
 
 #[cfg(feature = "test-support")]
 fn continuous_harness(builder: DocumentBuilder) -> ReviewHarness {
-    let mut harness = ReviewHarness::new(builder.build(), 100, 14);
+    continuous_harness_sized(builder, 100, 14)
+}
+
+#[cfg(feature = "test-support")]
+fn continuous_harness_sized(builder: DocumentBuilder, width: u16, height: u16) -> ReviewHarness {
+    let mut harness = ReviewHarness::new(builder.build(), width, height);
     let state = harness.state_mut();
     state.set_options(ReviewOptions { navigation: NavigationPane::Hidden, footer: false, ..Default::default() });
     state.set_view_mode(ViewMode::Split);
@@ -679,12 +756,17 @@ fn continuous_harness(builder: DocumentBuilder) -> ReviewHarness {
 }
 
 #[cfg(feature = "test-support")]
+fn raised_layout(harness: &ReviewHarness) -> Result<&'static str, Box<dyn Error>> {
+    for label in ["Auto", "Unified", "Split"] {
+        let position = harness.position_of(&format!(" {label} ")).ok_or(label)?;
+        if harness.buffer()[(position.x + 1, position.y)].modifier.contains(Modifier::BOLD) {
+            return Ok(label);
+        }
+    }
+    Err("no layout is raised".into())
+}
+
+#[cfg(feature = "test-support")]
 fn foreground_of(harness: &ReviewHarness, text: &str) -> Option<Color> {
-    let buffer = harness.buffer();
-    (buffer.area.top()..buffer.area.bottom()).find_map(|row| {
-        let line = buffer_row(buffer, row);
-        let start = line.find(text)?;
-        let column = u16::try_from(line[..start].chars().count()).ok()?;
-        Some(buffer[(column, row)].fg)
-    })
+    Some(harness.buffer()[harness.position_of(text)?].fg)
 }

@@ -1,30 +1,24 @@
 use crate::{
-    DiffReviewCommand, FocusPane, KeyCode, KeyEvent, KeyModifiers, MarkdownFocusPane, MarkdownReviewCommand,
-    ReviewCommand,
+    DiffReviewCommand, KeyCode, KeyEvent, KeyModifiers, MarkdownFocusPane, MarkdownReviewCommand, ReviewCommand,
 };
-use clankerdiff_core::{DiffSide, RevealAmount, ViewMode};
+pub use clankerdiff_core::KeyScope as BindingScope;
+use clankerdiff_core::{Chord, Key, KeyState, diff_shortcuts};
 use std::{fmt::Write, ptr};
+
+const NAMED_KEYS: [(Key, KeyCode); 11] = [
+    (Key::Enter, KeyCode::Enter),
+    (Key::Esc, KeyCode::Esc),
+    (Key::Tab, KeyCode::Tab),
+    (Key::Up, KeyCode::Up),
+    (Key::Down, KeyCode::Down),
+    (Key::Left, KeyCode::Left),
+    (Key::Right, KeyCode::Right),
+    (Key::Home, KeyCode::Home),
+    (Key::End, KeyCode::End),
+    (Key::PageUp, KeyCode::PageUp),
+    (Key::PageDown, KeyCode::PageDown),
+];
 use unicode_width::UnicodeWidthStr;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum BindingScope {
-    #[default]
-    Any,
-    Navigation,
-    Document,
-    SplitDocument,
-}
-
-impl BindingScope {
-    pub(crate) fn matches(self, document: bool, split: bool) -> bool {
-        match self {
-            Self::Any => true,
-            Self::Navigation => !document,
-            Self::Document => document,
-            Self::SplitDocument => document && split,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyBinding<T> {
@@ -45,11 +39,8 @@ impl<T> KeyBinding<T> {
         self
     }
 
-    pub(crate) fn matches(&self, key: KeyEvent, document: bool, split: bool) -> bool {
-        normalize_key(self.key) == normalize_key(key) && self.scope.matches(document, split)
-    }
-
-    pub fn hint(&self) -> String {
+    #[must_use]
+    pub fn key_label(&self) -> String {
         let mut key = String::new();
         for (modifier, name) in [
             (KeyModifiers::CONTROL, "Ctrl-"),
@@ -63,24 +54,28 @@ impl<T> KeyBinding<T> {
                 key.push_str(name);
             }
         }
-        match self.key.code {
-            KeyCode::Char(' ') => key.push_str("Space"),
-            KeyCode::Char(c) => key.push(c),
-            code => {
-                let _ = write!(key, "{code:?}");
+        let ctrl = self.key.modifiers.contains(KeyModifiers::CONTROL);
+        match core_key(self.key.code) {
+            Some(core) => key.push_str(&Chord { key: core, ctrl }.key_name()),
+            None => {
+                let _ = write!(key, "{:?}", self.key.code);
             }
         }
-        format!("{key} {}", self.label)
+        key
+    }
+
+    pub fn hint(&self) -> String {
+        format!("{} {}", self.key_label(), self.label)
     }
 }
 
-pub(crate) fn binding_for_key<T>(
+pub(crate) fn binding_in_state<T>(
     bindings: &[KeyBinding<T>],
     key: KeyEvent,
-    document: bool,
-    split: bool,
+    state: KeyState,
 ) -> Option<&KeyBinding<T>> {
-    bindings.iter().rev().find(|binding| binding.matches(key, document, split))
+    let candidates = bindings.iter().filter(|binding| normalize_key(binding.key) == normalize_key(key));
+    BindingScope::resolve(state, candidates.map(|binding| (binding.scope, binding)))
 }
 
 pub(crate) fn help_bindings<T>(
@@ -94,7 +89,7 @@ pub(crate) fn help_bindings<T>(
                 .into_iter()
                 .filter(|(document, _)| *document || navigation_available)
                 .any(|(document, split)| {
-                    binding_for_key(bindings, binding.key, document, split)
+                    binding_in_state(bindings, binding.key, KeyState { document, split, ..KeyState::default() })
                         .is_some_and(|resolved| ptr::eq(resolved, *binding))
                 })
     })
@@ -112,7 +107,7 @@ pub(crate) fn footer_hint<T: PartialEq>(
         .iter()
         .filter(|binding| {
             enabled(&binding.command)
-                && binding_for_key(bindings, binding.key, document, split)
+                && binding_in_state(bindings, binding.key, KeyState { document, split, ..KeyState::default() })
                     .is_some_and(|resolved| ptr::eq(resolved, *binding))
         })
         .collect();
@@ -149,71 +144,27 @@ fn normalize_key(mut key: KeyEvent) -> KeyEvent {
 
 #[must_use]
 pub fn default_diff_keybindings() -> Vec<KeyBinding<DiffReviewCommand>> {
-    use BindingScope::{Any, Document, Navigation, SplitDocument};
-    use DiffReviewCommand as C;
-    use KeyCode as K;
-    let entries = [
-        (K::Esc, ReviewCommand::Cancel.into(), "cancel", Any),
-        (K::Tab, C::ToggleFocus, "switch pane", Any),
-        (K::Left, C::Focus(FocusPane::Files), "files", Document),
-        (K::Char('h'), C::Focus(FocusPane::Files), "files", Document),
-        (K::Left, C::CollapseSelected, "collapse", Navigation),
-        (K::Char('h'), C::CollapseSelected, "collapse", Navigation),
-        (K::Right, C::OpenSelected, "open", Navigation),
-        (K::Char('l'), C::OpenSelected, "open", Navigation),
-        (K::Enter, C::OpenSelected, "open", Navigation),
-        (K::Up, C::MoveSelection(-1), "previous", Any),
-        (K::Char('k'), C::MoveSelection(-1), "previous", Any),
-        (K::Down, C::MoveSelection(1), "next", Any),
-        (K::Char('j'), C::MoveSelection(1), "next", Any),
-        (K::PageUp, C::Page(-1), "page up", Any),
-        (K::PageDown, C::Page(1), "page down", Any),
-        (K::Home, C::First, "first", Any),
-        (K::End, C::Last, "last", Any),
-        (K::Char('c'), ReviewCommand::BeginComment.into(), "comment", Document),
-        (K::Char('e'), ReviewCommand::EditComment.into(), "edit comment", Document),
-        (K::Char('x'), ReviewCommand::DeleteComment.into(), "delete comment", Document),
-        (K::Char('u'), ReviewCommand::UndoComment.into(), "undo comment", Document),
-        (K::Char('s'), C::SubmitReview, "submit", Document),
-        (K::Char('y'), C::CopyReview, "copy", Document),
-        (K::Char(' '), C::ToggleStage, "stage/unstage", Navigation),
-        (K::Char('a'), C::StageAll, "stage all", Navigation),
-        (K::Char('A'), C::UnstageAll, "unstage all", Navigation),
-        (K::Char('C'), C::BeginCommit, "commit", Any),
-        (K::Char('d'), C::BeginDiscard, "discard", Any),
-        (K::Char('t'), ReviewCommand::OpenThemePicker.into(), "theme", Any),
-        (K::Enter, C::RevealGap(RevealAmount::Step), "reveal gap", Document),
-        (K::Char('o'), C::ToggleSourceView, "source / diff", Any),
-        (K::Char('O'), C::RevealGap(RevealAmount::All), "reveal all", Document),
-        (K::Char('f'), C::ToggleFullFile, "all diff context", Document),
-        (K::Char('z'), C::ToggleFileCollapsed(None), "collapse file", Document),
-        (K::Char('Z'), C::ToggleAllFilesCollapsed, "collapse all", Any),
-        (K::Char('v'), C::ToggleLayout, "split / unified", Any),
-        (K::Char('V'), C::SetViewMode(ViewMode::Auto), "auto layout", Any),
-        (K::Char('S'), C::CycleScope, "scope", Any),
-        (K::Char(']'), C::StepTarget(1), "next commit", Any),
-        (K::Char('['), C::StepTarget(-1), "previous commit", Any),
-        (K::Char('{'), C::GoToPage(0), "first commit", Any),
-        (K::Char('}'), C::GoToPage(usize::MAX), "uncommitted changes", Any),
-        (K::Char('p'), C::OpenCommitPicker, "pick commit", Any),
-        (K::Char('r'), C::Refresh, "refresh", Any),
-        (K::Char('D'), C::ShowDefinition, "show definition", Document),
-        (K::Char('?'), ReviewCommand::ShowHelp.into(), "help", Any),
-        (K::Left, C::SelectSide(DiffSide::Old), "old side", SplitDocument),
-        (K::Right, C::SelectSide(DiffSide::New), "new side", SplitDocument),
-    ];
-    let mut bindings: Vec<_> = entries
+    diff_shortcuts()
         .into_iter()
-        .map(|(key, command, label, scope)| {
-            KeyBinding::new(KeyEvent::new(key, KeyModifiers::NONE), command, label).with_scope(scope)
+        .map(|(chord, scope, entry)| {
+            KeyBinding::new(key_event(chord), entry.command.clone(), entry.title).with_scope(scope)
         })
-        .collect();
-    bindings.extend([
-        KeyBinding::new(K::ctrl('g'), ReviewCommand::Cancel.into(), "cancel"),
-        KeyBinding::new(K::ctrl('o'), C::NavigateBack, "back"),
-        KeyBinding::new(K::ctrl('p'), C::NavigateForward, "forward"),
-    ]);
-    bindings
+        .collect()
+}
+
+fn key_event(chord: Chord) -> KeyEvent {
+    let code = match chord.key {
+        Key::Char(character) => KeyCode::Char(character),
+        key => NAMED_KEYS.iter().find(|(named, _)| *named == key).map_or(KeyCode::Null, |(_, code)| *code),
+    };
+    KeyEvent::new(code, if chord.ctrl { KeyModifiers::CONTROL } else { KeyModifiers::NONE })
+}
+
+fn core_key(code: KeyCode) -> Option<Key> {
+    match code {
+        KeyCode::Char(character) => Some(Key::Char(character)),
+        code => NAMED_KEYS.iter().find(|(_, named)| *named == code).map(|(key, _)| *key),
+    }
 }
 
 pub(crate) fn markdown_command_label(command: MarkdownReviewCommand) -> &'static str {

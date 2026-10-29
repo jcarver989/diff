@@ -7,7 +7,7 @@ mod spans;
 mod symbols;
 
 pub use clankerdiff_fingerprint::Fingerprint;
-pub use clankerdiff_theme::{FontStyle, HighlightSpan, Rgba, SyntaxStyle, SyntaxTheme};
+pub use clankerdiff_ui_core::{FontStyle, HighlightSpan, Rgba, SyntaxStyle, SyntaxTheme};
 pub use error::SyntaxError;
 pub use highlight::{
     CacheConfig, CacheKey, CacheUsage, DocumentHighlights, HighlightStats, SyntaxHighlighter, SyntaxStream,

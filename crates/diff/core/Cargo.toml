@@ -15,7 +15,7 @@ workspace = true
 
 [dependencies]
 clankerdiff-fingerprint.workspace = true
-clankerdiff-theme.workspace = true
+clankerdiff-ui-core.workspace = true
 diffy.workspace = true
 serde.workspace = true
 similar.workspace = true

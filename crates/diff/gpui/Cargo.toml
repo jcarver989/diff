@@ -21,7 +21,7 @@ clankerdiff-gpui-ui.workspace = true
 clankerdiff-markdown = { workspace = true, features = ["review"] }
 clankerdiff-symbols.workspace = true
 clankerdiff-syntax.workspace = true
-clankerdiff-theme.workspace = true
+clankerdiff-ui-core.workspace = true
 gpui.workspace = true
 gpui-base.workspace = true
 web-time.workspace = true

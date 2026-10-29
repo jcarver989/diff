@@ -41,6 +41,13 @@ impl PatchRowGeometry {
         };
         Self { split, left: pane(left_width), right: pane(right_width) }
     }
+
+    pub(crate) const fn pane(self, side: DiffSide) -> PatchPaneGeometry {
+        match side {
+            DiffSide::Old => self.left,
+            DiffSide::New => self.right,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -56,7 +63,8 @@ pub(crate) struct PatchContentLayout {
     rows: Vec<PatchContentRow>,
     source_range: Range<usize>,
     len: usize,
-    geometry: PatchRowGeometry,
+    unified: PatchRowGeometry,
+    split: PatchRowGeometry,
 }
 
 impl PatchContentLayout {
@@ -68,12 +76,17 @@ impl PatchContentLayout {
             .filter_map(PresentedCell::line_number)
             .max()
             .map_or(1, |number| number.to_string().len());
-        let geometry = PatchRowGeometry::new(width, presentation.layout(), number_digits);
-        let mut rows = Vec::with_capacity(range.len());
-        let mut offset: usize = 0;
+        let mut layout = Self {
+            rows: Vec::with_capacity(range.len()),
+            source_range: range.clone(),
+            len: 0,
+            unified: PatchRowGeometry::new(width, Layout::Unified, number_digits),
+            split: PatchRowGeometry::new(width, Layout::Split, number_digits),
+        };
         for (index, row) in presentation.rows(range.clone()).iter().enumerate() {
             let source = range.start + index;
             let wrapping = matches!(row.kind, RowKind::Code | RowKind::ExpandedContext);
+            let geometry = layout.geometry(presentation.file_layout(row.file_index));
             let (left, right) = if wrapping && geometry.split {
                 (
                     measure_cell(row.left.as_ref(), geometry.left.content_width, tab_width),
@@ -85,19 +98,22 @@ impl PatchContentLayout {
                 (Vec::new(), Vec::new())
             };
             let height = left.len().max(right.len()).max(1);
-            let visual_range = offset..offset.saturating_add(height);
-            offset = visual_range.end;
-            rows.push(PatchContentRow { source, range: visual_range, left, right });
+            let visual_range = layout.len..layout.len.saturating_add(height);
+            layout.len = visual_range.end;
+            layout.rows.push(PatchContentRow { source, range: visual_range, left, right });
         }
-        Self { rows, source_range: range, len: offset, geometry }
+        layout
     }
 
     pub(crate) const fn len(&self) -> usize {
         self.len
     }
 
-    pub(crate) const fn geometry(&self) -> PatchRowGeometry {
-        self.geometry
+    pub(crate) const fn geometry(&self, layout: Layout) -> PatchRowGeometry {
+        match layout {
+            Layout::Unified => self.unified,
+            Layout::Split => self.split,
+        }
     }
 
     pub(crate) fn content_range_for_source(&self, source: usize) -> Option<Range<usize>> {

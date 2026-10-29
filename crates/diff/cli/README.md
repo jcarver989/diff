@@ -87,23 +87,27 @@ If your harness _doesn't_ support this, you might feel like a sad panda. If you 
 
 ### Keyboard shortcuts
 
-Select a file, move to a line, and press `c` to add a comment.
-When you’re done, press `s` in the diff pane to submit. The agent receives your
-comments and addresses them. Press `y` to copy the feedback instead.
+Select a file, move to a line, and press `c` (or click the `+` in the line's gutter) to add a comment.
+When you’re done, press `s` in the diff pane or click Submit to send it. The agent receives your
+comments and addresses them. Press `y` or click Copy to copy the feedback instead.
+
+The terminal and desktop apps share one set of shortcuts. Everything else lives in the toolbar and in
+the command list, which `?` opens and you can search by typing.
 
 | Key | Action |
 | --- | --- |
 | `↑` / `↓` or `j` / `k` | Navigate |
 | `Tab` | Switch between files and diff |
 | `]` / `[` | Next / previous commit |
-| `{` / `}` | First commit / uncommitted changes |
 | `p` | Pick a commit from a list |
+| `o` / `f` | Toggle the source view / all diff context |
+| `v` | Toggle split / unified |
 | `c` | Comment on the selected line |
 | `e` / `x` | Edit / delete a comment |
-| `D` | Show the definition of a name on the selected line (`Enter` jumps to it) |
-| `Ctrl-O` / `Ctrl-P` | Back / forward after a jump (`Ctrl-I` forward in the desktop app) |
+| `D` | Show the definition of a name on the selected line; press again for the next name (`Enter` jumps to it) |
+| Ctrl-hover / Ctrl-click | Show / go to the definition of a name |
+| `Ctrl-O` | Back after a jump (the toolbar's arrows go back and forward) |
 | `s` / `y` | Submit / copy feedback (in the diff pane) |
-| `t` | Change theme |
-| `?` | Show all shortcuts |
+| `?` | Search all commands |
 
 Point your clanker at `clankerdiff --help` for additional information.

@@ -1,4 +1,4 @@
-use clankerdiff_theme::{ReviewTheme, Rgba};
+use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use ratatui::style::{Color, Style};
 
 #[must_use]
