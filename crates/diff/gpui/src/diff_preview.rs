@@ -1,5 +1,6 @@
 use crate::style::{color, highlight_style};
 use crate::ui::icon::{Icon, IconName};
+use crate::ui::prelude::{Button, ControlSize, UiTheme};
 use crate::ui::tokens::{ICON_SIZE_SMALL, RADIUS_CONTROL, rem};
 use clankerdiff_core::{
     DiffDocument, DiffError, DiffPresentation, DiffTone, Fingerprint, PresentationOptions, RowKind, ViewMode,
@@ -7,10 +8,11 @@ use clankerdiff_core::{
 };
 use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
 use clankerdiff_ui_core::ReviewTheme;
-use gpui::{AnyElement, Div, FontWeight, StyledText, div, prelude::*, px};
+use gpui::{AnyElement, App, Div, ElementId, FontWeight, Stateful, StyledText, Window, div, prelude::*, px};
 use std::{collections::VecDeque, sync::Arc};
 
 const MAX_CACHED_PATCHES: usize = 32;
+const MAX_PREVIEW_ROWS: usize = 120;
 
 #[derive(Default)]
 pub struct DiffPreviewCache {
@@ -22,15 +24,24 @@ impl DiffPreviewCache {
         self.entries.clear();
     }
 
-    pub fn render(&mut self, patch: &str, theme: &ReviewTheme, highlighter: &mut SyntaxHighlighter) -> AnyElement {
+    pub fn render(
+        &mut self,
+        id: impl Into<ElementId>,
+        patch: &str,
+        theme: &ReviewTheme,
+        highlighter: &mut SyntaxHighlighter,
+        on_open: impl Fn(&Arc<DiffDocument>, &mut Window, &mut App) + 'static,
+    ) -> AnyElement {
+        let id = id.into();
+        let more = ElementId::NamedChild(Arc::new(id.clone()), "more".into());
+        let selector = id.to_string();
+        let view = div().id(id).debug_selector(move || selector).flex().flex_col().min_w_0();
         match self.entry(patch) {
-            Ok(presentation) => render_preview(presentation, theme, highlighter),
-            Err(error) => div()
-                .flex()
-                .flex_col()
+            Ok(presentation) => render_preview(view, more, presentation, theme, highlighter, on_open),
+            Err(error) => view
                 .text_color(color(theme.diff.foreground))
                 .child(div().text_color(color(theme.diff.muted)).child(format!("Could not display patch: {error}")))
-                .child(patch.to_owned())
+                .child(patch.split_inclusive('\n').take(MAX_PREVIEW_ROWS).collect::<String>())
                 .into_any_element(),
         }
     }
@@ -63,28 +74,30 @@ fn parse_patch(patch: &str) -> Result<DiffPresentation, DiffError> {
 }
 
 fn render_preview(
+    view: Stateful<Div>,
+    more: ElementId,
     presentation: &DiffPresentation,
     theme: &ReviewTheme,
     highlighter: &mut SyntaxHighlighter,
+    on_open: impl Fn(&Arc<DiffDocument>, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let palette = &theme.diff;
-    let mut view = div().flex().flex_col().gap_2().min_w_0();
+    let mut rows = presentation
+        .rows(0..presentation.row_count())
+        .iter()
+        .filter(|row| row.kind != RowKind::ExpandGap)
+        .filter_map(|row| Some((row, row.primary_cell()?)));
+    let mut view = view.gap_2();
     let mut card: Option<Div> = None;
-    for row in presentation.rows(0..presentation.row_count()) {
-        if row.kind == RowKind::ExpandGap {
-            continue;
-        }
-        let Some(cell) = row.primary_cell() else {
-            continue;
-        };
+    for (row, cell) in rows.by_ref().take(MAX_PREVIEW_ROWS) {
         if row.kind == RowKind::FileHeader {
             view = view.children(card.take());
             card = Some(file_card(theme).child(file_header(&cell.text, theme)));
             continue;
         }
-        let rows = card.take().unwrap_or_else(|| file_card(theme));
+        let body = card.take().unwrap_or_else(|| file_card(theme));
         if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
-            card = Some(rows.child(div().px_2().text_color(color(palette.muted)).child(cell.text.to_string())));
+            card = Some(body.child(div().px_2().text_color(color(palette.muted)).child(cell.text.to_string())));
             continue;
         }
         let source = presentation.cell_context(row, cell);
@@ -110,7 +123,7 @@ fn render_preview(
         let changed = matches!(cell.tone, DiffTone::Added | DiffTone::Removed);
         let text = if cell.text.is_empty() { " ".to_owned() } else { cell.text.to_string() };
         card = Some(
-            rows.child(
+            body.child(
                 div()
                     .flex()
                     .items_start()
@@ -131,7 +144,19 @@ fn render_preview(
             ),
         );
     }
-    view.children(card).into_any_element()
+    let hidden = rows.count();
+    view.children(card)
+        .when(hidden > 0, |view| {
+            let document = presentation.document().clone();
+            view.child(
+                Button::new(more, format!("… {hidden} more rows · Open full diff"), UiTheme::new(theme))
+                    .size(ControlSize::Small)
+                    .full_width()
+                    .aria_label("Open full diff")
+                    .on_click(move |_, window, cx| on_open(&document, window, cx)),
+            )
+        })
+        .into_any_element()
 }
 
 const CHANGE_BAR_WIDTH: f32 = 2.0;

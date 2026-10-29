@@ -42,6 +42,10 @@ name = "rendered"
 required-features = ["test-support"]
 
 [[test]]
+name = "diff_preview_test"
+required-features = ["test-support"]
+
+[[test]]
 name = "comment_editor_test"
 required-features = ["test-support"]
 
