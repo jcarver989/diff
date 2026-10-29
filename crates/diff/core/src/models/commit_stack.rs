@@ -1,5 +1,6 @@
 use super::{CommitId, DiffScope, ReviewTarget};
 use serde::{Deserialize, Serialize};
+use std::{iter::Sum, ops::AddAssign};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineStat {
@@ -7,6 +8,23 @@ pub struct LineStat {
     pub deleted: usize,
     #[serde(default)]
     pub files: usize,
+}
+
+impl AddAssign for LineStat {
+    fn add_assign(&mut self, other: Self) {
+        self.added += other.added;
+        self.deleted += other.deleted;
+        self.files += other.files;
+    }
+}
+
+impl Sum for LineStat {
+    fn sum<T: Iterator<Item = Self>>(stats: T) -> Self {
+        stats.fold(Self::default(), |mut total, stat| {
+            total += stat;
+            total
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

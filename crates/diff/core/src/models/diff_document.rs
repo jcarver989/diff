@@ -45,10 +45,6 @@ impl DiffDocument {
 
     #[must_use]
     pub fn line_stat(&self) -> LineStat {
-        self.files.iter().fold(LineStat::default(), |stat, file| LineStat {
-            added: stat.added + file.additions(),
-            deleted: stat.deleted + file.deletions(),
-            files: stat.files + 1,
-        })
+        self.files.iter().map(FileDiff::line_stat).sum()
     }
 }

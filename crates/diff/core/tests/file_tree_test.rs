@@ -1,7 +1,8 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffDocument, FileTree, RepoPath, RepositoryAction, StageState, testing::DocumentBuilder, tree_order,
+    DiffDocument, FileTree, FileTreeEntry, LineStat, RepoPath, RepositoryAction, StageState, testing::DocumentBuilder,
+    tree_order,
 };
 use std::{error::Error, sync::Arc};
 
@@ -63,19 +64,33 @@ fn revealing_expands_ancestors_but_following_selects_the_nearest_visible_one() {
 }
 
 #[test]
-fn directories_aggregate_the_stage_state_of_their_files() {
+fn a_partially_staged_directory_lists_its_files_and_stages_the_rest() {
     let mut document = (*nested_document()).clone();
     document.files[3].staged = StageState::Staged;
-    assert_eq!(FileTree::stage_state_for(&document, "src"), StageState::PartiallyStaged);
-    assert_eq!(FileTree::stage_state_for(&document, "src/main.rs"), StageState::Staged);
+    let tree = FileTree::new(&document);
     assert_eq!(
         FileTree::paths_for(&document, "src").iter().map(RepoPath::as_str).collect::<Vec<_>>(),
         ["src/main.rs", "src/lib.rs"]
     );
     assert_eq!(
-        FileTree::toggle_stage_action(&document, "src"),
+        tree.toggle_stage_action(&document, "src"),
         Some(RepositoryAction::StagePaths(vec![document.files[4].path.clone()]))
     );
+}
+
+#[test]
+fn entries_carry_the_stage_state_and_line_counts_of_the_files_beneath_them() {
+    let document = DocumentBuilder::new()
+        .changed_staged("src/staged.rs", "a\nb\n", "c\n", StageState::Staged)
+        .changed("src/edit.rs", "old\n", "new\nmore\n")
+        .changed_staged("docs/guide.md", "old\n", "new\n", StageState::Staged)
+        .build();
+    let tree = FileTree::new(&document);
+    let summary = |path: &str| entry(&tree, path).map(|entry| (entry.stage, entry.stat));
+    assert_eq!(summary("src/staged.rs"), Some((StageState::Staged, line_stat(1, 2, 1))));
+    assert_eq!(summary("src/edit.rs"), Some((StageState::Unstaged, line_stat(2, 1, 1))));
+    assert_eq!(summary("src"), Some((StageState::PartiallyStaged, line_stat(3, 3, 2))));
+    assert_eq!(summary("docs"), Some((StageState::Staged, line_stat(1, 1, 1))));
 }
 
 #[test]
@@ -87,10 +102,10 @@ fn staging_a_directory_skips_staged_files_but_includes_partial_changes() -> Resu
         .changed("src-other/unrelated.rs", "old\n", "new\n")
         .build();
     assert_eq!(
-        FileTree::toggle_stage_action(&document, "src"),
+        toggle_stage_action(&document, "src"),
         Some(RepositoryAction::StagePaths(vec![RepoPath::new("src/partial.rs")?, RepoPath::new("src/edit.rs")?,]))
     );
-    assert_eq!(FileTree::toggle_stage_action(&document, "missing"), None);
+    assert_eq!(toggle_stage_action(&document, "missing"), None);
     Ok(())
 }
 
@@ -100,9 +115,9 @@ fn toggling_a_rename_includes_both_paths_outside_the_selected_directory() -> Res
         (*DocumentBuilder::new().renamed("old/source.rs", "new/destination.rs", "content\n", "content\n").build())
             .clone();
     let paths = vec![RepoPath::new("new/destination.rs")?, RepoPath::new("old/source.rs")?];
-    assert_eq!(FileTree::toggle_stage_action(&document, "new"), Some(RepositoryAction::StagePaths(paths.clone())));
+    assert_eq!(toggle_stage_action(&document, "new"), Some(RepositoryAction::StagePaths(paths.clone())));
     document.files[0].staged = StageState::Staged;
-    assert_eq!(FileTree::toggle_stage_action(&document, "new"), Some(RepositoryAction::UnstagePaths(paths)));
+    assert_eq!(toggle_stage_action(&document, "new"), Some(RepositoryAction::UnstagePaths(paths)));
     Ok(())
 }
 
@@ -111,9 +126,9 @@ fn toggling_a_copy_does_not_include_its_source() -> Result<(), Box<dyn Error>> {
     let mut document =
         (*DocumentBuilder::new().copied("old/source.rs", "new/copy.rs", "content\n", "content\n").build()).clone();
     let paths = vec![RepoPath::new("new/copy.rs")?];
-    assert_eq!(FileTree::toggle_stage_action(&document, "new"), Some(RepositoryAction::StagePaths(paths.clone())));
+    assert_eq!(toggle_stage_action(&document, "new"), Some(RepositoryAction::StagePaths(paths.clone())));
     document.files[0].staged = StageState::Staged;
-    assert_eq!(FileTree::toggle_stage_action(&document, "new"), Some(RepositoryAction::UnstagePaths(paths)));
+    assert_eq!(toggle_stage_action(&document, "new"), Some(RepositoryAction::UnstagePaths(paths)));
     Ok(())
 }
 
@@ -135,4 +150,16 @@ fn labels(tree: &FileTree) -> Vec<String> {
             None => format!("{}:{}/{}", entry.depth, entry.path, if entry.expanded { "" } else { "-" }),
         })
         .collect()
+}
+
+fn entry<'a>(tree: &'a FileTree, path: &str) -> Option<&'a FileTreeEntry> {
+    tree.entries().iter().find(|entry| entry.path == path)
+}
+
+const fn line_stat(added: usize, deleted: usize, files: usize) -> LineStat {
+    LineStat { added, deleted, files }
+}
+
+fn toggle_stage_action(document: &DiffDocument, path: &str) -> Option<RepositoryAction> {
+    FileTree::new(document).toggle_stage_action(document, path)
 }
