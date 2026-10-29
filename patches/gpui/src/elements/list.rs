@@ -18,8 +18,6 @@ use refineable::Refineable as _;
 use std::{cell::RefCell, ops::Range, rc::Rc};
 use sum_tree::{Bias, Dimensions, SumTree};
 
-const DEFAULT_WHEEL_LINE_HEIGHT: Pixels = px(20.);
-
 type RenderItemFn = dyn FnMut(usize, &mut Window, &mut App) -> AnyElement + 'static;
 
 /// Construct a new list element
@@ -77,7 +75,6 @@ struct StateInner {
     uniform_item_height: Option<Pixels>,
     pending_scroll: Option<PendingScroll>,
     follow_state: FollowState,
-    wheel_line_height: Pixels,
 }
 
 /// Deferred scroll adjustment applied after the scroll-top item has been remeasured.
@@ -332,7 +329,6 @@ impl ListState {
             uniform_item_height: None,
             pending_scroll: None,
             follow_state: FollowState::default(),
-            wheel_line_height: DEFAULT_WHEEL_LINE_HEIGHT,
         })));
         this.splice(0..0, item_count);
         this
@@ -557,12 +553,6 @@ impl ListState {
                 *item_ix = *item_ix - (old_range.end - old_range.start) + spliced_count;
             }
         }
-    }
-
-    /// Set how far one line of line-based scroll input, such as a mouse wheel notch's
-    /// lines, scrolls the list. Pixel-based input, such as a trackpad, is unaffected.
-    pub fn set_wheel_line_height(&self, height: Pixels) {
-        self.0.borrow_mut().wheel_line_height = height;
     }
 
     /// Set a handler that will be called when the list is scrolled.
@@ -1651,8 +1641,7 @@ impl Element for List {
         window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
             if phase == DispatchPhase::Bubble && hitbox_id.should_handle_scroll(window) {
                 accumulated_scroll_delta = accumulated_scroll_delta.coalesce(event.delta);
-                let line_height = list_state.0.borrow().wheel_line_height;
-                let pixel_delta = accumulated_scroll_delta.pixel_delta(line_height);
+                let pixel_delta = accumulated_scroll_delta.pixel_delta(px(20.));
                 list_state.0.borrow_mut().scroll(
                     &scroll_top,
                     height,
@@ -1874,64 +1863,6 @@ mod test {
         // Scroll position should stay at the top of the list
         assert_eq!(state.logical_scroll_top().item_ix, 0);
         assert_eq!(state.logical_scroll_top().offset_in_item, px(0.));
-    }
-
-    #[gpui::test]
-    fn test_wheel_line_height_scales_line_scrolling_only(cx: &mut TestAppContext) {
-        let cx = cx.add_empty_window();
-        let state = ListState::new(100, crate::ListAlignment::Top, px(0.))
-            .with_uniform_item_height(px(10.));
-
-        struct TestView(ListState);
-        impl Render for TestView {
-            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-                list(self.0.clone(), |_, _, _| {
-                    div().h(px(10.)).w_full().into_any()
-                })
-                .w_full()
-                .h_full()
-            }
-        }
-
-        let view = cx.update(|_, cx| cx.new(|_| TestView(state.clone())));
-        let draw = |cx: &mut gpui::VisualTestContext| {
-            cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
-                view.clone().into_any_element()
-            });
-        };
-
-        draw(cx);
-        cx.simulate_event(ScrollWheelEvent {
-            position: point(px(1.), px(1.)),
-            delta: ScrollDelta::Lines(point(0., -1.)),
-            ..Default::default()
-        });
-        assert_eq!(state.logical_scroll_top().item_ix, 2);
-
-        state.set_wheel_line_height(px(50.));
-        state.scroll_to(gpui::ListOffset {
-            item_ix: 0,
-            offset_in_item: px(0.),
-        });
-        draw(cx);
-        cx.simulate_event(ScrollWheelEvent {
-            position: point(px(1.), px(1.)),
-            delta: ScrollDelta::Lines(point(0., -1.)),
-            ..Default::default()
-        });
-        assert_eq!(state.logical_scroll_top().item_ix, 5);
-
-        state.scroll_to(gpui::ListOffset {
-            item_ix: 0,
-            offset_in_item: px(0.),
-        });
-        draw(cx);
-        cx.simulate_event(ScrollWheelEvent {
-            position: point(px(1.), px(1.)),
-            delta: ScrollDelta::Pixels(point(px(0.), px(-30.))),
-            ..Default::default()
-        });
-        assert_eq!(state.logical_scroll_top().item_ix, 3);
     }
 
     #[gpui::test]

@@ -25,6 +25,23 @@ fn a_wheel_notch_scrolls_six_code_rows_at_any_interface_size(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+fn wheel_notches_past_the_end_do_not_delay_scrolling_back_up(cx: &mut TestAppContext) {
+    let scroll_up_from_bottom = |overscroll: f32, cx: &mut TestAppContext| {
+        let harness = multi_file_builder().build(cx);
+        harness.scroll_to_bottom_of_diff(cx);
+        let bottom = harness.diff_scroll_top(cx);
+        harness.scroll(cx, "diff-pane", ScrollDelta::Lines(point(0.0, -overscroll))).expect("the diff pane is painted");
+        let overscrolled = harness.diff_scroll_top(cx);
+        assert_eq!((overscrolled.item_ix, overscrolled.offset_in_item), (bottom.item_ix, bottom.offset_in_item));
+        harness.scroll(cx, "diff-pane", ScrollDelta::Lines(point(0.0, 3.0))).expect("the diff pane is painted");
+        harness.diff_scroll_top(cx)
+    };
+    let direct = scroll_up_from_bottom(0.0, cx);
+    let after_overscroll = scroll_up_from_bottom(9.0, cx);
+    assert_eq!((after_overscroll.item_ix, after_overscroll.offset_in_item), (direct.item_ix, direct.offset_in_item));
+}
+
+#[gpui::test]
 fn wheel_scrolling_crosses_files_without_changing_selection_or_draft(cx: &mut TestAppContext) {
     multi_file_builder().run(cx, |harness, cx| {
         let selected = harness.selected_row(cx);
