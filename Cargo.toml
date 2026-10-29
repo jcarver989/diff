@@ -24,7 +24,7 @@ lto = "thin"
 clankerdiff-fingerprint = { version = "0.6.0", path = "crates/util/fingerprint" }
 clankerdiff-remote = { path = "crates/util/remote" }
 clankerdiff-lspd = { version = "0.6.0", path = "crates/util/lspd" }
-clankerdiff-theme = { version = "0.6.0", path = "crates/ui/theme" }
+clankerdiff-ui-core = { version = "0.6.0", path = "crates/ui/core" }
 clankerdiff-syntax = { version = "0.6.0", path = "crates/ui/syntax" }
 clankerdiff-gpui-ui = { path = "crates/ui/gpui" }
 clankerdiff-gpui-shell = { path = "crates/ui/gpui-shell" }

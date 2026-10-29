@@ -7,7 +7,7 @@ use crate::{
     spans::{Span, spans_to_flat_tokens},
 };
 use arborium_theme::tag_to_name;
-use clankerdiff_theme::{Fingerprint, HighlightSpan, SyntaxTheme};
+use clankerdiff_ui_core::{Fingerprint, HighlightSpan, SyntaxTheme};
 use imbl::Vector;
 use lru::LruCache;
 use std::{

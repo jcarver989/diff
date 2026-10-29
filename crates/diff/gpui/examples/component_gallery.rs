@@ -1,5 +1,5 @@
 use clankerdiff_gpui::ui::prelude::*;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{App, AppContext, Bounds, Context, Window, WindowBounds, WindowOptions, div, prelude::*, px, size};
 use gpui_platform::application;
 

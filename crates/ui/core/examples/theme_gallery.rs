@@ -1,4 +1,6 @@
-use clankerdiff_theme::{ButtonVariant, ControlState, InteractionState, ReviewTheme, Rgba, SelectionState, ThemeError};
+use clankerdiff_ui_core::{
+    ButtonVariant, ControlState, InteractionState, ReviewTheme, Rgba, SelectionState, ThemeError,
+};
 
 fn main() -> Result<(), ThemeError> {
     println!(

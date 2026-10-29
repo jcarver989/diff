@@ -6,7 +6,7 @@ use ast_grep_core::{
     tree_sitter::{LanguageExt, StrDoc, TSLanguage},
 };
 use clankerdiff_syntax::{CacheUsage, Fingerprint, HighlightStats, LanguageHint, SyntaxError};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use std::{fmt::Write, num::NonZeroU16, sync::Arc};
 use support::{CacheBuilder, TestResult, line};
 

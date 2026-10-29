@@ -5,7 +5,7 @@ use clankerdiff_ratatui::{
     MarkdownCommitError, MarkdownPresentation, MarkdownRow, MarkdownStreamError, StreamingMarkdownPolicy,
     StreamingMarkdownState, testing::MarkdownStreamFixture,
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use std::{error::Error, fmt::Write, sync::Arc};
 
 type TestResult = Result<(), Box<dyn Error>>;

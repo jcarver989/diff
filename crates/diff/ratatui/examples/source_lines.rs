@@ -1,7 +1,7 @@
 use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ratatui::{MarkdownLayoutOptions, MarkdownPresentation, MarkdownRenderer};
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 
 fn main() {
     let document = MarkdownDocument::parse("# Plan\n\n- Preserve source identity\n\n```rust\nlet value = 42;\n```\n");

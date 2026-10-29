@@ -1,4 +1,4 @@
-use clankerdiff_theme::{
+use clankerdiff_ui_core::{
     ButtonVariant, ControlState, DiffPalette, InteractionState, NoticeTone, ReviewTheme, Rgba, SelectionState,
     ThemeError, UiPalette,
 };

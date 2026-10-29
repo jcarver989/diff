@@ -60,7 +60,7 @@ release = true
 publish = true
 
 [[package]]
-name = "clankerdiff-theme"
+name = "clankerdiff-ui-core"
 release = true
 publish = true
 

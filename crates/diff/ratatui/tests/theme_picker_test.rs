@@ -4,7 +4,7 @@ use clankerdiff_ratatui::{
     DiffReviewState, DiffReviewWidget, InputOutcome, InteractionPhase, KeyCode, KeyEvent, KeyModifiers,
     MarkdownReviewState, ReviewCommand, ReviewInput, ThemeChoice,
 };
-use clankerdiff_theme::{ReviewTheme, ThemeId};
+use clankerdiff_ui_core::{ReviewTheme, ThemeId};
 use ratatui::{
     buffer::{Buffer, Cell},
     layout::Rect,

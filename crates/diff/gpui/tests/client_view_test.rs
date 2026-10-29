@@ -4,7 +4,7 @@ use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{ReviewCapabilities, testing::DocumentBuilder};
 use clankerdiff_gpui::ui::testing::ViewHarness;
 use clankerdiff_gpui::{DiffClientEvent, DiffClientView, DiffViewer};
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AppContext, TestAppContext, WindowOptions};
 
 #[gpui::test]

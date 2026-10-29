@@ -4,7 +4,7 @@ use crate::{
 };
 use clankerdiff_markdown::{MarkdownDocument, MarkdownStream};
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use ratatui::text::Line;
 use std::sync::Arc;
 

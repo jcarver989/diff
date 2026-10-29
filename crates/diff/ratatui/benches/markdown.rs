@@ -3,7 +3,7 @@ use clankerdiff_ratatui::{
     MarkdownLayoutOptions, MarkdownPresentation, MarkdownRenderer, testing::MarkdownStreamFixture,
 };
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::{ReviewTheme, Rgba};
+use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 

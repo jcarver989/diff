@@ -5,7 +5,7 @@ use crate::{
         tokens::RADIUS_CONTROL,
     },
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{
     App, Context, Entity, FocusHandle, Focusable, Global, MouseButton, SharedString, Subscription, Window, div,
     prelude::*,

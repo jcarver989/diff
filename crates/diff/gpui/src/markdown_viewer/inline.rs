@@ -1,6 +1,6 @@
 use crate::ui::prelude::{CODE_FONT, UiTheme, color};
 use clankerdiff_markdown::MarkdownInline;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{
     AnyElement, ElementId, FontStyle, FontWeight, HighlightStyle, Hsla, InteractiveText, IntoElement, SharedString,
     StrikethroughStyle, StyledText, UnderlineStyle, px,

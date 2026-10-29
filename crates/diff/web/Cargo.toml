@@ -17,7 +17,7 @@ workspace = true
 [dependencies]
 clankerdiff-core.workspace = true
 clankerdiff-markdown = { workspace = true, features = ["review"] }
-clankerdiff-theme.workspace = true
+clankerdiff-ui-core.workspace = true
 clankerdiff-gpui.workspace = true
 serde.workspace = true
 serde_json.workspace = true

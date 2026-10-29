@@ -3,7 +3,7 @@ use clankerdiff_gpui_ui::{
     testing::ComponentHarnessBuilder,
     tokens::rem,
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{IntoElement, ParentElement, Rems, TestAppContext, div, point, prelude::*, px, rems};
 use std::{cell::Cell, rc::Rc};
 

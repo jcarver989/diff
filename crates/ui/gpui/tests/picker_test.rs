@@ -1,6 +1,5 @@
 use clankerdiff_gpui_ui::{
     InterfaceSize,
-    picker::fuzzy_filter,
     prelude::{
         IconName, PickerDetail, PickerItem, PickerMarker, SearchPicker, SearchPickerEvent, ThemePicker,
         ThemePickerEvent, Typography, UiTheme,
@@ -11,19 +10,11 @@ use clankerdiff_gpui_ui::{
         ROW_HEIGHT, rem,
     },
 };
-use clankerdiff_theme::{Appearance, ReviewTheme, ThemeChoice, ThemeId};
+use clankerdiff_ui_core::{Appearance, ReviewTheme, ThemeChoice, ThemeId};
 use gpui::{
     AppContext, Context, InteractiveElement, IntoElement, ParentElement, TestAppContext, Window, WindowOptions, div, px,
 };
 use std::sync::Arc;
-
-#[test]
-fn fuzzy_filter_ranks_matches_and_keeps_order_for_a_blank_query() {
-    let keys = ["readme", "src/main.rs", "src/lib.rs"];
-    assert_eq!(fuzzy_filter("", keys), vec![0, 1, 2]);
-    assert_eq!(fuzzy_filter("lib", keys), vec![2]);
-    assert_eq!(fuzzy_filter("zzz", keys), Vec::<usize>::new());
-}
 
 #[gpui::test]
 fn search_picker_skips_disabled_items_and_filters_as_the_user_types(cx: &mut TestAppContext) {

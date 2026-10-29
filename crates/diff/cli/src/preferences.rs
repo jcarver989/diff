@@ -1,5 +1,5 @@
 use clankerdiff_core::ViewMode;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use std::{env, fs, io, path::PathBuf};
 
 const THEME_FILE: &str = "theme";

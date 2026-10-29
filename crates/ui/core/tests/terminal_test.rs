@@ -1,4 +1,4 @@
-use clankerdiff_theme::{ReviewTheme, Rgba, TerminalPalette};
+use clankerdiff_ui_core::{ReviewTheme, Rgba, TerminalPalette};
 use std::error::Error;
 
 #[test]

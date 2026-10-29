@@ -1,7 +1,7 @@
 use clankerdiff_markdown::{MarkdownDocument, MarkdownStream};
 use clankerdiff_ratatui::{MarkdownLayoutOptions, MarkdownRenderer, StreamingMarkdownState};
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let renderer = MarkdownRenderer::new();

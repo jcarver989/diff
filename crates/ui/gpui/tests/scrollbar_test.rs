@@ -2,7 +2,7 @@ use clankerdiff_gpui_ui::{
     prelude::{ListScrollbar, UiTheme},
     testing::ComponentHarnessBuilder,
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, ListAlignment, ListState, TestAppContext, div, list, point, prelude::*, px};
 
 #[gpui::test]

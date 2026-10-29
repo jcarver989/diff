@@ -2,7 +2,7 @@ use clankerdiff_gpui_ui::{
     prelude::{ButtonVariant, ConfirmDialog, ConfirmDialogEvent, UiTheme},
     testing::ViewHarness,
 };
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AppContext as _, TestAppContext, WindowOptions};
 
 #[gpui::test]

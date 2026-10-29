@@ -1,4 +1,4 @@
-use clankerdiff_theme::{
+use clankerdiff_ui_core::{
     ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, SCRIM_ALPHA, SelectionState,
 };
 

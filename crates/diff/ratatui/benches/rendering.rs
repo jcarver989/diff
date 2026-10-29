@@ -6,7 +6,7 @@ use clankerdiff_core::{
 use clankerdiff_ratatui::KeyCode;
 use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, DiffReviewState, render_diff_preview};
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::{hint::black_box, sync::Arc};
 
@@ -35,7 +35,7 @@ const FILE_SWITCHES: u64 = 50;
 fn presentation_creation(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("presentation_creation");
     group.sample_size(20);
-    let theme = clankerdiff_theme::ReviewTheme::default();
+    let theme = clankerdiff_ui_core::ReviewTheme::default();
     for rows in [1_000, 10_000, 100_000] {
         let document = large_document(rows);
         group.bench_with_input(BenchmarkId::from_parameter(rows), &rows, |bencher, _| {

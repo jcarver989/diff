@@ -7,7 +7,7 @@ use super::{
     tree::indent,
     typography::{Typography, TypographyExt},
 };
-pub use clankerdiff_theme::{
+pub use clankerdiff_ui_core::{
     ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone, SelectionState,
 };
 use gpui::{

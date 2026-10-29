@@ -1,6 +1,6 @@
 use clankerdiff_core::ViewMode;
 use clankerdiff_gpui_desktop::preferences::{ThemeStore, ViewModeStore};
-use clankerdiff_theme::{Appearance, ThemeId, ThemePair};
+use clankerdiff_ui_core::{Appearance, ThemeId, ThemePair};
 use std::{error::Error, fs};
 
 #[test]
@@ -30,7 +30,7 @@ fn an_unknown_theme_id_resolves_to_the_default_theme() -> Result<(), Box<dyn Err
     let dir = tempfile::tempdir()?;
     let store = ThemeStore::new(Some(dir.path().join("theme.json")));
     store.remember(Appearance::Light, "no-such-theme")?;
-    assert_eq!(store.theme(Appearance::Light).id(), clankerdiff_theme::ReviewTheme::default().id());
+    assert_eq!(store.theme(Appearance::Light).id(), clankerdiff_ui_core::ReviewTheme::default().id());
     Ok(())
 }
 

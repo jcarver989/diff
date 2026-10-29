@@ -32,7 +32,7 @@ clankerdiff-core.workspace = true
 clankerdiff-git.workspace = true
 clankerdiff-lspd = { workspace = true, features = ["daemon"] }
 clankerdiff-markdown = { workspace = true, features = ["review"] }
-clankerdiff-theme.workspace = true
+clankerdiff-ui-core.workspace = true
 clankerdiff-gpui-desktop = { workspace = true, optional = true }
 clankerdiff-ratatui = { workspace = true, features = ["crossterm-backend"] }
 ratatui = { workspace = true, features = ["crossterm"] }

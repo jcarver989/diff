@@ -5,7 +5,7 @@ use crate::{
 };
 use clankerdiff_markdown::{MarkdownReviewSession, MarkdownTargetId};
 use clankerdiff_syntax::SyntaxHighlighter;
-use clankerdiff_theme::ReviewTheme;
+use clankerdiff_ui_core::ReviewTheme;
 use std::{
     collections::{BTreeMap, HashMap},
     ops::Range,
