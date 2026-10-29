@@ -120,13 +120,12 @@ impl SymbolIndex {
                 }
                 Some(_) => SymbolChange::Unchanged,
             };
-            self.push(file, DiffSide::New, identity.2, definition, change, true);
+            self.push(file, DiffSide::New, identity.2, definition, change);
         }
         for definition in &symbols.old.definitions {
             let identity = key(&symbols.old, definition);
-            let removed = !matched.contains(&identity);
-            let change = if removed { SymbolChange::Removed } else { SymbolChange::Unchanged };
-            self.push(file, DiffSide::Old, identity.2, definition, change, removed);
+            let change = if matched.contains(&identity) { SymbolChange::Unchanged } else { SymbolChange::Removed };
+            self.push(file, DiffSide::Old, identity.2, definition, change);
         }
     }
 
@@ -137,9 +136,8 @@ impl SymbolIndex {
         container: Option<String>,
         definition: &SymbolDefinition,
         change: SymbolChange,
-        searchable: bool,
     ) {
-        if searchable && definition.kind != SymbolKind::Implementation {
+        if definition.kind != SymbolKind::Implementation {
             self.by_name.entry(definition.name.clone()).or_default().push(self.definitions.len());
         }
         self.definitions.push(Definition {
@@ -156,8 +154,19 @@ impl SymbolIndex {
 
     #[must_use]
     pub fn definitions(&self, name: &str, origin: Option<&SourceLocation>) -> Vec<&Definition> {
-        let mut found: Vec<&Definition> =
-            self.by_name.get(name).into_iter().flatten().map(|&index| &self.definitions[index]).collect();
+        let side = origin.map_or(DiffSide::New, |origin| origin.side);
+        let only_other_side = match side {
+            DiffSide::New => SymbolChange::Removed,
+            DiffSide::Old => SymbolChange::Added,
+        };
+        let mut found: Vec<&Definition> = self
+            .by_name
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|&index| &self.definitions[index])
+            .filter(|definition| definition.location.side == side || definition.change == only_other_side)
+            .collect();
         if let Some(origin) = origin {
             found.sort_by_key(|definition| Reverse(proximity(&origin.path, &definition.location.path)));
         }

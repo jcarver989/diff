@@ -51,6 +51,26 @@ fn definitions_nearest_the_origin_rank_first_and_carry_signatures_and_docs() -> 
 }
 
 #[test]
+fn definitions_seen_from_the_old_side_come_from_the_old_revision() -> Result<(), Box<dyn Error>> {
+    let index = index();
+    let old = location("src/lib.rs", DiffSide::Old, 7)?;
+    let sides = |name: &str, origin: &SourceLocation| {
+        index
+            .definitions(name, Some(origin))
+            .into_iter()
+            .map(|definition| (definition.location.side, definition.location.line_number))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(sides("build", &old), [(DiffSide::Old, 6)]);
+    assert_eq!(sides("stale", &old), [(DiffSide::Old, 10)]);
+    assert_eq!(sides("fresh", &old), [(DiffSide::New, 12)]);
+    let new = location("src/lib.rs", DiffSide::New, 7)?;
+    assert_eq!(sides("build", &new), [(DiffSide::New, 6)]);
+    assert_eq!(sides("stale", &new), [(DiffSide::Old, 10)]);
+    Ok(())
+}
+
+#[test]
 fn path_names_list_enclosing_definitions_outermost_first() -> Result<(), Box<dyn Error>> {
     let index = index();
     assert_eq!(index.path_names(&location("src/lib.rs", DiffSide::New, 8)?), ["Cache", "build"]);
