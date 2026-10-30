@@ -17,7 +17,7 @@ const MIN_STEPPER_WIDTH: f32 = 160.0;
 
 impl DiffViewer {
     pub(crate) fn toolbar(&self) -> Toolbar {
-        Toolbar::new(self.session(), Some(self.sidebar_collapsed()), default_key_label)
+        Toolbar::new(self.session(), Some(self.sidebar_collapsed()), false, default_key_label)
     }
 
     pub(crate) fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> Div {

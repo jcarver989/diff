@@ -136,6 +136,7 @@ impl DiffViewer {
                 self.pane = ViewerPane::Diff;
                 return true;
             }
+            C::SetFilesMode(_) => return false,
             C::ToggleFullFile => {
                 self.change_layout(ReviewSession::toggle_full_file);
             }

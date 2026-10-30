@@ -1,6 +1,6 @@
 use crate::{
-    CommandEntry, DiffReviewCommand, DiffScope, LineStat, PageLabel, ReviewSession, TargetLocation, ViewMode,
-    command_entry,
+    CommandEntry, DiffReviewCommand, DiffScope, FilesMode, LineStat, PageLabel, ReviewSession, TargetLocation,
+    ViewMode, command_entry,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +40,7 @@ impl Toolbar {
     pub fn new(
         session: &ReviewSession,
         sidebar_hidden: Option<bool>,
+        browsable: bool,
         key_label: impl Fn(&DiffReviewCommand) -> Option<String>,
     ) -> Self {
         let control = |kind, command: DiffReviewCommand, text: &str, selected| {
@@ -49,14 +50,16 @@ impl Toolbar {
         let document = session.presentation().document();
         let has_files = !document.files.is_empty();
         let diff_view = has_files && session.source_view().is_none();
+        let browsing = session.files_mode() == FilesMode::Browse;
         let mut toolbar = Self::default();
-        if has_files {
+        if has_files || browsable {
             if let Some(hidden) = sidebar_hidden {
-                let text = if hidden { "Show changed files" } else { "Hide changed files" };
+                let verb = if hidden { "Show" } else { "Hide" };
+                let text = format!("{verb} {}", if browsing { "files" } else { "changed files" });
                 toolbar.files.push(control(
                     ControlKind::Sidebar { hidden },
                     DiffReviewCommand::ToggleSidebar,
-                    text,
+                    &text,
                     false,
                 ));
             }
@@ -72,7 +75,7 @@ impl Toolbar {
                 control(ControlKind::Back, DiffReviewCommand::NavigateBack, &back, false),
                 control(ControlKind::Forward, DiffReviewCommand::NavigateForward, &forward, false),
             ];
-            toolbar.stat = Some(document.line_stat());
+            toolbar.stat = has_files.then(|| document.line_stat());
         }
         toolbar.page = session.page_label().filter(PageLabel::is_paged);
         if toolbar.page.is_some() {

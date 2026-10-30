@@ -1,7 +1,7 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffReviewCommand, DiffSide, RepoPath, ReviewSession, ReviewTarget, SourceLocation, TargetLocation,
+    DiffReviewCommand, DiffSide, FilesMode, RepoPath, ReviewSession, ReviewTarget, SourceLocation, TargetLocation,
     testing::{DocumentBuilder, commit_id, external, location, repo, source},
 };
 use std::{error::Error, fmt::Write};
@@ -178,6 +178,70 @@ fn a_reference_survives_snapshots_stays_open_once_its_file_joins_the_diff_and_cl
     );
     assert!(session.reference().is_none());
     assert!(session.back_location().is_none());
+    Ok(())
+}
+
+#[test]
+fn browsing_shows_the_selected_change_as_it_is_now_and_the_diff_comes_back_where_it_was() -> Result<(), Box<dyn Error>>
+{
+    let mut session = session();
+    let diffed = location("src/main.rs", 2)?;
+    assert!(session.jump_to(diffed.clone()));
+
+    assert!(session.set_files_mode(FilesMode::Browse));
+    assert_eq!(session.source_view().map(RepoPath::as_str), Some("src/main.rs"));
+    assert_eq!(session.source_view_label(), Some("Changed · o shows the diff"));
+
+    assert!(session.set_files_mode(FilesMode::Diff));
+    assert!(session.source_view().is_none());
+    assert_eq!(session.selected_source_line(), Some(diffed));
+    Ok(())
+}
+
+#[test]
+fn jumping_while_browsing_opens_a_changed_file_as_it_is_now() -> Result<(), Box<dyn Error>> {
+    let mut session = session();
+    assert!(session.set_files_mode(FilesMode::Browse));
+
+    let target = location("src/lib.rs", 3)?;
+    assert!(session.jump_to(target.clone()));
+
+    assert_eq!(session.source_view().map(RepoPath::as_str), Some("src/lib.rs"));
+    assert_eq!(session.selected_source_line(), Some(target));
+    assert!(session.selected_anchor().is_none(), "browsing is read-only");
+    Ok(())
+}
+
+#[test]
+fn back_returns_to_the_mode_the_jump_left() -> Result<(), Box<dyn Error>> {
+    let mut session = session();
+    let diffed = location("src/main.rs", 2)?;
+    assert!(session.jump_to(diffed.clone()));
+    assert!(session.jump_to(location("src/util.rs", 2)?));
+    assert!(session.set_files_mode(FilesMode::Browse));
+    assert!(session.open_reference(&repo("src/util.rs")?, source(UTIL)));
+
+    assert!(session.navigate_back());
+
+    assert_eq!(session.files_mode(), FilesMode::Diff);
+    assert!(session.source_view().is_none());
+    assert_eq!(session.selected_source_line(), Some(diffed));
+    assert!(session.navigate_forward());
+    assert_eq!(session.files_mode(), FilesMode::Browse);
+    Ok(())
+}
+
+#[test]
+fn a_browsed_file_that_stops_changing_reopens_as_it_is_now() -> Result<(), Box<dyn Error>> {
+    let mut session = session();
+    assert!(session.jump_to(location("src/main.rs", 3)?));
+    assert!(session.set_files_mode(FilesMode::Browse));
+
+    session.set_document(DocumentBuilder::new().changed("src/lib.rs", "", LIB).build());
+
+    let reopened = TargetLocation { path: repo("src/main.rs")?, side: DiffSide::New, line_number: 3 };
+    assert_eq!(session.pending_reference(), Some(&reopened));
+    assert_eq!(session.files_mode(), FilesMode::Browse);
     Ok(())
 }
 

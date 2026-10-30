@@ -1,6 +1,6 @@
 use crate::{
-    CommandContext, DiffReviewCommand, DiffScope, DiffSide, FocusPane, RevealAmount, ReviewCommand, ReviewSession,
-    ViewMode,
+    CommandContext, DiffReviewCommand, DiffScope, DiffSide, FilesMode, FocusPane, RevealAmount, ReviewCommand,
+    ReviewSession, ViewMode,
 };
 use CommandSection::{Git, Navigation, Review, Symbols, View};
 use DiffReviewCommand as C;
@@ -281,6 +281,8 @@ static DIFF_COMMANDS: &[CommandEntry] = &[
     entry(C::SetScope(DiffScope::Both), "Show all changes", Navigation, &[]),
     entry(C::ToggleSidebar, "Hide / show changed files", View, &[letter('b', Any)]),
     entry(C::ToggleSourceView, "Toggle source / diff", View, &[letter('o', Any)]),
+    entry(C::SetFilesMode(FilesMode::Browse), "Browse files", View, &[]),
+    entry(C::SetFilesMode(FilesMode::Diff), "Show the diff", View, &[]),
     entry(C::ToggleFullFile, "Toggle all diff context", View, &[letter('f', Document)]),
     entry(C::RevealGap(RevealAmount::All), "Expand all context", View, &[letter('O', Document)]),
     entry(C::ToggleFileCollapsed(None), "Collapse / expand file", View, &[letter('z', Document)]),

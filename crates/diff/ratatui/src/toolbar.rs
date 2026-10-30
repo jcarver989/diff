@@ -134,7 +134,7 @@ impl DiffReviewState {
 
     fn toolbar(&self) -> Toolbar {
         let sidebar = self.command_context().navigation_available.then_some(self.sidebar_hidden);
-        Toolbar::new(&self.session, sidebar, |command| self.key_label(command))
+        Toolbar::new(&self.session, sidebar, false, |command| self.key_label(command))
     }
 }
 

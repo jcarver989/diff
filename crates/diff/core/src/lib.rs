@@ -52,5 +52,5 @@ pub use review::{
     AgentFeedbackOptions, CommentContext, DiffReviewEvent, RepositoryAction, Review, ReviewComment, ReviewSubmission,
     format_review,
 };
-pub use session::{CommentDraft, RevealAmount, ReviewSession};
+pub use session::{CommentDraft, FilesMode, RevealAmount, ReviewSession};
 pub use toolbar::{ControlKind, Toolbar, ToolbarControl, default_key_label, tooltip};
