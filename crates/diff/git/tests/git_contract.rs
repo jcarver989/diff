@@ -115,6 +115,28 @@ async fn check_ignore_reports_nothing_ignored_without_an_error() {
 }
 
 #[tokio::test]
+async fn worktree_files_lists_tracked_and_untracked_files_but_not_ignored_or_deleted_ones() -> Result<(), Box<dyn Error>>
+{
+    let repo = RepoFixtureBuilder::new()
+        .file("src/lib.rs", "fn main() {}\n")
+        .file("src/old.rs", "fn old() {}\n")
+        .file("README.md", "# readme\n")
+        .gitignore(&["target/", "*.log"])
+        .committed()
+        .build();
+    repo.write("src/new.rs", "fn new() {}\n");
+    repo.write("target/debug/build.txt", "artifact\n");
+    repo.write("run.log", "noise\n");
+    repo.remove("src/old.rs");
+    let repository = repo.repository().await;
+
+    let files = repository.worktree_files().await?;
+
+    assert_eq!(files, [path(".gitignore"), path("README.md"), path("src/lib.rs"), path("src/new.rs")]);
+    Ok(())
+}
+
+#[tokio::test]
 async fn discovers_from_a_subdirectory_and_rejects_non_repositories() {
     let repo = RepoFixture::init();
     let nested = repo.root().join("nested/deep");
