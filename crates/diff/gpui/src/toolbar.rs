@@ -8,7 +8,9 @@ use crate::{
         tokens::{self, BAR_HEIGHT, ICON_BUTTON_SIZE, ICON_SIZE},
     },
 };
-use clankerdiff_core::{ControlKind, Toolbar, ToolbarControl, ViewMode, default_key_label};
+use clankerdiff_core::{
+    ControlKind, DiffReviewCommand, FilesMode, Toolbar, ToolbarControl, ViewMode, default_key_label,
+};
 use gpui::{App, ClickEvent, Context, Div, Role, SharedString, Window, div, prelude::*};
 
 const COMPACT_TOOLBAR_WIDTH: f32 = 1000.0;
@@ -17,7 +19,7 @@ const MIN_STEPPER_WIDTH: f32 = 160.0;
 
 impl DiffViewer {
     pub(crate) fn toolbar(&self) -> Toolbar {
-        Toolbar::new(self.session(), Some(self.sidebar_collapsed()), false, default_key_label)
+        Toolbar::new(self.session(), Some(self.sidebar_collapsed()), self.browsable(), default_key_label)
     }
 
     pub(crate) fn render_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> Div {
@@ -88,7 +90,7 @@ impl DiffViewer {
         if toolbar.history.is_empty() {
             return None;
         }
-        let mut group = leading_group();
+        let mut group = leading_group().children(self.render_files_modes(cx));
         for control in &toolbar.files {
             group = match control.kind {
                 ControlKind::Sidebar { .. } => group.child(self.render_sidebar_toggle(cx)),
@@ -97,6 +99,25 @@ impl DiffViewer {
         }
         group = group.child(divider().bg(self.ui_theme().colors.border_subtle));
         Some(group.children(toolbar.history.iter().map(|control| self.control_button(control, cx))))
+    }
+
+    fn render_files_modes(&self, cx: &mut Context<Self>) -> Option<Div> {
+        if !self.browsable() {
+            return None;
+        }
+        let changes = self.document().files.len();
+        let segments = [FilesMode::Browse, FilesMode::Diff].map(|mode| {
+            let label = match mode {
+                FilesMode::Diff if changes > 0 => format!("{} {changes}", mode.title()),
+                FilesMode::Browse | FilesMode::Diff => mode.title().to_owned(),
+            };
+            Segment::new(format!("files-mode-{}", mode.title().to_lowercase()), label)
+                .selected(self.files_mode() == mode)
+                .on_click(cx.listener(move |viewer, _: &ClickEvent, window, cx| {
+                    viewer.handle_command(DiffReviewCommand::SetFilesMode(mode), window, cx);
+                }))
+        });
+        Some(div().flex_none().mr_1().child(SegmentedControl::new("files-mode", self.ui_theme()).segments(segments)))
     }
 
     fn render_review_target(&self, toolbar: &Toolbar, compact: bool, cx: &mut Context<Self>) -> Option<Div> {

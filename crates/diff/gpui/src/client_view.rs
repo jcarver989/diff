@@ -3,7 +3,9 @@ use crate::{
     ui::prelude::{EmptyState, NoticeTone, UiTheme},
 };
 use clankerdiff_client::{ClientState, ConnectionState};
-use clankerdiff_core::{DiffDocument, DiffReviewCommand, DiffReviewEvent, Lookup, LookupReply, ReviewSubmission};
+use clankerdiff_core::{
+    DiffDocument, DiffReviewCommand, DiffReviewEvent, Lookup, LookupReply, RepoPath, ReviewSubmission,
+};
 use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, ClipboardItem, Context, Entity, EventEmitter, Subscription, Window, div, prelude::*};
 use std::sync::Arc;
@@ -22,6 +24,7 @@ pub struct DiffClientView {
     options: DiffViewerOptions,
     state: Option<ClientState>,
     installed: Option<Arc<DiffDocument>>,
+    listed: Option<Arc<[RepoPath]>>,
     viewer: Option<Entity<DiffViewer>>,
     comments: usize,
     pending: bool,
@@ -41,6 +44,7 @@ impl DiffClientView {
             options,
             state: None,
             installed: None,
+            listed: None,
             viewer: None,
             comments: 0,
             pending: false,
@@ -67,9 +71,13 @@ impl DiffClientView {
             self.install(document.clone(), cx);
         }
         if let Some(viewer) = &self.viewer {
+            let files = state.files_if_changed(&mut self.listed);
             viewer.update(cx, |viewer, cx| {
                 viewer.set_capabilities(state.capabilities, cx);
                 viewer.set_background_error(state.status(), cx);
+                if let Some(files) = files {
+                    viewer.set_repository_files(files, cx);
+                }
             });
         }
         self.state = Some(state.clone());

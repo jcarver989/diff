@@ -9,19 +9,23 @@ use crate::{
     },
     viewer::{MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH},
 };
-use clankerdiff_core::{DiffReviewCommand, FileTreeEntry, StageState};
-use gpui::{AnyElement, Context, PathBuilder, Role, canvas, div, point, prelude::*, px, uniform_list};
+use clankerdiff_core::{DiffReviewCommand, FileTreeEntry, FilesMode, StageState};
+use gpui::{AnyElement, Context, Div, PathBuilder, Role, canvas, div, point, prelude::*, px, uniform_list};
 use gpui_base::{Checkbox, CheckboxIndicator, CheckboxState};
 use std::ops::Range;
 
 impl DiffViewer {
     pub(crate) fn render_sidebar_toggle(&self, cx: &mut Context<Self>) -> IconButton {
         let open = !self.sidebar_collapsed();
-        PanelSide::Left.toggle_button("diff-sidebar-toggle", open, "changed files", self.ui_theme()).on_click(
-            cx.listener(move |viewer, _, _, cx| {
+        let label = match self.files_mode() {
+            FilesMode::Browse => "files",
+            FilesMode::Diff => "changed files",
+        };
+        PanelSide::Left.toggle_button("diff-sidebar-toggle", open, label, self.ui_theme()).on_click(cx.listener(
+            move |viewer, _, _, cx| {
                 viewer.set_sidebar_collapsed(open, cx);
-            }),
-        )
+            },
+        ))
     }
 
     pub(crate) fn reveal_focused_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -99,22 +103,28 @@ impl DiffViewer {
     pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> ResizablePanel {
         let theme = self.ui_theme();
         let colors = theme.colors;
+        let selector = match self.files_mode() {
+            FilesMode::Browse => "browse-files",
+            FilesMode::Diff => "diff-files",
+        };
         let rows = div()
-            .id("diff-files")
-            .debug_selector(|| "diff-files".to_owned())
+            .id(selector)
+            .debug_selector(move || selector.to_owned())
             .role(Role::Tree)
             .flex_1()
             .min_h_0()
             .p_1()
-            .child(
-                uniform_list(
+            .child(match self.tree() {
+                Some(tree) => uniform_list(
                     "diff-file-rows",
-                    self.sidebar_tree.entries().len(),
+                    tree.entries().len(),
                     cx.processor(|viewer, range: Range<usize>, _window, cx| viewer.render_sidebar_rows(range, cx)),
                 )
                 .size_full()
-                .track_scroll(&self.sidebar_scroll_handle),
-            );
+                .track_scroll(&self.sidebar_scroll_handle)
+                .into_any_element(),
+                None => self.render_listing_status().into_any_element(),
+            });
 
         let viewer = cx.entity().downgrade();
         let reset = viewer.clone();
@@ -132,18 +142,31 @@ impl DiffViewer {
             .child(rows)
     }
 
+    fn render_listing_status(&self) -> Div {
+        div()
+            .debug_selector(|| "browse-files-status".to_owned())
+            .p_2()
+            .typography(Typography::Caption)
+            .text_color(self.ui_theme().colors.text_muted)
+            .child("Loading files…")
+    }
+
     fn render_sidebar_rows(&mut self, range: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
         self.sidebar_rendered_rows = range.clone();
-        let selected = self.sidebar_tree.selected_position();
-        let entries = self.sidebar_tree.entries();
+        let Some(tree) = self.tree() else {
+            return Vec::new();
+        };
+        let selected = tree.selected_position();
+        let entries = tree.entries();
         range
             .filter_map(|position| {
                 let entry = entries.get(position)?;
                 let selected = selected == Some(position);
-                match entry.file {
-                    None => Some(self.render_directory_row(position, entry, selected, cx).into_any_element()),
-                    Some(index) => self.render_file_row(index, entry, selected, cx).map(IntoElement::into_any_element),
-                }
+                Some(if entry.directory {
+                    self.render_directory_row(position, entry, selected, cx).into_any_element()
+                } else {
+                    self.render_file_row(entry, selected, cx).into_any_element()
+                })
             })
             .collect()
     }
@@ -157,39 +180,45 @@ impl DiffViewer {
     ) -> TreeRow {
         let path = entry.path.clone();
         let folder = if entry.expanded { IconName::FolderOpen } else { IconName::Folder };
-        TreeRow::new(format!("diff-directory:{path}"), entry.name.clone(), self.ui_theme())
+        let browsing = self.files_mode() == FilesMode::Browse;
+        let selector = if browsing { "browse-directory" } else { "diff-directory" };
+        let changed = (browsing && entry.changed).then(|| color(self.theme().diff.accent));
+        TreeRow::new(format!("{selector}:{path}"), entry.name.clone(), self.ui_theme())
             .depth(entry.depth)
             .expanded(entry.expanded)
-            .icon(folder, None)
+            .icon(folder, changed)
             .selected(selected)
             .on_click(cx.listener(move |viewer, _, window, cx| {
                 viewer.toggle_directory(position, &path, window, cx);
             }))
-            .child(self.stage_checkbox(entry, cx))
+            .when(!browsing, |row| row.child(self.stage_checkbox(entry, cx)))
     }
 
-    fn render_file_row(
-        &self,
-        index: usize,
-        entry: &FileTreeEntry,
-        selected: bool,
-        cx: &mut Context<Self>,
-    ) -> Option<TreeRow> {
+    fn render_file_row(&self, entry: &FileTreeEntry, selected: bool, cx: &mut Context<Self>) -> TreeRow {
         let palette = &self.theme().diff;
-        let diff = self.document().files.get(index)?;
-        let status_color = color(file_status_color(diff.status, palette));
-        Some(
-            TreeRow::new(format!("diff-file:{}", diff.path), entry.name.clone(), self.ui_theme())
-                .aria_label(diff.path.to_string())
-                .depth(entry.depth)
-                .icon(IconName::File, Some(status_color))
-                .selected(selected)
-                .on_click(cx.listener(move |viewer, _, window, cx| {
-                    if viewer.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx) {
+        let browsing = self.files_mode() == FilesMode::Browse;
+        let diff = entry.file.and_then(|index| self.document().files.get(index));
+        let status_color = diff.map(|diff| color(file_status_color(diff.status, palette)));
+        let selector = if browsing { "browse-file" } else { "diff-file" };
+        let (path, file) = (entry.path.clone(), entry.file);
+        TreeRow::new(format!("{selector}:{path}"), entry.name.clone(), self.ui_theme())
+            .aria_label(entry.path.clone())
+            .depth(entry.depth)
+            .icon(IconName::File, status_color)
+            .selected(selected)
+            .on_click(cx.listener(move |viewer, _, window, cx| {
+                if !viewer.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx) {
+                    return;
+                }
+                match file {
+                    Some(index) => {
                         viewer.handle_command(DiffReviewCommand::SelectFile(index), window, cx);
                     }
-                }))
-                .child(
+                    None => viewer.browse_file(&path, window, cx),
+                }
+            }))
+            .when(!browsing, |row| {
+                row.child(
                     div()
                         .flex_shrink_0()
                         .flex()
@@ -199,17 +228,17 @@ impl DiffViewer {
                         .child(div().text_color(color(palette.addition)).child(format!("+{}", entry.stat.added)))
                         .child(div().text_color(color(palette.deletion)).child(format!("−{}", entry.stat.deleted))),
                 )
-                .child(
-                    div()
-                        .w(rem(12.0))
-                        .flex_shrink_0()
-                        .text_center()
-                        .typography(Typography::Caption)
-                        .font_family(CODE_FONT)
-                        .text_color(status_color)
-                        .child(diff.status.code().to_string()),
-                )
-                .child(self.stage_checkbox(entry, cx)),
-        )
+            })
+            .children(diff.map(|diff| {
+                div()
+                    .w(rem(12.0))
+                    .flex_shrink_0()
+                    .text_center()
+                    .typography(Typography::Caption)
+                    .font_family(CODE_FONT)
+                    .text_color(status_color.unwrap_or_default())
+                    .child(diff.status.code().to_string())
+            }))
+            .when(!browsing, |row| row.child(self.stage_checkbox(entry, cx)))
     }
 }
