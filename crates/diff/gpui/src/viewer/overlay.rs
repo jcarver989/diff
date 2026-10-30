@@ -77,16 +77,18 @@ impl DiffViewer {
         self.overlay.take_if(|overlay| overlay.phase() == phase)
     }
 
+    pub(crate) fn commit_picker(&self) -> Option<Entity<SearchPicker>> {
+        match &self.overlay {
+            Some(Overlay::Commits(overlay)) => Some(overlay.picker.clone()),
+            _ => None,
+        }
+    }
+
     pub(crate) fn render_picker_overlay(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let (id, overlay, leading) = match &self.overlay {
-            Some(Overlay::Commands(overlay)) => ("command-palette-backdrop", overlay, None),
-            Some(Overlay::Commits(overlay)) => ("commit-picker-backdrop", overlay, Some(self.toolbar_leading_spacer())),
+        let (id, picker) = match &self.overlay {
+            Some(Overlay::Commands(overlay)) => ("command-palette-backdrop", Some(overlay.picker.clone())),
+            Some(Overlay::Commits(_)) => ("commit-picker-backdrop", None),
             _ => return None,
-        };
-        let row = div().absolute().top(rem(tokens::BAR_HEIGHT)).left_0().right_0().px_3().flex().gap_2();
-        let row = match leading {
-            Some(spacer) => row.children(spacer),
-            None => row.justify_center(),
         };
         Some(
             div()
@@ -102,7 +104,17 @@ impl DiffViewer {
                         viewer.handle_command(ReviewCommand::Cancel, window, cx);
                     }),
                 )
-                .child(row.child(overlay.picker.clone())),
+                .children(picker.map(|picker| {
+                    div()
+                        .absolute()
+                        .top(rem(tokens::BAR_HEIGHT))
+                        .left_0()
+                        .right_0()
+                        .px_3()
+                        .flex()
+                        .justify_center()
+                        .child(picker)
+                })),
         )
     }
 }

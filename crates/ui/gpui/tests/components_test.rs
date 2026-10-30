@@ -201,6 +201,28 @@ fn a_segmented_control_reports_enabled_choices_only(cx: &mut TestAppContext) {
     );
 }
 
+#[gpui::test]
+fn an_icon_segment_shows_its_detail_inside_the_segment(cx: &mut TestAppContext) {
+    ComponentHarnessBuilder::default().run(
+        cx,
+        |_, _| {
+            SegmentedControl::new("modes", theme())
+                .segments([
+                    Segment::icon("changes", IconName::FileDiff, "Changed files").detail("9"),
+                    Segment::icon("files", IconName::Folder, "All files"),
+                ])
+                .into_any_element()
+        },
+        |harness, cx| {
+            let segment = harness.bounds(cx, "changes").ok_or("missing segment")?;
+            let detail = harness.bounds(cx, "changes-detail").ok_or("missing detail")?;
+            assert!(segment.left() < detail.left() && detail.right() <= segment.right());
+            assert!(harness.bounds(cx, "files-detail").is_none());
+            Ok(())
+        },
+    );
+}
+
 fn section(id: &'static str, toggles: &Rc<Cell<usize>>, actions: &Rc<Cell<usize>>, always_visible: bool) -> AnyElement {
     let (toggles, actions) = (toggles.clone(), actions.clone());
     div()

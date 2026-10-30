@@ -388,9 +388,11 @@ fn the_drawer_scales_with_the_interface_size(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn toolbar_controls_change_the_interface_size(cx: &mut TestAppContext) {
+fn the_text_size_menu_changes_the_interface_size(cx: &mut TestAppContext) {
     DiffViewerHarnessBuilder::default().run(cx, |harness, cx| {
         let before = harness.bounds(cx, "diff-file:src/lib.rs").ok_or("missing file row")?;
+        assert!(harness.bounds(cx, "increase-interface-size").is_none(), "the menu starts closed");
+        harness.click(cx, "interface-size")?;
         harness.click(cx, "increase-interface-size")?;
         harness.click(cx, "increase-interface-size")?;
         let after = harness.bounds(cx, "diff-file:src/lib.rs").ok_or("missing file row")?;
