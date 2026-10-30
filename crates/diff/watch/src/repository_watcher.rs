@@ -3,7 +3,7 @@ use crate::{
     file_watcher::{FileWatcher, NotifyFileWatcher, worktree_walk},
     filter::should_refresh,
 };
-use clankerdiff_core::{DiffDocument, ReviewTarget};
+use clankerdiff_core::{DiffDocument, RepoPath, ReviewTarget};
 use clankerdiff_git::{GitError, GitRepository};
 use ignore::WalkBuilder;
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -48,6 +48,7 @@ pub enum RepositoryRequest {
 #[derive(Debug, Clone)]
 pub struct RepositoryState {
     pub snapshot: Arc<DiffDocument>,
+    pub files: Arc<[RepoPath]>,
     pub error: Option<Arc<GitError>>,
 }
 
@@ -58,16 +59,24 @@ impl RepositoryState {
         self.error.as_ref().map(ToString::to_string)
     }
 
+    fn new((snapshot, files): Loaded) -> Self {
+        Self { snapshot: Arc::new(snapshot), files: files.into(), error: None }
+    }
+
     /// Folds one load result in; returns whether anything observable changed.
-    fn apply(&mut self, result: Result<DiffDocument, Arc<GitError>>) -> bool {
+    fn apply(&mut self, result: Result<Loaded, Arc<GitError>>) -> bool {
         match result {
-            Ok(snapshot) => {
-                let recovered = self.error.take().is_some();
-                if *self.snapshot == snapshot {
-                    return recovered;
+            Ok((snapshot, files)) => {
+                let mut changed = self.error.take().is_some();
+                if *self.snapshot != snapshot {
+                    self.snapshot = Arc::new(snapshot);
+                    changed = true;
                 }
-                self.snapshot = Arc::new(snapshot);
-                true
+                if *self.files != *files {
+                    self.files = files.into();
+                    changed = true;
+                }
+                changed
             }
             Err(error) => {
                 if self.error_message() == Some(error.to_string()) {
@@ -131,9 +140,9 @@ impl RepositoryWatcher {
     ) -> Result<Self, WatchError> {
         let target = target.into();
         let watcher = Self::create_file_watcher(&repository, options.debounce).await?;
-        let snapshot = repository.snapshot_with_sources(target.clone()).await?;
+        let loaded = load(&repository, &target, true).await?;
         let (request_tx, request_rx) = mpsc::channel(64);
-        let (state_tx, state_rx) = watch::channel(RepositoryState { snapshot: Arc::new(snapshot), error: None });
+        let (state_tx, state_rx) = watch::channel(RepositoryState::new(loaded));
         let actor =
             RepositoryActor { repository, watcher, target, request_rx, state_tx, subscriptions: HashMap::new() };
         Ok(Self { request_tx, state_rx, task: tokio::spawn(actor.run()) })
@@ -233,8 +242,8 @@ impl RepositoryActor {
         if let Some(state) = self.subscriptions.get(&target) {
             return Ok(state.subscribe());
         }
-        let snapshot = self.repository.snapshot_with_sources(target.clone()).await.map_err(Arc::new)?;
-        let (state, receiver) = watch::channel(RepositoryState { snapshot: Arc::new(snapshot), error: None });
+        let loaded = load(&self.repository, &target, true).await.map_err(Arc::new)?;
+        let (state, receiver) = watch::channel(RepositoryState::new(loaded));
         self.subscriptions.insert(target, state);
         Ok(receiver)
     }
@@ -255,15 +264,7 @@ impl RepositoryActor {
     }
 
     async fn refresh_target(&mut self, target: &ReviewTarget, retry: bool) -> Result<(), Arc<GitError>> {
-        let result = if retry {
-            self.repository.snapshot_with_sources(target.clone()).await
-        } else {
-            match self.repository.try_snapshot_with_sources(target.clone()).await {
-                Err(GitError::UnstableSnapshot) => self.repository.snapshot(target.clone()).await,
-                result => result,
-            }
-        }
-        .map_err(Arc::new);
+        let result = load(&self.repository, target, retry).await.map_err(Arc::new);
         let outcome = result.as_ref().map(|_| ()).map_err(Arc::clone);
         if *target == self.target {
             self.state_tx.send_if_modified(|state| state.apply(clone_result(&result)));
@@ -275,6 +276,22 @@ impl RepositoryActor {
     }
 }
 
-fn clone_result(result: &Result<DiffDocument, Arc<GitError>>) -> Result<DiffDocument, Arc<GitError>> {
+type Loaded = (DiffDocument, Vec<RepoPath>);
+
+async fn load(repository: &GitRepository, target: &ReviewTarget, retry: bool) -> Result<Loaded, GitError> {
+    let snapshot = async {
+        if retry {
+            return repository.snapshot_with_sources(target.clone()).await;
+        }
+        match repository.try_snapshot_with_sources(target.clone()).await {
+            Err(GitError::UnstableSnapshot) => repository.snapshot(target.clone()).await,
+            result => result,
+        }
+    };
+    let (snapshot, files) = tokio::join!(snapshot, repository.worktree_files());
+    Ok((snapshot?, files?))
+}
+
+fn clone_result(result: &Result<Loaded, Arc<GitError>>) -> Result<Loaded, Arc<GitError>> {
     result.clone()
 }

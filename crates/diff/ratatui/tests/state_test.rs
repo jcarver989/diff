@@ -125,6 +125,7 @@ fn connected(snapshot: Arc<DiffDocument>) -> ClientState {
         connection: ConnectionState::Connected,
         capabilities: ReviewCapabilities::default(),
         error: None,
+        files: None,
     }
 }
 
@@ -134,6 +135,7 @@ fn failed(snapshot: Option<Arc<DiffDocument>>) -> ClientState {
         connection: ConnectionState::Failed(ClientError::Disconnected),
         capabilities: ReviewCapabilities::default(),
         error: None,
+        files: None,
     }
 }
 
