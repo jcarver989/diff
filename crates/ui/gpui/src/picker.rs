@@ -547,6 +547,12 @@ impl SearchPicker {
     }
 
     #[must_use]
+    pub fn max_matches(mut self, limit: usize) -> Self {
+        self.state = self.state.limit(limit);
+        self
+    }
+
+    #[must_use]
     pub const fn width(mut self, width: Rems) -> Self {
         self.width = Some(width);
         self
