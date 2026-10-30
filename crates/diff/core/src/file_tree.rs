@@ -1,12 +1,15 @@
 use crate::{DiffDocument, FileDiff, FileStatus, LineStat, RepoPath, RepositoryAction, StageState};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileTreeEntry {
     pub path: String,
     pub name: String,
     pub depth: usize,
+    pub directory: bool,
     pub file: Option<usize>,
+    pub changed: bool,
     pub expanded: bool,
     pub stage: StageState,
     pub stat: LineStat,
@@ -14,8 +17,9 @@ pub struct FileTreeEntry {
 
 #[derive(Debug, Default)]
 pub struct FileTree {
+    repository: Option<Arc<[RepoPath]>>,
     all: Vec<FileTreeEntry>,
-    collapsed: HashSet<String>,
+    toggled: HashSet<String>,
     visible: Vec<FileTreeEntry>,
     selected: Option<String>,
 }
@@ -45,14 +49,23 @@ impl FileTree {
         tree
     }
 
+    pub fn set_repository(&mut self, paths: &[RepoPath], document: &DiffDocument) {
+        let mut sorted = paths.to_vec();
+        sorted.sort_by(|left, right| tree_key(left).cmp(tree_key(right)));
+        self.repository = Some(sorted.into());
+        self.rebuild(document);
+    }
+
     pub fn rebuild(&mut self, document: &DiffDocument) {
         self.all.clear();
         let mut open: Vec<&str> = Vec::new();
         let mut ancestors: Vec<usize> = Vec::new();
-        for index in tree_order(document) {
-            let file = &document.files[index];
-            let stat = file.line_stat();
-            let directories = file.path.directory().map_or_else(Vec::new, |directory| directory.split('/').collect());
+        let repository = self.repository.clone();
+        for (path, file) in listed(repository.as_deref(), document) {
+            let diff = file.map(|index| &document.files[index]);
+            let stat = diff.map(FileDiff::line_stat).unwrap_or_default();
+            let stage = diff.map_or(StageState::Unstaged, |diff| diff.staged);
+            let directories = path.directory().map_or_else(Vec::new, |directory| directory.split('/').collect());
             let shared = open.iter().zip(&directories).take_while(|(left, right)| left == right).count();
             ancestors.truncate(shared);
             for depth in shared..directories.len() {
@@ -61,32 +74,39 @@ impl FileTree {
                     path: directories[..=depth].join("/"),
                     name: directories[depth].to_owned(),
                     depth,
+                    directory: true,
                     file: None,
+                    changed: false,
                     expanded: true,
-                    stage: file.staged,
+                    stage,
                     stat: LineStat::default(),
                 });
             }
-            for &ancestor in &ancestors {
-                let directory = &mut self.all[ancestor];
-                directory.stage = merge_stage(directory.stage, file.staged);
-                directory.stat += stat;
+            if diff.is_some() {
+                for &ancestor in &ancestors {
+                    let directory = &mut self.all[ancestor];
+                    directory.stage = if directory.changed { merge_stage(directory.stage, stage) } else { stage };
+                    directory.changed = true;
+                    directory.stat += stat;
+                }
             }
             self.all.push(FileTreeEntry {
-                path: file.path.to_string(),
-                name: file.path.file_name().to_owned(),
+                path: path.to_string(),
+                name: path.file_name().to_owned(),
                 depth: directories.len(),
-                file: Some(index),
+                directory: false,
+                file,
+                changed: file.is_some(),
                 expanded: true,
-                stage: file.staged,
+                stage,
                 stat,
             });
             open = directories;
         }
         let all = &self.all;
-        let exists = |path: &String| all.iter().any(|entry| entry.path == *path);
-        self.collapsed.retain(exists);
-        self.selected = self.selected.take().filter(exists);
+        let directory = |path: &String| all.iter().any(|entry| entry.directory && entry.path == *path);
+        self.toggled.retain(directory);
+        self.selected = self.selected.take().filter(|path| all.iter().any(|entry| entry.path == *path));
         self.refresh();
     }
 
@@ -127,28 +147,33 @@ impl FileTree {
     }
 
     pub fn set_expanded(&mut self, path: &str, expanded: bool) {
-        let changed = if expanded { self.collapsed.remove(path) } else { self.collapsed.insert(path.to_owned()) };
-        if changed {
+        if self.toggle_state(path, expanded) {
             self.refresh();
         }
     }
 
     pub fn toggle(&mut self, path: &str) {
-        self.set_expanded(path, self.collapsed.contains(path));
+        self.set_expanded(path, !self.is_expanded(path));
     }
 
     pub fn reveal_file(&mut self, file: usize) {
-        let Some(path) = self.file_path(file) else {
+        if let Some(path) = self.file_path(file) {
+            self.reveal_path(&path);
+        }
+    }
+
+    pub fn reveal_path(&mut self, path: &str) {
+        if !self.all.iter().any(|entry| entry.path == path) {
             return;
-        };
+        }
         let mut changed = false;
         for (end, _) in path.match_indices('/') {
-            changed |= self.collapsed.remove(&path[..end]);
+            changed |= self.toggle_state(&path[..end], true);
         }
         if changed {
             self.refresh();
         }
-        self.selected = Some(path);
+        self.selected = Some(path.to_owned());
     }
 
     pub fn follow_file(&mut self, file: usize) {
@@ -187,6 +212,20 @@ impl FileTree {
         Some(if unstage { RepositoryAction::UnstagePaths(paths) } else { RepositoryAction::StagePaths(paths) })
     }
 
+    fn is_expanded(&self, path: &str) -> bool {
+        self.toggled.contains(path) == self.repository.is_some()
+    }
+
+    fn toggle_state(&mut self, path: &str, expanded: bool) -> bool {
+        if expanded == self.is_expanded(path) {
+            return false;
+        }
+        if !self.toggled.remove(path) {
+            self.toggled.insert(path.to_owned());
+        }
+        true
+    }
+
     fn file_path(&self, file: usize) -> Option<String> {
         self.all.iter().find(|entry| entry.file == Some(file)).map(|entry| entry.path.clone())
     }
@@ -200,10 +239,10 @@ impl FileTree {
                 if hidden_below.is_some_and(|depth| entry.depth > depth) {
                     return false;
                 }
-                hidden_below = self.collapsed.contains(&entry.path).then_some(entry.depth);
+                hidden_below = (entry.directory && !self.is_expanded(&entry.path)).then_some(entry.depth);
                 true
             })
-            .map(|entry| FileTreeEntry { expanded: !self.collapsed.contains(&entry.path), ..entry.clone() })
+            .map(|entry| FileTreeEntry { expanded: !entry.directory || self.is_expanded(&entry.path), ..entry.clone() })
             .collect();
     }
 }
@@ -216,4 +255,23 @@ fn files_under<'a>(document: &'a DiffDocument, path: &'a str) -> impl Iterator<I
     document.files.iter().filter(move |file| {
         file.path.as_str().strip_prefix(path).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     })
+}
+
+fn listed<'a>(repository: Option<&'a [RepoPath]>, document: &'a DiffDocument) -> Vec<(&'a RepoPath, Option<usize>)> {
+    let Some(paths) = repository else {
+        return tree_order(document).into_iter().map(|index| (&document.files[index].path, Some(index))).collect();
+    };
+    let mut changed: HashMap<&RepoPath, usize> = document
+        .files
+        .iter()
+        .enumerate()
+        .filter(|(_, file)| file.status != FileStatus::Deleted)
+        .map(|(index, file)| (&file.path, index))
+        .collect();
+    let mut listed: Vec<_> = paths.iter().map(|path| (path, changed.remove(path))).collect();
+    if !changed.is_empty() {
+        listed.extend(changed.into_iter().map(|(path, index)| (path, Some(index))));
+        listed.sort_by(|(left, _), (right, _)| tree_key(left).cmp(tree_key(right)));
+    }
+    listed
 }
