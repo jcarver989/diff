@@ -1,7 +1,7 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffReviewCommand, DiffSide, ReviewSession, ReviewTarget, SourceLocation, TargetLocation,
+    DiffReviewCommand, DiffSide, RepoPath, ReviewSession, ReviewTarget, SourceLocation, TargetLocation,
     testing::{DocumentBuilder, commit_id, external, location, repo, source},
 };
 use std::{error::Error, fmt::Write};
@@ -154,7 +154,8 @@ fn jumping_into_a_collapsed_file_expands_it() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn a_reference_survives_snapshots_until_the_target_changes_or_its_file_joins_the_diff() -> Result<(), Box<dyn Error>> {
+fn a_reference_survives_snapshots_stays_open_once_its_file_joins_the_diff_and_closes_when_the_target_changes()
+-> Result<(), Box<dyn Error>> {
     let mut session = session();
     assert!(session.jump_to(location("src/main.rs", 2)?));
     assert!(session.jump_to(location("src/util.rs", 3)?));
@@ -168,7 +169,9 @@ fn a_reference_survives_snapshots_until_the_target_changes_or_its_file_joins_the
     session
         .set_document(DocumentBuilder::new().changed("src/main.rs", "", MAIN).changed("src/util.rs", "", UTIL).build());
     assert!(session.reference().is_none());
-    assert!(session.source_view().is_none());
+    assert_eq!(session.source_view().map(RepoPath::as_str), Some("src/util.rs"));
+    assert_eq!(session.selected_source_line(), Some(location("src/util.rs", 3)?));
+    assert!(session.back_location().is_some());
     assert!(session.jump_to(location("src/lib.rs", 1)?));
     session.set_document(
         DocumentBuilder::new().target(ReviewTarget::Commit(commit_id(1))).changed("src/main.rs", "", MAIN).build(),

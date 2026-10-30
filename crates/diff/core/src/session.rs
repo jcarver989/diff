@@ -561,8 +561,9 @@ impl ReviewSession {
         }
         let selected_path = self.file(self.selected_file).map(|file| file.path.clone());
         let had_open = self.reference().is_some();
+        let joins = self.reference.as_ref().is_some_and(|reference| reference.joins(&document, target_changed));
         let reference = self.reference.take().filter(|reference| reference.survives(&document, target_changed));
-        let keeps_open = reference.as_ref().and_then(Reference::file).is_some();
+        let keeps_open = joins || reference.as_ref().and_then(Reference::file).is_some();
         if !keeps_open && (had_open || self.source_view().is_some_and(|path| document.file_index(path).is_none())) {
             self.projection.set_source_view(None);
             self.diff_return = None;

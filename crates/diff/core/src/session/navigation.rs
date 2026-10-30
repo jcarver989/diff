@@ -53,6 +53,11 @@ impl Reference {
     pub(super) fn survives(&self, document: &DiffDocument, target_changed: bool) -> bool {
         !target_changed && self.file().is_none_or(|file| document.file_index(&file.path).is_none())
     }
+
+    pub(super) fn joins(&self, document: &DiffDocument, target_changed: bool) -> bool {
+        !target_changed
+            && matches!(self, Self::Open { source: SourcePath::Repo(path), .. } if document.file_index(path).is_some())
+    }
 }
 
 impl ReviewSession {
