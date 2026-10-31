@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2](https://github.com/jcarver989/diff/compare/clankerdiff-remote-v0.8.1...clankerdiff-remote-v0.8.2) - 2026-10-31
+
+### Added
+
+- serve a diff over stdio and reach a remote's diff server ([#127](https://github.com/jcarver989/diff/pull/127))
+
 ## [0.8.0](https://github.com/jcarver989/diff/compare/clankerdiff-remote-v0.7.1...clankerdiff-remote-v0.8.0) - 2026-10-29
 
 ### Other
