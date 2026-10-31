@@ -321,6 +321,7 @@ pub struct Segment {
     id: ElementId,
     label: SharedString,
     icon: Option<IconName>,
+    detail: Option<SharedString>,
     selected: bool,
     disabled: bool,
     on_click: Option<ClickHandler>,
@@ -329,12 +330,26 @@ pub struct Segment {
 impl Segment {
     #[must_use]
     pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
-        Self { id: id.into(), label: label.into(), icon: None, selected: false, disabled: false, on_click: None }
+        Self {
+            id: id.into(),
+            label: label.into(),
+            icon: None,
+            detail: None,
+            selected: false,
+            disabled: false,
+            on_click: None,
+        }
     }
 
     #[must_use]
     pub fn icon(id: impl Into<ElementId>, icon: IconName, label: impl Into<SharedString>) -> Self {
         Self { icon: Some(icon), ..Self::new(id, label) }
+    }
+
+    #[must_use]
+    pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
+        self.detail = Some(detail.into());
+        self
     }
 
     #[must_use]
@@ -414,6 +429,7 @@ impl RenderOnce for SegmentedControl {
             .children(self.segments.into_iter().map(|segment| {
                 let selector = segment.id.to_string();
                 let group: SharedString = format!("{selector}-hover").into();
+                let detail_selector = format!("{selector}-detail");
                 let enabled = !segment.disabled;
                 let foreground = if segment.selected { colors.text } else { colors.text_muted };
                 let padding = if segment.icon.is_some() {
@@ -432,6 +448,7 @@ impl RenderOnce for SegmentedControl {
                     .px(rem(padding))
                     .flex()
                     .items_center()
+                    .gap_1()
                     .rounded(rem(tokens::RADIUS_INNER))
                     .text_color(foreground)
                     .when(segment.selected, |segment| segment.bg(colors.surface_selected).shadow_xs())
@@ -441,11 +458,18 @@ impl RenderOnce for SegmentedControl {
                     })
                     .when_some(segment.on_click.filter(|_| enabled), |element, handler| element.on_click(handler))
                     .map(|element| match segment.icon {
-                        Some(icon) => element.tooltip(Tooltip::text(segment.label, theme)).child(if enabled {
-                            Icon::new(icon, foreground).group_hover(group, colors.text)
-                        } else {
-                            Icon::new(icon, foreground)
-                        }),
+                        Some(icon) => element
+                            .tooltip(Tooltip::text(segment.label, theme))
+                            .child(if enabled {
+                                Icon::new(icon, foreground).group_hover(group, colors.text)
+                            } else {
+                                Icon::new(icon, foreground)
+                            })
+                            .children(
+                                segment
+                                    .detail
+                                    .map(|detail| div().debug_selector(move || detail_selector).child(detail)),
+                            ),
                         None => element.child(segment.label),
                     })
             }))
