@@ -2,8 +2,8 @@ use crate::{
     AgentFeedbackOptions, CommitPage, CommitStack, CommitTitle, ContentProjection, DiffDocument, DiffPresentation,
     DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, FileDiff, GapId, Layout, LineAnchor, PageLabel,
     PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind,
-    SourceLocation, UNCOMMITTED_CHANGES, ViewMode, commit_description, commit_picker::format_age,
-    presentation::retained_expansions,
+    SourceLocation, SourcePath, TargetLocation, UNCOMMITTED_CHANGES, ViewMode, commit_description,
+    commit_picker::format_age, presentation::retained_expansions,
 };
 use navigation::{Navigation, Reference};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,32 @@ const EXPAND_STEP: usize = 20;
 pub enum RevealAmount {
     Step,
     All,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilesMode {
+    Browse,
+    #[default]
+    Diff,
+}
+
+impl FilesMode {
+    #[must_use]
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Browse => "Browse",
+            Self::Diff => "Diff",
+        }
+    }
+
+    #[must_use]
+    pub const fn toggled(self) -> Self {
+        match self {
+            Self::Browse => Self::Diff,
+            Self::Diff => Self::Browse,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,6 +158,7 @@ pub struct ReviewSession {
     presentation: DiffPresentation,
     review: Review,
     scope: DiffScope,
+    files_mode: FilesMode,
     view_mode: ViewMode,
     split_when_auto: bool,
     selected_file: usize,
@@ -154,6 +181,7 @@ impl ReviewSession {
             scope: document.target.scope().unwrap_or_default(),
             document,
             review: Review::default(),
+            files_mode: FilesMode::Diff,
             view_mode: ViewMode::Auto,
             split_when_auto: false,
             selected_file: 0,
@@ -294,6 +322,31 @@ impl ReviewSession {
     }
 
     #[must_use]
+    pub const fn files_mode(&self) -> FilesMode {
+        self.files_mode
+    }
+
+    pub fn set_files_mode(&mut self, mode: FilesMode) -> bool {
+        if self.files_mode == mode || self.draft.is_some() {
+            return false;
+        }
+        self.files_mode = mode;
+        match mode {
+            FilesMode::Browse if !self.shows_source() => {
+                self.enter_source_view();
+            }
+            FilesMode::Browse => {}
+            FilesMode::Diff => {
+                self.cancel_pending_reference();
+                if self.source_view().is_some() {
+                    self.leave_source_view();
+                }
+            }
+        }
+        true
+    }
+
+    #[must_use]
     pub const fn layout(&self) -> Layout {
         self.projection.layout(self.presentation_options())
     }
@@ -361,12 +414,15 @@ impl ReviewSession {
 
     #[must_use]
     pub fn source_view_label(&self) -> Option<&'static str> {
+        let browsing = self.files_mode == FilesMode::Browse;
         if self.reference().is_some() {
-            return Some("Not in this diff · read-only · o back to diff");
+            return Some(if browsing { "Unchanged" } else { "Not in this diff · read-only · o back to diff" });
         }
-        Some(match self.source_view_side()? {
-            DiffSide::New => "Source (new) · o back to diff",
-            DiffSide::Old => "Source (old — deleted) · o back to diff",
+        Some(match (self.source_view_side()?, browsing) {
+            (DiffSide::New, true) => "Changed · o shows the diff",
+            (DiffSide::Old, true) => "Deleted · o shows the diff",
+            (DiffSide::New, false) => "Source (new) · o back to diff",
+            (DiffSide::Old, false) => "Source (old — deleted) · o back to diff",
         })
     }
 
@@ -403,12 +459,20 @@ impl ReviewSession {
             return false;
         }
         if self.source_view().is_some() {
-            self.projection.set_source_view(None);
-            self.reference = None;
-            let bookmark = self.diff_return.take();
-            self.rebuild_restoring(bookmark);
+            self.leave_source_view();
             return true;
         }
+        self.enter_source_view()
+    }
+
+    fn leave_source_view(&mut self) {
+        self.projection.set_source_view(None);
+        self.reference = None;
+        let bookmark = self.diff_return.take();
+        self.rebuild_restoring(bookmark);
+    }
+
+    fn enter_source_view(&mut self) -> bool {
         let Some(file) = self.document.files.get(self.selected_file) else {
             return false;
         };
@@ -560,9 +624,11 @@ impl ReviewSession {
             return;
         }
         let selected_path = self.file(self.selected_file).map(|file| file.path.clone());
+        let unchanged = self.browsed_file_leaving(&document, target_changed);
         let had_open = self.reference().is_some();
+        let joins = self.reference.as_ref().is_some_and(|reference| reference.joins(&document, target_changed));
         let reference = self.reference.take().filter(|reference| reference.survives(&document, target_changed));
-        let keeps_open = reference.as_ref().and_then(Reference::file).is_some();
+        let keeps_open = joins || reference.as_ref().and_then(Reference::file).is_some();
         if !keeps_open && (had_open || self.source_view().is_some_and(|path| document.file_index(path).is_none())) {
             self.projection.set_source_view(None);
             self.diff_return = None;
@@ -572,13 +638,23 @@ impl ReviewSession {
         self.projection.collapsed_files.retain(|path| document.file_index(path).is_some());
         self.navigation.document_changed(&document, target_changed);
         self.document = document;
-        self.reference = reference;
+        self.reference = reference.or(unchanged);
         self.selected_file =
             selected_path.and_then(|path| self.file_index(&path)).unwrap_or(0).min(self.file_count().saturating_sub(1));
         if self.pending_source_restore.as_ref().is_some_and(|location| self.file_index(&location.path).is_none()) {
             self.pending_source_restore = None;
         }
         self.rebuild();
+    }
+
+    fn browsed_file_leaving(&self, document: &DiffDocument, target_changed: bool) -> Option<Reference> {
+        if self.files_mode != FilesMode::Browse || target_changed || self.reference.is_some() {
+            return None;
+        }
+        let path = self.source_view().filter(|path| document.file_index(path).is_none())?;
+        let line_number = self.selected_source_line().map_or(1, |location| location.line_number);
+        let target = TargetLocation { path: SourcePath::Repo(path.clone()), side: DiffSide::New, line_number };
+        Some(Reference::Pending { target, error: None })
     }
 
     pub fn set_view_mode(&mut self, mode: ViewMode) -> bool {

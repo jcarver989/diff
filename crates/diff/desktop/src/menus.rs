@@ -18,8 +18,8 @@ pub(crate) fn extra() -> Vec<Menu> {
             MenuItem::action("Staged", RunCommand(DiffReviewCommand::SetScope(DiffScope::Staged))),
             MenuItem::action("Both", RunCommand(DiffReviewCommand::SetScope(DiffScope::Both))),
             MenuItem::separator(),
-            MenuItem::action("Previous Commit", RunCommand(DiffReviewCommand::StepTarget(-1))),
-            MenuItem::action("Next Commit", RunCommand(DiffReviewCommand::StepTarget(1))),
+            MenuItem::action("Older Commit", RunCommand(DiffReviewCommand::StepTarget(-1))),
+            MenuItem::action("Newer Commit", RunCommand(DiffReviewCommand::StepTarget(1))),
         ],
     }]
 }

@@ -35,6 +35,7 @@ fn connected(cx: &mut TestAppContext) -> ViewHarness<DiffClientView, DiffClientE
         connection: ConnectionState::Connected,
         capabilities: ReviewCapabilities::default(),
         error: None,
+        files: None,
     };
     let harness = ViewHarness::open(cx, WindowOptions::default(), |_, cx| {
         cx.new(|cx| {

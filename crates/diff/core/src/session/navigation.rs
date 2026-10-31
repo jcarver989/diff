@@ -1,4 +1,4 @@
-use super::ReviewSession;
+use super::{FilesMode, ReviewSession};
 use crate::{
     DiffDocument, DiffReviewCommand, DiffSide, FileDiff, GapExpansion, GapId, RepoPath, SourceDocument, SourceLocation,
     SourcePath, TargetLocation, gaps_for_file,
@@ -9,8 +9,14 @@ const REVEAL_CONTEXT: usize = 3;
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct Navigation {
-    back: Vec<TargetLocation>,
-    forward: Vec<TargetLocation>,
+    back: Vec<Visit>,
+    forward: Vec<Visit>,
+}
+
+#[derive(Debug, Clone)]
+struct Visit {
+    target: TargetLocation,
+    mode: FilesMode,
 }
 
 impl Navigation {
@@ -20,7 +26,7 @@ impl Navigation {
             self.forward.clear();
             return;
         }
-        let valid = |target: &TargetLocation| match &target.path {
+        let valid = |Visit { target, .. }: &Visit| match &target.path {
             SourcePath::Repo(path) => target.side == DiffSide::New || document.file_index(path).is_some(),
             SourcePath::External { .. } => true,
         };
@@ -52,6 +58,11 @@ impl Reference {
 
     pub(super) fn survives(&self, document: &DiffDocument, target_changed: bool) -> bool {
         !target_changed && self.file().is_none_or(|file| document.file_index(&file.path).is_none())
+    }
+
+    pub(super) fn joins(&self, document: &DiffDocument, target_changed: bool) -> bool {
+        !target_changed
+            && matches!(self, Self::Open { source: SourcePath::Repo(path), .. } if document.file_index(path).is_some())
     }
 }
 
@@ -167,11 +178,11 @@ impl ReviewSession {
         if self.draft.is_some() {
             return false;
         }
-        let origin = self.current_location();
+        let origin = self.current_visit();
         if !self.show(&target) {
             return false;
         }
-        if let Some(origin) = origin.filter(|origin| origin != &target) {
+        if let Some(origin) = origin.filter(|origin| origin.target != target) {
             self.navigation.back.push(origin);
         }
         self.navigation.forward.clear();
@@ -188,22 +199,27 @@ impl ReviewSession {
 
     #[must_use]
     pub fn back_location(&self) -> Option<&TargetLocation> {
-        self.navigation.back.last()
+        self.navigation.back.last().map(|visit| &visit.target)
     }
 
     #[must_use]
     pub fn forward_location(&self) -> Option<&TargetLocation> {
-        self.navigation.forward.last()
+        self.navigation.forward.last().map(|visit| &visit.target)
+    }
+
+    fn current_visit(&self) -> Option<Visit> {
+        Some(Visit { target: self.current_location()?, mode: self.files_mode })
     }
 
     fn navigate(&mut self, back: bool) -> bool {
         loop {
             let next = if back { self.navigation.back.pop() } else { self.navigation.forward.pop() };
-            let Some(target) = next else {
+            let Some(visit) = next else {
                 return false;
             };
-            let current = self.current_location();
-            if self.show(&target) {
+            let current = self.current_visit();
+            self.set_files_mode(visit.mode);
+            if self.show(&visit.target) {
                 if let Some(current) = current {
                     if back { &mut self.navigation.forward } else { &mut self.navigation.back }.push(current);
                 }
@@ -237,7 +253,10 @@ impl ReviewSession {
 
     fn reveal_source(&mut self, location: &SourceLocation) -> bool {
         self.cancel_pending_reference();
-        if self.source_view().is_some_and(|path| path != &location.path) {
+        let elsewhere = self.source_view().is_none_or(|path| path != &location.path);
+        if self.files_mode == FilesMode::Browse && elsewhere {
+            self.browse_to(location);
+        } else if self.source_view().is_some() && elsewhere {
             self.projection.set_source_view(None);
             self.reference = None;
             self.diff_return = None;
@@ -263,6 +282,16 @@ impl ReviewSession {
         }
         self.set_selected_side(location.side);
         true
+    }
+
+    fn browse_to(&mut self, location: &SourceLocation) {
+        if self.source_view().is_none() {
+            self.diff_return = self.capture_bookmark();
+        }
+        self.reference.take_if(|reference| reference.file().is_none_or(|file| file.path != location.path));
+        self.projection.set_source_view(Some(location.path.clone()));
+        self.pending_source_restore = Some(location.clone());
+        self.rebuild();
     }
 
     fn gap_expansion(&self, file_index: usize, location: &SourceLocation) -> Option<(GapId, GapExpansion)> {

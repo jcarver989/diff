@@ -1,8 +1,8 @@
 use super::{DiffViewer, Overlay, ViewerPane};
 use crate::{DiffViewerEvent, ui::prelude::ThemePicker};
 use clankerdiff_core::{
-    CommandContext, DiffReviewCommand, InteractionPhase, RepositoryAction, ReviewCapabilities, ReviewCommand,
-    ReviewSession,
+    CommandContext, DiffReviewCommand, FilesMode, InteractionPhase, RepositoryAction, ReviewCapabilities,
+    ReviewCommand, ReviewSession,
 };
 use gpui::{Context, ListOffset, ScrollStrategy, Window, px};
 
@@ -21,6 +21,7 @@ impl DiffViewer {
             themes_available: self.options.themes,
             commits_available: self.session.commits().is_some(),
             source_view: self.session.shows_source(),
+            browsable: self.browsable(),
             ..CommandContext::default()
         }
     }
@@ -33,9 +34,13 @@ impl DiffViewer {
     }
 
     pub fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>) {
+        let became_browsable = capabilities.lookups && !self.capabilities.lookups;
         self.capabilities = capabilities;
         if !capabilities.repository {
             self.close_overlay(InteractionPhase::RepositoryPrompt);
+        }
+        if became_browsable {
+            self.settle_files_mode(cx);
         }
         cx.notify();
     }
@@ -72,8 +77,12 @@ impl DiffViewer {
                 self.reveal_focused_sidebar(cx);
             }
             C::SelectFile(index) => {
-                if index >= self.document().files.len() {
+                let Some(path) = self.document().files.get(index).map(|file| file.path.to_string()) else {
                     return false;
+                };
+                if self.files_mode() == FilesMode::Browse {
+                    self.browse_file(&path, window, cx);
+                    return true;
                 }
                 self.select_file(index, cx);
                 self.reveal_sidebar_selection();
@@ -98,19 +107,19 @@ impl DiffViewer {
                 self.reveal_selected_row();
             }
             C::MoveSelection(delta) => {
-                self.move_item(delta, cx);
+                self.move_item(delta, window, cx);
                 return true;
             }
             C::Page(delta) => {
-                self.page_items(delta, cx);
+                self.page_items(delta, window, cx);
                 return true;
             }
             C::First | C::Last => {
-                self.select_boundary(command == C::Last, cx);
+                self.select_boundary(command == C::Last, window, cx);
                 return true;
             }
             C::OpenSelected => {
-                self.open_selected_entry(cx);
+                self.open_selected_entry(window, cx);
                 return true;
             }
             C::CollapseSelected => {
@@ -122,7 +131,8 @@ impl DiffViewer {
                 return true;
             }
             C::ToggleSourceView => {
-                if self.session.source_view().is_none() && self.pane == ViewerPane::Files {
+                let diffing = self.files_mode() == FilesMode::Diff;
+                if diffing && self.session.source_view().is_none() && self.pane == ViewerPane::Files {
                     let Some(index) = self.sidebar_tree.selected().and_then(|entry| entry.file) else {
                         return false;
                     };
@@ -130,12 +140,18 @@ impl DiffViewer {
                         self.select_file(index, cx);
                     }
                 }
-                if !self.toggle_source_view(cx) {
+                let toggled = if self.browsable() {
+                    self.set_files_mode(self.files_mode().toggled(), cx)
+                } else {
+                    self.toggle_source_view(cx)
+                };
+                if !toggled {
                     return false;
                 }
                 self.pane = ViewerPane::Diff;
                 return true;
             }
+            C::SetFilesMode(mode) => return self.set_files_mode(mode, cx),
             C::ToggleFullFile => {
                 self.change_layout(ReviewSession::toggle_full_file);
             }

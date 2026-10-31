@@ -1,4 +1,4 @@
-use crate::{DiffScope, DiffSide, RepositoryAction, RevealAmount, TargetLocation, ViewMode};
+use crate::{DiffScope, DiffSide, FilesMode, RepositoryAction, RevealAmount, TargetLocation, ViewMode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +55,7 @@ pub struct CommandContext {
     pub navigation_available: bool,
     pub themes_available: bool,
     pub commits_available: bool,
+    pub browsable: bool,
 }
 
 impl Default for CommandContext {
@@ -68,6 +69,7 @@ impl Default for CommandContext {
             navigation_available: true,
             themes_available: false,
             commits_available: false,
+            browsable: false,
         }
     }
 }
@@ -128,6 +130,7 @@ pub enum DiffReviewCommand {
     ToggleFileCollapsed(Option<usize>),
     ToggleAllFilesCollapsed,
     ToggleSourceView,
+    SetFilesMode(FilesMode),
     SetViewMode(ViewMode),
     ToggleLayout,
     SubmitReview,
@@ -230,6 +233,7 @@ impl DiffReviewCommand {
             | Self::BeginDiscard
             | Self::RepositoryAction(_) => context.capabilities.repository && !context.repository_pending,
             Self::SubmitReview => context.capabilities.submit,
+            Self::SetFilesMode(_) => context.browsable,
             Self::CopyReview => context.capabilities.clipboard,
             Self::Focus(FocusPane::Files) | Self::ToggleFocus | Self::ToggleSidebar => context.navigation_available,
             _ => true,

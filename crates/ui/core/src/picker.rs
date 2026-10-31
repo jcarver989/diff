@@ -36,6 +36,7 @@ pub enum PickerRow<'a> {
 pub struct PickerState {
     options: Vec<PickerOption>,
     filtered: bool,
+    limit: Option<usize>,
     query: String,
     matches: Vec<usize>,
     highlighted: usize,
@@ -44,7 +45,8 @@ pub struct PickerState {
 impl PickerState {
     #[must_use]
     pub fn new(options: Vec<PickerOption>) -> Self {
-        let mut state = Self { options, filtered: true, query: String::new(), matches: Vec::new(), highlighted: 0 };
+        let mut state =
+            Self { options, filtered: true, limit: None, query: String::new(), matches: Vec::new(), highlighted: 0 };
         state.refilter();
         state
     }
@@ -52,6 +54,13 @@ impl PickerState {
     #[must_use]
     pub fn unfiltered(mut self) -> Self {
         self.filtered = false;
+        self.refilter();
+        self
+    }
+
+    #[must_use]
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
         self.refilter();
         self
     }
@@ -146,6 +155,9 @@ impl PickerState {
                 .as_ref()
                 .map(|group| options.iter().position(|option| option.group.as_ref() == Some(group)))
         });
+        if let Some(limit) = self.limit {
+            self.matches.truncate(limit);
+        }
         self.highlighted = self.enabled_from(0, 1).unwrap_or(0);
     }
 

@@ -1,8 +1,8 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffReviewEvent, DiffSide, LookupAnswer, LookupRequest, TargetLocation,
-    testing::{DocumentBuilder, ResolutionBuilder, external, location, source},
+    DiffReviewCommand, DiffReviewEvent, DiffSide, LookupAnswer, LookupRequest, TargetLocation,
+    testing::{DocumentBuilder, ResolutionBuilder, external, location, repo, source, target},
 };
 use clankerdiff_gpui::testing::DiffViewerHarnessBuilder;
 use gpui::TestAppContext;
@@ -132,7 +132,72 @@ fn a_definition_outside_the_repository_opens_read_only_and_escape_returns(cx: &m
     });
 }
 
+#[gpui::test]
+fn a_file_opened_while_the_diff_is_clean_is_shown_read_only(cx: &mut TestAppContext) {
+    let clean =
+        DiffViewerHarnessBuilder { document: DocumentBuilder::new().build(), ..DiffViewerHarnessBuilder::default() };
+    clean.with_lookups().run(cx, |harness, cx| {
+        assert!(harness.bounds(cx, "browse-empty").is_some(), "a clean repository is browsed");
+        let file = target("src/util.rs", 2)?;
+        assert!(harness.dispatch_command(cx, DiffReviewCommand::JumpTo(file.clone()))?);
+        let lookup = harness.last_lookup(cx).ok_or("the source is requested")?;
+        assert_eq!(lookup.request, LookupRequest::Source(file.path));
+        assert!(harness.bounds(cx, "reference-status").is_some());
+
+        harness.answer_lookup(cx, lookup, Ok(LookupAnswer::Source(source(UTIL_SOURCE))));
+        assert!(harness.bounds(cx, "browse-empty").is_none());
+        assert!(harness.bounds(cx, "diff-pane").is_some());
+        assert_eq!(harness.selected_line(cx), Some(location("src/util.rs", 2)?));
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn browse_shows_a_change_as_it_is_now_and_diff_returns_to_it(cx: &mut TestAppContext) {
+    builder().with_lookups().run(cx, |harness, cx| {
+        assert!(harness.bounds(cx, "diff-files").is_some(), "changes open in the diff");
+        let diffed = harness.selected_line(cx);
+
+        harness.click(cx, "files-mode-browse")?;
+
+        assert!(harness.bounds(cx, "source-mode-header").is_some(), "the change shows as it is now");
+        harness.list_files(cx, &["src/lib.rs", "src/util.rs"])?;
+        assert!(harness.bounds(cx, "browse-file:src/lib.rs").is_some(), "the browsed file is revealed");
+        assert!(harness.bounds(cx, "browse-file:src/util.rs").is_some());
+
+        harness.click(cx, "files-mode-diff")?;
+
+        assert!(harness.bounds(cx, "diff-files").is_some());
+        assert!(harness.bounds(cx, "source-mode-header").is_none());
+        assert_eq!(harness.selected_line(cx), diffed);
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn a_clean_repository_is_browsed_from_a_folded_tree_of_every_file(cx: &mut TestAppContext) {
+    let clean =
+        DiffViewerHarnessBuilder { document: DocumentBuilder::new().build(), ..DiffViewerHarnessBuilder::default() };
+    clean.with_lookups().run(cx, |harness, cx| {
+        assert!(harness.bounds(cx, "browse-files-status").is_some(), "files load after the repository is listed");
+
+        harness.list_files(cx, &["src/util.rs", "README.md"])?;
+        assert!(harness.bounds(cx, "browse-file:README.md").is_some());
+        assert!(harness.bounds(cx, "browse-file:src/util.rs").is_none(), "folders start folded");
+        harness.click(cx, "browse-directory:src")?;
+        harness.click(cx, "browse-file:src/util.rs")?;
+
+        let lookup = harness.last_lookup(cx).ok_or("the source is requested")?;
+        assert_eq!(lookup.request, LookupRequest::Source(repo("src/util.rs")?));
+        harness.answer_lookup(cx, lookup, Ok(LookupAnswer::Source(source(UTIL_SOURCE))));
+        assert_eq!(harness.selected_line(cx), Some(location("src/util.rs", 1)?));
+        assert!(harness.bounds(cx, "source-mode-header").is_some());
+        Ok(())
+    });
+}
+
 const STD: &str = "std · alloc/src/sync.rs";
+const UTIL_SOURCE: &str = "pub fn helper() -> u32 {\n    1\n}\n";
 const STD_SOURCE: &str = "// std\n// sync\npub struct Arc;\n";
 
 fn builder() -> DiffViewerHarnessBuilder {

@@ -20,16 +20,17 @@ use crate::{
 };
 use clankerdiff_core::{Chord, DiffReviewCommand, Key, KeyScope, ReviewCapabilities, ReviewCommand, diff_shortcuts};
 use clankerdiff_core::{
-    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileTree, InteractionPhase, Layout, LineAnchor, PresentedCell,
-    PresentedRow, RepositoryAction, RevealAmount, Review, ReviewSession, ViewMode, ViewportAnchor,
+    DiffDocument, DiffPresentation, DiffScope, DiffSide, FileTree, FileTreeEntry, FilesMode, InteractionPhase, Layout,
+    LineAnchor, PresentedCell, PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession,
+    SourcePath, TargetLocation, ViewMode, ViewportAnchor,
 };
 use clankerdiff_symbols::{NameLookup, SymbolCache, SymbolIndex};
 use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter, empty_spans};
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use gpui::{
-    Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, ListAlignment,
-    ListOffset, ListState, Pixels, Rems, ScrollStrategy, Subscription, Task, UniformListScrollHandle, Window, actions,
-    div, prelude::*, px, rems,
+    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext,
+    ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollStrategy, Subscription, Task, UniformListScrollHandle,
+    Window, actions, div, prelude::*, px, rems,
 };
 use std::{ops::Range, sync::Arc};
 
@@ -108,6 +109,7 @@ pub struct DiffViewer {
     diff_list_split: bool,
     diff_viewport: Option<DiffViewportBookmark>,
     pub(crate) sidebar_tree: FileTree,
+    pub(crate) browse_tree: Option<FileTree>,
     pub(crate) sidebar_scroll_handle: UniformListScrollHandle,
     pub(crate) sidebar_rendered_rows: Range<usize>,
     pub(crate) pane: ViewerPane,
@@ -161,6 +163,7 @@ impl DiffViewer {
             diff_list_split: false,
             diff_viewport: None,
             sidebar_tree,
+            browse_tree: None,
             sidebar_scroll_handle: UniformListScrollHandle::new(),
             sidebar_rendered_rows: 0..0,
             pane: ViewerPane::Diff,
@@ -296,6 +299,14 @@ impl DiffViewer {
         self.sidebar.collapsed
     }
 
+    pub(crate) fn sidebar_visible(&self) -> bool {
+        !self.sidebar.collapsed && !self.shows_clean()
+    }
+
+    fn shows_clean(&self) -> bool {
+        self.files_mode() != FilesMode::Browse && self.document().files.is_empty() && !self.session.in_reference()
+    }
+
     pub fn set_sidebar_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
         if self.sidebar.collapsed == collapsed {
             return;
@@ -324,7 +335,11 @@ impl DiffViewer {
             self.close_overlay(InteractionPhase::CommitPicker);
         }
         self.card_timer = None;
+        let was_clean = self.document().files.is_empty();
         self.sidebar_tree.rebuild(&document);
+        if let Some(tree) = &mut self.browse_tree {
+            tree.rebuild(&document);
+        }
         self.change_layout(|session| {
             session.set_document(document);
             true
@@ -333,8 +348,114 @@ impl DiffViewer {
         if self.sidebar_tree.selected().is_none() {
             self.sidebar_tree.reveal_file(self.session.selected_file().unwrap_or(0));
         }
+        if was_clean != self.document().files.is_empty() {
+            self.settle_files_mode(cx);
+        }
+        self.reveal_shown_file();
         self.diff_list_state.remeasure();
         cx.notify();
+    }
+
+    #[must_use]
+    pub const fn files_mode(&self) -> FilesMode {
+        self.session.files_mode()
+    }
+
+    #[must_use]
+    pub const fn browsable(&self) -> bool {
+        self.capabilities.lookups
+    }
+
+    pub(crate) fn set_files_mode(&mut self, mode: FilesMode, cx: &mut Context<Self>) -> bool {
+        let bookmark = self.diff_viewport_bookmark();
+        if !self.browsable() || !self.session.set_files_mode(mode) {
+            return false;
+        }
+        self.sync_diff_list();
+        match mode {
+            FilesMode::Browse => {
+                self.diff_viewport = Some(bookmark);
+                self.reveal_selected_row();
+            }
+            FilesMode::Diff => {
+                if let Some(bookmark) = self.diff_viewport.take() {
+                    self.restore_diff_viewport(bookmark);
+                }
+            }
+        }
+        self.reveal_shown_file();
+        self.reveal_sidebar_selection();
+        cx.notify();
+        true
+    }
+
+    pub(crate) fn settle_files_mode(&mut self, cx: &mut Context<Self>) {
+        let clean = self.document().files.is_empty();
+        match self.files_mode() {
+            FilesMode::Diff if clean && !self.session.in_reference() => {
+                self.set_files_mode(FilesMode::Browse, cx);
+            }
+            FilesMode::Browse if !clean && !self.session.shows_source() => {
+                self.set_files_mode(FilesMode::Diff, cx);
+            }
+            FilesMode::Diff | FilesMode::Browse => {}
+        }
+    }
+
+    fn render_main_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        match self.session.reference_status() {
+            Some(status) => self.render_reference_status(status).into_any_element(),
+            None if self.files_mode() == FilesMode::Browse && !self.session.shows_source() => self
+                .render_reference_status("Choose a file to view it".to_owned())
+                .debug_selector(|| "browse-empty".to_owned())
+                .into_any_element(),
+            None => self.render_diff(cx).into_any_element(),
+        }
+    }
+
+    pub(crate) fn tree(&self) -> Option<&FileTree> {
+        match self.files_mode() {
+            FilesMode::Diff => Some(&self.sidebar_tree),
+            FilesMode::Browse => self.browse_tree.as_ref(),
+        }
+    }
+
+    pub(crate) fn tree_mut(&mut self) -> Option<&mut FileTree> {
+        match self.files_mode() {
+            FilesMode::Diff => Some(&mut self.sidebar_tree),
+            FilesMode::Browse => self.browse_tree.as_mut(),
+        }
+    }
+
+    pub fn set_repository_files(&mut self, files: &[RepoPath], cx: &mut Context<Self>) {
+        self.browse_tree.get_or_insert_default().set_repository(files, self.session.document());
+        self.reveal_shown_file();
+        self.reveal_sidebar_selection();
+        cx.notify();
+    }
+
+    pub(crate) fn reveal_shown_file(&mut self) {
+        let shown = match self.session.pending_reference() {
+            Some(TargetLocation { path: SourcePath::Repo(path), .. }) => Some(path.clone()),
+            Some(_) => None,
+            None => self.session.source_view().cloned(),
+        };
+        if let (Some(tree), Some(path)) = (&mut self.browse_tree, shown) {
+            tree.reveal_path(path.as_str());
+        }
+    }
+
+    pub(crate) fn browse_file(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.session.source_view().is_some_and(|shown| shown.as_str() == path) {
+            self.pane = ViewerPane::Diff;
+            cx.notify();
+            return;
+        }
+        let Ok(path) = RepoPath::new(path) else {
+            return;
+        };
+        let target = TargetLocation { path: SourcePath::Repo(path), side: DiffSide::New, line_number: 1 };
+        self.handle_command(DiffReviewCommand::JumpTo(target), window, cx);
     }
 
     fn settle_comment_editor(&mut self) {
@@ -575,6 +696,9 @@ impl DiffViewer {
     }
 
     fn follow_active_file(&mut self) {
+        if self.files_mode() == FilesMode::Browse {
+            return;
+        }
         let active = self.active_file();
         if active == self.followed_file {
             return;
@@ -652,8 +776,10 @@ impl DiffViewer {
         if !self.handle_command(DiffReviewCommand::Focus(ViewerPane::Files), window, cx) {
             return;
         }
-        self.sidebar_tree.select(position);
-        self.sidebar_tree.toggle(path);
+        if let Some(tree) = self.tree_mut() {
+            tree.select(position);
+            tree.toggle(path);
+        }
         cx.notify();
     }
 
@@ -834,42 +960,47 @@ impl DiffViewer {
         }
     }
 
-    fn move_item(&mut self, delta: isize, cx: &mut Context<Self>) {
+    fn move_item(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
         match self.pane {
             ViewerPane::Diff => {
                 self.session.move_row(delta);
                 self.reveal_selected_row();
             }
             ViewerPane::Files => {
-                let file = self.sidebar_tree.move_selection(delta).map(|entry| entry.file);
-                self.open_sidebar_file(file.flatten(), cx);
+                let entry = self.tree_mut().and_then(|tree| tree.move_selection(delta).cloned());
+                self.open_sidebar_entry(entry, window, cx);
             }
         }
         cx.notify();
     }
 
-    fn reveal_sidebar_selection(&self) {
-        if let Some(index) = self.sidebar_tree.selected_position() {
+    pub(crate) fn reveal_sidebar_selection(&self) {
+        if let Some(index) = self.tree().and_then(FileTree::selected_position) {
             self.sidebar_scroll_handle.scroll_to_item(index, ScrollStrategy::Nearest);
         }
     }
 
-    fn open_sidebar_file(&mut self, file: Option<usize>, cx: &mut Context<Self>) {
-        if let Some(file) = file {
-            self.select_file(file, cx);
+    fn open_sidebar_entry(&mut self, entry: Option<FileTreeEntry>, window: &mut Window, cx: &mut Context<Self>) {
+        match entry.filter(|entry| !entry.directory) {
+            Some(entry) if self.files_mode() == FilesMode::Browse => {
+                self.browse_file(&entry.path, window, cx);
+                self.pane = ViewerPane::Files;
+            }
+            Some(FileTreeEntry { file: Some(file), .. }) => self.select_file(file, cx),
+            Some(_) | None => {}
         }
         self.reveal_sidebar_selection();
     }
 
-    fn select_boundary(&mut self, end: bool, cx: &mut Context<Self>) {
+    fn select_boundary(&mut self, end: bool, window: &mut Window, cx: &mut Context<Self>) {
         match self.pane {
             ViewerPane::Diff => {
                 self.session.select_boundary(end);
                 self.reveal_selected_row();
             }
             ViewerPane::Files => {
-                let file = self.sidebar_tree.select_boundary(end).map(|entry| entry.file);
-                self.open_sidebar_file(file.flatten(), cx);
+                let entry = self.tree_mut().and_then(|tree| tree.select_boundary(end).cloned());
+                self.open_sidebar_entry(entry, window, cx);
             }
         }
         cx.notify();
@@ -879,7 +1010,7 @@ impl DiffViewer {
         clippy::cast_possible_truncation,
         reason = "the viewport row count is a small, non-negative UI measurement"
     )]
-    fn page_items(&mut self, direction: isize, cx: &mut Context<Self>) {
+    fn page_items(&mut self, direction: isize, window: &mut Window, cx: &mut Context<Self>) {
         let rows = match self.pane {
             ViewerPane::Diff => {
                 let height = self.diff_list_state.viewport_bounds().size.height;
@@ -887,29 +1018,32 @@ impl DiffViewer {
             }
             ViewerPane::Files => self.sidebar_rendered_rows.len().max(1).try_into().unwrap_or(isize::MAX),
         };
-        self.move_item(direction.saturating_mul(rows), cx);
+        self.move_item(direction.saturating_mul(rows), window, cx);
     }
 
-    fn open_selected_entry(&mut self, cx: &mut Context<Self>) {
-        let Some(entry) = self.sidebar_tree.selected().cloned() else {
+    fn open_selected_entry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.tree().and_then(FileTree::selected).cloned() else {
             return;
         };
-        match entry.file {
-            None => self.sidebar_tree.set_expanded(&entry.path, true),
-            Some(index) => {
-                self.select_file(index, cx);
-                self.pane = ViewerPane::Diff;
+        if entry.directory {
+            if let Some(tree) = self.tree_mut() {
+                tree.set_expanded(&entry.path, true);
             }
+        } else {
+            self.open_sidebar_entry(Some(entry), window, cx);
+            self.pane = ViewerPane::Diff;
         }
         self.reveal_sidebar_selection();
         cx.notify();
     }
 
     fn collapse_selected_entry(&mut self, cx: &mut Context<Self>) {
-        if let Some(entry) = self.sidebar_tree.selected().cloned()
-            && entry.file.is_none()
+        if let Some(entry) = self.tree().and_then(FileTree::selected).cloned()
+            && entry.directory
         {
-            self.sidebar_tree.set_expanded(&entry.path, false);
+            if let Some(tree) = self.tree_mut() {
+                tree.set_expanded(&entry.path, false);
+            }
             self.reveal_sidebar_selection();
             cx.notify();
         }
@@ -1129,7 +1263,7 @@ impl Render for DiffViewer {
             .typography(Typography::Body)
             .child(self.render_toolbar(window, cx))
             .map(|viewer| {
-                if self.document().files.is_empty() {
+                if self.shows_clean() {
                     return viewer.child(self.render_clean());
                 }
                 viewer
@@ -1140,11 +1274,8 @@ impl Render for DiffViewer {
                             .flex_1()
                             .overflow_hidden()
                             .flex()
-                            .children((!self.sidebar.collapsed).then(|| self.render_sidebar(cx)))
-                            .child(match self.session.reference_status() {
-                                Some(status) => self.render_reference_status(status).into_any_element(),
-                                None => self.render_diff(cx).into_any_element(),
-                            }),
+                            .children(self.sidebar_visible().then(|| self.render_sidebar(cx)))
+                            .child(self.render_main_pane(cx)),
                     )
                     .when(self.options.review_bar, |viewer| viewer.child(self.render_review_bar(cx)))
             })

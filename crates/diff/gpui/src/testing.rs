@@ -9,8 +9,8 @@ use crate::{
     ui::{InterfaceSize, testing::ViewHarness, tokens::BASE_SIZE},
 };
 use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand, Lookup, LookupAnswer, LookupReply, Review, ReviewCapabilities, ReviewCommand,
-    SourceLocation, ViewMode, testing::DocumentBuilder,
+    DiffDocument, DiffReviewCommand, Lookup, LookupAnswer, LookupReply, RepoPath, RepoPathError, Review,
+    ReviewCapabilities, ReviewCommand, SourceLocation, ViewMode, testing::DocumentBuilder,
 };
 use clankerdiff_markdown::{
     MarkdownDocument, MarkdownReview, MarkdownReviewCommand, MarkdownReviewEvent, MarkdownTargetId,
@@ -286,6 +286,13 @@ impl DiffViewerHarness {
     pub fn answer_lookup(&self, cx: &mut TestAppContext, lookup: Lookup, result: Result<LookupAnswer, String>) {
         self.update(cx, |viewer, cx| viewer.lookup_finished(LookupReply::new(lookup, result), cx));
         self.draw(cx);
+    }
+
+    pub fn list_files(&self, cx: &mut TestAppContext, paths: &[&str]) -> Result<(), RepoPathError> {
+        let files = paths.iter().map(|path| RepoPath::new(*path)).collect::<Result<Vec<_>, _>>()?;
+        self.update(cx, |viewer, cx| viewer.set_repository_files(&files, cx));
+        self.draw(cx);
+        Ok(())
     }
 
     pub fn hover_name(

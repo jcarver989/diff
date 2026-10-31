@@ -271,7 +271,7 @@ impl DiffReviewState {
             }
             return self.handle_command(DiffReviewCommand::ToggleStage);
         }
-        match self.drawer.selected().filter(|entry| entry.file.is_none()).map(|entry| entry.expanded) {
+        match self.drawer.selected().filter(|entry| entry.directory).map(|entry| entry.expanded) {
             Some(true) => self.collapse_drawer_entry(),
             Some(false) => {
                 self.expand_or_open_drawer_entry();

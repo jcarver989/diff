@@ -2,14 +2,15 @@ use super::{
     ProtocolError, RemoteError,
     message::{decode_json, encode_json},
 };
-use clankerdiff_core::LookupAnswer;
+use clankerdiff_core::{LookupAnswer, RepoPath};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::convert::Infallible;
+use std::{convert::Infallible, sync::Arc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event<T> {
     Initialize { protocol_version: u32, repository_root: String },
     Document(T),
+    Files(Arc<[RepoPath]>),
     RequestResult(Result<(), RemoteError>),
     Health { error: Option<RemoteError> },
     Error(RemoteError),
@@ -28,6 +29,7 @@ impl<T> Event<T> {
             Self::Initialize { protocol_version, repository_root } => {
                 Event::Initialize { protocol_version, repository_root }
             }
+            Self::Files(files) => Event::Files(files),
             Self::RequestResult(result) => Event::RequestResult(result),
             Self::Health { error } => Event::Health { error },
             Self::Error(error) => Event::Error(error),

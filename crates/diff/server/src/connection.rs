@@ -3,7 +3,7 @@ use crate::{
     server::{Context, ReviewCompletion, protocol, stopped},
     transport::Transport,
 };
-use clankerdiff_core::{DiffDocument, ReviewTarget};
+use clankerdiff_core::{DiffDocument, RepoPath, ReviewTarget};
 use clankerdiff_protocol::{
     client::ClientCommand,
     server::ServerEvent,
@@ -70,6 +70,7 @@ async fn serve<T: Transport>(
 ) -> Result<(), RemoteError> {
     let mut lookups = Lookups::default();
     let mut published: Option<Arc<DiffDocument>> = None;
+    let mut listed: Option<Arc<[RepoPath]>> = None;
     let mut health: Option<RemoteError> = None;
     let mut running: Option<Command> = None;
     let mut queued: VecDeque<ClientCommand> = VecDeque::new();
@@ -83,6 +84,10 @@ async fn serve<T: Transport>(
         if published.as_ref().is_none_or(|old| !Arc::ptr_eq(old, &current.snapshot)) {
             publish(transport, Event::Document(current.snapshot.clone())).await?;
             published = Some(current.snapshot.clone());
+        }
+        if listed.as_ref().is_none_or(|old| !Arc::ptr_eq(old, &current.files) && **old != *current.files) {
+            publish(transport, Event::Files(current.files.clone())).await?;
+            listed = Some(current.files.clone());
         }
         let latest = current.error.as_ref().map(watcher_error);
         if latest != health {

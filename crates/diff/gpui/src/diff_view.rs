@@ -1,17 +1,17 @@
 use crate::{
     DiffViewer, ViewerPane,
     annotation::add_comment_button,
-    comment_editor::CommentEditor,
+    comment_editor::{CommentEditor, init_input},
     comments::{CommentCard, CommentComposer, CommentCount, CommentThread, comment_dismiss_button},
     navigation::line_key,
     style::{self, stat_badges},
     ui::{
         interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize},
         prelude::{
-            Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, Typography, TypographyExt, rem,
-            uniform_height_hints,
+            Button, ButtonVariant, ControlSize, IconButton, IconName, ListScrollbar, SurfaceExt, Typography,
+            TypographyExt, rem, uniform_height_hints,
         },
-        tokens::{CODE_ROW_HEIGHT, RADIUS_CONTROL, ROW_HEIGHT},
+        tokens::{CODE_ROW_HEIGHT, FLOATING_INSET, RADIUS_CONTROL},
     },
 };
 use clankerdiff_core::{
@@ -19,10 +19,11 @@ use clankerdiff_core::{
     ReviewComment, RowKind,
 };
 use gpui::{
-    Action, AnyElement, Context, DispatchPhase, Div, Entity, EntityId, HighlightStyle, HitboxBehavior, ListState,
-    MouseButton, Pixels, ScrollDelta, ScrollWheelEvent, SharedString, Stateful, StyledText, Window, canvas, div, list,
-    prelude::*, px,
+    Action, Anchor, AnyElement, Context, DispatchPhase, Div, Entity, EntityId, HighlightStyle, HitboxBehavior,
+    ListState, MouseButton, Pixels, ScrollDelta, ScrollWheelEvent, SharedString, Stateful, StyledText, Window, canvas,
+    div, list, prelude::*, px,
 };
+use gpui_base::Popover;
 use std::ops::Range;
 
 const CHANGE_INDICATOR_WIDTH: f32 = 4.0;
@@ -240,44 +241,55 @@ impl DiffViewer {
             )
     }
 
-    pub(crate) fn render_interface_size_controls(&self, window: &Window, _cx: &mut Context<Self>) -> Div {
+    pub(crate) fn render_interface_size_menu(&self, window: &Window, cx: &mut Context<Self>) -> Popover {
+        init_input(cx);
         let theme = self.ui_theme();
-        div()
-            .debug_selector(|| "interface-size".to_owned())
-            .flex_none()
-            .h(rem(ROW_HEIGHT))
-            .px_0p5()
-            .flex()
-            .items_center()
-            .gap_0p5()
-            .rounded(rem(RADIUS_CONTROL))
-            .border_1()
-            .border_color(theme.colors.border_subtle)
-            .bg(theme.colors.surface)
-            .shadow_sm()
-            .child(
-                IconButton::new("decrease-interface-size", IconName::Minus, "Decrease interface size", theme).on_click(
-                    |_, window, cx| {
-                        window.dispatch_action(DecreaseInterfaceSize.boxed_clone(), cx);
-                    },
-                ),
-            )
-            .child(
-                Button::new("reset-interface-size", format!("{:.0}", f32::from(window.rem_size())), theme)
-                    .variant(ButtonVariant::Ghost)
-                    .size(ControlSize::Small)
-                    .aria_label("Reset interface size")
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(ResetInterfaceSize.boxed_clone(), cx);
-                    }),
-            )
-            .child(
-                IconButton::new("increase-interface-size", IconName::Plus, "Increase interface size", theme).on_click(
-                    |_, window, cx| {
-                        window.dispatch_action(IncreaseInterfaceSize.boxed_clone(), cx);
-                    },
-                ),
-            )
+        let size = format!("{:.0}", f32::from(window.rem_size()));
+        let trigger = Button::new("interface-size", "Aa", theme)
+            .variant(ButtonVariant::Ghost)
+            .size(ControlSize::Small)
+            .aria_label("Text size")
+            .tooltip("Text size");
+        Popover::new("interface-size-popover").anchor(Anchor::TopRight).offset(px(4.0)).trigger(trigger).content(
+            move |_, _, _| {
+                div()
+                    .debug_selector(|| "interface-size-menu".to_owned())
+                    .p(rem(FLOATING_INSET))
+                    .flex()
+                    .items_center()
+                    .gap_0p5()
+                    .floating(theme)
+                    .child(
+                        div()
+                            .px_1()
+                            .mr_1()
+                            .typography(Typography::Small)
+                            .text_color(theme.colors.text_secondary)
+                            .child("Text size"),
+                    )
+                    .child(
+                        IconButton::new("decrease-interface-size", IconName::Minus, "Decrease text size", theme)
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(DecreaseInterfaceSize.boxed_clone(), cx);
+                            }),
+                    )
+                    .child(
+                        Button::new("reset-interface-size", size, theme)
+                            .variant(ButtonVariant::Ghost)
+                            .size(ControlSize::Small)
+                            .aria_label("Reset text size")
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(ResetInterfaceSize.boxed_clone(), cx);
+                            }),
+                    )
+                    .child(
+                        IconButton::new("increase-interface-size", IconName::Plus, "Increase text size", theme)
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(IncreaseInterfaceSize.boxed_clone(), cx);
+                            }),
+                    )
+            },
+        )
     }
 
     fn render_visible_row(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {

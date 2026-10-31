@@ -382,6 +382,28 @@ impl GitRepository {
         source_document(self.read_bounded_worktree(path).await.map_err(source_error)?)
     }
 
+    pub async fn worktree_files(&self) -> Result<Vec<RepoPath>, GitError> {
+        let (listed, deleted) = tokio::try_join!(
+            command::run(
+                &self.root,
+                "list worktree files",
+                ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]
+            ),
+            command::run(&self.root, "list deleted files", ["ls-files", "-z", "--deleted"]),
+        )?;
+        let deleted: HashSet<&[u8]> = deleted.stdout.split(|byte| *byte == 0).collect();
+        let mut files: Vec<RepoPath> = listed
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|entry| !entry.is_empty() && !deleted.contains(entry))
+            .filter_map(|entry| str::from_utf8(entry).ok())
+            .filter_map(|entry| RepoPath::new(entry).ok())
+            .collect();
+        files.sort_unstable();
+        files.dedup();
+        Ok(files)
+    }
+
     async fn worktrees_match(&self, expected: &HashMap<RepoPath, Fingerprint>) -> bool {
         for (path, expected_id) in expected {
             let Ok(bytes) = self.read_bounded_worktree(path).await else {

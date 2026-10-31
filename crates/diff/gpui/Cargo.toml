@@ -38,6 +38,10 @@ name = "diff_view_test"
 required-features = ["test-support"]
 
 [[test]]
+name = "toolbar_test"
+required-features = ["test-support"]
+
+[[test]]
 name = "rendered"
 required-features = ["test-support"]
 

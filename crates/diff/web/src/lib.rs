@@ -211,8 +211,8 @@ mod wasm {
     use async_channel::{Receiver, Sender};
     use clankerdiff_client::{ClientOptions, ClientState, DiffClient};
     use clankerdiff_core::{
-        DiffDocument, DiffReviewEvent, Lookup, LookupReply, ReviewCapabilities, ReviewSubmission, ReviewTarget,
-        ViewMode,
+        DiffDocument, DiffReviewEvent, Lookup, LookupReply, RepoPath, ReviewCapabilities, ReviewSubmission,
+        ReviewTarget, ViewMode,
     };
     use clankerdiff_gpui::{
         DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged, ViewModeChanged,
@@ -260,6 +260,7 @@ mod wasm {
         remote_task: Option<Task<()>>,
         capabilities: ReviewCapabilities,
         installed_snapshot: Option<Arc<DiffDocument>>,
+        listed_files: Option<Arc<[RepoPath]>>,
         applied_revision: Option<u64>,
         requests: RepositoryRequests,
         viewer: Entity<DiffViewer>,
@@ -333,6 +334,7 @@ mod wasm {
                 remote_task: None,
                 capabilities,
                 installed_snapshot: None,
+                listed_files: None,
                 applied_revision: None,
                 requests: RepositoryRequests::default(),
                 viewer,
@@ -374,6 +376,7 @@ mod wasm {
             }
             self.requests.pending = None;
             self.installed_snapshot = None;
+            self.listed_files = None;
             self.applied_revision = None;
         }
 
@@ -384,9 +387,13 @@ mod wasm {
                 });
             }
             let error = state.status();
+            let files = state.files_if_changed(&mut self.listed_files);
             self.viewer.update(cx, |viewer, cx| {
                 viewer.set_capabilities(state.capabilities, cx);
                 viewer.set_background_error(error.clone(), cx);
+                if let Some(files) = files {
+                    viewer.set_repository_files(files, cx);
+                }
             });
             let _ = emit_connection_state(state.label(), error.as_deref());
         }

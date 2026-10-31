@@ -739,7 +739,7 @@ impl DiffReviewState {
     /// whether the selected entry was a directory.
     pub(crate) fn expand_or_open_drawer_entry(&mut self) -> bool {
         match self.drawer.selected().cloned() {
-            Some(entry) if entry.file.is_none() => {
+            Some(entry) if entry.directory => {
                 self.set_drawer_expanded(&entry.path, true);
                 true
             }
@@ -753,7 +753,7 @@ impl DiffReviewState {
 
     pub(crate) fn collapse_drawer_entry(&mut self) {
         if let Some(entry) = self.drawer.selected().cloned()
-            && entry.file.is_none()
+            && entry.directory
         {
             self.set_drawer_expanded(&entry.path, false);
         }

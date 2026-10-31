@@ -7,7 +7,7 @@ use crate::{
         prelude::{Button, ButtonVariant, ControlSize, Typography, TypographyExt},
     },
 };
-use clankerdiff_core::{DiffReviewCommand, SourceLocation};
+use clankerdiff_core::{DiffReviewCommand, FilesMode, SourceLocation};
 use clankerdiff_symbols::{Hold, SymbolReference};
 use gpui::{
     AnyElement, Context, Div, HighlightStyle, InteractiveText, Modifiers, ModifiersChangedEvent, MouseButton,
@@ -20,6 +20,9 @@ impl DiffViewer {
         if self.session_mut().apply_navigation(command) != Some(true) {
             return false;
         }
+        if self.session().in_reference() && self.browsable() {
+            self.session_mut().set_files_mode(FilesMode::Browse);
+        }
         self.update_names(cx, |names, session, _, enabled| names.navigated(session, enabled));
         self.reveal_navigation(cx);
         true
@@ -28,6 +31,8 @@ impl DiffViewer {
     pub(crate) fn reveal_navigation(&mut self, cx: &mut Context<Self>) {
         self.sync_diff_list();
         self.reveal_selected_row();
+        self.reveal_shown_file();
+        self.reveal_sidebar_selection();
         cx.notify();
     }
 

@@ -63,6 +63,18 @@ fn an_unfiltered_picker_keeps_the_query_for_its_host_and_lists_everything() {
     assert_eq!(state.matches(), [0, 1]);
 }
 
+#[test]
+fn a_limited_picker_keeps_only_its_best_matches() {
+    let texts = ["Submit review", "Stage all", "Show split", "Toggle split / unified"];
+    let mut everything = PickerState::new(options(texts));
+    let mut limited = PickerState::new(options(texts)).limit(2);
+    assert_eq!(limited.matches(), [0, 1]);
+
+    everything.set_query("s");
+    limited.set_query("s");
+    assert_eq!(limited.matches(), &everything.matches()[..2]);
+}
+
 fn options<const N: usize>(texts: [&str; N]) -> Vec<PickerOption> {
     texts.into_iter().map(PickerOption::new).collect()
 }

@@ -132,6 +132,35 @@ fn toggling_a_copy_does_not_include_its_source() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[test]
+fn a_repository_tree_lists_every_file_folded_and_marks_what_changed() -> Result<(), Box<dyn Error>> {
+    let document = DocumentBuilder::new()
+        .changed("src/lib.rs", "old\n", "new\n")
+        .added("src/new.rs", "new\n")
+        .deleted("docs/gone.md", "old\n")
+        .build();
+    let paths: Arc<[RepoPath]> = ["src/lib.rs", "src/main.rs", "README.md", "docs/guide.md"]
+        .map(RepoPath::new)
+        .into_iter()
+        .collect::<Result<_, _>>()?;
+    let mut tree = FileTree::default();
+    tree.set_repository(&paths, &document);
+    assert_eq!(labels(&tree), ["0:docs/-", "0:src/-", "0:README.md"]);
+    assert!(entry(&tree, "src").is_some_and(|entry| entry.changed));
+    assert!(entry(&tree, "docs").is_some_and(|entry| !entry.changed), "a deleted file is not browsed");
+
+    tree.reveal_path("src/main.rs");
+
+    assert_eq!(
+        labels(&tree),
+        ["0:docs/-", "0:src/", "1:src/lib.rs#0", "1:src/main.rs", "1:src/new.rs#1", "0:README.md"]
+    );
+    assert_eq!(tree.selected().map(|entry| entry.path.as_str()), Some("src/main.rs"));
+    tree.rebuild(&DocumentBuilder::new().changed("src/main.rs", "old\n", "new\n").build());
+    assert_eq!(labels(&tree), ["0:docs/-", "0:src/", "1:src/lib.rs", "1:src/main.rs#0", "0:README.md"]);
+    Ok(())
+}
+
 fn nested_document() -> Arc<DiffDocument> {
     DocumentBuilder::new()
         .changed("README.md", "old\n", "new\n")
@@ -145,9 +174,10 @@ fn nested_document() -> Arc<DiffDocument> {
 fn labels(tree: &FileTree) -> Vec<String> {
     tree.entries()
         .iter()
-        .map(|entry| match entry.file {
-            Some(file) => format!("{}:{}#{file}", entry.depth, entry.path),
-            None => format!("{}:{}/{}", entry.depth, entry.path, if entry.expanded { "" } else { "-" }),
+        .map(|entry| match (entry.directory, entry.file) {
+            (false, Some(file)) => format!("{}:{}#{file}", entry.depth, entry.path),
+            (false, None) => format!("{}:{}", entry.depth, entry.path),
+            (true, _) => format!("{}:{}/{}", entry.depth, entry.path, if entry.expanded { "" } else { "-" }),
         })
         .collect()
 }
