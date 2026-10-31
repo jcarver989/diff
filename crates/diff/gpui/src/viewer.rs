@@ -299,6 +299,14 @@ impl DiffViewer {
         self.sidebar.collapsed
     }
 
+    pub(crate) fn sidebar_visible(&self) -> bool {
+        !self.sidebar.collapsed && !self.shows_clean()
+    }
+
+    fn shows_clean(&self) -> bool {
+        self.files_mode() != FilesMode::Browse && self.document().files.is_empty() && !self.session.in_reference()
+    }
+
     pub fn set_sidebar_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
         if self.sidebar.collapsed == collapsed {
             return;
@@ -1255,8 +1263,7 @@ impl Render for DiffViewer {
             .typography(Typography::Body)
             .child(self.render_toolbar(window, cx))
             .map(|viewer| {
-                let browsing = self.files_mode() == FilesMode::Browse;
-                if !browsing && self.document().files.is_empty() && !self.session.in_reference() {
+                if self.shows_clean() {
                     return viewer.child(self.render_clean());
                 }
                 viewer
@@ -1267,7 +1274,7 @@ impl Render for DiffViewer {
                             .flex_1()
                             .overflow_hidden()
                             .flex()
-                            .children((!self.sidebar.collapsed).then(|| self.render_sidebar(cx)))
+                            .children(self.sidebar_visible().then(|| self.render_sidebar(cx)))
                             .child(self.render_main_pane(cx)),
                     )
                     .when(self.options.review_bar, |viewer| viewer.child(self.render_review_bar(cx)))

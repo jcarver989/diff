@@ -29,14 +29,16 @@ fn the_header_titles_the_page_and_requests_neighbours(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_page_and_its_scopes_form_one_control_after_the_file_controls(cx: &mut TestAppContext) {
+fn the_sidebar_controls_sit_over_the_sidebar_and_the_view_controls_trail_the_page(cx: &mut TestAppContext) {
     paged(page(DiffScope::Both)).with_window_size(1400.0, 800.0).run(cx, |harness, cx| {
-        let target = harness.bounds(cx, "review-target").ok_or("missing review target")?;
+        let column = harness.bounds(cx, "toolbar-files").ok_or("missing files column")?;
+        let sidebar = harness.bounds(cx, "diff-sidebar").ok_or("missing sidebar")?;
         let toggle = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing sidebar toggle")?;
-        let collapse = harness.bounds(cx, "toggle-all-files-collapsed").ok_or("missing collapse all")?;
         let back = harness.bounds(cx, "navigate-back").ok_or("missing back")?;
         let forward = harness.bounds(cx, "navigate-forward").ok_or("missing forward")?;
+        let target = harness.bounds(cx, "review-target").ok_or("missing review target")?;
         let summary = harness.bounds(cx, "diff-summary").ok_or("missing summary")?;
+        let collapse = harness.bounds(cx, "toggle-all-files-collapsed").ok_or("missing collapse all")?;
         let layout = harness.bounds(cx, "view-mode-toggle").ok_or("missing layout toggle")?;
         let size = harness.bounds(cx, "interface-size").ok_or("missing interface size")?;
         for part in ["commit-stepper", "scope-unstaged", "scope-staged", "scope-both"] {
@@ -46,13 +48,15 @@ fn the_page_and_its_scopes_form_one_control_after_the_file_controls(cx: &mut Tes
                 "{part} is outside the control"
             );
         }
-        assert!(toggle.right() <= collapse.left() && collapse.left() - toggle.right() < px(4.0));
-        assert!(collapse.right() < back.left() && back.left() - collapse.right() < px(16.0));
+        assert_eq!((column.left(), column.right()), (sidebar.left(), sidebar.right()));
+        assert!(column.left() < toggle.left() && toggle.right() < column.right());
+        assert!(column.right() < back.left() && back.left() - column.right() < px(16.0));
         assert!(back.right() <= forward.left() && forward.left() - back.right() < px(4.0));
         assert!(forward.right() < target.left() && target.left() - forward.right() < px(16.0));
-        assert!(target.right() < layout.left() && layout.right() < size.left() && size.right() < summary.left());
-        assert!(px(1400.0) - summary.right() < px(16.0));
-        for bounds in [toggle, collapse, back, forward, summary, layout] {
+        assert!(target.right() < summary.left() && summary.right() < collapse.left());
+        assert!(collapse.right() <= layout.left() && layout.right() <= size.left());
+        assert!(px(1400.0) - size.right() < px(16.0));
+        for bounds in [toggle, back, forward, summary, collapse, layout, size] {
             assert!((bounds.center().y - target.center().y).abs() < px(1.0));
         }
         assert!(harness.bounds(cx, "commit-position").is_some());
@@ -87,14 +91,18 @@ fn stepping_to_the_working_tree_keeps_the_arrows_in_place(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-fn a_narrow_toolbar_drops_the_position_and_summary_and_keeps_its_controls_on_screen(cx: &mut TestAppContext) {
+fn a_narrow_toolbar_folds_in_the_sidebar_controls_and_drops_the_position_and_summary(cx: &mut TestAppContext) {
     paged(page(DiffScope::Both)).with_window_size(800.0, 700.0).run(cx, |harness, cx| {
+        assert!(harness.bounds(cx, "toolbar-files").is_none());
         assert!(harness.bounds(cx, "commit-position").is_none());
         assert!(harness.bounds(cx, "diff-summary").is_none());
+        let toggle = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing sidebar toggle")?;
+        let back = harness.bounds(cx, "navigate-back").ok_or("missing back")?;
         let target = harness.bounds(cx, "review-target").ok_or("missing review target")?;
         let scopes = harness.bounds(cx, "scopes").ok_or("missing scopes")?;
         let layout = harness.bounds(cx, "view-mode-toggle").ok_or("missing layout toggle")?;
         let size = harness.bounds(cx, "interface-size").ok_or("missing interface size")?;
+        assert!(toggle.right() < back.left());
         assert!(scopes.right() <= target.right() && target.right() <= layout.left());
         assert!(size.right() <= px(800.0));
         Ok(())

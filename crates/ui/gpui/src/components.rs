@@ -376,19 +376,12 @@ pub struct SegmentedControl {
     id: SharedString,
     theme: UiTheme,
     segments: Vec<Segment>,
-    embedded: bool,
 }
 
 impl SegmentedControl {
     #[must_use]
     pub fn new(id: impl Into<SharedString>, theme: UiTheme) -> Self {
-        Self { id: id.into(), theme, segments: Vec::new(), embedded: false }
-    }
-
-    #[must_use]
-    pub const fn embedded(mut self) -> Self {
-        self.embedded = true;
-        self
+        Self { id: id.into(), theme, segments: Vec::new() }
     }
 
     #[must_use]
@@ -411,20 +404,10 @@ impl RenderOnce for SegmentedControl {
             .flex()
             .items_center()
             .gap_0p5()
-            .map(|control| {
-                if self.embedded {
-                    control.h_full().py_0p5()
-                } else {
-                    control
-                        .h(rem(tokens::ROW_HEIGHT))
-                        .p_1()
-                        .rounded(rem(tokens::RADIUS_CONTROL))
-                        .border_1()
-                        .border_color(colors.border_subtle)
-                        .bg(colors.surface)
-                        .shadow_sm()
-                }
-            })
+            .h(rem(tokens::ROW_HEIGHT))
+            .p_1()
+            .rounded(rem(tokens::RADIUS_CONTROL))
+            .bg(colors.surface)
             .typography(Typography::Small)
             .children(self.segments.into_iter().map(|segment| {
                 let selector = segment.id.to_string();
