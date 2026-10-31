@@ -40,19 +40,22 @@ pub struct RemoteSpec {
     pub logs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub acp: Option<Acp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff: Option<Channel>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "AcpFields", into = "AcpFields")]
 pub struct Acp {
-    pub transport: AcpCommand,
+    pub transport: Channel,
     pub cwd: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AcpCommand {
-    Stdio(Vec<String>),
-    Websocket(Vec<String>),
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel<T = Vec<String>> {
+    Stdio(T),
+    Websocket(T),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,14 +86,8 @@ pub struct Invocation {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcpTarget {
-    pub transport: AcpTransport,
+    pub transport: Channel<Invocation>,
     pub cwd: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AcpTransport {
-    Stdio(Invocation),
-    Websocket(Invocation),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -151,12 +148,13 @@ impl RemoteSpec {
         let Some(acp) = &self.acp else {
             return Ok(None);
         };
-        let transport = match &acp.transport {
-            AcpCommand::Stdio(argv) => AcpTransport::Stdio(self.expand_command(argv, "acp", instance)?),
-            AcpCommand::Websocket(argv) => AcpTransport::Websocket(self.expand_command(argv, "acp", instance)?),
-        };
+        let transport = self.expand_channel(&acp.transport, "acp", instance)?;
         let cwd = acp.cwd.as_deref().map(|cwd| self.expand(cwd, instance)).transpose()?;
         Ok(Some(AcpTarget { transport, cwd }))
+    }
+
+    pub fn diff(&self, instance: Option<&str>) -> Result<Option<Channel<Invocation>>, RemoteError> {
+        self.diff.as_ref().map(|diff| self.expand_channel(diff, "diff", instance)).transpose()
     }
 
     fn command(&self, action: Action) -> Option<&Vec<String>> {
@@ -169,6 +167,18 @@ impl RemoteSpec {
             Action::Shell => self.shell.as_ref(),
             Action::Logs => self.logs.as_ref(),
         }
+    }
+
+    fn expand_channel(
+        &self,
+        channel: &Channel,
+        action: &str,
+        instance: Option<&str>,
+    ) -> Result<Channel<Invocation>, RemoteError> {
+        Ok(match channel {
+            Channel::Stdio(argv) => Channel::Stdio(self.expand_command(argv, action, instance)?),
+            Channel::Websocket(argv) => Channel::Websocket(self.expand_command(argv, action, instance)?),
+        })
     }
 
     fn expand_command(
@@ -203,12 +213,12 @@ impl RemoteSpec {
 impl Acp {
     #[must_use]
     pub fn stdio(argv: Vec<String>) -> Self {
-        Self { transport: AcpCommand::Stdio(argv), cwd: None }
+        Self { transport: Channel::Stdio(argv), cwd: None }
     }
 
     #[must_use]
     pub fn websocket(argv: Vec<String>) -> Self {
-        Self { transport: AcpCommand::Websocket(argv), cwd: None }
+        Self { transport: Channel::Websocket(argv), cwd: None }
     }
 }
 
@@ -217,8 +227,8 @@ impl TryFrom<AcpFields> for Acp {
 
     fn try_from(fields: AcpFields) -> Result<Self, Self::Error> {
         let transport = match (fields.stdio, fields.websocket) {
-            (Some(argv), None) => AcpCommand::Stdio(argv),
-            (None, Some(argv)) => AcpCommand::Websocket(argv),
+            (Some(argv), None) => Channel::Stdio(argv),
+            (None, Some(argv)) => Channel::Websocket(argv),
             _ => return Err("`acp` needs exactly one of `stdio` and `websocket`"),
         };
         Ok(Self { transport, cwd: fields.cwd })
@@ -228,8 +238,8 @@ impl TryFrom<AcpFields> for Acp {
 impl From<Acp> for AcpFields {
     fn from(acp: Acp) -> Self {
         let (stdio, websocket) = match acp.transport {
-            AcpCommand::Stdio(argv) => (Some(argv), None),
-            AcpCommand::Websocket(argv) => (None, Some(argv)),
+            Channel::Stdio(argv) => (Some(argv), None),
+            Channel::Websocket(argv) => (None, Some(argv)),
         };
         Self { stdio, websocket, cwd: acp.cwd }
     }

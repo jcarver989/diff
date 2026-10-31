@@ -1,4 +1,4 @@
-use clankerdiff_client::{ClientOptions, DiffClient, DiffReviewEvent};
+use clankerdiff_client::{ClientOptions, DiffClient, DiffReviewEvent, transport::StreamTransport};
 use clankerdiff_core::{DiffSide, LineAnchor, Review};
 use clankerdiff_git::testing::RepoFixtureBuilder;
 use clankerdiff_protocol::{ReviewOutcome, ReviewResponse, parse_response};
@@ -8,6 +8,7 @@ use std::{
     process::{Child, Command, Output, Stdio},
     time::Duration,
 };
+use tokio::process::Command as AsyncCommand;
 
 #[test]
 fn remote_commands_are_available_in_executable() -> Result<(), Box<dyn Error>> {
@@ -19,6 +20,7 @@ fn remote_commands_are_available_in_executable() -> Result<(), Box<dyn Error>> {
         if command == "serve" {
             assert!(text.contains("127.0.0.1:7331"));
             assert!(text.contains("--format"));
+            assert!(text.contains("--stdio"));
         } else {
             assert!(text.contains("-H"));
             assert!(text.contains("--header"));
@@ -78,6 +80,29 @@ async fn server_cancellation_uses_the_review_exit_code() -> Result<(), Box<dyn E
         parse_response(&output.stdout)?,
         ReviewResponse::Diff { outcome: ReviewOutcome::Cancelled, submission: None, .. }
     ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stdio_server_serves_its_client_until_the_client_hangs_up() -> Result<(), Box<dyn Error>> {
+    let repo = RepoFixtureBuilder::new().file("file", "old\n").committed().build();
+    repo.write("file", "new\n");
+    let repository = repo.repository().await;
+    let mut server = AsyncCommand::new(env!("CARGO_BIN_EXE_clankerdiff"))
+        .args(["serve", "--stdio"])
+        .arg(repository.root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()?;
+    let (stdout, stdin) = (server.stdout.take().ok_or("server stdout")?, server.stdin.take().ok_or("server stdin")?);
+    let client = DiffClient::from_messages(StreamTransport::new(stdout, stdin), ClientOptions::default()).await?;
+
+    let state = client.subscribe().wait_until(Duration::from_secs(10), |state| state.snapshot.is_some()).await?;
+    client.close().await?;
+
+    assert_eq!(state.snapshot.as_ref().ok_or("snapshot")?.files.len(), 1);
+    assert!(server.wait().await?.success());
     Ok(())
 }
 

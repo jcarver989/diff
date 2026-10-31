@@ -1,10 +1,11 @@
-use crate::server::stopped;
+use crate::server::{protocol, stopped};
 use clankerdiff_protocol::{
     client::ClientCommand,
     server::{LocalServerMessageTransport, LocalServerTransport, SentDocument, ServerEvent, ServerMessage},
-    shared::{LocalEnd, RemoteError},
+    shared::{LocalEnd, RemoteError, StreamError, StreamTransport},
 };
 use std::future::Future;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub trait ServerMessageTransport: Send + 'static {
     fn recv(&mut self) -> impl Future<Output = Result<ClientCommand, RemoteError>> + Send;
@@ -43,6 +44,28 @@ impl ServerMessageTransport for LocalServerMessageTransport {
 
     async fn close(&mut self) {
         LocalEnd::close(self);
+    }
+}
+
+impl<T, U> ServerMessageTransport for StreamTransport<T, U>
+where
+    T: AsyncRead + Unpin + Send + 'static,
+    U: AsyncWrite + Unpin + Send + 'static,
+{
+    async fn recv(&mut self) -> Result<ClientCommand, RemoteError> {
+        let line = self.read_line().await.map_err(|error| match error {
+            StreamError::Closed => stopped(),
+            error => protocol(error),
+        })?;
+        Ok(ClientCommand::decode(&line)?)
+    }
+
+    async fn send(&mut self, message: ServerMessage) -> Result<(), RemoteError> {
+        self.write_line(&message.encode()?).await.map_err(|_| stopped())
+    }
+
+    async fn close(&mut self) {
+        self.shutdown().await;
     }
 }
 

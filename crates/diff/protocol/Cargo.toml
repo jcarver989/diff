@@ -10,6 +10,9 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+stream = ["dep:tokio"]
+
 [dependencies]
 async-channel.workspace = true
 clankerdiff-core.workspace = true
@@ -17,6 +20,7 @@ clankerdiff-markdown = { workspace = true, features = ["review"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio = { version = "1.47.1", default-features = false, features = ["io-util"], optional = true }
 
 [dev-dependencies]
 clankerdiff-core = { workspace = true, features = ["test-support"] }

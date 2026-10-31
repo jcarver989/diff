@@ -1,3 +1,4 @@
+use super::MAX_MESSAGE_BYTES;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -9,6 +10,8 @@ pub enum ProtocolError {
     Encoding(#[from] serde_json::Error),
     #[error("expected a text protocol message")]
     MessageType,
+    #[error("message exceeds {MAX_MESSAGE_BYTES} bytes")]
+    TooLarge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

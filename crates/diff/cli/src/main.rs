@@ -10,7 +10,7 @@ use clankerdiff_core::{DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_git::GitRepository;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission};
 use clankerdiff_protocol::{CapabilityResponse, PROTOCOL_VERSION, ReviewOutcome, ReviewResponse};
-use clankerdiff_server::{DiffServer, ReviewCompletion, ServerOptions};
+use clankerdiff_server::{DiffServer, ReviewCompletion, ServerOptions, StreamTransport};
 use clap::Parser;
 use std::{
     fs,
@@ -38,6 +38,7 @@ fn main() -> ExitCode {
 
 async fn dispatch(command: Command) -> Result<ExitCode, AppError> {
     match command {
+        Command::Serve(args) if args.stdio => serve_stdio(&args.repository).await,
         Command::Serve(args) => {
             let format = args.format;
             let mut server = DiffServer::open(args.repository, ServerOptions::default()).await?;
@@ -90,6 +91,13 @@ async fn dispatch(command: Command) -> Result<ExitCode, AppError> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+async fn serve_stdio(repository: &Path) -> Result<ExitCode, AppError> {
+    let server = DiffServer::open(repository, ServerOptions::default()).await?;
+    server.serve(StreamTransport::new(tokio::io::stdin(), tokio::io::stdout())).await?;
+    server.shutdown().await?;
+    Ok(ExitCode::SUCCESS)
 }
 
 async fn connect(args: ConnectArgs) -> Result<ReviewOutcome, AppError> {
