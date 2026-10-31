@@ -17,6 +17,12 @@ use crate::ConnectionHeader;
 mod ws;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod stream;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::protocol::shared::StreamTransport;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub trait MaybeSend: Send {}
 #[cfg(not(target_arch = "wasm32"))]
 impl<T: Send> MaybeSend for T {}
