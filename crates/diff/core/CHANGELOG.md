@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.8.0...clankerdiff-core-v0.8.1) - 2026-10-31
+
+### Added
+
+- browse every repository file and rework the viewer toolbar ([#125](https://github.com/jcarver989/diff/pull/125))
+
 ## [0.8.0](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.7.1...clankerdiff-core-v0.8.0) - 2026-10-29
 
 ### Added
