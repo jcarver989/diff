@@ -77,6 +77,21 @@ fn a_commit_page_names_its_short_sha_and_keeps_the_summary(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn the_commit_arrows_bracket_the_commit_inside_its_control(cx: &mut TestAppContext) {
+    paged(page(commit_id(2))).with_window_size(1400.0, 800.0).run(cx, |harness, cx| {
+        let stepper = harness.bounds(cx, "commit-stepper").ok_or("missing stepper")?;
+        let older = harness.bounds(cx, "commit-previous").ok_or("missing older")?;
+        let commit = harness.bounds(cx, "commit-page").ok_or("missing commit")?;
+        let newer = harness.bounds(cx, "commit-next").ok_or("missing newer")?;
+        let forward = harness.bounds(cx, "navigate-forward").ok_or("missing forward")?;
+        assert!(stepper.left() <= older.left() && older.right() <= commit.left());
+        assert!(commit.right() <= newer.left() && newer.right() <= stepper.right());
+        assert!(forward.right() < stepper.left());
+        Ok(())
+    });
+}
+
+#[gpui::test]
 fn stepping_to_the_working_tree_keeps_the_arrows_in_place(cx: &mut TestAppContext) {
     paged(page(commit_id(2))).with_window_size(1400.0, 800.0).run(cx, |harness, cx| {
         let arrows = |harness: &DiffViewerHarness, cx: &mut TestAppContext| {
@@ -91,18 +106,19 @@ fn stepping_to_the_working_tree_keeps_the_arrows_in_place(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-fn a_narrow_toolbar_folds_in_the_sidebar_controls_and_drops_the_position_and_summary(cx: &mut TestAppContext) {
+fn a_narrow_toolbar_folds_in_the_sidebar_controls_and_drops_the_history_position_and_summary(cx: &mut TestAppContext) {
     paged(page(DiffScope::Both)).with_window_size(800.0, 700.0).run(cx, |harness, cx| {
         assert!(harness.bounds(cx, "toolbar-files").is_none());
         assert!(harness.bounds(cx, "commit-position").is_none());
         assert!(harness.bounds(cx, "diff-summary").is_none());
+        assert!(harness.bounds(cx, "navigate-back").is_none());
         let toggle = harness.bounds(cx, "diff-sidebar-toggle").ok_or("missing sidebar toggle")?;
-        let back = harness.bounds(cx, "navigate-back").ok_or("missing back")?;
         let target = harness.bounds(cx, "review-target").ok_or("missing review target")?;
         let scopes = harness.bounds(cx, "scopes").ok_or("missing scopes")?;
         let layout = harness.bounds(cx, "view-mode-toggle").ok_or("missing layout toggle")?;
         let size = harness.bounds(cx, "interface-size").ok_or("missing interface size")?;
-        assert!(toggle.right() < back.left());
+        assert!(toggle.right() < target.left());
+        assert!(harness.bounds(cx, "commit-previous").is_some() && harness.bounds(cx, "commit-next").is_some());
         assert!(scopes.right() <= target.right() && target.right() <= layout.left());
         assert!(size.right() <= px(800.0));
         Ok(())

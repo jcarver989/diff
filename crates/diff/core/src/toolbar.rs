@@ -80,8 +80,8 @@ impl Toolbar {
         toolbar.page = session.page_label().filter(PageLabel::is_paged);
         if toolbar.page.is_some() {
             toolbar.stepper = vec![
-                control(ControlKind::PreviousCommit, DiffReviewCommand::StepTarget(-1), "Previous commit", false),
-                control(ControlKind::NextCommit, DiffReviewCommand::StepTarget(1), "Next commit", false),
+                control(ControlKind::PreviousCommit, DiffReviewCommand::StepTarget(-1), "Older commit", false),
+                control(ControlKind::NextCommit, DiffReviewCommand::StepTarget(1), "Newer commit", false),
                 control(ControlKind::ChooseCommit, DiffReviewCommand::OpenCommitPicker, "Choose commit", false),
             ];
         }

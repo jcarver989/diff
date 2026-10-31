@@ -85,7 +85,8 @@ impl DiffViewer {
 
     fn render_toolbar_leading(&self, toolbar: &Toolbar, split: bool, compact: bool, cx: &mut Context<Self>) -> Div {
         let files = if split { Vec::new() } else { self.render_files_controls(toolbar, cx) };
-        let history: Vec<_> = toolbar.history.iter().map(|control| self.control_button(control, cx)).collect();
+        let history: Vec<_> =
+            toolbar.history.iter().filter(|_| !compact).map(|control| self.control_button(control, cx)).collect();
         let target = self.render_review_target(toolbar, compact, cx);
         let theme = self.ui_theme();
         let before_history = (!files.is_empty() && !history.is_empty()).then(|| divider(theme.colors.border_subtle));
@@ -253,34 +254,45 @@ impl DiffViewer {
             .debug_selector(|| "commit-page".to_owned())
             .role(Role::Button)
             .aria_label(tooltip.clone())
-            .flex_initial()
+            .flex_1()
             .min_w_0()
             .h(rem(tokens::ICON_BUTTON_SIZE))
             .px_2()
             .flex()
             .items_center()
             .gap_2()
-            .rounded_full()
+            .rounded(rem(tokens::RADIUS_INNER))
             .cursor_pointer()
             .hover(move |trigger| trigger.bg(colors.surface_hover))
             .tooltip(Tooltip::text(tooltip, theme))
             .children(short_id)
             .children(subject)
-            .children(position)
-            .child(Icon::new(IconName::ChevronDown, colors.text_muted).size(tokens::ICON_SIZE_SMALL));
+            .child(
+                div()
+                    .flex_none()
+                    .ml_auto()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .children(position)
+                    .child(Icon::new(IconName::ChevronDown, colors.text_muted).size(tokens::ICON_SIZE_SMALL)),
+            );
         Some(
             div()
                 .debug_selector(|| "commit-stepper".to_owned())
                 .flex_initial()
+                .w(rem(MAX_STEPPER_WIDTH))
                 .min_w(rem(MIN_STEPPER_WIDTH))
-                .max_w(rem(MAX_STEPPER_WIDTH))
                 .h_full()
+                .px_0p5()
                 .flex()
                 .items_center()
                 .gap_0p5()
+                .rounded(rem(tokens::RADIUS_CONTROL))
+                .bg(colors.surface)
                 .child(self.control_button(previous, cx).icon_size(tokens::ICON_SIZE_SMALL))
-                .child(self.control_button(next, cx).icon_size(tokens::ICON_SIZE_SMALL))
-                .child(trigger.on_click(run(choose, cx))),
+                .child(trigger.on_click(run(choose, cx)))
+                .child(self.control_button(next, cx).icon_size(tokens::ICON_SIZE_SMALL)),
         )
     }
 

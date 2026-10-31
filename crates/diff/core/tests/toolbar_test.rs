@@ -50,7 +50,7 @@ fn commit_pages_offer_the_stepper_and_history_names_its_target() -> Result<(), B
     let toolbar = Toolbar::new(&session, Some(false), false, default_key_label);
     let stepper = [ControlKind::PreviousCommit, ControlKind::NextCommit, ControlKind::ChooseCommit];
     assert_eq!(kinds(&toolbar.stepper), stepper);
-    assert_eq!(tooltips(&toolbar.stepper), ["Previous commit ([)", "Next commit (])", "Choose commit (p)"]);
+    assert_eq!(tooltips(&toolbar.stepper), ["Older commit ([)", "Newer commit (])", "Choose commit (p)"]);
     assert!(toolbar.page.is_some() && toolbar.scopes.is_empty());
     assert!(toolbar.history[0].tooltip.starts_with("Back to lib.rs:"), "{}", toolbar.history[0].tooltip);
     Ok(())
