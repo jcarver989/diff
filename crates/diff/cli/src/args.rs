@@ -31,6 +31,8 @@ pub struct ServeArgs {
     pub repository: PathBuf,
     #[arg(long, default_value = "127.0.0.1:7331")]
     pub listen: std::net::SocketAddr,
+    #[arg(long, conflicts_with_all = ["listen", "format"])]
+    pub stdio: bool,
     #[arg(long, value_enum, default_value_t)]
     pub format: OutputFormat,
 }
