@@ -1,6 +1,4 @@
-use clankerdiff_remote::{
-    Acp, AcpCommand, AcpTarget, AcpTransport, Action, Lifecycle, RemoteError, RemoteSpec, RemotesFile,
-};
+use clankerdiff_remote::{Acp, AcpTarget, Action, Channel, Lifecycle, RemoteError, RemoteSpec, RemotesFile};
 use serde_json::json;
 use std::error::Error;
 use std::fs;
@@ -27,12 +25,12 @@ fn a_remotes_file_names_each_remote_with_one_command_per_action() -> TestResult 
     assert!(!patchwave.is_static());
     assert!(patchwave.can(Action::List) && patchwave.can_change(Lifecycle::Stop));
     assert!(!patchwave.can(Action::Launch) && !patchwave.can_change(Lifecycle::Suspend));
-    assert!(matches!(patchwave.acp, Some(Acp { transport: AcpCommand::Websocket(_), cwd: None })));
+    assert!(matches!(patchwave.acp, Some(Acp { transport: Channel::Websocket(_), cwd: None })));
     assert!(devbox.is_static(), "a remote without `list` is static");
     assert!(devbox.can(Action::Shell));
     assert!(matches!(
         &devbox.acp,
-        Some(Acp { transport: AcpCommand::Stdio(_), cwd: Some(cwd) }) if cwd == "/home/me/code"
+        Some(Acp { transport: Channel::Stdio(_), cwd: Some(cwd) }) if cwd == "/home/me/code"
     ));
     Ok(())
 }
@@ -120,12 +118,11 @@ fn an_agent_is_reached_over_stdio_or_where_a_command_says_in_its_cwd() -> TestRe
     let websocket =
         RemoteSpec { acp: Some(Acp::websocket(argv(&["endpoint", "${ID}"]))), ..RemoteSpec::named("patchwave") };
 
-    let Some(AcpTarget { transport: AcpTransport::Stdio(stdio_command), cwd: stdio_cwd }) =
-        stdio.acp(Some("devbox"))?
+    let Some(AcpTarget { transport: Channel::Stdio(stdio_command), cwd: stdio_cwd }) = stdio.acp(Some("devbox"))?
     else {
         panic!("a stdio agent")
     };
-    let Some(AcpTarget { transport: AcpTransport::Websocket(endpoint), cwd: websocket_cwd }) =
+    let Some(AcpTarget { transport: Channel::Websocket(endpoint), cwd: websocket_cwd }) =
         websocket.acp(Some("mvm-1"))?
     else {
         panic!("a websocket agent")
@@ -145,6 +142,33 @@ fn an_agent_needs_exactly_one_transport() {
             parse(&json!({ "remotes": [{ "name": "devbox", "acp": acp }] })).expect_err("an agent is reached one way");
 
         assert!(error.to_string().contains("exactly one"), "{error}");
+    }
+}
+
+#[test]
+fn a_diff_server_is_reached_over_stdio_or_where_a_command_says() -> TestResult {
+    let file = parse(&json!({ "remotes": [
+        { "name": "docker", "diff": { "stdio": ["remote", "exec", "${ID}", "clankerdiff", "serve", "--stdio"] } },
+        { "name": "patchwave", "diff": { "websocket": ["endpoint", "${ID}", "diff"] } },
+    ]}))?;
+    let [docker, patchwave] = file.remotes.as_slice() else { panic!("two remotes") };
+
+    let Some(Channel::Stdio(stdio)) = docker.diff(Some("c1"))? else { panic!("a stdio diff server") };
+    let Some(Channel::Websocket(endpoint)) = patchwave.diff(Some("mvm-1"))? else { panic!("a websocket diff server") };
+
+    assert_eq!(stdio.program, "remote");
+    assert_eq!(stdio.args, ["exec", "c1", "clankerdiff", "serve", "--stdio"]);
+    assert_eq!(endpoint.args, ["mvm-1", "diff"]);
+    assert_eq!(RemoteSpec::named("devbox").diff(None)?, None);
+    Ok(())
+}
+
+#[test]
+fn a_diff_server_needs_exactly_one_transport() {
+    for diff in [json!({}), json!({ "stdio": ["clankerdiff"], "websocket": ["endpoint"] })] {
+        let remotes = json!({ "remotes": [{ "name": "devbox", "diff": diff }] });
+
+        parse(&remotes).expect_err("a diff server is reached one way");
     }
 }
 

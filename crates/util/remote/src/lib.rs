@@ -8,8 +8,7 @@ mod vars;
 pub use command::{CommandRemotes, Instance, InstanceState, Remotes, short_id};
 pub use inventory::{Inventory, Listed, Listing, POLL, POLL_SETTLING};
 pub use spec::{
-    Acp, AcpCommand, AcpTarget, AcpTransport, Action, Invocation, Lifecycle, REMOTES_FILE, RemoteSpec, RemotesFile,
-    default_file,
+    Acp, AcpTarget, Action, Channel, Invocation, Lifecycle, REMOTES_FILE, RemoteSpec, RemotesFile, default_file,
 };
 
 use std::io;
