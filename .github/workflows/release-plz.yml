@@ -37,7 +37,7 @@ jobs:
         id: crates-io-auth
         uses: rust-lang/crates-io-auth-action@v1
       - name: Run release-plz release
-        uses: release-plz/action@v0.5.142
+        uses: release-plz/action@v0.5.146
         with:
           command: release
         env:
@@ -70,7 +70,7 @@ jobs:
       - name: Install Linux build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-x11-dev
       - name: Run release-plz release-pr
-        uses: release-plz/action@v0.5.142
+        uses: release-plz/action@v0.5.146
         with:
           command: release-pr
         env:
