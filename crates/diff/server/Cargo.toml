@@ -16,7 +16,7 @@ websocket = ["dep:axum", "dep:futures-util"]
 
 [dependencies]
 clankerdiff-core.workspace = true
-clankerdiff-protocol.workspace = true
+clankerdiff-protocol = { workspace = true, features = ["stream"] }
 clankerdiff-git.workspace = true
 clankerdiff-lspd.workspace = true
 clankerdiff-watch.workspace = true

@@ -25,7 +25,7 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
-use tokio::{sync::mpsc, time::timeout};
+use tokio::{sync::mpsc, task::JoinHandle, time::timeout};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
@@ -105,9 +105,9 @@ pub(crate) struct Handle {
 }
 
 impl Handle {
-    pub fn accept<T: Transport>(&self, transport: T, stop: CancellationToken) {
+    pub fn accept<T: Transport>(&self, transport: T, stop: CancellationToken) -> JoinHandle<()> {
         let context = Arc::clone(&self.context);
-        self.tasks.spawn(connection::accept(context, transport, stop));
+        self.tasks.spawn(connection::accept(context, transport, stop))
     }
 
     #[cfg(feature = "websocket")]
@@ -182,15 +182,18 @@ impl DiffServer {
     }
 
     pub fn accept(&self, transport: impl ServerMessageTransport) -> Result<(), ServerError> {
-        self.accept_transport(Encoded::new(transport))
+        self.accept_transport(Encoded::new(transport)).map(drop)
     }
 
-    fn accept_transport<T: Transport>(&self, transport: T) -> Result<(), ServerError> {
+    pub async fn serve(&self, transport: impl ServerMessageTransport) -> Result<(), ServerError> {
+        self.accept_transport(Encoded::new(transport))?.await.map_err(|_| ServerError::Stopped)
+    }
+
+    fn accept_transport<T: Transport>(&self, transport: T) -> Result<JoinHandle<()>, ServerError> {
         if self.handle.stop.is_cancelled() {
             return Err(ServerError::Stopped);
         }
-        self.handle.accept(transport, self.handle.stop.clone());
-        Ok(())
+        Ok(self.handle.accept(transport, self.handle.stop.clone()))
     }
 
     #[cfg(feature = "websocket")]
