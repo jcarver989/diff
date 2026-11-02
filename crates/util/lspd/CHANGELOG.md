@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3](https://github.com/jcarver989/diff/compare/clankerdiff-lspd-v0.8.2...clankerdiff-lspd-v0.8.3) - 2026-11-02
+
+### Fixed
+
+- *(lspd)* pull stale diagnostics only when the workspace is queried ([#129](https://github.com/jcarver989/diff/pull/129))
+
 ## [0.8.0](https://github.com/jcarver989/diff/compare/clankerdiff-lspd-v0.7.1...clankerdiff-lspd-v0.8.0) - 2026-10-29
 
 ### Added
