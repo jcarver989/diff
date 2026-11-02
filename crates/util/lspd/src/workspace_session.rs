@@ -152,8 +152,8 @@ impl WorkspaceSession {
     async fn refresh_uri(&self, uri: &Uri) -> Freshness {
         let held = self.open(uri).await;
         let freshness = match (self.mode, held.opened) {
-            (_, Opened::Missing) | (DiagnosticsMode::Push, Opened::AlreadyOpen) => Freshness::Unconfirmed,
-            (DiagnosticsMode::Push, Opened::Sent { version_before }) => {
+            (_, Opened::Missing) => Freshness::Unconfirmed,
+            (DiagnosticsMode::Push, Opened::Synced { version_before }) => {
                 let fresh = self.diagnostics.wait_for_uri_fresh(uri, version_before, self.timeouts.diagnostics);
                 self.hooks.observe_pending(TestPoint::DiagnosticsWait(uri.clone()), fresh).await
             }

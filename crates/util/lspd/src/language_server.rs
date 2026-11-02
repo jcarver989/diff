@@ -55,8 +55,7 @@ pub(crate) enum Command {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Opened {
-    Sent { version_before: u64 },
-    AlreadyOpen,
+    Synced { version_before: u64 },
     Missing,
 }
 
@@ -76,6 +75,7 @@ pub(crate) struct Shared {
 struct Document {
     holders: usize,
     content_hash: Option<u64>,
+    version_before: u64,
     needs_refresh: bool,
     needs_save: bool,
 }
@@ -214,14 +214,15 @@ impl LanguageServer {
             }));
         }
         if notifications.is_empty() {
-            return Opened::AlreadyOpen;
+            return Opened::Synced { version_before: document.version_before };
         }
-        self.shared.hooks.pause(TestPoint::DocumentOpen(uri.clone())).await;
         let version_before = self.shared.diagnostics.current_uri_version(&uri);
+        document.version_before = version_before;
+        self.shared.hooks.pause(TestPoint::DocumentOpen(uri.clone())).await;
         for notification in notifications {
             self.notify(notification).await;
         }
-        Opened::Sent { version_before }
+        Opened::Synced { version_before }
     }
 
     async fn close(&mut self, uri: Uri) {
