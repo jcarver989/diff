@@ -1,5 +1,5 @@
 use crate::common::{
-    TestResult, TestWorkspace, fake, fake_request, file_uri, serve, wait_for_workspace_diagnostics,
+    TestResult, TestWorkspace, fake, fake_request, file_uri, hover_text, serve, wait_for_workspace_diagnostics,
     workspace_error_count,
 };
 use clankerdiff_lspd::LanguageId;
@@ -49,6 +49,38 @@ async fn file_changes_still_reach_a_server_that_re_registers_its_watchers() -> T
     project.write("b.ts", "export const error = 1;\n");
 
     wait_for_workspace_diagnostics(&client, |diagnostics| workspace_error_count(diagnostics) == 2).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_server_that_requests_a_refresh_on_every_pull_is_only_pulled_when_diagnostics_are_requested() -> TestResult {
+    let project = dependent_files();
+    let builder = fake(project.root(), LanguageId::TypeScript, &["--pull-diagnostics", "--refresh-on-pull"]);
+    let (_daemon, client) = serve(builder).await?;
+
+    client.get_diagnostics(None).await?;
+
+    let hover = hover_text(client.hover(file_uri(&project.path("a.ts")), 0, 0).await?)?;
+    assert!(hover.contains("pull_count=2;"), "{hover}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn changes_inside_ignored_directories_are_never_pulled() -> TestResult {
+    let project = dependent_files();
+    let (_daemon, client) = serve(pull_diagnostics(&project)).await?;
+    assert_eq!(workspace_error_count(&client.get_diagnostics(None).await?), 0);
+
+    project.write("node_modules/dep/index.ts", "export const error = 1;\n");
+    project.write("b.ts", "export const error = 1;\n");
+
+    let b_uri = file_uri(&project.path("b.ts"));
+    let refreshed = wait_for_workspace_diagnostics(&client, |diagnostics| {
+        diagnostics.iter().any(|params| params.uri == b_uri && !params.diagnostics.is_empty())
+    })
+    .await?;
+    let pulled: Vec<_> = refreshed.iter().map(|params| params.uri.as_str()).collect();
+    assert!(pulled.iter().all(|uri| !uri.contains("node_modules")), "{pulled:?}");
     Ok(())
 }
 

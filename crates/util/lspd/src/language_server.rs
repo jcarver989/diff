@@ -238,7 +238,7 @@ impl LanguageServer {
         }))
         .await;
         if refresh {
-            self.refresh(vec![uri]);
+            self.mark_stale([uri]);
         }
     }
 
@@ -254,15 +254,22 @@ impl LanguageServer {
                 _ => true,
             })
             .collect();
-        self.refresh(changes.iter().map(|change| change.uri.clone()).chain(batch.discovered).collect());
+        self.mark_stale(changes.iter().map(|change| change.uri.clone()).chain(batch.discovered));
         if !changes.is_empty() {
             self.notify(notification::<DidChangeWatchedFiles>(&DidChangeWatchedFilesParams { changes })).await;
         }
     }
 
-    fn refresh(&self, uris: Vec<Uri>) {
-        for uri in uris.into_iter().filter(|uri| self.server.serves(&uri_to_path(uri))) {
-            let _ = self.shared.refresh.send(Refresh::Uri(uri));
+    fn mark_stale(&self, uris: impl IntoIterator<Item = Uri>) {
+        let stale: Vec<_> = uris
+            .into_iter()
+            .filter(|uri| {
+                let path = uri_to_path(uri);
+                self.server.serves(&path) && !self.watched.ignores(&path)
+            })
+            .collect();
+        if !stale.is_empty() {
+            let _ = self.shared.refresh.send(Refresh::Stale(stale));
         }
     }
 
@@ -328,7 +335,7 @@ impl LanguageServer {
                     }
                     WorkDoneProgressCreate::METHOD => json!({ "id": id, "result": null }),
                     WorkspaceDiagnosticRefresh::METHOD => {
-                        self.refresh(self.shared.diagnostics.uris());
+                        self.mark_stale(self.shared.diagnostics.uris());
                         json!({ "id": id, "result": null })
                     }
                     _ => {

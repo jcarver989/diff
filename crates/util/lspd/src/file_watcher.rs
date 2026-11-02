@@ -95,6 +95,10 @@ impl WatchedFiles {
         }
     }
 
+    pub(crate) fn ignores(&self, path: &Path) -> bool {
+        path.strip_prefix(&self.root).is_ok_and(inside_ignored_directory)
+    }
+
     pub(crate) fn take(&mut self) -> WatchBatch {
         self.debounce = None;
         let changes = std::mem::take(&mut self.changes).into_iter().map(|(uri, typ)| FileEvent { uri, typ }).collect();
@@ -153,8 +157,11 @@ fn change_type(kind: EventKind, watched: WatchKind) -> Option<FileChangeType> {
 }
 
 fn tracks_implicitly(kind: EventKind, relative: &Path, absolute: &Path) -> bool {
-    let ignored = relative
+    !inside_ignored_directory(relative) && (matches!(kind, EventKind::Remove(_)) || !absolute.is_dir())
+}
+
+fn inside_ignored_directory(relative: &Path) -> bool {
+    relative
         .components()
-        .any(|component| matches!(component, Component::Normal(name) if is_ignored_directory_name(name)));
-    !ignored && (matches!(kind, EventKind::Remove(_)) || !absolute.is_dir())
+        .any(|component| matches!(component, Component::Normal(name) if is_ignored_directory_name(name)))
 }

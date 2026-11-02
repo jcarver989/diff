@@ -28,7 +28,9 @@ const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 pub(crate) enum Refresh {
     Uri(Uri),
+    Stale(Vec<Uri>),
     Barrier(oneshot::Sender<()>),
+    Workspace(oneshot::Sender<()>),
 }
 
 #[derive(Clone)]
@@ -102,7 +104,8 @@ impl WorkspaceSession {
     pub(crate) async fn get_diagnostics(&self, uri: Option<&Uri>) -> Vec<PublishDiagnosticsParams> {
         match uri {
             Some(uri) if self.refresh_uri(uri).await == Freshness::Fresh => {}
-            _ => self.barrier().await,
+            Some(_) => self.barrier(Refresh::Barrier).await,
+            None => self.barrier(Refresh::Workspace).await,
         }
         self.diagnostics.get(uri)
     }
@@ -123,9 +126,9 @@ impl WorkspaceSession {
         }
     }
 
-    async fn barrier(&self) {
+    async fn barrier(&self, job: fn(oneshot::Sender<()>) -> Refresh) {
         let (done, finished) = oneshot::channel();
-        if self.refresh.send(Refresh::Barrier(done)).is_ok() {
+        if self.refresh.send(job(done)).is_ok() {
             let _ = timeout(self.timeouts.diagnostics, finished).await;
         }
     }
@@ -204,19 +207,17 @@ impl WorkspaceSession {
     async fn run_refresh(self, root: PathBuf, server: &'static ServerSpec, mut jobs: mpsc::UnboundedReceiver<Refresh>) {
         let discovered = tokio::task::spawn_blocking(move || discover(&root, server)).await.unwrap_or_default();
         let mut queue = Jobs::default();
-        for uri in discovered {
-            queue.push(Refresh::Uri(uri));
-        }
+        queue.push(Refresh::Stale(discovered));
         let mut state = self.state.subscribe();
         while self.is_alive() {
             while let Ok(job) = jobs.try_recv() {
                 queue.push(job);
             }
             match queue.pop() {
-                Some(Refresh::Uri(uri)) => {
+                Some(Job::Uri(uri)) => {
                     self.refresh_uri(&uri).await;
                 }
-                Some(Refresh::Barrier(done)) => {
+                Some(Job::Barrier(done)) => {
                     let _ = done.send(());
                 }
                 None => select! {
@@ -249,28 +250,46 @@ impl Drop for HeldDocument {
     }
 }
 
+enum Job {
+    Uri(Uri),
+    Barrier(oneshot::Sender<()>),
+}
+
 #[derive(Default)]
 struct Jobs {
-    queue: VecDeque<Refresh>,
+    queue: VecDeque<Job>,
     queued: HashSet<Uri>,
+    stale: HashSet<Uri>,
 }
 
 impl Jobs {
-    fn push(&mut self, job: Refresh) {
-        if let Refresh::Uri(uri) = &job
-            && !self.queued.insert(uri.clone())
-        {
-            return;
+    fn push(&mut self, refresh: Refresh) {
+        match refresh {
+            Refresh::Uri(uri) => self.enqueue(uri),
+            Refresh::Stale(uris) => self.stale.extend(uris),
+            Refresh::Barrier(done) => self.queue.push_back(Job::Barrier(done)),
+            Refresh::Workspace(done) => {
+                for uri in std::mem::take(&mut self.stale) {
+                    self.enqueue(uri);
+                }
+                self.queue.push_back(Job::Barrier(done));
+            }
         }
-        self.queue.push_back(job);
     }
 
-    fn pop(&mut self) -> Option<Refresh> {
+    fn pop(&mut self) -> Option<Job> {
         let job = self.queue.pop_front()?;
-        if let Refresh::Uri(uri) = &job {
+        if let Job::Uri(uri) = &job {
             self.queued.remove(uri);
         }
         Some(job)
+    }
+
+    fn enqueue(&mut self, uri: Uri) {
+        self.stale.remove(&uri);
+        if self.queued.insert(uri.clone()) {
+            self.queue.push_back(Job::Uri(uri));
+        }
     }
 }
 
