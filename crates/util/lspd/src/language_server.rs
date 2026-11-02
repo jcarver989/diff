@@ -55,8 +55,7 @@ pub(crate) enum Command {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Opened {
-    Sent { version_before: u64 },
-    AlreadyOpen,
+    Synced { version_before: u64 },
     Missing,
 }
 
@@ -76,6 +75,7 @@ pub(crate) struct Shared {
 struct Document {
     holders: usize,
     content_hash: Option<u64>,
+    version_before: u64,
     needs_refresh: bool,
     needs_save: bool,
 }
@@ -214,14 +214,15 @@ impl LanguageServer {
             }));
         }
         if notifications.is_empty() {
-            return Opened::AlreadyOpen;
+            return Opened::Synced { version_before: document.version_before };
         }
-        self.shared.hooks.pause(TestPoint::DocumentOpen(uri.clone())).await;
         let version_before = self.shared.diagnostics.current_uri_version(&uri);
+        document.version_before = version_before;
+        self.shared.hooks.pause(TestPoint::DocumentOpen(uri.clone())).await;
         for notification in notifications {
             self.notify(notification).await;
         }
-        Opened::Sent { version_before }
+        Opened::Synced { version_before }
     }
 
     async fn close(&mut self, uri: Uri) {
@@ -238,7 +239,7 @@ impl LanguageServer {
         }))
         .await;
         if refresh {
-            self.refresh(vec![uri]);
+            self.mark_stale([uri]);
         }
     }
 
@@ -254,15 +255,22 @@ impl LanguageServer {
                 _ => true,
             })
             .collect();
-        self.refresh(changes.iter().map(|change| change.uri.clone()).chain(batch.discovered).collect());
+        self.mark_stale(changes.iter().map(|change| change.uri.clone()).chain(batch.discovered));
         if !changes.is_empty() {
             self.notify(notification::<DidChangeWatchedFiles>(&DidChangeWatchedFilesParams { changes })).await;
         }
     }
 
-    fn refresh(&self, uris: Vec<Uri>) {
-        for uri in uris.into_iter().filter(|uri| self.server.serves(&uri_to_path(uri))) {
-            let _ = self.shared.refresh.send(Refresh::Uri(uri));
+    fn mark_stale(&self, uris: impl IntoIterator<Item = Uri>) {
+        let stale: Vec<_> = uris
+            .into_iter()
+            .filter(|uri| {
+                let path = uri_to_path(uri);
+                self.server.serves(&path) && !self.watched.ignores(&path)
+            })
+            .collect();
+        if !stale.is_empty() {
+            let _ = self.shared.refresh.send(Refresh::Stale(stale));
         }
     }
 
@@ -328,7 +336,7 @@ impl LanguageServer {
                     }
                     WorkDoneProgressCreate::METHOD => json!({ "id": id, "result": null }),
                     WorkspaceDiagnosticRefresh::METHOD => {
-                        self.refresh(self.shared.diagnostics.uris());
+                        self.mark_stale(self.shared.diagnostics.uris());
                         json!({ "id": id, "result": null })
                     }
                     _ => {

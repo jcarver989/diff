@@ -9,6 +9,7 @@ parser = argparse.ArgumentParser()
 for flag in ("--wedge-on", "--crash-on", "--fail-on", "--garble-before", "--define"):
     parser.add_argument(flag, action="append", default=[])
 parser.add_argument("--pull-diagnostics", action="store_true")
+parser.add_argument("--refresh-on-pull", action="store_true")
 cli = parser.parse_args()
 defined = {}
 for definition in cli.define:
@@ -20,7 +21,7 @@ texts, opens, save_counts, held = {}, {}, {}, {}
 cancelled_since_open, wedged = set(), set()
 refresh_supported = status_supported = loading = released = False
 root_path = None
-next_request_id = watcher_generation = 0
+next_request_id = watcher_generation = pull_count = 0
 
 
 def write_frame(body):
@@ -182,6 +183,9 @@ while (message := read_message()) is not None:
         if any(key in params and params[key] is None for key in ("identifier", "previousResultId")):
             error(message, -32602, "null value is not allowed")
             continue
+        pull_count += 1
+        if cli.refresh_on_pull and refresh_supported:
+            request("workspace/diagnostic/refresh", None)
         text = texts[uri] if uri in texts else read_disk(uri_to_path(uri))
         if "// cancel-first-pull" in text and uri not in cancelled_since_open:
             cancelled_since_open.add(uri)
@@ -226,7 +230,7 @@ while (message := read_message()) is not None:
         position = params["position"]
         value = (
             f"open_count={opens.get(uri, 0)}; line={position['line']}; character={position['character']}; "
-            f"save_count={save_counts.get(uri, 0)}; text={texts.get(uri, '')}"
+            f"save_count={save_counts.get(uri, 0)}; pull_count={pull_count}; text={texts.get(uri, '')}"
         )
         respond(message, None if loading else {"contents": {"kind": "plaintext", "value": value}})
     elif method == "textDocument/definition":

@@ -109,6 +109,33 @@ async fn concurrent_requests_for_one_document_reach_the_server_after_it_opens() 
 }
 
 #[tokio::test]
+async fn diagnostics_for_a_document_another_request_holds_open_wait_for_its_publication() -> TestResult {
+    let project = cargo_project("shared_open").file("src/held.rs", "// hold-diagnostics\nfn f() { let error = 1; }\n");
+    let uri = file_uri(&project.path("src/held.rs"));
+    let (received, publishing) = (TestGate::default(), TestGate::default());
+    let builder = fake(project.root(), LanguageId::Rust, &["--wedge-on", "textDocument/hover"])
+        .gate(TestPoint::RequestReceived("textDocument/hover".to_owned()), &received)
+        .gate(TestPoint::DiagnosticsWait(uri.clone()), &publishing);
+    let (_daemon, client) = serve(builder).await?;
+
+    let holder = client.clone();
+    let hover_uri = uri.clone();
+    let _hover = tokio::spawn(async move { holder.hover(hover_uri, 0, 0).await });
+    received.reached().await;
+    received.release();
+
+    let mut diagnostics = pin!(client.get_diagnostics(Some(uri)));
+    tokio::select! {
+        () = publishing.reached() => {}
+        result = &mut diagnostics => return Err(format!("diagnostics returned before publication: {result:?}").into()),
+    }
+    fake_request(&client, "fake/releaseDiagnostics").await?;
+
+    assert_eq!(workspace_error_count(&diagnostics.await?), 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn diagnostics_waiters_observe_concurrent_publications() -> TestResult {
     let project = cargo_project("concurrent_diagnostics");
     let targets: Vec<_> = (0..64)
