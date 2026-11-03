@@ -454,10 +454,7 @@ impl DiffViewer {
 
         let text: SharedString = cell.text.to_string().into();
         let highlights = self.highlight_cell(row, cell);
-        let highlights: Vec<(Range<usize>, HighlightStyle)> = highlights
-            .iter()
-            .map(|span| (span.range.clone(), style::highlight_style(span.foreground, span.font_style)))
-            .collect();
+        let highlights: Vec<(Range<usize>, HighlightStyle)> = style::highlights(&highlights, &self.theme().syntax);
         let location = self.presentation().source_location(row, cell);
         let text_selector = location.as_ref().map(|location| format!("code:{}", line_key(location)));
         let styled = match location {

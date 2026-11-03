@@ -29,7 +29,7 @@ pub use clankerdiff_core::DiffReviewEvent as DiffViewerEvent;
 pub use clankerdiff_gpui_ui as ui;
 pub use clankerdiff_markdown::MarkdownReviewEvent as MarkdownReviewerEvent;
 pub use client_view::{DiffClientEvent, DiffClientView};
-pub use diff_preview::DiffPreviewCache;
+pub use diff_preview::PatchPreview;
 
 /// Emitted when an in-app theme selection is committed.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,84 +1,69 @@
-use crate::style::{color, highlight_style};
+use crate::style::{self, color};
 use crate::ui::icon::{Icon, IconName};
 use crate::ui::prelude::{Button, ControlSize, UiTheme};
 use crate::ui::tokens::{ICON_SIZE_SMALL, RADIUS_CONTROL, rem};
 use clankerdiff_core::{
-    DiffDocument, DiffError, DiffPresentation, DiffTone, Fingerprint, PresentationOptions, RowKind, ViewMode,
+    DiffDocument, DiffError, DiffPresentation, DiffTone, PresentationOptions, RowKind, ViewMode,
     parse_detached_git_diff,
 };
-use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
+use clankerdiff_symbols::DocumentSyntax;
 use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, App, Div, ElementId, FontWeight, Stateful, StyledText, Window, div, prelude::*, px};
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 
-const MAX_CACHED_PATCHES: usize = 32;
 const MAX_PREVIEW_ROWS: usize = 120;
 
-#[derive(Default)]
-pub struct DiffPreviewCache {
-    entries: VecDeque<(Fingerprint, Result<DiffPresentation, DiffError>)>,
-}
+pub struct PatchPreview(Result<(DiffPresentation, DocumentSyntax), (DiffError, String)>);
 
-impl DiffPreviewCache {
-    pub fn clear(&mut self) {
-        self.entries.clear();
+impl PatchPreview {
+    #[must_use]
+    pub fn parse(patch: &str) -> Self {
+        Self(parse_patch(patch).map_err(|error| (error, patch.split_inclusive('\n').take(MAX_PREVIEW_ROWS).collect())))
+    }
+
+    #[must_use]
+    pub fn stats(&self) -> Option<(usize, usize)> {
+        let stat = self.0.as_ref().ok()?.0.document().line_stat();
+        Some((stat.added, stat.deleted))
     }
 
     pub fn render(
-        &mut self,
+        &self,
         id: impl Into<ElementId>,
-        patch: &str,
         theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
         on_open: impl Fn(&Arc<DiffDocument>, &mut Window, &mut App) + 'static,
     ) -> AnyElement {
         let id = id.into();
         let more = ElementId::NamedChild(Arc::new(id.clone()), "more".into());
         let selector = id.to_string();
         let view = div().id(id).debug_selector(move || selector).flex().flex_col().min_w_0();
-        match self.entry(patch) {
-            Ok(presentation) => render_preview(view, more, presentation, theme, highlighter, on_open),
-            Err(error) => view
+        match &self.0 {
+            Ok((presentation, syntax)) => render_preview(view, more, presentation, syntax, theme, on_open),
+            Err((error, head)) => view
                 .text_color(color(theme.diff.foreground))
                 .child(div().text_color(color(theme.diff.muted)).child(format!("Could not display patch: {error}")))
-                .child(patch.split_inclusive('\n').take(MAX_PREVIEW_ROWS).collect::<String>())
+                .child(head.clone())
                 .into_any_element(),
         }
     }
-
-    /// The lines `patch` adds and removes, or `None` when it does not parse.
-    pub fn stats(&mut self, patch: &str) -> Option<(usize, usize)> {
-        let stat = self.entry(patch).as_ref().ok()?.document().line_stat();
-        Some((stat.added, stat.deleted))
-    }
-
-    fn entry(&mut self, patch: &str) -> &Result<DiffPresentation, DiffError> {
-        let id = Fingerprint::of([patch.as_bytes()]);
-        let index = self.entries.iter().position(|(cached, _)| *cached == id).unwrap_or_else(|| {
-            if self.entries.len() == MAX_CACHED_PATCHES {
-                self.entries.pop_front();
-            }
-            self.entries.push_back((id, parse_patch(patch)));
-            self.entries.len() - 1
-        });
-        &self.entries[index].1
-    }
 }
 
-fn parse_patch(patch: &str) -> Result<DiffPresentation, DiffError> {
+fn parse_patch(patch: &str) -> Result<(DiffPresentation, DocumentSyntax), DiffError> {
     let files = parse_detached_git_diff(patch.as_bytes())?;
-    Ok(DiffPresentation::new(
-        Arc::new(DiffDocument { repo_root: String::new(), files, ..DiffDocument::default() }),
+    let document = Arc::new(DiffDocument { repo_root: String::new(), files, ..DiffDocument::default() });
+    let presentation = DiffPresentation::new(
+        Arc::clone(&document),
         PresentationOptions { view_mode: ViewMode::Unified, ..PresentationOptions::default() },
-    ))
+    );
+    Ok((presentation, DocumentSyntax::new(document)))
 }
 
 fn render_preview(
     view: Stateful<Div>,
     more: ElementId,
     presentation: &DiffPresentation,
+    syntax: &DocumentSyntax,
     theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
     on_open: impl Fn(&Arc<DiffDocument>, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let palette = &theme.diff;
@@ -100,20 +85,7 @@ fn render_preview(
             card = Some(body.child(div().px_2().text_color(color(palette.muted)).child(cell.text.to_string())));
             continue;
         }
-        let source = presentation.cell_context(row, cell);
-        let highlights = highlighter
-            .with_theme(&theme.syntax)
-            .highlight_document(source.id, LanguageHint::Path(source.path), || source.text())
-            .ok()
-            .map(|document| {
-                document
-                    .line(source.target_line)
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|span| (span.range.clone(), highlight_style(span.foreground, span.font_style)))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let highlights = style::highlights(&syntax.highlights(row, cell), &theme.syntax);
         let indicator = match cell.tone {
             DiffTone::Added => "+",
             DiffTone::Removed => "−",

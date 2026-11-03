@@ -8,6 +8,7 @@ use clankerdiff_gpui::{
     testing::{DiffViewerHarness, DiffViewerHarnessBuilder},
 };
 use clankerdiff_gpui_ui::testing::selector;
+use clankerdiff_syntax::thread_work;
 use gpui::{ScrollDelta, TestAppContext, point, px};
 use std::{cell::RefCell, rc::Rc};
 
@@ -139,13 +140,11 @@ fn whole_diff_scrollbar_and_highlighting_remain_virtualized(cx: &mut TestAppCont
     .with_view_mode(ViewMode::Split)
     .run(cx, |harness, cx| {
         assert!(harness.bounds(cx, "diff-scrollbar").is_some());
-        let before = harness.read(cx, |viewer, _| viewer.highlight_stats());
-        assert!(before.misses < 10);
+        let before = thread_work().parses();
+        assert!(before < 10);
         harness.scroll_to_bottom_of_diff(cx);
         assert_eq!(harness.read(cx, |viewer, _| viewer.active_file()), Some(99));
-        let after = harness.read(cx, |viewer, _| viewer.highlight_stats());
-        assert!(after.misses - before.misses < 10);
-        assert!(after.calls - before.calls < 1000);
+        assert!(thread_work().parses() - before < 10);
         Ok(())
     });
 }
