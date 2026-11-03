@@ -1,15 +1,9 @@
 use crate::run_loop;
-use gpui::{
-    Action, App, KeyBinding, Menu, MenuItem, OsAction, PromptLevel, SharedString, SystemMenuType, Window, actions,
-};
+use clankerdiff_gpui_ui::keymap::key_binding;
+use gpui::{Action, App, Menu, MenuItem, OsAction, PromptLevel, SharedString, SystemMenuType, Window, actions};
 use gpui_base::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 
 actions!(app_menu, [About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom]);
-
-#[cfg(target_os = "macos")]
-const QUIT_KEYSTROKE: &str = "cmd-q";
-#[cfg(not(target_os = "macos"))]
-const QUIT_KEYSTROKE: &str = "ctrl-q";
 
 pub fn install(cx: &mut App, name: &'static str, version: &'static str, app_items: Vec<MenuItem>, menus: Vec<Menu>) {
     cx.on_action(move |_: &About, cx| {
@@ -24,7 +18,8 @@ pub fn install(cx: &mut App, name: &'static str, version: &'static str, app_item
     cx.on_action(|_: &Quit, cx| run_loop::stop(cx));
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.on_action(|_: &Zoom, cx| with_active_window(cx, |window, _| window.zoom_window()));
-    cx.bind_keys([KeyBinding::new(QUIT_KEYSTROKE, Quit, None)]);
+    let quit = key_binding("secondary-q", Quit, None, cx);
+    cx.bind_keys([quit]);
     cx.set_menus(build(name, app_items, menus));
 }
 

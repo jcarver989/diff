@@ -1,4 +1,5 @@
-use gpui::{Action, App, Global, KeyBinding, Window, actions, px};
+use crate::keymap::key_binding;
+use gpui::{App, Global, Window, actions, px};
 
 actions!(interface_size, [IncreaseInterfaceSize, DecreaseInterfaceSize, ResetInterfaceSize]);
 
@@ -19,18 +20,12 @@ impl InterfaceSize {
     pub fn init(default: f32, cx: &mut App) {
         let default = clamp(default);
         cx.set_global(Self { size: default, default });
-        let bindings: [(&str, Box<dyn Action>); 4] = [
-            ("secondary-=", Box::new(IncreaseInterfaceSize)),
-            ("secondary-+", Box::new(IncreaseInterfaceSize)),
-            ("secondary--", Box::new(DecreaseInterfaceSize)),
-            ("secondary-0", Box::new(ResetInterfaceSize)),
+        let bindings = [
+            key_binding("secondary-=", IncreaseInterfaceSize, None, cx),
+            key_binding("secondary-+", IncreaseInterfaceSize, None, cx),
+            key_binding("secondary--", DecreaseInterfaceSize, None, cx),
+            key_binding("secondary-0", ResetInterfaceSize, None, cx),
         ];
-        let bindings = bindings
-            .into_iter()
-            .map(|(keystrokes, action)| {
-                KeyBinding::load(keystrokes, action, None, false, None, cx).expect("a valid interface size keystroke")
-            })
-            .collect::<Vec<_>>();
         cx.bind_keys(bindings);
         cx.on_action(|_: &IncreaseInterfaceSize, cx| Self::set(Self::get(cx) + STEP, cx));
         cx.on_action(|_: &DecreaseInterfaceSize, cx| Self::set(Self::get(cx) - STEP, cx));

@@ -10,7 +10,8 @@ use gpui::{
     App, Context, Entity, FocusHandle, Focusable, Global, MouseButton, SharedString, Subscription, Window, div,
     prelude::*,
 };
-use gpui_base::input::{Escape, InputEditorStyle, InputEvent, Textarea, TextareaState};
+use gpui_base::input::{CursorBlink, Escape, InputEditorStyle, InputEvent, Textarea, TextareaState};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CommentEditorEvent {
@@ -19,6 +20,9 @@ pub(crate) enum CommentEditorEvent {
     Cancel,
 }
 
+const CURSOR_BLINK: CursorBlink =
+    CursorBlink::blinking(Duration::from_millis(500)).with_idle_timeout(Duration::from_secs(5));
+
 struct InputInitialized;
 
 impl Global for InputInitialized {}
@@ -26,6 +30,7 @@ impl Global for InputInitialized {}
 pub(crate) fn init_input(cx: &mut App) {
     if !cx.has_global::<InputInitialized>() {
         gpui_base::init(cx);
+        gpui_base::Theme::global_mut(cx).cursor_blink = CURSOR_BLINK;
         cx.set_global(InputInitialized);
     }
 }

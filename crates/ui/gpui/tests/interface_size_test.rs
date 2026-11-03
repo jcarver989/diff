@@ -5,7 +5,7 @@ use clankerdiff_gpui_ui::{
     },
     testing::ComponentHarnessBuilder,
 };
-use gpui::{IntoElement, TestAppContext, div, px};
+use gpui::{IntoElement, OperatingSystem, PlatformInfo, PlatformTarget, TestAppContext, div, px};
 
 #[gpui::test]
 fn the_interface_size_is_the_window_rem_size(cx: &mut TestAppContext) {
@@ -57,6 +57,34 @@ fn keyboard_shortcuts_change_the_interface_size(cx: &mut TestAppContext) {
     });
 }
 
+#[gpui::test]
+fn keyboard_shortcuts_use_command_on_mac(cx: &mut TestAppContext) {
+    host(cx, OperatingSystem::Mac);
+    ComponentHarnessBuilder::default().run(cx, empty, |harness, cx| {
+        harness.simulate_keystrokes(cx, "ctrl-=");
+        assert_eq!(harness.rem_size(cx), px(16.0));
+        harness.simulate_keystrokes(cx, "cmd-=");
+        assert_eq!(harness.rem_size(cx), px(17.0));
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn keyboard_shortcuts_use_control_on_linux(cx: &mut TestAppContext) {
+    host(cx, OperatingSystem::Linux);
+    ComponentHarnessBuilder::default().run(cx, empty, |harness, cx| {
+        harness.simulate_keystrokes(cx, "cmd-=");
+        assert_eq!(harness.rem_size(cx), px(16.0));
+        harness.simulate_keystrokes(cx, "ctrl-=");
+        assert_eq!(harness.rem_size(cx), px(17.0));
+        Ok(())
+    });
+}
+
 fn empty(_: &mut gpui::Window, _: &mut gpui::App) -> gpui::AnyElement {
     div().into_any_element()
+}
+
+fn host(cx: &mut TestAppContext, os: OperatingSystem) {
+    cx.set_platform_info(PlatformInfo { os, target: PlatformTarget::Native });
 }
