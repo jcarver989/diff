@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/jcarver989/diff/compare/clankerdiff-gpui-v0.9.0...clankerdiff-gpui-v0.10.0) - 2026-11-03
+
+### Added
+
+- *(gpui)* [**breaking**] resolve shortcuts against the host OS and stop idle caret blinking ([#134](https://github.com/jcarver989/diff/pull/134))
+
 ## [0.9.0](https://github.com/jcarver989/diff/compare/clankerdiff-gpui-v0.8.3...clankerdiff-gpui-v0.9.0) - 2026-11-03
 
 ### Other
