@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/jcarver989/diff/compare/clankerdiff-cli-v0.8.3...clankerdiff-cli-v0.9.0) - 2026-11-03
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.8.2](https://github.com/jcarver989/diff/compare/clankerdiff-cli-v0.8.1...clankerdiff-cli-v0.8.2) - 2026-10-31
 
 ### Added
