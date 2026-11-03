@@ -44,6 +44,26 @@ fn blank_submission_closes_the_draft_without_adding_a_comment() {
     assert!(session.review().is_empty());
 }
 
+#[test]
+fn annotations_revision_advances_only_when_comments_or_the_draft_change() -> Result<(), Box<dyn Error>> {
+    let mut session = session();
+    let initial = session.annotations_revision();
+    session.cancel_draft();
+    assert_eq!(session.annotations_revision(), initial);
+    assert!(session.begin_draft(None));
+    session.draft_mut().ok_or("missing draft")?.set_body("Please clarify");
+    session.submit_draft().ok_or("missing comment")?;
+    let submitted = session.annotations_revision();
+    assert_ne!(submitted, initial);
+    session.replace_document(Arc::new(MarkdownDocument::parse(SOURCE)));
+    assert_eq!(session.annotations_revision(), submitted);
+    session.replace_document(Arc::new(MarkdownDocument::parse("Unrelated")));
+    assert_ne!(session.annotations_revision(), submitted);
+    Ok(())
+}
+
+const SOURCE: &str = "# One\n\nText\n\n## Two\n\nMore text";
+
 fn session() -> MarkdownReviewSession {
-    MarkdownReviewSession::new(Arc::new(MarkdownDocument::parse("# One\n\nText\n\n## Two\n\nMore text")))
+    MarkdownReviewSession::new(Arc::new(MarkdownDocument::parse(SOURCE)))
 }

@@ -4,9 +4,7 @@ use crate::{
     theme_picker::ThemePicker,
 };
 use clankerdiff_core::ReviewCapabilities;
-use clankerdiff_markdown::{
-    MarkdownCommentDraft, MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId,
-};
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId};
 use clankerdiff_ui_core::{Fingerprint, ReviewTheme};
 use ratatui::layout::{Position, Rect};
 use std::sync::Arc;
@@ -30,8 +28,7 @@ struct ContentLayout {
 #[derive(Debug)]
 struct VisualLayout {
     content: Arc<MarkdownContentLayout>,
-    review: Arc<MarkdownReview>,
-    draft: Option<Arc<MarkdownCommentDraft>>,
+    annotations: u64,
     layout: Arc<MarkdownVisualLayout>,
 }
 
@@ -231,16 +228,14 @@ impl MarkdownReviewState {
                 Arc::clone(&self.content.insert(ContentLayout { document, key, layout }).layout)
             }
         };
-        let (review, draft) = self.session.annotations();
-        let current = self.layout.as_ref().is_some_and(|layout| {
-            Arc::ptr_eq(&layout.content, &content)
-                && Arc::ptr_eq(&layout.review, review)
-                && layout.draft.as_ref().map(Arc::as_ptr) == draft.map(Arc::as_ptr)
-        });
+        let annotations = self.session.annotations_revision();
+        let current = self
+            .layout
+            .as_ref()
+            .is_some_and(|layout| Arc::ptr_eq(&layout.content, &content) && layout.annotations == annotations);
         if !current {
-            let (review, draft) = (Arc::clone(review), draft.cloned());
             let layout = Arc::new(MarkdownVisualLayout::new(&self.session, Arc::clone(&content), width));
-            self.layout = Some(VisualLayout { content, review, draft, layout });
+            self.layout = Some(VisualLayout { content, annotations, layout });
         }
         Arc::clone(&self.layout.as_ref().expect("layout inserted above").layout)
     }

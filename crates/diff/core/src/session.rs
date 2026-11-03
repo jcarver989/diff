@@ -156,7 +156,7 @@ struct SelectionBookmark {
 pub struct ReviewSession {
     document: Arc<DiffDocument>,
     presentation: DiffPresentation,
-    review: Arc<Review>,
+    review: Review,
     scope: DiffScope,
     files_mode: FilesMode,
     view_mode: ViewMode,
@@ -164,7 +164,8 @@ pub struct ReviewSession {
     selected_file: usize,
     selected_row: usize,
     selected_side: DiffSide,
-    draft: Option<Arc<CommentDraft>>,
+    draft: Option<CommentDraft>,
+    annotations_revision: u64,
     projection: ContentProjection,
     projection_revision: u64,
     pending_source_restore: Option<SourceLocation>,
@@ -180,7 +181,7 @@ impl ReviewSession {
             presentation: DiffPresentation::new(document.clone(), PresentationOptions::default()),
             scope: document.target.scope().unwrap_or_default(),
             document,
-            review: Arc::default(),
+            review: Review::default(),
             files_mode: FilesMode::Diff,
             view_mode: ViewMode::Auto,
             split_when_auto: false,
@@ -188,6 +189,7 @@ impl ReviewSession {
             selected_row: 0,
             selected_side: DiffSide::New,
             draft: None,
+            annotations_revision: 0,
             projection: ContentProjection::default(),
             projection_revision: 0,
             pending_source_restore: None,
@@ -195,7 +197,7 @@ impl ReviewSession {
             navigation: Navigation::default(),
             reference: None,
         };
-        Arc::make_mut(&mut session.review).reconcile(&session.document);
+        session.review.reconcile(&session.document);
         session.selected_file = session.presentation.file_order().first().copied().unwrap_or(0);
         session.select_first_row();
         session
@@ -212,17 +214,29 @@ impl ReviewSession {
     }
 
     #[must_use]
-    pub fn review(&self) -> &Review {
+    pub const fn review(&self) -> &Review {
         &self.review
     }
 
     pub fn review_mut(&mut self) -> &mut Review {
-        Arc::make_mut(&mut self.review)
+        self.annotations_changed();
+        &mut self.review
     }
 
     #[must_use]
-    pub fn annotations(&self) -> (&Arc<Review>, Option<&Arc<CommentDraft>>) {
-        (&self.review, self.draft.as_ref())
+    pub const fn annotations_revision(&self) -> u64 {
+        self.annotations_revision
+    }
+
+    const fn annotations_changed(&mut self) {
+        self.annotations_revision = self.annotations_revision.wrapping_add(1);
+    }
+
+    fn set_draft(&mut self, draft: Option<CommentDraft>) {
+        if self.draft.is_some() || draft.is_some() {
+            self.annotations_changed();
+        }
+        self.draft = draft;
     }
 
     #[must_use]
@@ -393,12 +407,15 @@ impl ReviewSession {
     }
 
     #[must_use]
-    pub fn draft(&self) -> Option<&CommentDraft> {
-        self.draft.as_deref()
+    pub const fn draft(&self) -> Option<&CommentDraft> {
+        self.draft.as_ref()
     }
 
     pub fn draft_mut(&mut self) -> Option<&mut CommentDraft> {
-        self.draft.as_mut().map(Arc::make_mut)
+        if self.draft.is_some() {
+            self.annotations_changed();
+        }
+        self.draft.as_mut()
     }
 
     #[must_use]
@@ -619,12 +636,14 @@ impl ReviewSession {
     pub fn set_document(&mut self, document: Arc<DiffDocument>) {
         let target_changed = document.target != self.document.target;
         if target_changed {
-            self.draft = None;
+            self.set_draft(None);
         }
         if let Some(scope) = document.target.scope() {
             self.scope = scope;
         }
-        self.review_mut().reconcile(&document);
+        if self.review.reconcile(&document) {
+            self.annotations_changed();
+        }
         if Arc::ptr_eq(&document, &self.document) || document == self.document {
             return;
         }
@@ -698,7 +717,7 @@ impl ReviewSession {
 
     pub fn clear_review(&mut self) {
         self.review_mut().clear();
-        self.draft = None;
+        self.set_draft(None);
     }
 
     pub fn select_file(&mut self, index: usize) -> bool {
@@ -714,7 +733,7 @@ impl ReviewSession {
         self.pending_source_restore = None;
         self.cancel_pending_reference();
         self.selected_file = index;
-        self.draft = None;
+        self.set_draft(None);
         self.select_first_row();
         true
     }
@@ -833,7 +852,7 @@ impl ReviewSession {
         let line_text = self.selected_cell().map_or_else(String::new, |cell| cell.text.to_string());
         let body =
             editing.and_then(|id| self.review.comment(id)).map_or_else(String::new, |comment| comment.body.clone());
-        self.draft = Some(Arc::new(CommentDraft::new(anchor, line_text, body, editing)));
+        self.set_draft(Some(CommentDraft::new(anchor, line_text, body, editing)));
         true
     }
 
@@ -846,11 +865,12 @@ impl ReviewSession {
     }
 
     pub fn cancel_draft(&mut self) {
-        self.draft = None;
+        self.set_draft(None);
     }
 
     pub fn submit_draft(&mut self) -> Option<u64> {
-        let draft = Arc::unwrap_or_clone(self.draft.take()?);
+        let draft = self.draft.take()?;
+        self.annotations_changed();
         if draft.body.trim().is_empty() {
             return None;
         }
@@ -952,7 +972,7 @@ impl ReviewSession {
                 .is_some_and(|current| current == *anchor)
         });
         if !draft_is_current {
-            self.draft = None;
+            self.set_draft(None);
         }
         match self.source_view_side() {
             Some(side) => self.selected_side = side,

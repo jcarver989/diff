@@ -118,16 +118,17 @@ impl MarkdownCommentDraft {
 #[derive(Debug, Clone)]
 pub struct MarkdownReviewSession {
     document: Arc<MarkdownDocument>,
-    review: Arc<MarkdownReview>,
+    review: MarkdownReview,
     selected_target: Option<MarkdownTargetId>,
-    draft: Option<Arc<MarkdownCommentDraft>>,
+    draft: Option<MarkdownCommentDraft>,
+    annotations_revision: u64,
 }
 
 impl MarkdownReviewSession {
     #[must_use]
     pub fn new(document: Arc<MarkdownDocument>) -> Self {
         let selected_target = document.targets().first().map(|target| target.id);
-        Self { document, review: Arc::default(), selected_target, draft: None }
+        Self { document, review: MarkdownReview::default(), selected_target, draft: None, annotations_revision: 0 }
     }
 
     #[must_use]
@@ -136,17 +137,29 @@ impl MarkdownReviewSession {
     }
 
     #[must_use]
-    pub fn review(&self) -> &MarkdownReview {
+    pub const fn review(&self) -> &MarkdownReview {
         &self.review
     }
 
     pub fn review_mut(&mut self) -> &mut MarkdownReview {
-        Arc::make_mut(&mut self.review)
+        self.annotations_changed();
+        &mut self.review
     }
 
     #[must_use]
-    pub fn annotations(&self) -> (&Arc<MarkdownReview>, Option<&Arc<MarkdownCommentDraft>>) {
-        (&self.review, self.draft.as_ref())
+    pub const fn annotations_revision(&self) -> u64 {
+        self.annotations_revision
+    }
+
+    const fn annotations_changed(&mut self) {
+        self.annotations_revision = self.annotations_revision.wrapping_add(1);
+    }
+
+    fn set_draft(&mut self, draft: Option<MarkdownCommentDraft>) {
+        if self.draft.is_some() || draft.is_some() {
+            self.annotations_changed();
+        }
+        self.draft = draft;
     }
 
     #[must_use]
@@ -165,12 +178,15 @@ impl MarkdownReviewSession {
     }
 
     #[must_use]
-    pub fn draft(&self) -> Option<&MarkdownCommentDraft> {
-        self.draft.as_deref()
+    pub const fn draft(&self) -> Option<&MarkdownCommentDraft> {
+        self.draft.as_ref()
     }
 
     pub fn draft_mut(&mut self) -> Option<&mut MarkdownCommentDraft> {
-        self.draft.as_mut().map(Arc::make_mut)
+        if self.draft.is_some() {
+            self.annotations_changed();
+        }
+        self.draft.as_mut()
     }
 
     /// Selects a target from this document.
@@ -179,7 +195,7 @@ impl MarkdownReviewSession {
             return false;
         }
         self.selected_target = Some(target);
-        self.draft = None;
+        self.set_draft(None);
         true
     }
 
@@ -220,7 +236,7 @@ impl MarkdownReviewSession {
             current.saturating_add(delta.unsigned_abs()).min(count - 1)
         };
         self.selected_target = Some(self.document.targets()[index].id);
-        self.draft = None;
+        self.set_draft(None);
         self.selected_target
     }
 
@@ -229,7 +245,7 @@ impl MarkdownReviewSession {
         let target =
             if last { self.document.targets().last() } else { self.document.targets().first() }.map(|target| target.id);
         self.selected_target = target;
-        self.draft = None;
+        self.set_draft(None);
         target
     }
 
@@ -260,7 +276,7 @@ impl MarkdownReviewSession {
             headings.iter().find(|heading| current.is_none_or(|index| heading.target_id.index() > index))
         }?;
         self.selected_target = Some(heading.target_id);
-        self.draft = None;
+        self.set_draft(None);
         self.selected_target
     }
 
@@ -289,17 +305,18 @@ impl MarkdownReviewSession {
             }
             None => String::new(),
         };
-        self.draft = Some(Arc::new(MarkdownCommentDraft::new(target, anchor, context, body, editing)));
+        self.set_draft(Some(MarkdownCommentDraft::new(target, anchor, context, body, editing)));
         true
     }
 
     pub fn cancel_draft(&mut self) {
-        self.draft = None;
+        self.set_draft(None);
     }
 
     /// Saves the active draft, returning its comment ID. Blank drafts are discarded.
     pub fn submit_draft(&mut self) -> Option<u64> {
-        let draft = Arc::unwrap_or_clone(self.draft.take()?);
+        let draft = self.draft.take()?;
+        self.annotations_changed();
         if draft.body.trim().is_empty() {
             return None;
         }
@@ -341,15 +358,17 @@ impl MarkdownReviewSession {
 
     pub fn clear_review(&mut self) {
         self.review_mut().clear();
-        self.draft = None;
+        self.set_draft(None);
     }
 
     /// Replaces the document, reconciles comments, and preserves selection when possible.
     pub fn replace_document(&mut self, document: Arc<MarkdownDocument>) {
         let selected_anchor = self.selected_anchor();
-        self.review_mut().reconcile(&document);
+        if self.review.reconcile(&document) {
+            self.annotations_changed();
+        }
         self.document = document;
-        self.draft = None;
+        self.set_draft(None);
         self.selected_target = selected_anchor
             .and_then(|anchor| self.document.resolve_anchor(&anchor))
             .or_else(|| self.document.targets().first().map(|target| target.id));

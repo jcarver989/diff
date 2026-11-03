@@ -9,9 +9,9 @@ use crate::{
 };
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{
-    CommentDraft, CommitPicker, DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout,
-    Lookup, RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind,
-    SourceLocation, ViewMode, ViewportAnchor,
+    CommitPicker, DiffDocument, DiffPresentation, DiffScope, DiffSide, FileStatus, FileTree, Layout, Lookup,
+    RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, SourceLocation,
+    ViewMode, ViewportAnchor,
 };
 use clankerdiff_symbols::{DefinitionCard, DocumentSyntax, NameLookup, SymbolIndex};
 use clankerdiff_ui_core::ReviewTheme;
@@ -136,8 +136,7 @@ type ContentKey = (u64, u16, bool, u16, Range<usize>);
 
 #[derive(Debug)]
 struct PatchLayout {
-    review: Arc<Review>,
-    draft: Option<Arc<CommentDraft>>,
+    annotations: u64,
     layout: Arc<PatchVisualLayout>,
 }
 
@@ -904,16 +903,13 @@ impl DiffReviewState {
                 Arc::clone(&self.patch_content.insert((key, Arc::new(content))).1)
             }
         };
-        let (review, draft) = self.session.annotations();
+        let annotations = self.session.annotations_revision();
         let current = self.patch_layout.as_ref().is_some_and(|layout| {
-            std::ptr::eq(layout.layout.content(), Arc::as_ptr(&content))
-                && Arc::ptr_eq(&layout.review, review)
-                && layout.draft.as_ref().map(Arc::as_ptr) == draft.map(Arc::as_ptr)
+            std::ptr::eq(layout.layout.content(), Arc::as_ptr(&content)) && layout.annotations == annotations
         });
         if !current {
-            let (review, draft) = (Arc::clone(review), draft.cloned());
             let layout = Arc::new(PatchVisualLayout::new(&self.session, content, self.presentation_width));
-            self.patch_layout = Some(PatchLayout { review, draft, layout });
+            self.patch_layout = Some(PatchLayout { annotations, layout });
         }
         self.patch_layout.as_ref().map(|layout| Arc::clone(&layout.layout))
     }

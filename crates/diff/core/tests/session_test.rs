@@ -534,6 +534,29 @@ fn working_tree_only_submissions_keep_the_plain_format() {
     assert!(session.submission().formatted.starts_with("I'm reviewing the working tree diff"));
 }
 
+#[test]
+fn annotations_revision_advances_only_when_comments_or_the_draft_change() -> Result<(), Box<dyn Error>> {
+    let builder = DocumentBuilder::new().changed("a.rs", "old", "new");
+    let mut session = ReviewSession::new(builder.clone().build());
+    let initial = session.annotations_revision();
+    session.cancel_draft();
+    assert_eq!(session.annotations_revision(), initial);
+    assert!(session.begin_draft(None));
+    let drafted = session.annotations_revision();
+    assert_ne!(drafted, initial);
+    session.draft_mut().ok_or("draft")?.set_body("note");
+    let edited = session.annotations_revision();
+    assert_ne!(edited, drafted);
+    session.submit_draft().ok_or("comment")?;
+    let submitted = session.annotations_revision();
+    assert_ne!(submitted, edited);
+    session.set_document(builder.build());
+    assert_eq!(session.annotations_revision(), submitted);
+    session.set_document(DocumentBuilder::new().changed("b.rs", "old", "new").build());
+    assert_ne!(session.annotations_revision(), submitted);
+    Ok(())
+}
+
 fn page<T: Into<ReviewTarget>>(target: T, path: &str, new: &str) -> Arc<DiffDocument> {
     DocumentBuilder::new().commit("First").commit("Second").target(target).changed(path, "old", new).build()
 }

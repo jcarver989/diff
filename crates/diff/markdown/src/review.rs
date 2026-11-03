@@ -164,22 +164,31 @@ impl MarkdownReview {
     }
 
     /// Reattaches comments to a replacement document and marks misses outdated.
-    pub fn reconcile(&mut self, document: &MarkdownDocument) {
+    pub fn reconcile(&mut self, document: &MarkdownDocument) -> bool {
+        let mut changed = false;
         for comment in &mut self.comments {
-            let Some(target) = document.resolve_anchor(&comment.anchor) else {
+            let resolved = document
+                .resolve_anchor(&comment.anchor)
+                .and_then(|target| Some((target, document.anchor_for_target(target)?)));
+            let Some((target, anchor)) = resolved else {
+                changed |= !comment.outdated;
                 comment.outdated = true;
                 continue;
             };
-            let Some(anchor) = document.anchor_for_target(target) else {
-                comment.outdated = true;
-                continue;
-            };
-            comment.anchor = anchor.clone();
-            if let Some(context) = MarkdownCommentContext::from_target(document, target, &anchor) {
+            if let Some(context) = MarkdownCommentContext::from_target(document, target, &anchor)
+                && context != comment.context
+            {
                 comment.context = context;
+                changed = true;
             }
+            if anchor != comment.anchor {
+                comment.anchor = anchor;
+                changed = true;
+            }
+            changed |= comment.outdated;
             comment.outdated = false;
         }
+        changed
     }
 
     /// Produces a submission. Call [`Self::try_submission`] when comments may
