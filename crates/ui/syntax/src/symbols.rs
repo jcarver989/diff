@@ -1,10 +1,9 @@
-use crate::{LanguageHint, SyntaxError, incremental::grammar_language, resolve_language};
+use crate::{LanguageHint, resolve_language};
 use std::{
     collections::{BTreeMap, HashMap},
     ops::Range,
-    sync::Arc,
 };
-use tree_sitter::{Language, Node, Parser, Query, QueryCursor, QueryMatch, StreamingIterator};
+use tree_sitter::{Language, Node, Query, QueryCursor, QueryError, QueryMatch, StreamingIterator, Tree};
 
 const SIGNATURE_LINES: usize = 12;
 const BODY_KINDS: [&str; 5] = ["block", "statement_block", "declaration_list", "class_body", "compound_statement"];
@@ -64,35 +63,8 @@ impl SymbolTags {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct SymbolExtractor {
-    grammars: HashMap<&'static str, Option<Arc<TagsGrammar>>>,
-}
-
-impl SymbolExtractor {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn extract<'a>(&mut self, hint: impl Into<LanguageHint<'a>>, source: &str) -> Result<SymbolTags, SyntaxError> {
-        let Some(language) = resolve_language(hint, source) else {
-            return Ok(SymbolTags::default());
-        };
-        let Some(grammar) = self.grammar(language)? else {
-            return Ok(SymbolTags::default());
-        };
-        grammar.extract(source)
-    }
-
-    fn grammar(&mut self, language: &'static str) -> Result<Option<Arc<TagsGrammar>>, SyntaxError> {
-        if let Some(grammar) = self.grammars.get(language) {
-            return Ok(grammar.clone());
-        }
-        let grammar = TagsGrammar::new(language)?.map(Arc::new);
-        self.grammars.insert(language, grammar.clone());
-        Ok(grammar)
-    }
+pub fn has_symbols<'a>(language: impl Into<LanguageHint<'a>>, source: &str) -> bool {
+    resolve_language(language, source).and_then(tags_query).is_some()
 }
 
 fn tags_query(language: &str) -> Option<&'static str> {
@@ -153,35 +125,30 @@ fn kind_of(kind: &str) -> SymbolKind {
 }
 
 #[derive(Debug)]
-struct TagsGrammar {
-    name: &'static str,
-    language: Language,
+pub(crate) struct TagsGrammar {
+    rust: bool,
     query: Query,
     captures: Vec<Capture>,
 }
 
 impl TagsGrammar {
-    fn new(language: &'static str) -> Result<Option<Self>, SyntaxError> {
-        let (Some(source), Some(grammar)) = (tags_query(language), grammar_language(language)) else {
+    pub(crate) fn new(language: &str, grammar: &Language) -> Result<Option<Self>, QueryError> {
+        let Some(source) = tags_query(language) else {
             return Ok(None);
         };
-        let query = Query::new(&grammar, source)
-            .map_err(|source| SyntaxError::Query { language: language.to_owned(), source })?;
+        let query = Query::new(grammar, source)?;
         let captures = query.capture_names().iter().map(|name| Capture::parse(name)).collect();
-        Ok(Some(Self { name: language, language: grammar, query, captures }))
+        Ok(Some(Self { rust: language == "rust", query, captures }))
     }
 
-    fn extract(&self, source: &str) -> Result<SymbolTags, SyntaxError> {
-        let mut parser = Parser::new();
-        parser.set_language(&self.language)?;
-        let tree = parser.parse(source, None).ok_or(SyntaxError::NoTree)?;
+    pub(crate) fn extract(&self, tree: &Tree, source: &str) -> SymbolTags {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&self.query, tree.root_node(), source.as_bytes());
         let mut collector = TagCollector::new(source);
         while let Some(found) = matches.next() {
             collector.add(found.pattern_index, self.read_match(found));
         }
-        Ok(collector.finish(self.name == "rust"))
+        collector.finish(self.rust)
     }
 
     fn read_match<'tree>(&self, found: &QueryMatch<'_, 'tree>) -> MatchedTag<'tree> {

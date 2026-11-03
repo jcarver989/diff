@@ -1,5 +1,5 @@
 use thiserror::Error;
-use tree_sitter::{LanguageError, QueryError};
+use tree_sitter::LanguageError;
 
 #[derive(Debug, Error)]
 pub enum SyntaxError {
@@ -7,12 +7,6 @@ pub enum SyntaxError {
     InputLimit { limit: usize, attempted: usize },
     #[error("missing syntax grammar: {language}")]
     MissingGrammar { language: String },
-    #[error("failed to compile a syntax query for {language}: {source}")]
-    Query {
-        language: String,
-        #[source]
-        source: QueryError,
-    },
     #[error("failed to configure the syntax parser: {0}")]
     Language(#[from] LanguageError),
     #[error("syntax parser returned no tree")]

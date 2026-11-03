@@ -1,26 +1,20 @@
-//! Tree-sitter syntax highlighting with UTF-8 byte spans and a bounded cache.
-
 use crate::{
     SyntaxError,
-    incremental::{AppendContext, Grammars, IncrementalDocument, SyntaxWorkStats},
+    incremental::{AppendContext, IncrementalDocument, SyntaxWorkStats},
     language::{LanguageHint, resolve_language},
     spans::{Span, spans_to_flat_tokens},
+    symbols::SymbolTags,
 };
-use arborium_theme::tag_to_name;
-use clankerdiff_ui_core::{Fingerprint, HighlightSpan, SyntaxTheme};
+use clankerdiff_ui_core::HighlightSpan;
 use imbl::Vector;
-use lru::LruCache;
 use std::{
-    fmt, mem,
-    num::NonZeroUsize,
+    cell::Cell,
     ops::Range,
     sync::{Arc, OnceLock},
 };
 
-const DEFAULT_MAX_DOCUMENTS: usize = 512;
-const DEFAULT_SOURCE_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INJECTION_DEPTH: usize = 3;
-const DOCUMENT_KEY_DOMAIN: &[u8] = b"syntax-document-v2";
 
 #[must_use]
 pub fn empty_spans() -> Arc<[HighlightSpan]> {
@@ -28,54 +22,26 @@ pub fn empty_spans() -> Arc<[HighlightSpan]> {
     Arc::clone(EMPTY.get_or_init(|| Arc::from(Vec::<HighlightSpan>::new())))
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct HighlightStats {
-    pub calls: u64,
-    pub hits: u64,
-    pub misses: u64,
-    pub evictions: u64,
-    pub bytes: usize,
+thread_local! {
+    static THREAD_WORK: Cell<SyntaxWorkStats> = Cell::default();
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CacheKey {
-    fingerprint: Fingerprint,
+#[must_use]
+pub fn thread_work() -> SyntaxWorkStats {
+    THREAD_WORK.get()
 }
 
-impl CacheKey {
-    #[must_use]
-    pub const fn fingerprint(self) -> Fingerprint {
-        self.fingerprint
-    }
-
-    fn document(language: &str, source_id: Fingerprint) -> Self {
-        Self {
-            fingerprint: Fingerprint::of([DOCUMENT_KEY_DOMAIN, language.as_bytes(), source_id.as_bytes().as_slice()]),
-        }
-    }
+#[derive(Debug, Clone, Default)]
+pub struct SourceSyntax {
+    pub highlights: Arc<DocumentHighlights>,
+    pub symbols: Arc<SymbolTags>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CacheConfig {
-    pub max_documents: usize,
-    pub max_source_bytes: usize,
-}
-
-impl Default for CacheConfig {
-    fn default() -> Self {
-        Self { max_documents: DEFAULT_MAX_DOCUMENTS, max_source_bytes: DEFAULT_SOURCE_BYTES }
-    }
-}
-
-impl From<usize> for CacheConfig {
-    fn from(max_documents: usize) -> Self {
-        Self { max_documents, ..Self::default() }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CacheUsage {
-    pub document_entries: usize,
+#[must_use]
+pub fn analyze<'a>(language: impl Into<LanguageHint<'a>>, source: &str) -> SourceSyntax {
+    let mut stream = SyntaxStream::new(language);
+    let _rejected = stream.append(source);
+    stream.syntax()
 }
 
 #[derive(Debug, Clone, Default)]
@@ -83,7 +49,6 @@ pub struct SyntaxStream {
     hint: String,
     source: String,
     revision: u64,
-    theme_revision: Option<Fingerprint>,
     highlights: Arc<DocumentHighlights>,
     document: Option<IncrementalDocument>,
     language: Option<&'static str>,
@@ -125,7 +90,66 @@ impl SyntaxStream {
         self.work
     }
 
-    fn parse(&mut self, grammars: &mut Grammars, previous_len: usize) -> Result<usize, SyntaxError> {
+    #[must_use]
+    pub fn syntax(&self) -> SourceSyntax {
+        let symbols = self
+            .document
+            .as_ref()
+            .and_then(|document| Some(document.grammar().tags()?.extract(document.tree()?, &self.source)))
+            .unwrap_or_default();
+        SourceSyntax { highlights: Arc::clone(&self.highlights), symbols: Arc::new(symbols) }
+    }
+
+    pub fn append(&mut self, appended: &str) -> Result<SyntaxStreamUpdate, SyntaxError> {
+        let base_revision = self.revision;
+        let attempted = self.source.len().saturating_add(appended.len());
+        if attempted > MAX_SOURCE_BYTES {
+            return Err(SyntaxError::InputLimit { limit: MAX_SOURCE_BYTES, attempted });
+        }
+        if appended.is_empty() {
+            let end = self.highlights.line_count();
+            return Ok(SyntaxStreamUpdate {
+                base_revision,
+                revision: self.revision,
+                changed_lines: end..end,
+                highlights: Arc::clone(&self.highlights),
+            });
+        }
+        let previous_len = self.source.len();
+        let previous_lines = self.line_starts.len();
+        self.source.push_str(appended);
+        if self.line_starts.is_empty() {
+            self.line_starts.push(0);
+        }
+        self.line_starts.extend(
+            appended
+                .bytes()
+                .enumerate()
+                .filter_map(|(index, byte)| (byte == b'\n').then_some(previous_len + index + 1)),
+        );
+        let mut work = SyntaxWorkStats::default();
+        let parsed = self.parse(previous_len, &mut work).map(|start| self.project(start, &mut work));
+        self.work = self.work + work;
+        THREAD_WORK.set(THREAD_WORK.get() + work);
+        let first_changed = match parsed {
+            Ok(first_changed) => first_changed,
+            Err(error) => {
+                self.source.truncate(previous_len);
+                self.line_starts.truncate(previous_lines);
+                self.document = None;
+                return Err(error);
+            }
+        };
+        self.revision = self.revision.wrapping_add(1);
+        Ok(SyntaxStreamUpdate {
+            base_revision,
+            revision: self.revision,
+            changed_lines: first_changed..self.highlights.line_count(),
+            highlights: Arc::clone(&self.highlights),
+        })
+    }
+
+    fn parse(&mut self, previous_len: usize, work: &mut SyntaxWorkStats) -> Result<usize, SyntaxError> {
         let resolved = resolve_language(self.hint.as_str(), &self.source);
         let language_changed = resolved != self.language;
         if language_changed {
@@ -138,8 +162,7 @@ impl SyntaxStream {
         let document = match &mut self.document {
             Some(document) => document,
             slot => slot.insert(
-                grammars
-                    .document(language)?
+                IncrementalDocument::new(language)
                     .ok_or_else(|| SyntaxError::MissingGrammar { language: language.to_owned() })?,
             ),
         };
@@ -147,76 +170,20 @@ impl SyntaxStream {
             &self.source,
             0,
             MAX_INJECTION_DEPTH,
-            &mut AppendContext { grammars, stats: &mut self.work, line_starts: &self.line_starts },
+            &mut AppendContext { stats: work, line_starts: &self.line_starts },
         )
     }
 
-    fn update(
-        &mut self,
-        grammars: &mut Grammars,
-        stats: &mut HighlightStats,
-        theme: &SyntaxTheme,
-        appended: &str,
-    ) -> Result<SyntaxStreamUpdate, SyntaxError> {
-        let base_revision = self.revision;
-        let theme_revision = theme.revision();
-        if appended.is_empty() && self.theme_revision == Some(theme_revision) {
-            let end = self.highlights.line_count();
-            return Ok(SyntaxStreamUpdate {
-                base_revision,
-                revision: self.revision,
-                changed_lines: end..end,
-                highlights: Arc::clone(&self.highlights),
-            });
-        }
-        let previous_len = self.source.len();
-        let previous_lines = self.line_starts.len();
-        self.source.push_str(appended);
-        if self.line_starts.is_empty() && !self.source.is_empty() {
-            self.line_starts.push(0);
-        }
-        self.line_starts.extend(
-            appended
-                .bytes()
-                .enumerate()
-                .filter_map(|(index, byte)| (byte == b'\n').then_some(previous_len + index + 1)),
-        );
-        let previous_work = self.work.parser_input_bytes;
-        let result = self.parse(grammars, previous_len);
-        stats.bytes += self.work.parser_input_bytes - previous_work;
-        let start = match result {
-            Ok(start) => start,
-            Err(error) => {
-                self.source.truncate(previous_len);
-                self.line_starts.truncate(previous_lines);
-                self.document = None;
-                return Err(error);
-            }
-        };
-        let start = if self.theme_revision == Some(theme_revision) { start } else { 0 };
-        let first_changed = self.project(theme, start);
-        if !appended.is_empty() {
-            self.revision = self.revision.wrapping_add(1);
-        }
-        self.theme_revision = Some(theme_revision);
-        Ok(SyntaxStreamUpdate {
-            base_revision,
-            revision: self.revision,
-            changed_lines: first_changed..self.highlights.line_count(),
-            highlights: Arc::clone(&self.highlights),
-        })
-    }
-
-    fn project(&mut self, theme: &SyntaxTheme, start: usize) -> usize {
+    fn project(&mut self, start: usize, work: &mut SyntaxWorkStats) -> usize {
         let first_line = self.line_starts.partition_point(|&offset| offset <= start).saturating_sub(1);
         let byte_start = self.line_starts.get(first_line).copied().unwrap_or(0);
         let raw = self.document.as_ref().map_or_else(Vec::new, |document| document.spans_from(byte_start));
-        let spans = map_spans(theme, &self.source, raw);
+        let spans = map_spans(&self.source, raw);
         let mut lines = self.highlights.lines.take(first_line.min(self.highlights.line_count()));
         let mut first_changed = lines.len();
         let mut first_span = 0;
-        self.work.projected_bytes += self.source.len() - byte_start;
-        self.work.reused_lines += lines.len();
+        work.projected_bytes += self.source.len() - byte_start;
+        work.reused_lines += lines.len();
         for (line, &from) in self.line_starts.iter().enumerate().skip(first_line) {
             if from == self.source.len() {
                 break;
@@ -237,17 +204,14 @@ impl SyntaxStream {
                 .filter_map(|span| {
                     let start = span.range.start.max(from);
                     let end = span.range.end.min(to);
-                    (start < end).then_some(HighlightSpan {
-                        range: start - from..end - from,
-                        foreground: span.foreground,
-                        font_style: span.font_style,
-                    })
+                    (start < end)
+                        .then_some(HighlightSpan { range: start - from..end - from, highlight: span.highlight })
                 })
                 .collect();
-            self.work.projected_lines += 1;
+            work.projected_lines += 1;
             if let Some(before) = self.highlights.lines.get(line).filter(|before| before.as_ref() == projected) {
                 lines.push_back(Arc::clone(before));
-                self.work.reused_lines += 1;
+                work.reused_lines += 1;
                 if first_changed == line {
                     first_changed += 1;
                 }
@@ -282,142 +246,7 @@ impl DocumentHighlights {
     }
 }
 
-pub struct SyntaxHighlighter {
-    config: CacheConfig,
-    documents: Option<LruCache<CacheKey, SyntaxStream>>,
-    stats: HighlightStats,
-    grammars: Grammars,
-}
-
-impl fmt::Debug for SyntaxHighlighter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SyntaxHighlighter")
-            .field("config", &self.config)
-            .field("documents", &self.documents.as_ref().map_or(0, LruCache::len))
-            .field("stats", &self.stats)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Default for SyntaxHighlighter {
-    fn default() -> Self {
-        Self::new(CacheConfig::default())
-    }
-}
-
-impl SyntaxHighlighter {
-    #[must_use]
-    pub fn new(config: impl Into<CacheConfig>) -> Self {
-        let config = config.into();
-        Self {
-            config,
-            documents: NonZeroUsize::new(config.max_documents).map(LruCache::new),
-            stats: HighlightStats::default(),
-            grammars: Grammars::default(),
-        }
-    }
-
-    #[must_use]
-    pub const fn stats(&self) -> HighlightStats {
-        self.stats
-    }
-
-    pub fn reset_stats(&mut self) {
-        self.stats = HighlightStats::default();
-    }
-
-    pub fn take_stats(&mut self) -> HighlightStats {
-        mem::take(&mut self.stats)
-    }
-
-    #[must_use]
-    pub const fn config(&self) -> CacheConfig {
-        self.config
-    }
-
-    #[must_use]
-    pub fn with_theme<'a>(&'a mut self, theme: &'a SyntaxTheme) -> ThemedHighlighter<'a> {
-        ThemedHighlighter { highlighter: self, theme }
-    }
-
-    #[must_use]
-    pub fn cache_usage(&self) -> CacheUsage {
-        CacheUsage { document_entries: self.documents.as_ref().map_or(0, LruCache::len) }
-    }
-
-    pub fn clear_cache(&mut self) {
-        if let Some(documents) = &mut self.documents {
-            documents.clear();
-        }
-    }
-}
-
-pub struct ThemedHighlighter<'a> {
-    highlighter: &'a mut SyntaxHighlighter,
-    theme: &'a SyntaxTheme,
-}
-
-impl ThemedHighlighter<'_> {
-    pub fn highlight_document<'a, T: AsRef<str>>(
-        &mut self,
-        source_id: Fingerprint,
-        language: impl Into<LanguageHint<'a>>,
-        source: impl FnOnce() -> T,
-    ) -> Result<Arc<DocumentHighlights>, SyntaxError> {
-        let language = language.into();
-        let key = CacheKey::document(resolve_language(language, "").unwrap_or("auto"), source_id);
-        let SyntaxHighlighter { config, documents, stats, grammars } = &mut *self.highlighter;
-        if let Some(stream) = documents.as_mut().and_then(|documents| documents.get_mut(&key)) {
-            stats.calls += 1;
-            stats.hits += 1;
-            return stream.update(grammars, stats, self.theme, "").map(|update| update.highlights);
-        }
-        let text = source();
-        check_limit(config, text.as_ref().len())?;
-        stats.calls += 1;
-        stats.misses += 1;
-        let mut stream = SyntaxStream::new(language);
-        let highlights = stream.update(grammars, stats, self.theme, text.as_ref())?.highlights;
-        if let Some(documents) = documents
-            && documents.push(key, stream).is_some()
-        {
-            stats.evictions += 1;
-        }
-        Ok(highlights)
-    }
-
-    pub fn highlight_lines<'a, 'b>(
-        &mut self,
-        language: impl Into<LanguageHint<'a>>,
-        text: &'b str,
-    ) -> Vec<(&'b str, Arc<[HighlightSpan]>)> {
-        let highlights = self.highlight_document(Fingerprint::of([text]), language, || text).ok();
-        text.lines()
-            .enumerate()
-            .map(|(index, line)| {
-                let spans = highlights.as_ref().and_then(|highlights| highlights.line_shared(index));
-                (line, spans.unwrap_or_else(empty_spans))
-            })
-            .collect()
-    }
-
-    pub fn append(&mut self, stream: &mut SyntaxStream, appended: &str) -> Result<SyntaxStreamUpdate, SyntaxError> {
-        let SyntaxHighlighter { config, stats, grammars, .. } = &mut *self.highlighter;
-        check_limit(config, stream.source.len().saturating_add(appended.len()))?;
-        stats.calls += 1;
-        stream.update(grammars, stats, self.theme, appended)
-    }
-}
-
-fn check_limit(config: &CacheConfig, attempted: usize) -> Result<(), SyntaxError> {
-    let limit = config.max_source_bytes.min(u32::MAX as usize);
-    if attempted > limit {
-        return Err(SyntaxError::InputLimit { limit, attempted });
-    }
-    Ok(())
-}
-
-fn map_spans(theme: &SyntaxTheme, source: &str, raw_spans: Vec<Span>) -> Vec<HighlightSpan> {
+fn map_spans(source: &str, raw_spans: Vec<Span>) -> Vec<HighlightSpan> {
     if raw_spans.is_empty() {
         return Vec::new();
     }
@@ -429,34 +258,14 @@ fn map_spans(theme: &SyntaxTheme, source: &str, raw_spans: Vec<Span>) -> Vec<Hig
         if start >= end || end > source.len() || !source.is_char_boundary(start) || !source.is_char_boundary(end) {
             continue;
         }
-        let Some(capture) = diff_capture_name(token.tag) else {
-            continue;
-        };
-        let Some(style) = theme.style(capture) else {
-            continue;
-        };
-        let span = HighlightSpan { range: start..end, foreground: style.foreground, font_style: style.font_style };
         if let Some(last) = spans.last_mut()
-            && last.range.end == span.range.start
-            && last.foreground == span.foreground
-            && last.font_style == span.font_style
+            && last.range.end == start
+            && last.highlight == token.highlight
         {
-            last.range.end = span.range.end;
+            last.range.end = end;
         } else {
-            spans.push(span);
+            spans.push(HighlightSpan { range: start..end, highlight: token.highlight });
         }
     }
     spans
-}
-
-fn diff_capture_name(tag: &str) -> Option<&'static str> {
-    Some(match tag_to_name(tag)? {
-        "title" => "markup.heading",
-        "strong" => "markup.bold",
-        "emphasis" => "markup.italic",
-        "link" => "markup.link",
-        "literal" => "markup.raw",
-        "strikethrough" => "markup.strikethrough",
-        name => name,
-    })
 }

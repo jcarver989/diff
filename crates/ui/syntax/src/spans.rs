@@ -1,11 +1,11 @@
-use arborium_theme::tag_for_capture;
+use clankerdiff_ui_core::HighlightId;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Span {
     pub start: u32,
     pub end: u32,
-    pub capture: String,
+    pub highlight: Option<HighlightId>,
     pub pattern_index: u32,
 }
 
@@ -18,7 +18,7 @@ pub(crate) struct Injection {
 pub(crate) struct FlatToken {
     pub start: u32,
     pub end: u32,
-    pub tag: &'static str,
+    pub highlight: HighlightId,
 }
 
 pub(crate) fn spans_to_flat_tokens(source: &str, spans: Vec<Span>) -> Vec<FlatToken> {
@@ -36,14 +36,14 @@ pub(crate) fn spans_to_flat_tokens(source: &str, spans: Vec<Span>) -> Vec<FlatTo
     for (position, start, index) in events {
         if position > previous && position as usize <= length {
             if let Some(&top) = active.last() {
-                let tag = spans[top].tag;
+                let highlight = spans[top].highlight;
                 if let Some(last) = tokens.last_mut()
-                    && last.tag == tag
+                    && last.highlight == highlight
                     && last.end == previous
                 {
                     last.end = position;
                 } else {
-                    tokens.push(FlatToken { start: previous, end: position, tag });
+                    tokens.push(FlatToken { start: previous, end: position, highlight });
                 }
             }
             previous = position;
@@ -61,23 +61,23 @@ fn normalize(spans: Vec<Span>) -> Vec<FlatToken> {
     let mut unique: BTreeMap<(u32, u32), Span> = BTreeMap::new();
     for span in spans {
         let key = (span.start, span.end);
-        let priority = |span: &Span| (tag_for_capture(&span.capture).is_some(), span.pattern_index);
+        let priority = |span: &Span| (span.highlight.is_some(), span.pattern_index);
         if unique.get(&key).is_none_or(|existing| priority(&span) >= priority(existing)) {
             unique.insert(key, span);
         }
     }
     let mut normalized: Vec<FlatToken> = Vec::new();
     for span in unique.into_values() {
-        let Some(tag) = tag_for_capture(&span.capture) else {
+        let Some(highlight) = span.highlight else {
             continue;
         };
         if let Some(last) = normalized.last_mut()
-            && last.tag == tag
+            && last.highlight == highlight
             && span.start <= last.end
         {
             last.end = last.end.max(span.end);
         } else {
-            normalized.push(FlatToken { start: span.start, end: span.end, tag });
+            normalized.push(FlatToken { start: span.start, end: span.end, highlight });
         }
     }
     normalized.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));

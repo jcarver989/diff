@@ -2,12 +2,16 @@ use crate::{
     SyntaxError,
     language::resolve_language,
     spans::{Injection, Span},
+    symbols::TagsGrammar,
 };
+use arborium_theme::tag_for_capture;
+use clankerdiff_ui_core::HighlightId;
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     fmt,
-    sync::Arc,
+    ops::Add,
+    sync::{Arc, OnceLock},
 };
 use tree_sitter::{InputEdit, Language, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
@@ -27,12 +31,77 @@ pub struct SyntaxWorkStats {
     pub compared_nodes: usize,
 }
 
-#[derive(Default)]
-pub(crate) struct Grammars(HashMap<String, Arc<Grammar>>);
+impl SyntaxWorkStats {
+    #[must_use]
+    pub const fn parses(&self) -> usize {
+        self.full_parses + self.incremental_parses
+    }
+}
+
+impl Add for SyntaxWorkStats {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            parser_input_bytes: self.parser_input_bytes + other.parser_input_bytes,
+            queried_bytes: self.queried_bytes + other.queried_bytes,
+            full_parses: self.full_parses + other.full_parses,
+            incremental_parses: self.incremental_parses + other.incremental_parses,
+            projected_bytes: self.projected_bytes + other.projected_bytes,
+            projected_lines: self.projected_lines + other.projected_lines,
+            reused_lines: self.reused_lines + other.reused_lines,
+            compared_nodes: self.compared_nodes + other.compared_nodes,
+        }
+    }
+}
+
+type Spec = (Language, &'static str, &'static str);
+
+type Compiled = OnceLock<Option<Arc<Grammar>>>;
+
+#[cfg(not(target_family = "wasm"))]
+fn with_registry<T>(read: impl FnOnce(&[Compiled]) -> T) -> T {
+    static REGISTRY: [Compiled; GRAMMARS.len()] = [const { OnceLock::new() }; GRAMMARS.len()];
+    read(&REGISTRY)
+}
+
+#[cfg(target_family = "wasm")]
+fn with_registry<T>(read: impl FnOnce(&[Compiled]) -> T) -> T {
+    thread_local! {
+        static REGISTRY: [Compiled; GRAMMARS.len()] = const { [const { OnceLock::new() }; GRAMMARS.len()] };
+    }
+    REGISTRY.with(|registry| read(registry))
+}
+
+pub(crate) fn grammar(language: &str) -> Option<Arc<Grammar>> {
+    let index = GRAMMARS.iter().position(|(name, _)| *name == language)?;
+    with_registry(|registry| registry[index].get_or_init(|| compile(GRAMMARS[index])).clone())
+}
+
+fn compile((name, spec): (&'static str, fn() -> Spec)) -> Option<Arc<Grammar>> {
+    let (language, highlights, injections) = spec();
+    let highlights = if name == "solidity" {
+        Cow::Owned(highlights.replace(
+            "(struct_expression type: ((expression (identifier)) @type .))",
+            "(struct_expression type: (expression (identifier)) @type .)",
+        ))
+    } else {
+        Cow::Borrowed(highlights)
+    };
+    let query_source = format!("{highlights}\n{injections}");
+    let highlights = Query::new(&language, &highlights).ok()?;
+    let injections = Query::new(&language, injections).ok()?;
+    let tags = TagsGrammar::new(name, &language).ok()?;
+    let non_local = [&highlights, &injections]
+        .into_iter()
+        .any(|query| (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index)));
+    let highlight_ids =
+        highlights.capture_names().iter().map(|name| tag_for_capture(name).and_then(HighlightId::from_tag)).collect();
+    Some(Arc::new(Grammar { language, highlights, highlight_ids, injections, non_local, query_source, tags }))
+}
 
 /// Shared state for one append across a document and its injections.
 pub(crate) struct AppendContext<'a> {
-    pub grammars: &'a mut Grammars,
     pub stats: &'a mut SyntaxWorkStats,
     /// Line starts of the root stream, for Tree-sitter edit positions.
     pub line_starts: &'a [usize],
@@ -48,38 +117,10 @@ pub(crate) struct IncrementalDocument {
     boundaries: BTreeMap<usize, usize>,
 }
 
-impl Grammars {
+impl IncrementalDocument {
     /// Creates an empty document, or `None` when no grammar is bundled.
-    pub(crate) fn document(&mut self, language: &str) -> Result<Option<IncrementalDocument>, SyntaxError> {
-        let grammar = if let Some(grammar) = self.0.get(language) {
-            Arc::clone(grammar)
-        } else {
-            let Some((language_fn, highlights, injections)) = grammar_spec(language) else {
-                return Ok(None);
-            };
-            let highlights = if language == "solidity" {
-                Cow::Owned(highlights.replace(
-                    "(struct_expression type: ((expression (identifier)) @type .))",
-                    "(struct_expression type: (expression (identifier)) @type .)",
-                ))
-            } else {
-                Cow::Borrowed(highlights)
-            };
-            let compile = |source| {
-                Query::new(&language_fn, source)
-                    .map_err(|source| SyntaxError::Query { language: language.to_owned(), source })
-            };
-            let query_source = format!("{highlights}\n{injections}");
-            let highlights = compile(&highlights)?;
-            let injections = compile(injections)?;
-            let non_local = [&highlights, &injections]
-                .into_iter()
-                .any(|query| (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index)));
-            let grammar = Arc::new(Grammar { highlights, injections, language: language_fn, non_local, query_source });
-            self.0.insert(language.to_owned(), Arc::clone(&grammar));
-            grammar
-        };
-        Ok(Some(IncrementalDocument {
+    pub(crate) fn new(language: &str) -> Option<Self> {
+        grammar(language).map(|grammar| Self {
             parser: None,
             tree: None,
             grammar,
@@ -87,11 +128,17 @@ impl Grammars {
             spans: BTreeMap::new(),
             injections: BTreeMap::new(),
             boundaries: BTreeMap::new(),
-        }))
+        })
     }
-}
 
-impl IncrementalDocument {
+    pub(crate) const fn tree(&self) -> Option<&Tree> {
+        self.tree.as_ref()
+    }
+
+    pub(crate) fn grammar(&self) -> &Grammar {
+        &self.grammar
+    }
+
     /// Appends the bytes of `source` beyond the previous length. `base` is the
     /// document's offset within the root stream.
     pub(crate) fn append(
@@ -225,7 +272,7 @@ impl IncrementalDocument {
                 });
                 let mut entry = match previous {
                     Some(entry) => entry,
-                    None => match cx.grammars.document(language)? {
+                    None => match Self::new(language) {
                         Some(document) => InjectedDocument { language: language.to_owned(), document },
                         None => continue,
                     },
@@ -278,15 +325,21 @@ struct InjectedDocument {
     document: IncrementalDocument,
 }
 
-struct Grammar {
+pub(crate) struct Grammar {
     language: Language,
     highlights: Query,
+    highlight_ids: Box<[Option<HighlightId>]>,
     injections: Query,
     non_local: bool,
     query_source: String,
+    tags: Option<TagsGrammar>,
 }
 
 impl Grammar {
+    pub(crate) const fn tags(&self) -> Option<&TagsGrammar> {
+        self.tags.as_ref()
+    }
+
     fn error_prefix(&self, before: Node<'_>, after: Node<'_>, stats: &mut SyntaxWorkStats) -> Option<usize> {
         if self.non_local
             || self.query_source.contains("ERROR")
@@ -371,7 +424,7 @@ fn query(
             spans.push(Span {
                 start: u32::try_from(capture.node.start_byte()).expect("source limit fits u32"),
                 end: u32::try_from(capture.node.end_byte()).expect("source limit fits u32"),
-                capture: name.to_owned(),
+                highlight: grammar.highlight_ids[capture.index as usize],
                 pattern_index: u32::try_from(found.pattern_index).expect("query pattern fits u32"),
             });
         }
@@ -407,79 +460,75 @@ fn query(
     (spans, injections)
 }
 
-pub(crate) fn grammar_language(language: &str) -> Option<Language> {
-    grammar_spec(language).map(|(language, ..)| language)
+macro_rules! grammars {
+    ($($name:literal => $module:ident),* $(,)?) => {
+        const GRAMMARS: &[(&str, fn() -> Spec)] = &[$((
+            $name,
+            || -> Spec { ($module::language().into(), &$module::HIGHLIGHTS_QUERY, &$module::INJECTIONS_QUERY) },
+        )),*];
+    };
 }
 
-fn grammar_spec(language: &str) -> Option<(Language, &'static str, &'static str)> {
-    macro_rules! grammar {
-        ($module:ident) => {{
-            use $module as grammar;
-            (grammar::language().into(), &grammar::HIGHLIGHTS_QUERY, &grammar::INJECTIONS_QUERY)
-        }};
-    }
-    Some(match language {
-        "asm" => grammar!(arborium_asm),
-        "bash" => grammar!(arborium_bash),
-        "batch" => grammar!(arborium_batch),
-        "c" => grammar!(arborium_c),
-        "c-sharp" => grammar!(arborium_c_sharp),
-        "clojure" => grammar!(arborium_clojure),
-        "cmake" => grammar!(arborium_cmake),
-        "commonlisp" => grammar!(arborium_commonlisp),
-        "cpp" => grammar!(arborium_cpp),
-        "css" => grammar!(arborium_css),
-        "dart" => grammar!(arborium_dart),
-        "diff" => grammar!(arborium_diff),
-        "dockerfile" => grammar!(arborium_dockerfile),
-        "elixir" => grammar!(arborium_elixir),
-        "erlang" => grammar!(arborium_erlang),
-        "fish" => grammar!(arborium_fish),
-        "go" => grammar!(arborium_go),
-        "graphql" => grammar!(arborium_graphql),
-        "haskell" => grammar!(arborium_haskell),
-        "hcl" => grammar!(arborium_hcl),
-        "html" => grammar!(arborium_html),
-        "ini" => grammar!(arborium_ini),
-        "java" => grammar!(arborium_java),
-        "javascript" => grammar!(arborium_javascript),
-        "json" => grammar!(arborium_json),
-        "just" => grammar!(arborium_just),
-        "kotlin" => grammar!(arborium_kotlin),
-        "lua" => grammar!(arborium_lua),
-        "make" => grammar!(arborium_make),
-        "markdown" => grammar!(arborium_markdown),
-        "meson" => grammar!(arborium_meson),
-        "ninja" => grammar!(arborium_ninja),
-        "nix" => grammar!(arborium_nix),
-        "objc" => grammar!(arborium_objc),
-        "ocaml" => grammar!(arborium_ocaml),
-        "perl" => grammar!(arborium_perl),
-        "php" => grammar!(arborium_php),
-        "powershell" => grammar!(arborium_powershell),
-        "proto" => grammar!(arborium_proto),
-        "python" => grammar!(arborium_python),
-        "r" => grammar!(arborium_r),
-        "rego" => grammar!(arborium_rego),
-        "ruby" => grammar!(arborium_ruby),
-        "rust" => grammar!(arborium_rust),
-        "scala" => grammar!(arborium_scala),
-        "scheme" => grammar!(arborium_scheme),
-        "scss" => grammar!(arborium_scss),
-        "solidity" => grammar!(arborium_solidity),
-        "sql" => grammar!(arborium_sql),
-        "starlark" => grammar!(arborium_starlark),
-        "svelte" => grammar!(arborium_svelte),
-        "swift" => grammar!(arborium_swift),
-        "toml" => grammar!(arborium_toml),
-        "tsx" => grammar!(arborium_tsx),
-        "typescript" => grammar!(arborium_typescript),
-        "vue" => grammar!(arborium_vue),
-        "x86asm" => grammar!(arborium_x86asm),
-        "xml" => grammar!(arborium_xml),
-        "yaml" => grammar!(arborium_yaml),
-        "zig" => grammar!(arborium_zig),
-        "zsh" => grammar!(arborium_zsh),
-        _ => return None,
-    })
+grammars! {
+    "asm" => arborium_asm,
+    "bash" => arborium_bash,
+    "batch" => arborium_batch,
+    "c" => arborium_c,
+    "c-sharp" => arborium_c_sharp,
+    "clojure" => arborium_clojure,
+    "cmake" => arborium_cmake,
+    "commonlisp" => arborium_commonlisp,
+    "cpp" => arborium_cpp,
+    "css" => arborium_css,
+    "dart" => arborium_dart,
+    "diff" => arborium_diff,
+    "dockerfile" => arborium_dockerfile,
+    "elixir" => arborium_elixir,
+    "erlang" => arborium_erlang,
+    "fish" => arborium_fish,
+    "go" => arborium_go,
+    "graphql" => arborium_graphql,
+    "haskell" => arborium_haskell,
+    "hcl" => arborium_hcl,
+    "html" => arborium_html,
+    "ini" => arborium_ini,
+    "java" => arborium_java,
+    "javascript" => arborium_javascript,
+    "json" => arborium_json,
+    "just" => arborium_just,
+    "kotlin" => arborium_kotlin,
+    "lua" => arborium_lua,
+    "make" => arborium_make,
+    "markdown" => arborium_markdown,
+    "meson" => arborium_meson,
+    "ninja" => arborium_ninja,
+    "nix" => arborium_nix,
+    "objc" => arborium_objc,
+    "ocaml" => arborium_ocaml,
+    "perl" => arborium_perl,
+    "php" => arborium_php,
+    "powershell" => arborium_powershell,
+    "proto" => arborium_proto,
+    "python" => arborium_python,
+    "r" => arborium_r,
+    "rego" => arborium_rego,
+    "ruby" => arborium_ruby,
+    "rust" => arborium_rust,
+    "scala" => arborium_scala,
+    "scheme" => arborium_scheme,
+    "scss" => arborium_scss,
+    "solidity" => arborium_solidity,
+    "sql" => arborium_sql,
+    "starlark" => arborium_starlark,
+    "svelte" => arborium_svelte,
+    "swift" => arborium_swift,
+    "toml" => arborium_toml,
+    "tsx" => arborium_tsx,
+    "typescript" => arborium_typescript,
+    "vue" => arborium_vue,
+    "x86asm" => arborium_x86asm,
+    "xml" => arborium_xml,
+    "yaml" => arborium_yaml,
+    "zig" => arborium_zig,
+    "zsh" => arborium_zsh,
 }

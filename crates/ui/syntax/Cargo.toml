@@ -74,7 +74,6 @@ arborium-zig = "=2.18.2"
 arborium-zsh = "=2.18.2"
 arborium-theme.workspace = true
 imbl.workspace = true
-lru.workspace = true
 thiserror.workspace = true
 tree-sitter.workspace = true
 clankerdiff-fingerprint.workspace = true
