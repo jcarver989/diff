@@ -2,13 +2,14 @@ use crate::{
     DiffReviewCommand, DiffReviewEvent, DiffReviewState, FocusPane, InputOutcome, KeyModifiers, MarkdownLayoutOptions,
     MarkdownRenderer, RatatuiTheme,
     markdown::{MarkdownOptions, parse_markdown},
-    syntax::highlighted_line,
+    syntax::{SyntaxTheme, highlighted_line},
     text::row_pieces,
     ui::SelectionState,
 };
-use clankerdiff_core::{LookupReply, RepoPath, SourceLocation};
-use clankerdiff_symbols::{Activation, CardContent, DefinitionCard, Hold, Settled, SymbolIndex, SymbolReference};
-use clankerdiff_syntax::LanguageHint;
+use clankerdiff_core::{LookupReply, SourceLocation};
+use clankerdiff_symbols::{
+    Activation, CardCode, CardContent, DefinitionCard, Hold, Settled, SymbolIndex, SymbolReference,
+};
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Position, Rect},
@@ -230,7 +231,7 @@ impl DiffReviewState {
         let secondary = Style::new().fg(theme.ui.text_secondary);
         let head = match (&content.message, &content.code) {
             (Some(message), _) => vec![Line::styled(message.clone(), secondary)],
-            (None, Some((path, code))) => self.code_lines(path, code, theme),
+            (None, Some(code)) => code_lines(code, &self.theme.syntax, theme),
             (None, None) => Vec::new(),
         };
         let mut body = Vec::new();
@@ -247,18 +248,13 @@ impl DiffReviewState {
     fn doc_lines(&mut self, docs: &str, width: u16) -> Arc<[Line<'static>]> {
         let document = parse_markdown(docs, MarkdownOptions { intra_doc_links: true });
         let options = MarkdownLayoutOptions { width, heading_markers: false, ..MarkdownLayoutOptions::default() };
-        MarkdownRenderer::new().render_lines(&document, options, &self.theme, &mut self.highlighter)
+        MarkdownRenderer::new().render_lines(&document, options, &self.theme)
     }
+}
 
-    fn code_lines(&mut self, path: &RepoPath, code: &str, theme: &RatatuiTheme) -> Vec<Line<'static>> {
-        let base = theme.ui.selection_style(SelectionState::None).fg(theme.ui.text);
-        self.highlighter
-            .with_theme(&self.theme.syntax)
-            .highlight_lines(LanguageHint::Path(path.as_str()), code)
-            .into_iter()
-            .map(|(line, spans)| highlighted_line(line, &spans, base))
-            .collect()
-    }
+fn code_lines(code: &CardCode<'_>, syntax: &SyntaxTheme, theme: &RatatuiTheme) -> Vec<Line<'static>> {
+    let base = theme.ui.selection_style(SelectionState::None).fg(theme.ui.text);
+    code.lines().into_iter().map(|(line, spans)| highlighted_line(line, &spans, syntax, base)).collect()
 }
 
 struct CardLines {

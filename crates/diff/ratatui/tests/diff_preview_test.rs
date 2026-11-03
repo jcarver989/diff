@@ -1,6 +1,6 @@
 use clankerdiff_core::{FileDiff, ViewMode};
 use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, page_color, render_diff_preview};
-use clankerdiff_syntax::SyntaxHighlighter;
+use clankerdiff_syntax::thread_work;
 use clankerdiff_ui_core::{DiffTone, ReviewTheme};
 use ratatui::{
     buffer::Buffer,
@@ -21,7 +21,7 @@ fn split_previews_show_one_sided_files_in_one_column() -> Result<(), Box<dyn Err
     };
     for (before, after) in [("", "let value = 1;\n"), ("let value = 1;\n", "")] {
         let mut state = DiffPreviewState::new(FileDiff::from_texts("example.rs", before, after)?);
-        let rows = text(&state.render(96, &ReviewTheme::default(), &mut SyntaxHighlighter::default(), options));
+        let rows = text(&state.render(96, &ReviewTheme::default(), options));
         let column = rows[0].find("let value").ok_or("line is not rendered")?;
         assert!(rows[0][..column].chars().count() < 12, "{rows:?}");
     }
@@ -59,14 +59,13 @@ fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box
     let mut state =
         DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "\tlet a = 1;\na\tb\n界\tx\n    spaces\n")?);
     let theme = ReviewTheme::default();
-    let mut highlighter = SyntaxHighlighter::default();
     for width in [80, 120] {
         let mut previous = None;
         for (tab_width, indent, middle, wide) in
             [(2, "  ", "a b", "界  x"), (4, "    ", "a   b", "界  x"), (0, " ", "a b", "界 x")]
         {
             let options = DiffPreviewOptions { tab_width, include_gaps: false, ..Default::default() };
-            let rows = state.render(width, &theme, &mut highlighter, options);
+            let rows = state.render(width, &theme, options);
             let rendered = text(&rows);
             for expected in [
                 format!("▌   1 {indent}let a = 1;"),
@@ -80,7 +79,7 @@ fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box
             if let Some(previous) = previous {
                 assert!(!Arc::ptr_eq(&previous, &rows));
             }
-            let cached = state.render(width, &theme, &mut highlighter, options);
+            let cached = state.render(width, &theme, options);
             assert!(Arc::ptr_eq(&rows, &cached));
             previous = Some(rows);
         }
@@ -92,13 +91,9 @@ fn tabs_use_source_relative_stops_and_invalidate_cached_rows() -> Result<(), Box
 fn expanded_tabs_preserve_syntax_styles() -> Result<(), Box<dyn Error>> {
     let theme = ReviewTheme::default();
     let options = DiffPreviewOptions::default();
-    let mut highlighter = SyntaxHighlighter::default();
     let mut actual = DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "\tlet a = 1;\n")?);
     let mut expected = DiffPreviewState::new(FileDiff::from_texts("tabs.rs", "", "  let a = 1;\n")?);
-    assert_eq!(
-        actual.render(80, &theme, &mut highlighter, options),
-        expected.render(80, &theme, &mut highlighter, options),
-    );
+    assert_eq!(actual.render(80, &theme, options), expected.render(80, &theme, options));
     Ok(())
 }
 
@@ -106,15 +101,14 @@ fn expanded_tabs_preserve_syntax_styles() -> Result<(), Box<dyn Error>> {
 fn previews_reuse_rows_and_invalidate_replaced_files() -> Result<(), Box<dyn Error>> {
     let file = FileDiff::from_texts("src/main.rs", "old\n", "new\n")?;
     let mut state = DiffPreviewState::new(file);
-    let mut highlighter = SyntaxHighlighter::default();
     let theme = ReviewTheme::default();
     let options = DiffPreviewOptions::default();
-    let first = state.render(80, &theme, &mut highlighter, options);
-    let unchanged = state.render(80, &theme, &mut highlighter, options);
+    let first = state.render(80, &theme, options);
+    let unchanged = state.render(80, &theme, options);
     assert!(Arc::ptr_eq(&first, &unchanged));
-    assert_eq!(state.take_stats().cache_hits, 1);
+    assert_eq!(state.take_stats().renders_reused, 1);
     state.set_file(FileDiff::from_texts("src/main.rs", "new\n", "replacement\n")?);
-    let replaced = state.render(80, &theme, &mut highlighter, options);
+    let replaced = state.render(80, &theme, options);
     assert!(!Arc::ptr_eq(&first, &replaced));
     assert!(replaced.iter().any(|row| row.to_string().contains("replacement")));
     Ok(())
@@ -124,16 +118,14 @@ fn previews_reuse_rows_and_invalidate_replaced_files() -> Result<(), Box<dyn Err
 fn theme_changes_recolor_previews_without_parsing() -> Result<(), Box<dyn Error>> {
     let mut state =
         DiffPreviewState::new(FileDiff::from_texts("src/main.rs", "let before = 1;\n", "let after = 2;\n")?);
-    let mut highlighter = SyntaxHighlighter::default();
     let options = DiffPreviewOptions::default();
-    let first = state.render(80, &ReviewTheme::default(), &mut highlighter, options);
-    assert!(highlighter.take_stats().bytes > 0);
-    let changed = state.render(80, &ReviewTheme::ayu()?, &mut highlighter, options);
+    let before = thread_work().parses();
+    let first = state.render(80, &ReviewTheme::default(), options);
+    let parsed = thread_work().parses();
+    assert!(parsed > before);
+    let changed = state.render(80, &ReviewTheme::ayu()?, options);
     assert_ne!(first, changed);
-    let work = highlighter.take_stats();
-    assert_eq!(work.bytes, 0);
-    assert_eq!(work.misses, 0);
-    assert!(work.hits > 0);
+    assert_eq!(thread_work().parses(), parsed);
     Ok(())
 }
 
@@ -144,7 +136,6 @@ fn preview_rows_remain_bounded_at_tiny_and_split_widths() -> Result<(), Box<dyn 
         let rows = state.render(
             width,
             &ReviewTheme::default(),
-            &mut SyntaxHighlighter::default(),
             DiffPreviewOptions { view_mode: ViewMode::Auto, include_gaps: false, ..DiffPreviewOptions::default() },
         );
         assert!(rows.iter().all(|row| row.width() <= usize::from(width)), "width: {width}");
@@ -160,7 +151,6 @@ fn unified_previews_wrap_source_rows_and_preserve_gutters() -> Result<(), Box<dy
         file,
         11,
         &ReviewTheme::default(),
-        &mut SyntaxHighlighter::default(),
         DiffPreviewOptions { view_mode: ViewMode::Unified, include_gaps: false, ..Default::default() },
     );
     assert_eq!(
@@ -199,7 +189,6 @@ fn split_previews_align_continuations_before_the_next_source_row() -> Result<(),
             FileDiff::from_texts("example.txt", before, after)?,
             23,
             &ReviewTheme::default(),
-            &mut SyntaxHighlighter::default(),
             DiffPreviewOptions { view_mode: ViewMode::Split, include_gaps: false, ..Default::default() },
         );
         assert_eq!(text(&rows), expected);
@@ -215,11 +204,10 @@ fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result
         let mut state = DiffPreviewState::new(file);
         for max_content_rows in [0, 1, 2, 20] {
             for overflow_summary in [false, true] {
-                let mut highlighter = SyntaxHighlighter::default();
+                let before = thread_work().parser_input_bytes;
                 let rows = state.render(
                     width,
                     &ReviewTheme::default(),
-                    &mut highlighter,
                     DiffPreviewOptions {
                         max_content_rows,
                         view_mode,
@@ -229,7 +217,7 @@ fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result
                     },
                 );
                 if max_content_rows == 0 {
-                    assert_eq!(highlighter.take_stats().bytes, 0);
+                    assert_eq!(thread_work().parser_input_bytes, before);
                 }
                 assert_eq!(rows.len(), max_content_rows + usize::from(overflow_summary));
                 assert!(rows.iter().all(|row| row.width() == usize::from(width)));
@@ -252,7 +240,6 @@ fn exact_preview_budget_does_not_report_overflow() -> Result<(), Box<dyn Error>>
             FileDiff::from_texts("example.txt", "", after)?,
             11,
             &ReviewTheme::default(),
-            &mut SyntaxHighlighter::default(),
             DiffPreviewOptions {
                 max_content_rows: budget,
                 view_mode: ViewMode::Unified,
@@ -276,14 +263,13 @@ fn wrapped_tabs_unicode_and_styles_match_expanded_source() -> Result<(), Box<dyn
     let mut actual = DiffPreviewState::new(FileDiff::from_texts("example.rs", "", "\tlet a = \"界e\u{301}👩‍💻\";  \n")?);
     let mut expanded =
         DiffPreviewState::new(FileDiff::from_texts("example.rs", "", "    let a = \"界e\u{301}👩‍💻\";  \n")?);
-    let mut highlighter = SyntaxHighlighter::default();
     for width in [11, 13, 80, 13] {
-        let rows = actual.render(width, &theme, &mut highlighter, options);
-        assert_eq!(rows, expanded.render(width, &theme, &mut highlighter, options));
+        let rows = actual.render(width, &theme, options);
+        assert_eq!(rows, expanded.render(width, &theme, options));
         assert!(rows.iter().all(|row| row.width() == usize::from(width)));
         assert!(rows.iter().any(|row| row.to_string().contains("e\u{301}")));
         assert!(rows.iter().any(|row| row.to_string().contains("👩‍💻")));
-        let cached = actual.render(width, &theme, &mut highlighter, options);
+        let cached = actual.render(width, &theme, options);
         assert!(Arc::ptr_eq(&rows, &cached));
     }
     Ok(())
@@ -310,7 +296,6 @@ fn assert_split_backgrounds(
     expected: &[(Option<DiffTone>, Option<DiffTone>)],
 ) -> Result<(), Box<dyn Error>> {
     let mut state = DiffPreviewState::new(FileDiff::from_texts("example.rs", before, after)?);
-    let mut highlighter = SyntaxHighlighter::default();
     let options = DiffPreviewOptions {
         view_mode: ViewMode::Split,
         include_gaps: false,
@@ -319,7 +304,7 @@ fn assert_split_backgrounds(
     };
     for width in [96, 97, 120, 121] {
         for theme in [ReviewTheme::default(), ReviewTheme::ayu()?] {
-            let rows = state.render(width, &theme, &mut highlighter, options);
+            let rows = state.render(width, &theme, options);
             assert_eq!(rows.len(), expected.len());
             let area = Rect::new(0, 0, width, u16::try_from(expected.len())?);
             let mut buffer = Buffer::empty(area);

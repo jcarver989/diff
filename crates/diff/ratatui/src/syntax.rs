@@ -2,9 +2,9 @@
 
 use crate::color::native_color;
 pub use clankerdiff_syntax::{
-    CacheConfig, CacheKey, CacheUsage, DocumentHighlights, Fingerprint, FontStyle, HighlightSpan, HighlightStats,
-    LanguageHint, Rgba, SyntaxError, SyntaxHighlighter, SyntaxStream, SyntaxStreamUpdate, SyntaxStyle, SyntaxTheme,
-    SyntaxWorkStats, ThemedHighlighter, empty_spans, resolve_language,
+    DocumentHighlights, Fingerprint, FontStyle, HighlightId, HighlightSpan, LanguageHint, Rgba, SourceSyntax,
+    SyntaxError, SyntaxStream, SyntaxStreamUpdate, SyntaxStyle, SyntaxTheme, SyntaxWorkStats, analyze, empty_spans,
+    resolve_language,
 };
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -17,14 +17,15 @@ use std::ops::Range;
 /// Unhighlighted gaps retain `base`. Highlight styles patch `base`, so caller
 /// backgrounds and modifiers are preserved rather than replaced.
 #[must_use]
-pub fn highlighted_line(source: &str, spans: &[HighlightSpan], base: Style) -> Line<'static> {
-    let spans = styled_spans(source, spans, &[], base);
+pub fn highlighted_line(source: &str, spans: &[HighlightSpan], theme: &SyntaxTheme, base: Style) -> Line<'static> {
+    let spans = styled_spans(source, spans, theme, &[], base);
     Line::from(spans.into_iter().map(|span| Span::styled(span.content.into_owned(), span.style)).collect::<Vec<_>>())
 }
 
 pub(crate) fn styled_spans<'a>(
     source: &'a str,
     highlights: &[HighlightSpan],
+    theme: &SyntaxTheme,
     overlays: &[(Range<usize>, Style)],
     base: Style,
 ) -> Vec<Span<'a>> {
@@ -34,11 +35,15 @@ pub(crate) fn styled_spans<'a>(
             && source.is_char_boundary(range.start)
             && source.is_char_boundary(range.end)
     };
-    let highlights: Vec<&HighlightSpan> = highlights.iter().filter(|highlight| valid(&highlight.range)).collect();
+    let highlights: Vec<(&Range<usize>, SyntaxStyle)> = highlights
+        .iter()
+        .filter(|highlight| valid(&highlight.range))
+        .filter_map(|highlight| Some((&highlight.range, theme.highlight(highlight.highlight)?)))
+        .collect();
     let overlays: Vec<&(Range<usize>, Style)> = overlays.iter().filter(|(range, _)| valid(range)).collect();
     let mut cuts: Vec<usize> = highlights
         .iter()
-        .map(|highlight| &highlight.range)
+        .map(|(range, _)| *range)
         .chain(overlays.iter().map(|(range, _)| range))
         .flat_map(|range| [range.start, range.end])
         .chain([0, source.len()])
@@ -54,11 +59,11 @@ pub(crate) fn styled_spans<'a>(
                 .iter()
                 .filter(|(range, _)| range.contains(&start))
                 .fold(base, |style, (_, overlay)| style.patch(*overlay));
-            while highlights.next_if(|highlight| highlight.range.end <= start).is_some() {}
+            while highlights.next_if(|(range, _)| range.end <= start).is_some() {}
             let style = highlights
                 .peek()
-                .filter(|highlight| highlight.range.start <= start)
-                .map_or(base, |highlight| base.patch(syntax_style(highlight, base)));
+                .filter(|(range, _)| range.start <= start)
+                .map_or(base, |(_, style)| base.patch(syntax_style(*style, base)));
             Span::styled(&source[start..end], style)
         })
         .collect();
@@ -68,10 +73,10 @@ pub(crate) fn styled_spans<'a>(
     spans
 }
 
-fn syntax_style(highlight: &HighlightSpan, base: Style) -> Style {
+fn syntax_style(style: SyntaxStyle, base: Style) -> Style {
     let mut modifiers = Modifier::empty();
-    modifiers.set(Modifier::BOLD, highlight.font_style.bold);
-    modifiers.set(Modifier::ITALIC, highlight.font_style.italic);
-    modifiers.set(Modifier::UNDERLINED, highlight.font_style.underline);
-    Style::new().fg(native_color(highlight.foreground, base.bg.unwrap_or(Color::Black))).add_modifier(modifiers)
+    modifiers.set(Modifier::BOLD, style.font_style.bold);
+    modifiers.set(Modifier::ITALIC, style.font_style.italic);
+    modifiers.set(Modifier::UNDERLINED, style.font_style.underline);
+    Style::new().fg(native_color(style.foreground, base.bg.unwrap_or(Color::Black))).add_modifier(modifiers)
 }
