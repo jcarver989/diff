@@ -52,14 +52,12 @@ fn attaching_sources_rederives_hunks_but_keeps_git_metadata() -> Result<(), Box<
     patch.status = FileStatus::Renamed;
     patch.staged = StageState::Staged;
     patch.old_path = Some(RepoPath::new("b.rs")?);
-    patch.omitted_bytes = Some(7);
     let old = Arc::new(SourceDocument::new("keep\nold")?);
     let new = Arc::new(SourceDocument::new("keep\nnew")?);
     let rebuilt = patch.clone().with_sources(Ok(old.clone()), Ok(new));
     assert_eq!(rebuilt.status, FileStatus::Renamed);
     assert_eq!(rebuilt.staged, StageState::Staged);
     assert_eq!(rebuilt.old_path.as_ref().map(RepoPath::as_str), Some("b.rs"));
-    assert_eq!(rebuilt.omitted_bytes, Some(7));
     assert!(rebuilt.no_newline_at_end);
     assert_eq!(rebuilt.hunks[0].lines[0].text.as_ref(), "keep");
     assert_eq!((rebuilt.additions(), rebuilt.deletions()), (1, 1));
@@ -71,6 +69,20 @@ fn attaching_sources_rederives_hunks_but_keeps_git_metadata() -> Result<(), Box<
     binary.binary = true;
     let binary = binary.with_sources(Ok(Arc::new(SourceDocument::new("a")?)), Ok(Arc::new(SourceDocument::new("b")?)));
     assert_eq!(binary.hunks, patch.hunks);
+    Ok(())
+}
+
+#[test]
+fn attaching_sources_keeps_an_omitted_patch_omitted() -> Result<(), Box<dyn Error>> {
+    let mut patch = FileDiff::from_texts("models.json", "old\n", "new\n")?;
+    patch.hunks.clear();
+    patch.omitted_bytes = Some(12 * 1024 * 1024);
+    let old = Arc::new(SourceDocument::new("old\n")?);
+    let new = Arc::new(SourceDocument::new("new\n")?);
+    let attached = patch.with_sources(Ok(old.clone()), Ok(new));
+    assert_eq!(attached.hunks, []);
+    assert_eq!(attached.omitted_bytes, Some(12 * 1024 * 1024));
+    assert_eq!(attached.source_document(DiffSide::Old).map(|source| source.text()), Some(old.text()));
     Ok(())
 }
 
