@@ -113,6 +113,7 @@ fn an_open_code_block_is_highlighted_as_it_streams_and_keeps_that_analysis_when_
     let closed = &stream.document().code_blocks()[0].syntax().highlights;
     assert_eq!(thread_work().parses(), parses, "closing reuses the streamed analysis");
     assert_eq!(closed.line_count(), 3);
+    assert_eq!(stream.document().code_blocks()[0].text(), code);
     assert_eq!(closed.line(2).ok_or("line")?, expected.line(2).ok_or("line")?);
     Ok(())
 }

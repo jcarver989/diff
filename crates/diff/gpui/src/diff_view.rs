@@ -19,12 +19,11 @@ use clankerdiff_core::{
     ReviewComment, RowKind,
 };
 use gpui::{
-    Action, Anchor, AnyElement, Context, DispatchPhase, Div, Entity, EntityId, HighlightStyle, HitboxBehavior,
-    ListState, MouseButton, Pixels, ScrollDelta, ScrollWheelEvent, SharedString, Stateful, StyledText, Window, canvas,
-    div, list, prelude::*, px,
+    Action, Anchor, AnyElement, Context, DispatchPhase, Div, Entity, EntityId, HitboxBehavior, ListState, MouseButton,
+    Pixels, ScrollDelta, ScrollWheelEvent, SharedString, Stateful, StyledText, Window, canvas, div, list, prelude::*,
+    px,
 };
 use gpui_base::Popover;
-use std::ops::Range;
 
 const CHANGE_INDICATOR_WIDTH: f32 = 4.0;
 const GUTTER_WIDTH: f32 = 52.0;
@@ -454,7 +453,6 @@ impl DiffViewer {
 
         let text: SharedString = cell.text.to_string().into();
         let highlights = self.highlight_cell(row, cell);
-        let highlights: Vec<(Range<usize>, HighlightStyle)> = style::highlights(&highlights, &self.theme().syntax);
         let location = self.presentation().source_location(row, cell);
         let text_selector = location.as_ref().map(|location| format!("code:{}", line_key(location)));
         let styled = match location {

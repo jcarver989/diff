@@ -244,7 +244,7 @@ impl PreviewRenderer<'_> {
             return vec![fit_line(Line::from(gutter(&number)).style(base), width, self.tab_width)];
         }
         let spans = self.syntax.highlights(row, cell);
-        let content = highlighted_line(&cell.text, &spans, &self.theme.syntax, base).spans;
+        let content = highlighted_line(&cell.text, spans, &self.theme.syntax, base).spans;
         let content_width = width - gutter_width;
         let wrap = matches!(row.kind, RowKind::Code | RowKind::ExpandedContext);
         fit(content, content_width, wrap, self.tab_width)

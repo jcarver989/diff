@@ -3,8 +3,8 @@ use clankerdiff_core::{
     DefinitionRequest, DefinitionTarget, DiffSide, Lookup, LookupReply, LookupRequest, LookupStatus, LookupUnavailable,
     RepoPath, Resolution, ReviewSession, SourceLocation, TargetLocation,
 };
-use clankerdiff_syntax::{HighlightSpan, LanguageHint, analyze, empty_spans};
-use std::{collections::HashMap, mem, ops::Range, sync::Arc};
+use clankerdiff_syntax::{HighlightLine, LanguageHint, analyze};
+use std::{collections::HashMap, mem, ops::Range};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Hold {
@@ -47,12 +47,12 @@ pub struct CardCode<'a> {
 
 impl CardCode<'_> {
     #[must_use]
-    pub fn lines(&self) -> Vec<(&str, Arc<[HighlightSpan]>)> {
+    pub fn map_lines<T>(&self, mut line: impl FnMut(&str, HighlightLine<'_>) -> T) -> Vec<T> {
         let highlights = analyze(LanguageHint::Path(self.path.as_str()), self.text).highlights;
         self.text
             .lines()
             .enumerate()
-            .map(|(index, line)| (line, highlights.line_shared(index).unwrap_or_else(empty_spans)))
+            .map(|(index, text)| line(text, highlights.line(index).unwrap_or_default()))
             .collect()
     }
 }

@@ -399,7 +399,7 @@ fn a_removed_line_says_it_cannot_be_looked_up_and_matches_its_own_revision() -> 
     assert_eq!(content.code.map(|code| code.text), Some("fn helper(size: usize)"));
     assert!(names.open_at(location("src/main.rs", 6)?, &session, &index, false));
     assert_eq!(card(&names)?.content(&index).code.map(|code| code.text), Some("fn helper()"));
-    assert!(!card(&names)?.content(&index).code.ok_or("code")?.lines()[0].1.is_empty());
+    assert!(card(&names)?.content(&index).code.ok_or("code")?.map_lines(|_, spans| !spans.is_empty())[0]);
     Ok(())
 }
 

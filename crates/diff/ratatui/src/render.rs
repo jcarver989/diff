@@ -527,7 +527,7 @@ fn render_cell(
     let location = context.presentation.source_location(context.row, cell);
     let overlays = location.as_ref().map_or_else(Vec::new, |location| context.names.styles(location, card));
     let source_spans =
-        styled_spans(&cell.text, &highlights, &context.diff_theme.syntax, &overlays, Style::new().bg(background));
+        styled_spans(&cell.text, highlights, &context.diff_theme.syntax, &overlays, Style::new().bg(background));
     let fit = FitOptions {
         width: geometry.content_width,
         wrap: true,

@@ -17,7 +17,7 @@ use support::{SyntaxBuilder, TestResult, line};
 fn shares_upstream_runtime_with_ast_grep() -> TestResult {
     let source = "fn main() {}";
     let highlights = analyze("rust", source).highlights;
-    assert_ne!(line(&highlights, 0)?, []);
+    assert!(!line(&highlights, 0)?.is_empty());
     let document = StrDoc::try_new(source, Rust)?;
     let ast = AstGrep::doc(document);
     let pattern = Pattern::try_new(source, Rust)?;
@@ -117,7 +117,7 @@ fn a_large_document_is_analyzed_in_one_parse() -> TestResult {
     assert_eq!(after.full_parses - before.full_parses, 1);
     assert_eq!(after.incremental_parses, before.incremental_parses);
     assert!(after.parser_input_bytes - before.parser_input_bytes >= text.len());
-    assert_ne!(line(&analysis.highlights, 9_000)?, []);
+    assert!(!line(&analysis.highlights, 9_000)?.is_empty());
     assert_eq!(analysis.symbols.definitions.len(), 10_000);
     Ok(())
 }
@@ -139,7 +139,7 @@ fn aliases_resolve_to_identical_utf8_highlights() -> TestResult {
     let source = "let café = 1;\n";
     let alias = SyntaxBuilder::default().language("rs").build().highlight(source);
     let canonical = SyntaxBuilder::default().language("RUST").build().highlight(source);
-    assert_ne!(line(&alias, 0)?, []);
+    assert!(!line(&alias, 0)?.is_empty());
     assert!(
         line(&alias, 0)?
             .iter()
@@ -159,7 +159,7 @@ fn paths_and_shebangs_resolve_before_the_first_parse() -> TestResult {
         let highlights = analyze(hint, source).highlights;
         assert_eq!(highlights.line_count(), source.lines().count());
         for (index, text) in source.lines().enumerate() {
-            assert_ne!(line(&highlights, index)?, []);
+            assert!(!line(&highlights, index)?.is_empty());
             assert!(line(&highlights, index)?.iter().all(|span| span.range.end <= text.len()));
         }
     }
@@ -171,8 +171,8 @@ fn unknown_language_is_plain_text_without_parsing() -> TestResult {
     let before = thread_work();
     let analysis = analyze("binary.zzz", "abc\n\n");
     assert_eq!(analysis.highlights.line_count(), 2);
-    assert_eq!(line(&analysis.highlights, 0)?, []);
-    assert_eq!(line(&analysis.highlights, 1)?, []);
+    assert!(line(&analysis.highlights, 0)?.is_empty());
+    assert!(line(&analysis.highlights, 1)?.is_empty());
     assert_eq!(thread_work().parses(), before.parses());
     assert_eq!(*analysis.symbols, SymbolTags::default());
     Ok(())
@@ -232,7 +232,7 @@ fn injections_highlight_embedded_languages() -> TestResult {
     ] {
         let mut fixture = SyntaxBuilder::default().language(language).build();
         fixture.append(source)?;
-        assert_ne!(line(fixture.stream.highlights(), index)?, []);
+        assert!(!line(fixture.stream.highlights(), index)?.is_empty());
         fixture.assert_equivalent();
     }
     Ok(())

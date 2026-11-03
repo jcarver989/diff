@@ -2,8 +2,8 @@
 
 use crate::color::native_color;
 pub use clankerdiff_syntax::{
-    DocumentHighlights, Fingerprint, FontStyle, HighlightId, HighlightSpan, LanguageHint, Rgba, SourceSyntax,
-    SyntaxError, SyntaxStream, SyntaxStreamUpdate, SyntaxStyle, SyntaxTheme, SyntaxWorkStats, analyze, empty_spans,
+    DocumentHighlights, Fingerprint, FontStyle, HighlightId, HighlightLine, HighlightSpan, LanguageHint, Rgba,
+    SourceSyntax, SyntaxError, SyntaxStream, SyntaxStreamUpdate, SyntaxStyle, SyntaxTheme, SyntaxWorkStats, analyze,
     resolve_language,
 };
 use ratatui::{
@@ -17,14 +17,19 @@ use std::ops::Range;
 /// Unhighlighted gaps retain `base`. Highlight styles patch `base`, so caller
 /// backgrounds and modifiers are preserved rather than replaced.
 #[must_use]
-pub fn highlighted_line(source: &str, spans: &[HighlightSpan], theme: &SyntaxTheme, base: Style) -> Line<'static> {
+pub fn highlighted_line(
+    source: &str,
+    spans: impl IntoIterator<Item = HighlightSpan>,
+    theme: &SyntaxTheme,
+    base: Style,
+) -> Line<'static> {
     let spans = styled_spans(source, spans, theme, &[], base);
     Line::from(spans.into_iter().map(|span| Span::styled(span.content.into_owned(), span.style)).collect::<Vec<_>>())
 }
 
 pub(crate) fn styled_spans<'a>(
     source: &'a str,
-    highlights: &[HighlightSpan],
+    highlights: impl IntoIterator<Item = HighlightSpan>,
     theme: &SyntaxTheme,
     overlays: &[(Range<usize>, Style)],
     base: Style,
@@ -35,38 +40,42 @@ pub(crate) fn styled_spans<'a>(
             && source.is_char_boundary(range.start)
             && source.is_char_boundary(range.end)
     };
-    let highlights: Vec<(&Range<usize>, SyntaxStyle)> = highlights
-        .iter()
-        .filter(|highlight| valid(&highlight.range))
-        .filter_map(|highlight| Some((&highlight.range, theme.highlight(highlight.highlight)?)))
-        .collect();
     let overlays: Vec<&(Range<usize>, Style)> = overlays.iter().filter(|(range, _)| valid(range)).collect();
-    let mut cuts: Vec<usize> = highlights
-        .iter()
-        .map(|(range, _)| *range)
-        .chain(overlays.iter().map(|(range, _)| range))
-        .flat_map(|range| [range.start, range.end])
-        .chain([0, source.len()])
-        .collect();
+    let mut cuts: Vec<usize> = overlays.iter().flat_map(|(range, _)| [range.start, range.end]).collect();
     cuts.sort_unstable();
     cuts.dedup();
-    let mut highlights = highlights.into_iter().peekable();
-    let mut spans: Vec<Span<'a>> = cuts
-        .windows(2)
-        .map(|pair| {
-            let (start, end) = (pair[0], pair[1]);
+    let mut spans: Vec<Span<'a>> = Vec::new();
+    let mut emit = |from: usize, to: usize, syntax: Option<SyntaxStyle>| {
+        let mut start = from;
+        let first = cuts.partition_point(|&cut| cut <= from);
+        for &end in cuts[first..].iter().take_while(|&&cut| cut < to).chain([&to]) {
             let base = overlays
                 .iter()
                 .filter(|(range, _)| range.contains(&start))
                 .fold(base, |style, (_, overlay)| style.patch(*overlay));
-            while highlights.next_if(|(range, _)| range.end <= start).is_some() {}
-            let style = highlights
-                .peek()
-                .filter(|(range, _)| range.start <= start)
-                .map_or(base, |(_, style)| base.patch(syntax_style(*style, base)));
-            Span::styled(&source[start..end], style)
-        })
-        .collect();
+            let style = syntax.map_or(base, |syntax| base.patch(syntax_style(syntax, base)));
+            spans.push(Span::styled(&source[start..end], style));
+            start = end;
+        }
+    };
+    let mut position = 0;
+    for highlight in highlights {
+        let range = highlight.range;
+        if !valid(&range) || range.start < position {
+            continue;
+        }
+        let Some(style) = theme.highlight(highlight.highlight) else {
+            continue;
+        };
+        if position < range.start {
+            emit(position, range.start, None);
+        }
+        emit(range.start, range.end, Some(style));
+        position = range.end;
+    }
+    if position < source.len() {
+        emit(position, source.len(), None);
+    }
     if spans.is_empty() {
         spans.push(Span::styled(source, base));
     }

@@ -9,7 +9,6 @@ use crate::{
         tokens::{RADIUS_CONTROL, RADIUS_INNER},
     },
 };
-use clankerdiff_core::join_lines;
 use clankerdiff_markdown::{MarkdownCodeBlock, MarkdownInline, MarkdownTableAlignment};
 use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, ClipboardItem, Div, FontWeight, Rems, StyledText, div, prelude::*, px};
@@ -165,7 +164,7 @@ impl MarkdownContent<'_> {
         let copy = self.copy.then(|| {
             let code = Arc::clone(code);
             IconButton::new("markdown-copy-code", IconName::Copy, "Copy code", *self.ui).on_click(move |_, _, cx| {
-                let text = join_lines(code.lines().iter().map(|line| line.text.as_str()));
+                let text = if code.lines().is_empty() { String::new() } else { format!("{}\n", code.text()) };
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             })
         });
@@ -190,7 +189,7 @@ impl MarkdownContent<'_> {
     }
 
     fn code_text(&self, code: &MarkdownCodeBlock, index: usize) -> StyledText {
-        let text = code.lines().get(index).map(|line| line.text.clone()).unwrap_or_default();
+        let text = code.lines().get(index).map(|line| code.line_text(line).to_owned()).unwrap_or_default();
         style::code_text(text.into(), code.syntax().highlights.line(index).unwrap_or_default(), &self.theme.syntax)
     }
 

@@ -85,7 +85,7 @@ fn render_preview(
             card = Some(body.child(div().px_2().text_color(color(palette.muted)).child(cell.text.to_string())));
             continue;
         }
-        let highlights = style::highlights(&syntax.highlights(row, cell), &theme.syntax);
+        let highlights = style::highlights(syntax.highlights(row, cell), &theme.syntax);
         let indicator = match cell.tone {
             DiffTone::Added => "+",
             DiffTone::Removed => "−",

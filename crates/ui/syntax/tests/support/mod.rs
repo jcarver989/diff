@@ -1,4 +1,4 @@
-use clankerdiff_syntax::{DocumentHighlights, HighlightSpan, SyntaxError, SyntaxStream, SyntaxStreamUpdate, analyze};
+use clankerdiff_syntax::{DocumentHighlights, HighlightLine, SyntaxError, SyntaxStream, SyntaxStreamUpdate, analyze};
 use std::{error::Error, sync::Arc};
 
 pub type TestResult = Result<(), Box<dyn Error>>;
@@ -53,6 +53,6 @@ impl SyntaxFixture {
     }
 }
 
-pub fn line(highlights: &DocumentHighlights, index: usize) -> Result<&[HighlightSpan], Box<dyn Error>> {
+pub fn line(highlights: &DocumentHighlights, index: usize) -> Result<HighlightLine<'_>, Box<dyn Error>> {
     highlights.line(index).ok_or_else(|| format!("missing line {index}").into())
 }

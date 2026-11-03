@@ -93,13 +93,13 @@ pub fn anchor_for_target(document: &MarkdownDocument, id: MarkdownTargetId) -> O
     let target = document.target(id)?;
     target_details(document, id)?;
     if target.kind == MarkdownTargetKind::CodeLine {
-        let (block_id, line) = code_line_parent(document, id)?;
+        let (block_id, code, line) = code_line_parent(document, id)?;
         let block = block_anchor(document, block_id)?;
         return Some(MarkdownAnchor::CodeLine(MarkdownCodeLineAnchor {
             block,
             code_line_index: line.index,
             source_line: line.source_line,
-            content_fingerprint: line_content_fingerprint(&line.text),
+            content_fingerprint: line_content_fingerprint(code.line_text(line)),
             snapshot: snapshot(document.source(), &line.source),
         }));
     }
@@ -117,7 +117,7 @@ pub fn resolve_anchor(document: &MarkdownDocument, anchor: &MarkdownAnchor) -> O
             let matching_index = if code
                 .lines
                 .get(anchor.code_line_index)
-                .is_some_and(|line| line_content_fingerprint(&line.text) == anchor.content_fingerprint)
+                .is_some_and(|line| line_content_fingerprint(code.line_text(line)) == anchor.content_fingerprint)
             {
                 Some(anchor.code_line_index)
             } else {
@@ -215,7 +215,7 @@ fn nearest_line_index(code: &crate::MarkdownCodeBlock, anchor: &MarkdownCodeLine
     let mut distance = usize::MAX;
     let mut tied = false;
     for line in &code.lines {
-        if line_content_fingerprint(&line.text) != anchor.content_fingerprint {
+        if line_content_fingerprint(code.line_text(line)) != anchor.content_fingerprint {
             continue;
         }
         let candidate_distance = line.index.abs_diff(anchor.code_line_index);
@@ -322,7 +322,7 @@ fn find_in_block(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<String> 
         | MarkdownBlockKind::HtmlFallback { .. }
         | MarkdownBlockKind::Rule => None,
         MarkdownBlockKind::CodeBlock(code) => {
-            code.lines.iter().find_map(|line| (line.target_id == Some(id)).then(|| line.text.clone()))
+            code.lines.iter().find_map(|line| (line.target_id == Some(id)).then(|| code.line_text(line).to_owned()))
         }
         MarkdownBlockKind::Table(table) => {
             table.rows.iter().find_map(|row| (row.target_id == Some(id)).then(|| row_text(row)))
@@ -343,9 +343,7 @@ fn block_text(block: &MarkdownBlock) -> String {
             items.iter().map(|item| rendered_text(&item.content)).collect::<Vec<_>>().join(" ")
         }
         MarkdownBlockKind::BlockQuote { blocks } => blocks.iter().map(block_text).collect::<Vec<_>>().join(" "),
-        MarkdownBlockKind::CodeBlock(code) => {
-            code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n")
-        }
+        MarkdownBlockKind::CodeBlock(code) => code.text.clone(),
         MarkdownBlockKind::Table(table) => table.rows.iter().map(row_text).collect::<Vec<_>>().join(" "),
         MarkdownBlockKind::Rule => String::new(),
     }
@@ -369,17 +367,17 @@ fn code_block_in(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<&crate::
     }
 }
 
-fn code_line_parent(
-    document: &MarkdownDocument,
-    id: MarkdownTargetId,
-) -> Option<(MarkdownTargetId, &MarkdownCodeLine)> {
+type CodeLineParent<'a> = (MarkdownTargetId, &'a MarkdownCodeBlock, &'a MarkdownCodeLine);
+
+fn code_line_parent(document: &MarkdownDocument, id: MarkdownTargetId) -> Option<CodeLineParent<'_>> {
     document.blocks().iter().find_map(|block| code_line_parent_in(block, id))
 }
 
-fn code_line_parent_in(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<(MarkdownTargetId, &MarkdownCodeLine)> {
+fn code_line_parent_in(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<CodeLineParent<'_>> {
     match &block.kind {
         MarkdownBlockKind::CodeBlock(code) => {
-            code.target_id.zip(code.lines.iter().find(|line| line.target_id == Some(id)))
+            let line = code.lines.iter().find(|line| line.target_id == Some(id))?;
+            Some((code.target_id?, code, line))
         }
         MarkdownBlockKind::List { items, .. } => {
             items.iter().find_map(|item| item.blocks.iter().find_map(|block| code_line_parent_in(block, id)))

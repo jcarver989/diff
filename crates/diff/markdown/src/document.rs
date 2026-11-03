@@ -179,6 +179,7 @@ pub struct MarkdownCodeBlock {
     pub(crate) info: Option<String>,
     pub source: SourceRange,
     pub content: SourceRange,
+    pub(crate) text: String,
     pub(crate) lines: Vec<MarkdownCodeLine>,
     pub target_id: Option<MarkdownTargetId>,
     #[serde(skip)]
@@ -208,15 +209,42 @@ impl MarkdownCodeBlock {
     }
 
     #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    #[must_use]
+    pub fn line_text(&self, line: &MarkdownCodeLine) -> &str {
+        self.text.get(line.text.clone()).unwrap_or_default()
+    }
+
+    pub(crate) fn push_line(&mut self, (mut line, text): (MarkdownCodeLine, &str)) {
+        if !self.lines.is_empty() {
+            self.text.push('\n');
+        }
+        let start = self.text.len();
+        self.text.push_str(text);
+        line.text = start..self.text.len();
+        self.lines.push(line);
+    }
+
+    pub(crate) fn truncate_lines(&mut self, lines: usize) {
+        self.lines.truncate(lines);
+        self.text.truncate(self.lines.last().map_or(0, |line| line.text.end));
+    }
+
+    pub(crate) fn definite_end(&self, lines: usize) -> usize {
+        lines.checked_sub(1).map_or(0, |last| self.lines[last].text.end)
+    }
+
+    #[must_use]
     pub fn highlight_hint(&self) -> &str {
         self.info.as_deref().or(self.language.as_deref()).unwrap_or_default()
     }
 
     #[must_use]
     pub fn syntax(&self) -> &SourceSyntax {
-        self.syntax.get(LanguageHint::InfoString(self.highlight_hint()), || {
-            self.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n")
-        })
+        self.syntax.get(LanguageHint::InfoString(self.highlight_hint()), || self.text.as_str())
     }
 }
 
@@ -226,7 +254,7 @@ pub struct MarkdownCodeLine {
     pub index: usize,
     pub source: SourceRange,
     pub source_line: Option<usize>,
-    pub text: String,
+    pub(crate) text: Range<usize>,
     pub target_id: Option<MarkdownTargetId>,
 }
 
@@ -631,62 +659,70 @@ fn parse_code_block(
     };
     let content_bytes = code_content_range(node.range.clone(), kind, source);
     let fenced = matches!(kind, CodeBlockKind::Fenced(_));
-    let lines = if fenced && source.get(content_bytes.clone()).is_some() {
-        fenced_code_lines(content_bytes.clone(), source, line_index)
+    let mut block = MarkdownCodeBlock {
+        language,
+        info,
+        source: source_range_value,
+        content: source_range(content_bytes.clone(), line_index),
+        text: String::new(),
+        lines: Vec::new(),
+        target_id: None,
+        syntax: SyntaxCell::default(),
+    };
+    if fenced && source.get(content_bytes.clone()).is_some() {
+        block.set_fenced_lines(content_bytes, source, line_index);
     } else {
         let code = if fenced { text.as_str() } else { text.strip_suffix('\n').unwrap_or(&text) };
         let first_source_line = line_index.line_for_offset(node.range.start);
-        code.is_empty().then(Vec::new).unwrap_or_else(|| {
-            code.split('\n')
-                .enumerate()
-                .map(|(index, line)| {
-                    let source_line = first_source_line + index;
+        if !code.is_empty() {
+            for (index, line) in code.split('\n').enumerate() {
+                let source_line = first_source_line + index;
+                block.push_line((
                     MarkdownCodeLine {
                         index,
                         source: line_index.source_line_range(source_line),
                         source_line: Some(source_line),
-                        text: line.strip_suffix('\r').unwrap_or(line).to_owned(),
+                        text: 0..0,
                         target_id: None,
-                    }
-                })
-                .collect()
-        })
-    };
-    MarkdownCodeBlock {
-        language,
-        info,
-        source: source_range_value,
-        content: source_range(content_bytes, line_index),
-        lines,
-        target_id: None,
-        syntax: SyntaxCell::default(),
+                    },
+                    line.strip_suffix('\r').unwrap_or(line),
+                ));
+            }
+        }
     }
+    block
 }
 
-pub(crate) fn fenced_code_lines(content: Range<usize>, source: &str, line_index: &LineIndex) -> Vec<MarkdownCodeLine> {
-    let code = &source[content.clone()];
-    if code.is_empty() {
-        return Vec::new();
-    }
-    let mut offset = content.start;
-    code.split('\n')
-        .enumerate()
-        .map(|(index, line)| {
+impl MarkdownCodeBlock {
+    pub(crate) fn set_fenced_lines(&mut self, content: Range<usize>, source: &str, line_index: &LineIndex) {
+        self.truncate_lines(0);
+        let code = &source[content.clone()];
+        if code.is_empty() {
+            return;
+        }
+        let mut offset = content.start;
+        for (index, line) in code.split('\n').enumerate() {
             let line_offset = offset;
             offset += line.len() + 1;
-            fenced_code_line(index, line_offset, line, line_index)
-        })
-        .collect()
+            self.push_line(fenced_code_line(index, line_offset, line, line_index));
+        }
+    }
 }
 
-pub(crate) fn fenced_code_line(index: usize, offset: usize, line: &str, line_index: &LineIndex) -> MarkdownCodeLine {
-    MarkdownCodeLine {
+pub(crate) fn fenced_code_line<'a>(
+    index: usize,
+    offset: usize,
+    line: &'a str,
+    line_index: &LineIndex,
+) -> (MarkdownCodeLine, &'a str) {
+    let code_line = MarkdownCodeLine {
         index,
         source: source_range(offset..offset + line.len(), line_index),
         source_line: Some(line_index.line_for_offset(offset)),
-        text: line.strip_suffix('\r').unwrap_or(line).to_owned(),
+        text: 0..0,
         target_id: None,
-    }
+    };
+    (code_line, line.strip_suffix('\r').unwrap_or(line))
 }
 
 fn code_content_range(block: Range<usize>, kind: &CodeBlockKind<'static>, source: &str) -> Range<usize> {
@@ -977,9 +1013,7 @@ fn block_text(blocks: &[MarkdownBlock]) -> String {
                 items.iter().map(|item| rendered_text(&item.content)).collect::<Vec<_>>().join(" ")
             }
             MarkdownBlockKind::BlockQuote { blocks } => block_text(blocks),
-            MarkdownBlockKind::CodeBlock(code) => {
-                code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n")
-            }
+            MarkdownBlockKind::CodeBlock(code) => code.text.clone(),
             MarkdownBlockKind::Table(table) => table.rows.iter().map(row_text).collect::<Vec<_>>().join(" "),
             MarkdownBlockKind::Rule => String::new(),
         })
@@ -1090,7 +1124,7 @@ mod tests {
         assert_eq!(document.source(), source);
         let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[1].kind else { panic!("expected code block") };
         assert_eq!(code.lines.iter().map(|line| line.source_line).collect::<Vec<_>>(), vec![Some(4), Some(5)]);
-        assert_eq!(code.lines[0].text, "one");
+        assert_eq!(code.line_text(&code.lines[0]), "one");
     }
 
     #[test]
@@ -1109,7 +1143,7 @@ mod tests {
         let document = MarkdownDocument::parse("````\n```\nstill code\n````\n");
         let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else { panic!("expected code block") };
         assert_eq!(code.lines.len(), 2);
-        assert_eq!(code.lines[0].text, "```");
+        assert_eq!(code.line_text(&code.lines[0]), "```");
     }
 
     #[test]
@@ -1141,7 +1175,7 @@ mod tests {
     fn indented_code_strips_parser_indentation() {
         let document = MarkdownDocument::parse("    first\n    second\n");
         let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else { panic!("expected code block") };
-        assert_eq!(code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), ["first", "second"]);
+        assert_eq!(code.lines.iter().map(|line| code.line_text(line)).collect::<Vec<_>>(), ["first", "second"]);
         assert_eq!(code.lines[0].source_line, Some(1));
         assert_eq!(code.lines[1].source.bytes, 10..20);
     }
@@ -1150,7 +1184,7 @@ mod tests {
     fn indented_code_preserves_blank_content_lines() {
         let document = MarkdownDocument::parse("    one\n\n    two\n");
         let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[0].kind else { panic!("expected code block") };
-        assert_eq!(code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), ["one", "", "two"]);
+        assert_eq!(code.lines.iter().map(|line| code.line_text(line)).collect::<Vec<_>>(), ["one", "", "two"]);
         assert_eq!(code.lines.iter().map(|line| line.source_line).collect::<Vec<_>>(), [Some(1), Some(2), Some(3)]);
     }
 

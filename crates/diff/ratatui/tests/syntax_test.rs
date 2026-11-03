@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, error::Error, ops::Range};
 #[test]
 fn highlights_patch_the_base_style_and_keep_utf8_gaps() -> Result<(), Box<dyn Error>> {
     let base = Style::new().bg(Color::Blue).add_modifier(Modifier::DIM);
-    let line = highlighted_line("aéz", &[keyword(1..3)?], &bold_keywords(), base);
+    let line = highlighted_line("aéz", [keyword(1..3)?], &bold_keywords(), base);
     assert_eq!(line.to_string(), "aéz");
     assert_eq!(line.spans[1].content, "é");
     assert_eq!(line.spans[1].style.bg, Some(Color::Blue));
@@ -19,7 +19,7 @@ fn highlights_patch_the_base_style_and_keep_utf8_gaps() -> Result<(), Box<dyn Er
 
 #[test]
 fn spans_the_theme_does_not_style_keep_the_base_style() -> Result<(), Box<dyn Error>> {
-    let line = highlighted_line("ab", &[keyword(0..2)?], &SyntaxTheme::new(BTreeMap::new()), Style::new());
+    let line = highlighted_line("ab", [keyword(0..2)?], &SyntaxTheme::new(BTreeMap::new()), Style::new());
     assert_eq!(line.to_string(), "ab");
     assert!(line.spans.iter().all(|span| span.style == Style::new()));
     Ok(())
@@ -27,7 +27,7 @@ fn spans_the_theme_does_not_style_keep_the_base_style() -> Result<(), Box<dyn Er
 
 #[test]
 fn spans_that_split_a_character_are_ignored() -> Result<(), Box<dyn Error>> {
-    let line = highlighted_line("éx", &[keyword(0..1)?], &bold_keywords(), Style::new());
+    let line = highlighted_line("éx", [keyword(0..1)?], &bold_keywords(), Style::new());
     assert_eq!(line.to_string(), "éx");
     assert!(line.spans.iter().all(|span| !span.style.add_modifier.contains(Modifier::BOLD)));
     Ok(())
@@ -35,7 +35,7 @@ fn spans_that_split_a_character_are_ignored() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn spans_beyond_the_source_are_ignored() -> Result<(), Box<dyn Error>> {
-    let line = highlighted_line("ab", &[keyword(0..9)?, keyword(1..1)?], &bold_keywords(), Style::new());
+    let line = highlighted_line("ab", [keyword(0..9)?, keyword(1..1)?], &bold_keywords(), Style::new());
     assert_eq!(line.to_string(), "ab");
     assert!(line.spans.iter().all(|span| !span.style.add_modifier.contains(Modifier::BOLD)));
     Ok(())

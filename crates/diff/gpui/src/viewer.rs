@@ -9,7 +9,7 @@ pub(crate) use overlay::{Overlay, PickerOverlay};
 use crate::{
     DiffViewerEvent, ThemeChanged, ViewModeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
-    style::color,
+    style::{self, color},
     ui::{
         prelude::{
             Modal, Notification, SearchPicker, ThemePicker, ThemePickerEvent, ThemePickerOverlay, Typography,
@@ -25,12 +25,11 @@ use clankerdiff_core::{
     SourcePath, TargetLocation, ViewMode, ViewportAnchor,
 };
 use clankerdiff_symbols::{DocumentSyntax, NameLookup, SymbolIndex};
-use clankerdiff_syntax::HighlightSpan;
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use gpui::{
-    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext,
-    ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollStrategy, Subscription, Task, UniformListScrollHandle,
-    Window, actions, div, prelude::*, px, rems,
+    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, HighlightStyle, KeyBinding,
+    KeyContext, ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollStrategy, Subscription, Task,
+    UniformListScrollHandle, Window, actions, div, prelude::*, px, rems,
 };
 use std::{ops::Range, sync::Arc};
 
@@ -922,9 +921,13 @@ impl DiffViewer {
         self.syntax.symbols()
     }
 
-    pub(crate) fn highlight_cell(&mut self, row: &PresentedRow, cell: &PresentedCell) -> Arc<[HighlightSpan]> {
+    pub(crate) fn highlight_cell(
+        &mut self,
+        row: &PresentedRow,
+        cell: &PresentedCell,
+    ) -> Vec<(Range<usize>, HighlightStyle)> {
         self.syntax.sync(self.session.presentation().document());
-        self.syntax.highlights(row, cell)
+        style::highlights(self.syntax.highlights(row, cell), &self.theme.syntax)
     }
 
     pub(crate) fn reveal_selected_row(&self) {

@@ -2185,7 +2185,6 @@ dependencies = [
  "cc",
  "clankerdiff-fingerprint",
  "clankerdiff-ui-core",
- "imbl",
  "thiserror 2.0.21",
  "tree-sitter",
 ]

@@ -20,7 +20,7 @@ pub use clankerdiff_markdown::{
     MarkdownTargetId, MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review,
     parse_markdown, rendered_text, resolve_anchor,
 };
-use clankerdiff_syntax::{HighlightSpan, SyntaxTheme, thread_work};
+use clankerdiff_syntax::{HighlightLine, SyntaxTheme, thread_work};
 use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Modifier, Style},
@@ -686,7 +686,7 @@ impl IncrementalLayout {
                 stats.chunks_visited += 1;
                 let mut output = RowOutput::new(options).after(checkpoint);
                 render_code_line(
-                    line,
+                    (line, code.line_text(line)),
                     highlights.line(line_index).unwrap_or_default(),
                     &theme.syntax,
                     base,
@@ -781,7 +781,7 @@ impl IncrementalLayout {
                     if let Some(source_line) = line.source_line {
                         code_lines.insert(
                             source_line,
-                            (line.text.as_str(), highlights.line_shared(line_index).unwrap_or_default()),
+                            (code.line_text(line), highlights.line(line_index).unwrap_or_default()),
                         );
                     }
                 }
@@ -827,7 +827,7 @@ impl IncrementalLayout {
             let styles = styles_by_line.get(&line_number).map_or(&[][..], Vec::as_slice);
             let mut output = RowOutput::new(options).after(checkpoint);
             let code = code_input.and_then(|(code, spans)| {
-                Some((text.strip_suffix(code)?, highlighted_line(code, spans, &theme.syntax, code_style)))
+                Some((text.strip_suffix(*code)?, highlighted_line(code, *spans, &theme.syntax, code_style)))
             });
             let spans = match code {
                 Some((prefix, line)) => {
@@ -1074,7 +1074,7 @@ fn render_code(
     let base = fenced_code_style(theme);
     for (index, line) in code.lines().iter().enumerate() {
         render_code_line(
-            line,
+            (line, code.line_text(line)),
             highlights.line(index).unwrap_or_default(),
             &theme.syntax,
             base,
@@ -1086,15 +1086,15 @@ fn render_code(
 }
 
 fn render_code_line(
-    line: &clankerdiff_markdown::MarkdownCodeLine,
-    spans: &[HighlightSpan],
+    (line, text): (&MarkdownCodeLine, &str),
+    spans: HighlightLine<'_>,
     syntax: &SyntaxTheme,
     base: Style,
     prefix: &str,
     target: Option<MarkdownTargetId>,
     output: &mut RowOutput,
 ) {
-    let mut rendered = highlighted_line(&line.text, spans, syntax, base);
+    let mut rendered = highlighted_line(text, spans, syntax, base);
     rendered.spans.insert(0, Span::styled(prefix.to_owned(), base));
     output.push_wrapped(rendered.spans, prefix, RowOrigin { source: &line.source, target });
 }

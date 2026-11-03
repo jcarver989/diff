@@ -5,22 +5,12 @@ use crate::{
     spans::flatten,
     symbols::SymbolTags,
 };
-use clankerdiff_ui_core::HighlightSpan;
-use imbl::Vector;
-use std::{
-    cell::Cell,
-    ops::Range,
-    sync::{Arc, OnceLock},
-};
+use clankerdiff_ui_core::{HighlightId, HighlightSpan};
+use std::{cell::Cell, fmt, iter, ops::Range, slice, sync::Arc};
 
 pub const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_INJECTION_DEPTH: usize = 3;
-
-#[must_use]
-pub fn empty_spans() -> Arc<[HighlightSpan]> {
-    static EMPTY: OnceLock<Arc<[HighlightSpan]>> = OnceLock::new();
-    Arc::clone(EMPTY.get_or_init(|| Arc::from(Vec::<HighlightSpan>::new())))
-}
+const CHUNK_LINES: usize = 256;
 
 thread_local! {
     static THREAD_WORK: Cell<SyntaxWorkStats> = Cell::default();
@@ -177,13 +167,17 @@ impl SyntaxStream {
     fn project(&mut self, start: usize, work: &mut SyntaxWorkStats) -> usize {
         let first_line = self.line_starts.partition_point(|&offset| offset <= start).saturating_sub(1);
         let byte_start = self.line_starts.get(first_line).copied().unwrap_or(0);
-        let raw = self.document.as_ref().map_or_else(Vec::new, |document| document.spans_from(byte_start));
+        let mut raw = Vec::new();
+        if let Some(document) = &self.document {
+            document.spans_from(byte_start, &mut raw);
+        }
         let spans = flatten(&self.source, raw);
-        let mut lines = self.highlights.lines.take(first_line.min(self.highlights.line_count()));
-        let mut first_changed = lines.len();
+        let previous = &self.highlights;
+        let mut lines = HighlightsBuilder::prefix(previous, first_line.min(previous.line_count()));
+        let mut first_changed = lines.line_count();
         let mut first_span = 0;
         work.projected_bytes += self.source.len() - byte_start;
-        work.reused_lines += lines.len();
+        work.reused_lines += lines.line_count();
         for (line, &from) in self.line_starts.iter().enumerate().skip(first_line) {
             if from == self.source.len() {
                 break;
@@ -198,50 +192,173 @@ impl SyntaxStream {
             while spans.get(first_span).is_some_and(|span| span.range.end <= from) {
                 first_span += 1;
             }
-            let projected: Vec<_> = spans[first_span..]
-                .iter()
-                .take_while(|span| span.range.start < to)
-                .filter_map(|span| {
-                    let start = span.range.start.max(from);
-                    let end = span.range.end.min(to);
-                    (start < end)
-                        .then_some(HighlightSpan { range: start - from..end - from, highlight: span.highlight })
-                })
-                .collect();
+            let projected = spans[first_span..].iter().take_while(|span| span.range.start < to).filter_map(|span| {
+                let start = span.range.start.max(from);
+                let end = span.range.end.min(to);
+                (start < end).then(|| (relative(start - from), relative(end - from), span.highlight))
+            });
             work.projected_lines += 1;
-            if let Some(before) = self.highlights.lines.get(line).filter(|before| before.as_ref() == projected) {
-                lines.push_back(Arc::clone(before));
+            if lines.push_line(projected, previous.line(line)) {
                 work.reused_lines += 1;
                 if first_changed == line {
                     first_changed += 1;
                 }
-            } else {
-                lines.push_back(if projected.is_empty() { empty_spans() } else { projected.into() });
             }
         }
-        self.highlights = Arc::new(DocumentHighlights { lines });
+        self.highlights = Arc::new(lines.finish());
         first_changed
     }
 }
 
+fn relative(offset: usize) -> u32 {
+    u32::try_from(offset).expect("source limit fits u32")
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DocumentHighlights {
-    lines: Vector<Arc<[HighlightSpan]>>,
+    chunks: Vec<Arc<HighlightChunk>>,
+    lines: usize,
 }
 
 impl DocumentHighlights {
     #[must_use]
-    pub fn line(&self, index: usize) -> Option<&[HighlightSpan]> {
-        self.lines.get(index).map(AsRef::as_ref)
+    pub fn line(&self, index: usize) -> Option<HighlightLine<'_>> {
+        (index < self.lines).then(|| self.chunks[index / CHUNK_LINES].line(index % CHUNK_LINES))
     }
 
     #[must_use]
-    pub fn line_shared(&self, index: usize) -> Option<Arc<[HighlightSpan]>> {
-        self.lines.get(index).cloned()
+    pub const fn line_count(&self) -> usize {
+        self.lines
+    }
+
+    pub fn lines(&self) -> impl ExactSizeIterator<Item = HighlightLine<'_>> {
+        (0..self.lines).map(|index| self.chunks[index / CHUNK_LINES].line(index % CHUNK_LINES))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct HighlightChunk {
+    line_ends: Vec<u32>,
+    starts: Vec<u32>,
+    ends: Vec<u32>,
+    ids: Vec<HighlightId>,
+}
+
+impl HighlightChunk {
+    fn line(&self, index: usize) -> HighlightLine<'_> {
+        let from = index.checked_sub(1).map_or(0, |previous| self.line_ends[previous] as usize);
+        let to = self.line_ends[index] as usize;
+        HighlightLine { starts: &self.starts[from..to], ends: &self.ends[from..to], ids: &self.ids[from..to] }
+    }
+
+    fn prefix(&self, lines: usize) -> Self {
+        let spans = lines.checked_sub(1).map_or(0, |last| self.line_ends[last] as usize);
+        Self {
+            line_ends: self.line_ends[..lines].to_vec(),
+            starts: self.starts[..spans].to_vec(),
+            ends: self.ends[..spans].to_vec(),
+            ids: self.ids[..spans].to_vec(),
+        }
+    }
+}
+
+struct HighlightsBuilder {
+    chunks: Vec<Arc<HighlightChunk>>,
+    tail: HighlightChunk,
+    lines: usize,
+}
+
+impl HighlightsBuilder {
+    fn prefix(previous: &DocumentHighlights, lines: usize) -> Self {
+        let full = lines / CHUNK_LINES;
+        let partial = lines % CHUNK_LINES;
+        let tail = if partial == 0 { HighlightChunk::default() } else { previous.chunks[full].prefix(partial) };
+        Self { chunks: previous.chunks[..full].to_vec(), tail, lines }
+    }
+
+    const fn line_count(&self) -> usize {
+        self.lines
+    }
+
+    fn push_line(
+        &mut self,
+        spans: impl Iterator<Item = (u32, u32, HighlightId)>,
+        previous: Option<HighlightLine<'_>>,
+    ) -> bool {
+        let tail = &mut self.tail;
+        for (start, end, id) in spans {
+            tail.starts.push(start);
+            tail.ends.push(end);
+            tail.ids.push(id);
+        }
+        tail.line_ends.push(u32::try_from(tail.ids.len()).expect("chunk spans fit u32"));
+        let unchanged = previous == Some(tail.line(tail.line_ends.len() - 1));
+        self.lines += 1;
+        if tail.line_ends.len() == CHUNK_LINES {
+            self.chunks.push(Arc::new(std::mem::take(tail)));
+        }
+        unchanged
+    }
+
+    fn finish(mut self) -> DocumentHighlights {
+        if !self.tail.line_ends.is_empty() {
+            self.chunks.push(Arc::new(self.tail));
+        }
+        DocumentHighlights { chunks: self.chunks, lines: self.lines }
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct HighlightLine<'a> {
+    starts: &'a [u32],
+    ends: &'a [u32],
+    ids: &'a [HighlightId],
+}
+
+type SpanParts<'a> = iter::Zip<iter::Zip<slice::Iter<'a, u32>, slice::Iter<'a, u32>>, slice::Iter<'a, HighlightId>>;
+
+pub type HighlightSpans<'a> = iter::Map<SpanParts<'a>, fn(((&u32, &u32), &HighlightId)) -> HighlightSpan>;
+
+impl<'a> HighlightLine<'a> {
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.ids.len()
     }
 
     #[must_use]
-    pub fn line_count(&self) -> usize {
-        self.lines.len()
+    pub const fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    pub fn iter(&self) -> HighlightSpans<'a> {
+        self.starts
+            .iter()
+            .zip(self.ends)
+            .zip(self.ids)
+            .map(|((&start, &end), &highlight)| HighlightSpan { range: start as usize..end as usize, highlight })
+    }
+}
+
+impl<'a> IntoIterator for HighlightLine<'a> {
+    type Item = HighlightSpan;
+    type IntoIter = HighlightSpans<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a> IntoIterator for &HighlightLine<'a> {
+    type Item = HighlightSpan;
+    type IntoIter = HighlightSpans<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl fmt::Debug for HighlightLine<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
     }
 }

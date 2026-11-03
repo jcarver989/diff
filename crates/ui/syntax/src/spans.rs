@@ -1,7 +1,6 @@
 use clankerdiff_ui_core::{HighlightId, HighlightSpan};
-use std::collections::BTreeMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Span {
     pub start: u32,
     pub end: u32,
@@ -52,17 +51,13 @@ pub(crate) fn flatten(source: &str, spans: Vec<Span>) -> Vec<HighlightSpan> {
     flat
 }
 
-fn normalize(spans: Vec<Span>) -> Vec<HighlightSpan> {
-    let mut unique: BTreeMap<(u32, u32), Span> = BTreeMap::new();
-    for span in spans {
-        let key = (span.start, span.end);
-        let priority = |span: &Span| (span.highlight.is_some(), span.pattern_index);
-        if unique.get(&key).is_none_or(|existing| priority(&span) >= priority(existing)) {
-            unique.insert(key, span);
-        }
-    }
+fn normalize(mut spans: Vec<Span>) -> Vec<HighlightSpan> {
+    spans.sort_by_key(|span| (span.start, span.end, span.highlight.is_some(), span.pattern_index));
     let mut normalized: Vec<HighlightSpan> = Vec::new();
-    for span in unique.into_values() {
+    for (index, span) in spans.iter().enumerate() {
+        if spans.get(index + 1).is_some_and(|next| (next.start, next.end) == (span.start, span.end)) {
+            continue;
+        }
         let Some(highlight) = span.highlight else {
             continue;
         };

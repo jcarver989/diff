@@ -20,10 +20,7 @@ fn cells_with_a_captured_source_are_highlighted_in_its_context() -> Result<(), B
         let file = &presentation.document().files[row.file_index];
         let source = file.source_document(location.side).ok_or("source")?;
         let expected = analyze(LanguageHint::Path(file.path_for_side(location.side).as_str()), source.text());
-        assert_eq!(
-            syntax.highlights(row, cell),
-            expected.highlights.line_shared(location.line_number - 1).ok_or("line")?
-        );
+        assert_eq!(syntax.highlights(row, cell), expected.highlights.line(location.line_number - 1).ok_or("line")?);
         seen += 1;
     }
     assert!(seen > 0);
@@ -61,7 +58,7 @@ fn patch_only_cells_are_highlighted_within_their_hunk_window() -> Result<(), Box
             let expected = analyze("src/lib.rs", &join_lines(window.iter().map(|(_, cell)| cell.text.as_ref())));
             for (line, spans) in highlighted.iter().enumerate() {
                 assert!(!spans.is_empty());
-                assert_eq!(*spans, expected.highlights.line_shared(line).ok_or("line")?);
+                assert_eq!(*spans, expected.highlights.line(line).ok_or("line")?);
             }
         }
     }

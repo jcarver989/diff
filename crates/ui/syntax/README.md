@@ -5,9 +5,9 @@ Reusable syntax highlighting via Tree-sitter and Arborium. Native and browser WA
 `SyntaxStream::append` accepts exact UTF-8 text, including partial lines, without
 adding newlines. Complete input is simply the first append: `analyze` parses a
 complete source in one append and extracts its symbol tags from the same tree, so
-highlights and symbols never cost two parses. It exposes `DocumentHighlights` with
-per-line byte spans; there are no separate source-span or
-line-sequence highlighting engines. Nothing is cached here: the owner of an
+highlights and symbols never cost two parses. It exposes `DocumentHighlights`, whose
+`line` returns a borrowed `HighlightLine` of byte spans; there are no separate
+source-span or line-sequence highlighting engines. Nothing is cached here: the owner of an
 immutable source holds a `SyntaxCell` beside it that analyzes it on first use and
 is shared by every clone of its owner, so syntax lives exactly as long as the source.
 
@@ -17,8 +17,9 @@ highlights without reparsing. Grammars and queries are compiled once per process
 and shared by every stream.
 
 `SyntaxStream` retains its complete source and Tree-sitter context. Appends edit the
-previous tree, re-query affected structural/capture regions, and reuse unchanged
-line projections through a persistent vector. Injected languages retain separate
+previous tree, re-query affected structural/capture regions, and rebuild highlights
+from the first affected line. Highlights are stored as flat span arrays in chunks of
+lines, so the chunks before that line are shared with the previous update. Injected languages retain separate
 trees, with a three-level injection limit. Non-local queries and retroactive syntax
 changes can invalidate earlier content; stream updates are not a promise that
 earlier lines will never change.

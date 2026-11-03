@@ -1,8 +1,7 @@
 use crate::document::{
     LineIndex, MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownDocument, MarkdownSourceStyle,
     MarkdownTarget, MarkdownTargetId, MarkdownTargetKind, assign_targets, collect_source_styles, event_tree,
-    fence_marker, fenced_code_line, fenced_code_lines, fenced_content_bounds, parse_block, parser_options,
-    source_range,
+    fence_marker, fenced_code_line, fenced_content_bounds, parse_block, parser_options, source_range,
 };
 use clankerdiff_syntax::{LanguageHint, SourceSyntax, SyntaxCell, SyntaxStream, thread_work};
 use pulldown_cmark::Parser;
@@ -124,45 +123,25 @@ impl OpenFence {
 #[derive(Debug, Clone)]
 struct CodeSyntax {
     stream: SyntaxStream,
-    lines: usize,
-    partial: usize,
 }
 
 impl CodeSyntax {
     fn new(code: &MarkdownCodeBlock) -> Self {
-        Self { stream: SyntaxStream::new(LanguageHint::InfoString(code.highlight_hint())), lines: 0, partial: 0 }
+        Self { stream: SyntaxStream::new(LanguageHint::InfoString(code.highlight_hint())) }
     }
 
     fn feed(&mut self, code: &MarkdownCodeBlock, definite: usize) -> Option<usize> {
-        if definite < self.lines
-            || self.lines.checked_sub(1).is_some_and(|last| !code.lines[last].text.is_char_boundary(self.partial))
-        {
+        let end = code.definite_end(definite);
+        let fed = self.stream.source().len();
+        if end < fed || !code.text.is_char_boundary(fed) {
             *self = Self::new(code);
         }
-        let mut delta = String::new();
-        if let Some(last) = self.lines.checked_sub(1) {
-            delta.push_str(&code.lines[last].text[self.partial..]);
-        }
-        for (index, line) in code.lines[..definite].iter().enumerate().skip(self.lines) {
-            if index > 0 {
-                delta.push('\n');
-            }
-            delta.push_str(&line.text);
-        }
-        self.lines = definite;
-        self.partial = definite.checked_sub(1).map_or(0, |last| code.lines[last].text.len());
-        self.stream.append(&delta).ok().map(|update| update.changed_lines.start)
+        let fed = self.stream.source().len();
+        self.stream.append(&code.text[fed..end]).ok().map(|update| update.changed_lines.start)
     }
 
     fn holds(&self, code: &MarkdownCodeBlock) -> bool {
-        let mut rest = self.stream.source();
-        code.lines.iter().enumerate().all(|(index, line)| {
-            let separated = if index == 0 { Some(rest) } else { rest.strip_prefix('\n') };
-            separated
-                .and_then(|separated| separated.strip_prefix(line.text.as_str()))
-                .map(|after| rest = after)
-                .is_some()
-        }) && rest.is_empty()
+        self.stream.source() == code.text
     }
 }
 
@@ -427,7 +406,7 @@ impl IncrementalDocument {
             return (None, 0);
         };
         let previous_lines = code.lines.len();
-        code.lines.truncate(fence.complete);
+        code.truncate_lines(fence.complete);
         let mut close = None;
         let mut position = start;
         while position < len {
@@ -439,7 +418,7 @@ impl IncrementalDocument {
                     break;
                 }
                 b'\n' => {
-                    code.lines.push(fenced_code_line(
+                    code.push_line(fenced_code_line(
                         fence.complete,
                         fence.line_start,
                         &source[fence.line_start..position],
@@ -460,7 +439,7 @@ impl IncrementalDocument {
         let content = fenced_content_bounds(fence.content_start, closing_start, block_end, source);
         let first_changed_line = if closing_start.is_some() || code.lines.len() < fence.complete {
             self.stats.scanned_bytes += content.len();
-            code.lines = fenced_code_lines(content.clone(), source, &self.index);
+            code.set_fenced_lines(content.clone(), source, &self.index);
             0
         } else {
             if let Some(last) = code.lines.last_mut() {
@@ -468,7 +447,7 @@ impl IncrementalDocument {
             }
             if len > fence.content_start {
                 self.stats.scanned_bytes += len - fence.line_start;
-                code.lines.push(fenced_code_line(
+                code.push_line(fenced_code_line(
                     fence.complete,
                     fence.line_start,
                     &source[fence.line_start..],

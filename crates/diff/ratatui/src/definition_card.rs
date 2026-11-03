@@ -254,7 +254,7 @@ impl DiffReviewState {
 
 fn code_lines(code: &CardCode<'_>, syntax: &SyntaxTheme, theme: &RatatuiTheme) -> Vec<Line<'static>> {
     let base = theme.ui.selection_style(SelectionState::None).fg(theme.ui.text);
-    code.lines().into_iter().map(|(line, spans)| highlighted_line(line, &spans, syntax, base)).collect()
+    code.map_lines(|line, spans| highlighted_line(line, spans, syntax, base))
 }
 
 struct CardLines {

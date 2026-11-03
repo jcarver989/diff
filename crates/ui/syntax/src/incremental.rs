@@ -8,7 +8,6 @@ use arborium_theme::tag_for_capture;
 use clankerdiff_ui_core::HighlightId;
 use std::{
     borrow::Cow,
-    collections::BTreeMap,
     fmt,
     ops::Add,
     sync::{Arc, OnceLock},
@@ -95,9 +94,8 @@ fn compile((name, spec): (&'static str, fn() -> Spec)) -> Option<Arc<Grammar>> {
     let non_local = [&highlights, &injections]
         .into_iter()
         .any(|query| (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index)));
-    let highlight_ids =
-        highlights.capture_names().iter().map(|name| tag_for_capture(name).and_then(HighlightId::from_tag)).collect();
-    Some(Arc::new(Grammar { language, highlights, highlight_ids, injections, non_local, query_source, tags }))
+    let captures = highlights.capture_names().iter().map(|name| CaptureRole::of(name)).collect();
+    Some(Arc::new(Grammar { language, highlights, captures, injections, non_local, query_source, tags }))
 }
 
 /// Shared state for one append across a document and its injections.
@@ -112,9 +110,9 @@ pub(crate) struct IncrementalDocument {
     tree: Option<Tree>,
     grammar: Arc<Grammar>,
     length: usize,
-    spans: BTreeMap<usize, Vec<Span>>,
-    injections: BTreeMap<usize, Vec<InjectedDocument>>,
-    boundaries: BTreeMap<usize, usize>,
+    spans: Vec<Span>,
+    injections: Vec<InjectedDocument>,
+    boundaries: Vec<(u32, u32)>,
 }
 
 impl IncrementalDocument {
@@ -125,9 +123,9 @@ impl IncrementalDocument {
             tree: None,
             grammar,
             length: 0,
-            spans: BTreeMap::new(),
-            injections: BTreeMap::new(),
-            boundaries: BTreeMap::new(),
+            spans: Vec::new(),
+            injections: Vec::new(),
+            boundaries: Vec::new(),
         })
     }
 
@@ -166,13 +164,14 @@ impl IncrementalDocument {
         // A capture ending exactly at the edit point may be an unterminated
         // token that the appended text extends, so widen to it as well.
         loop {
-            let earlier = self.boundaries.range(start..).map(|(_, &begin)| begin).min().unwrap_or(start);
+            let first = self.boundaries.partition_point(|&(end, _)| (end as usize) < start);
+            let earlier = self.boundaries[first..].iter().map(|&(_, begin)| begin as usize).min().unwrap_or(start);
             if earlier >= start {
                 break;
             }
             start = earlier;
         }
-        let (spans, injections) = loop {
+        let (mut spans, mut injections) = loop {
             let result = query(&self.grammar, &tree, source, start, cx.stats);
             let capture_start = result
                 .0
@@ -187,25 +186,34 @@ impl IncrementalDocument {
                 break result;
             }
         };
-        self.boundaries.split_off(&start.saturating_add(1));
-        for (from, to) in spans
-            .iter()
-            .map(|span| (span.start, span.end))
-            .chain(injections.iter().map(|injection| (injection.start, injection.end)))
-        {
-            self.boundaries
-                .entry(to as usize)
-                .and_modify(|begin| *begin = (*begin).min(from as usize))
-                .or_insert(from as usize);
-        }
-        self.spans.split_off(&start);
-        for span in spans {
-            self.spans.entry(span.start as usize).or_default().push(span);
-        }
+        self.update_boundaries(start, &spans, &injections);
+        spans.retain(|span| span.highlight.is_some());
+        spans.sort_by_key(|span| span.start);
+        injections.sort_by_key(|injection| injection.start);
+        let kept = self.spans.partition_point(|span| (span.start as usize) < start);
+        self.spans.truncate(kept);
+        self.spans.extend(spans);
         self.update_injections(source, base, start, injections, depth, cx)?;
         self.tree = Some(tree);
         self.length = source.len();
         Ok(start)
+    }
+
+    fn update_boundaries(&mut self, start: usize, spans: &[Span], injections: &[Injection]) {
+        let kept = self.boundaries.partition_point(|&(end, _)| end as usize <= start);
+        self.boundaries.truncate(kept);
+        let mut added: Vec<(u32, u32)> = spans
+            .iter()
+            .map(|span| (span.end, span.start))
+            .chain(injections.iter().map(|injection| (injection.end, injection.start)))
+            .collect();
+        added.sort_unstable();
+        for (end, begin) in added {
+            match self.boundaries.last_mut() {
+                Some(last) if last.0 == end => last.1 = last.1.min(begin),
+                _ => self.boundaries.push((end, begin)),
+            }
+        }
     }
 
     fn parse_tree(&mut self, source: &str, base: usize, cx: &mut AppendContext<'_>) -> Result<Tree, SyntaxError> {
@@ -255,7 +263,8 @@ impl IncrementalDocument {
         depth: usize,
         cx: &mut AppendContext<'_>,
     ) -> Result<(), SyntaxError> {
-        let mut previous_injections = self.injections.split_off(&start);
+        let kept = self.injections.partition_point(|entry| entry.offset < start);
+        let mut previous = self.injections.split_off(kept);
         if depth > 0 {
             for injection in injections {
                 let from = injection.start as usize;
@@ -264,38 +273,39 @@ impl IncrementalDocument {
                     continue;
                 };
                 let language = resolve_language(injection.language.as_str(), text).unwrap_or(&injection.language);
-                let previous = previous_injections.get_mut(&from).and_then(|entries| {
-                    entries
-                        .iter()
-                        .position(|entry| entry.language == language && text.len() >= entry.document.length)
-                        .map(|index| entries.swap_remove(index))
-                });
-                let mut entry = match previous {
+                let reused = previous
+                    .iter()
+                    .position(|entry| {
+                        entry.offset == from && entry.language == language && text.len() >= entry.document.length
+                    })
+                    .map(|index| previous.swap_remove(index));
+                let mut entry = match reused {
                     Some(entry) => entry,
                     None => match Self::new(language) {
-                        Some(document) => InjectedDocument { language: language.to_owned(), document },
+                        Some(document) => InjectedDocument { offset: from, language: language.to_owned(), document },
                         None => continue,
                     },
                 };
                 entry.document.append(text, base + from, depth - 1, cx)?;
-                self.injections.entry(from).or_default().push(entry);
+                self.injections.push(entry);
             }
         }
         Ok(())
     }
 
-    pub(crate) fn spans_from(&self, start: usize) -> Vec<Span> {
-        let mut result: Vec<_> = self.spans.range(start..).flat_map(|(_, spans)| spans.iter().cloned()).collect();
-        for (&offset, injections) in self.injections.range(start..) {
-            for injection in injections {
-                for mut span in injection.document.spans_from(0) {
-                    span.start += u32::try_from(offset).expect("source limit fits u32");
-                    span.end += u32::try_from(offset).expect("source limit fits u32");
-                    result.push(span);
-                }
+    pub(crate) fn spans_from(&self, start: usize, output: &mut Vec<Span>) {
+        let first = self.spans.partition_point(|span| (span.start as usize) < start);
+        output.extend_from_slice(&self.spans[first..]);
+        let first = self.injections.partition_point(|entry| entry.offset < start);
+        for injection in &self.injections[first..] {
+            let offset = u32::try_from(injection.offset).expect("source limit fits u32");
+            let from = output.len();
+            injection.document.spans_from(0, output);
+            for span in &mut output[from..] {
+                span.start += offset;
+                span.end += offset;
             }
         }
-        result
     }
 }
 
@@ -321,14 +331,31 @@ impl fmt::Debug for IncrementalDocument {
 
 #[derive(Clone)]
 struct InjectedDocument {
+    offset: usize,
     language: String,
     document: IncrementalDocument,
+}
+
+#[derive(Clone, Copy)]
+enum CaptureRole {
+    Skip,
+    Highlight(Option<HighlightId>),
+}
+
+impl CaptureRole {
+    fn of(name: &str) -> Self {
+        if name.starts_with('_') || name.starts_with("injection.") {
+            Self::Skip
+        } else {
+            Self::Highlight(tag_for_capture(name).and_then(HighlightId::from_tag))
+        }
+    }
 }
 
 pub(crate) struct Grammar {
     language: Language,
     highlights: Query,
-    highlight_ids: Box<[Option<HighlightId>]>,
+    captures: Box<[CaptureRole]>,
     injections: Query,
     non_local: bool,
     query_source: String,
@@ -417,14 +444,13 @@ fn query(
     let mut spans = Vec::new();
     while let Some(found) = matches.next() {
         for capture in found.captures() {
-            let name = grammar.highlights.capture_names()[capture.index as usize];
-            if name.starts_with('_') || name.starts_with("injection.") {
+            let CaptureRole::Highlight(highlight) = grammar.captures[capture.index as usize] else {
                 continue;
-            }
+            };
             spans.push(Span {
                 start: u32::try_from(capture.node.start_byte()).expect("source limit fits u32"),
                 end: u32::try_from(capture.node.end_byte()).expect("source limit fits u32"),
-                highlight: grammar.highlight_ids[capture.index as usize],
+                highlight,
                 pattern_index: u32::try_from(found.pattern_index).expect("query pattern fits u32"),
             });
         }

@@ -230,11 +230,8 @@ impl DiffViewer {
     }
 
     fn render_code(&self, code: &CardCode<'_>) -> Div {
-        let lines: Vec<StyledText> = code
-            .lines()
-            .into_iter()
-            .map(|(line, spans)| style::code_text(line.to_owned().into(), &spans, &self.theme.syntax))
-            .collect();
+        let lines: Vec<StyledText> =
+            code.map_lines(|line, spans| style::code_text(line.to_owned().into(), spans, &self.theme.syntax));
         div().flex().flex_col().typography(Typography::Code).children(lines)
     }
 }
