@@ -9,14 +9,18 @@ use clankerdiff_gpui::{
     DiffClientEvent, DiffClientView, DiffViewerOptions, RunCommand, ThemeChanged, ViewModeChanged,
     ui::{
         InterfaceSize,
-        prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme, window_appearance},
+        prelude::{EmptyState, NoticeTone, UI_FONT, UiTheme, binding_label, key_binding, window_appearance},
         window_chrome,
     },
 };
 use clankerdiff_gpui_shell::{run_loop, runtime};
 use clankerdiff_server::{DiffServer, ServerOptions};
-use gpui::{AnyElement, App, AppContext, Context, Entity, KeyBinding, Subscription, Task, Window, div, prelude::*};
+use gpui::{
+    AnyElement, App, AppContext, Context, Entity, FocusHandle, KeyContext, Subscription, Task, Window, div, prelude::*,
+};
 use std::{path::PathBuf, sync::mpsc::Sender};
+
+const KEY_CONTEXT: &str = "DesktopDiff";
 
 pub(crate) struct DesktopApp {
     repository_path: PathBuf,
@@ -26,6 +30,7 @@ pub(crate) struct DesktopApp {
     server: Option<DiffServer>,
     error: Option<String>,
     view: Entity<DiffClientView>,
+    focus_handle: FocusHandle,
     load_task: Option<Task<()>>,
     command_task: Option<Task<()>>,
     watch_task: Task<()>,
@@ -68,6 +73,7 @@ impl DesktopApp {
             server: None,
             error: None,
             view,
+            focus_handle: cx.focus_handle(),
             load_task: None,
             command_task: None,
             watch_task: Task::ready(()),
@@ -83,12 +89,12 @@ impl DesktopApp {
     }
 
     pub(crate) fn bind_keys(cx: &mut App) {
-        cx.bind_keys([
-            KeyBinding::new("cmd-shift-s", RunCommand(DiffReviewCommand::StageAll), Some("DesktopDiff")),
-            KeyBinding::new("ctrl-shift-s", RunCommand(DiffReviewCommand::StageAll), Some("DesktopDiff")),
-            KeyBinding::new("cmd-shift-u", RunCommand(DiffReviewCommand::UnstageAll), Some("DesktopDiff")),
-            KeyBinding::new("ctrl-shift-u", RunCommand(DiffReviewCommand::UnstageAll), Some("DesktopDiff")),
-        ]);
+        let bindings = [
+            key_binding("secondary-shift-s", RunCommand(DiffReviewCommand::StageAll), Some(KEY_CONTEXT), cx),
+            key_binding("secondary-shift-u", RunCommand(DiffReviewCommand::UnstageAll), Some(KEY_CONTEXT), cx),
+            key_binding("secondary-r", RunCommand(DiffReviewCommand::Refresh), Some(KEY_CONTEXT), cx),
+        ];
+        cx.bind_keys(bindings);
     }
 
     fn discover(&mut self, cx: &mut Context<Self>) {
@@ -198,7 +204,31 @@ impl DesktopApp {
     }
 
     fn run_command(&mut self, action: &RunCommand, window: &mut Window, cx: &mut Context<Self>) {
-        self.dispatch_command(action.0.clone(), window, cx);
+        if action.0 == DiffReviewCommand::Refresh && self.error.is_some() {
+            self.retry(window, cx);
+        } else {
+            self.dispatch_command(action.0.clone(), window, cx);
+        }
+    }
+
+    fn retry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.focus_handle.is_focused(window) {
+            window.blur(cx);
+        }
+        self.error = None;
+        self.discover(cx);
+        cx.notify();
+    }
+
+    fn error_detail(error: &str, window: &Window, cx: &App) -> String {
+        let refresh = RunCommand(DiffReviewCommand::Refresh);
+        KeyContext::parse(KEY_CONTEXT)
+            .ok()
+            .and_then(|context| window.highest_precedence_binding_for_action_in_context(&refresh, context))
+            .map_or_else(
+                || error.to_owned(),
+                |binding| format!("{error} · press {} to retry", binding_label(&binding, cx)),
+            )
     }
 
     fn status_panel(&self, title: String, detail: &str, tone: NoticeTone, cx: &App) -> AnyElement {
@@ -212,19 +242,19 @@ impl Render for DesktopApp {
         InterfaceSize::apply(window, cx);
         let theme = UiTheme::new(self.view.read(cx).theme());
         let body = if let Some(error) = &self.error {
-            self.status_panel(
-                "Could not load diff".to_owned(),
-                &format!("{error} · press ⌘/Ctrl+R to retry"),
-                NoticeTone::Error,
-                cx,
-            )
+            if window.focused(cx).is_none() {
+                self.focus_handle.focus(window, cx);
+            }
+            let detail = Self::error_detail(error, window, cx);
+            self.status_panel("Could not load diff".to_owned(), &detail, NoticeTone::Error, cx)
         } else if self.client.is_none() {
             self.status_panel("Loading diff…".to_owned(), "Git is reading the repository", NoticeTone::Info, cx)
         } else {
             self.view.clone().into_any_element()
         };
         let content = div()
-            .key_context("DesktopDiff")
+            .key_context(KEY_CONTEXT)
+            .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::run_command))
             .size_full()
             .bg(theme.colors.canvas)

@@ -1,10 +1,13 @@
 use clankerdiff_core::ViewMode;
-use clankerdiff_gpui::testing::{DiffViewerHarness, DiffViewerHarnessBuilder};
+use clankerdiff_gpui::{
+    testing::{DiffViewerHarness, DiffViewerHarnessBuilder},
+    ui::testing::advance_clock,
+};
 use gpui::{
     Bounds, ClipboardItem, InputHandler, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
     Point, TestAppContext, UTF16Selection, point, px,
 };
-use std::{error::Error, ops::Range};
+use std::{error::Error, ops::Range, time::Duration};
 
 #[gpui::test]
 fn empty_caret_tracks_focus_and_remains_available_after_input(cx: &mut TestAppContext) {
@@ -28,6 +31,17 @@ fn empty_caret_tracks_focus_and_remains_available_after_input(cx: &mut TestAppCo
     if let Err(error) = result {
         panic!("{error}");
     }
+}
+
+#[gpui::test]
+fn the_caret_stops_blinking_once_the_editor_is_idle(cx: &mut TestAppContext) {
+    let harness = open_editor(cx);
+    harness.activate(cx);
+    assert!(harness.renders_over(cx, Duration::from_secs(2)) > 0);
+    advance_clock(cx, Duration::from_secs(4));
+    assert_eq!(harness.renders_over(cx, Duration::from_secs(2)), 0);
+    harness.simulate_input(cx, "a");
+    assert!(harness.renders_over(cx, Duration::from_secs(2)) > 0);
 }
 
 #[gpui::test]

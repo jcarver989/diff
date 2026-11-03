@@ -127,6 +127,11 @@ impl WindowDriver {
         Ok(())
     }
 
+    pub fn activate(&self, cx: &mut TestAppContext) {
+        cx.update_window(self.window, |_, window, _| window.activate_window()).expect("activate the GPUI test window");
+        self.draw(cx);
+    }
+
     pub fn focus_next(&self, cx: &mut TestAppContext) {
         cx.update_window(self.window, |_, window, cx| window.focus_next(cx)).expect("focus in the GPUI test window");
         self.draw(cx);
@@ -317,7 +322,7 @@ impl<T: Render + EventEmitter<U>, U: Clone + 'static> ViewHarness<T, U> {
                         root.events.push(event.clone());
                     })
                     .detach();
-                    ViewRoot { view, events: Vec::new() }
+                    ViewRoot { view, events: Vec::new(), renders: 0 }
                 })
             })
             .expect("open GPUI test window")
@@ -337,6 +342,12 @@ impl<T: Render + EventEmitter<U>, U: Clone + 'static> ViewHarness<T, U> {
         }
     }
 
+    pub fn renders_over(&self, cx: &mut TestAppContext, duration: Duration) -> usize {
+        let before = self.renders(cx);
+        advance_clock(cx, duration);
+        self.renders(cx) - before
+    }
+
     #[must_use]
     pub fn events(&self, cx: &TestAppContext) -> Vec<U> {
         self.window.read_with(cx, |root, _| root.events.clone()).expect("read recorded GPUI events")
@@ -353,6 +364,10 @@ impl<T: Render + EventEmitter<U>, U: Clone + 'static> ViewHarness<T, U> {
 
     pub fn update<V>(&self, cx: &mut TestAppContext, update: impl FnOnce(&mut T, &mut Context<T>) -> V) -> V {
         self.view.update(cx, update)
+    }
+
+    fn renders(&self, cx: &TestAppContext) -> usize {
+        self.window.read_with(cx, |root, _| root.renders).expect("read the GPUI test root")
     }
 
     pub fn run_until(&self, cx: &mut TestAppContext, condition: impl Fn(&T, &App) -> bool) {
@@ -377,10 +392,12 @@ impl<T, U> Deref for ViewHarness<T, U> {
 struct ViewRoot<T: 'static, U: 'static> {
     view: Entity<T>,
     events: Vec<U>,
+    renders: usize,
 }
 
 impl<T: Render, U: 'static> Render for ViewRoot<T, U> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.renders += 1;
         InterfaceSize::apply(window, cx);
         div().size_full().child(self.view.clone())
     }

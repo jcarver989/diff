@@ -5,6 +5,7 @@ pub mod icon;
 pub mod indicator_layer;
 pub mod inline_edit;
 pub mod interface_size;
+pub mod keymap;
 pub mod menu;
 pub mod picker;
 pub mod resizable;
@@ -31,6 +32,7 @@ pub mod prelude {
     pub use super::icon::{Icon, IconName, spin_when_shown};
     pub use super::indicator_layer::{IndicatorLayer, IndicatorMark};
     pub use super::inline_edit::InlineEdit;
+    pub use super::keymap::{binding_label, key_binding};
     pub use super::menu::{MenuItem, with_menu};
     pub use super::picker::{
         PickerDetail, PickerItem, PickerList, PickerMarker, SearchPicker, SearchPickerEvent, ThemePicker,

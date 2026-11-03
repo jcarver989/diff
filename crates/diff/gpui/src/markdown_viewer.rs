@@ -10,7 +10,9 @@ pub(crate) mod rows;
 use crate::{
     ThemeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
-    ui::prelude::{SearchPicker, ThemePicker, ThemePickerEvent, Typography, TypographyExt, UI_FONT, UiTheme, rem},
+    ui::prelude::{
+        SearchPicker, ThemePicker, ThemePickerEvent, Typography, TypographyExt, UI_FONT, UiTheme, key_binding, rem,
+    },
 };
 use clankerdiff_core::{InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
@@ -136,7 +138,7 @@ impl MarkdownReviewer {
         const BROWSE: &str = "MarkdownReviewer && mode == browse";
         const DRAFT: &str = "MarkdownReviewer && mode == draft";
         const HELP: &str = "MarkdownReviewer && mode == help";
-        cx.bind_keys([
+        let bindings = [
             KeyBinding::new("j", MarkdownNextTarget, Some(BROWSE)),
             KeyBinding::new("down", MarkdownNextTarget, Some(BROWSE)),
             KeyBinding::new("k", MarkdownPreviousTarget, Some(BROWSE)),
@@ -158,7 +160,7 @@ impl MarkdownReviewer {
                 Some("MarkdownReviewer && mode == browse && !CommentDismissControl"),
             ),
             KeyBinding::new("y", MarkdownCopyReview, Some(BROWSE)),
-            KeyBinding::new("cmd-shift-c", MarkdownCopyReview, Some(BROWSE)),
+            key_binding("secondary-shift-c", MarkdownCopyReview, Some(BROWSE), cx),
             KeyBinding::new("n", MarkdownNextHeading, Some(BROWSE)),
             KeyBinding::new("p", MarkdownPreviousHeading, Some(BROWSE)),
             KeyBinding::new("b", MarkdownToggleOutline, Some(BROWSE)),
@@ -171,12 +173,11 @@ impl MarkdownReviewer {
             KeyBinding::new("shift-/", MarkdownShowShortcuts, Some(BROWSE)),
             KeyBinding::new("shift-/", MarkdownCancel, Some(HELP)),
             KeyBinding::new("t", MarkdownShowThemePicker, Some(BROWSE)),
-            KeyBinding::new("cmd-shift-t", MarkdownShowThemePicker, Some(BROWSE)),
-            KeyBinding::new("ctrl-shift-t", MarkdownShowThemePicker, Some(BROWSE)),
+            key_binding("secondary-shift-t", MarkdownShowThemePicker, Some(BROWSE), cx),
             KeyBinding::new("escape", MarkdownCancel, Some(ANY)),
-            KeyBinding::new("cmd-enter", MarkdownSubmitComment, Some(DRAFT)),
-            KeyBinding::new("ctrl-enter", MarkdownSubmitComment, Some(DRAFT)),
-        ]);
+            key_binding("secondary-enter", MarkdownSubmitComment, Some(DRAFT), cx),
+        ];
+        cx.bind_keys(bindings);
         SearchPicker::bind_keys(cx);
     }
 

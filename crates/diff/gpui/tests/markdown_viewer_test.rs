@@ -4,7 +4,7 @@ use clankerdiff_gpui::{
     testing::{MarkdownReviewerHarness, MarkdownReviewerHarnessBuilder},
 };
 use clankerdiff_markdown::{MarkdownReviewDecision, MarkdownReviewEvent, MarkdownTargetId};
-use gpui::{TestAppContext, px};
+use gpui::{OperatingSystem, PlatformInfo, PlatformTarget, TestAppContext, px};
 
 const PLAN: &str = "# Plan\n\nIntro with **bold** text.\n\n## Options\n\n- Postgres\n- DynamoDB\n\n```rust\nlet a = 1;\nlet b = 2;\nlet c = 3;\n```\n\n## Decision\n\nPick one.";
 
@@ -146,6 +146,30 @@ fn question_mark_toggles_the_shortcut_help(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn copy_review_shortcut_uses_command_on_mac(cx: &mut TestAppContext) {
+    host(cx, OperatingSystem::Mac);
+    plan().run(cx, |harness, cx| {
+        harness.simulate_keystrokes(cx, "ctrl-shift-c");
+        assert!(!copied(&harness.events(cx)));
+        harness.simulate_keystrokes(cx, "cmd-shift-c");
+        assert!(copied(&harness.events(cx)));
+        Ok(())
+    });
+}
+
+#[gpui::test]
+fn copy_review_shortcut_uses_control_on_linux(cx: &mut TestAppContext) {
+    host(cx, OperatingSystem::Linux);
+    plan().run(cx, |harness, cx| {
+        harness.simulate_keystrokes(cx, "cmd-shift-c");
+        assert!(!copied(&harness.events(cx)));
+        harness.simulate_keystrokes(cx, "ctrl-shift-c");
+        assert!(copied(&harness.events(cx)));
+        Ok(())
+    });
+}
+
+#[gpui::test]
 fn outline_is_collapsible(cx: &mut TestAppContext) {
     plan().run(cx, |harness, cx| {
         assert!(harness.bounds(cx, "markdown-outline").is_some());
@@ -193,4 +217,12 @@ fn submitted_decision(events: &[MarkdownReviewEvent]) -> Option<MarkdownReviewDe
         MarkdownReviewEvent::Submit(submission) => Some(submission.decision),
         _ => None,
     })
+}
+
+fn copied(events: &[MarkdownReviewEvent]) -> bool {
+    events.iter().any(|event| matches!(event, MarkdownReviewEvent::CopyFormatted(_)))
+}
+
+fn host(cx: &mut TestAppContext, os: OperatingSystem) {
+    cx.set_platform_info(PlatformInfo { os, target: PlatformTarget::Native });
 }
