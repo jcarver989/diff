@@ -4,8 +4,9 @@ use crate::document::{
     fence_marker, fenced_code_line, fenced_code_lines, fenced_content_bounds, parse_block, parser_options,
     source_range,
 };
+use clankerdiff_syntax::{LanguageHint, SourceSyntax, SyntaxCell, SyntaxStream, thread_work};
 use pulldown_cmark::Parser;
-use std::{borrow::Cow, collections::BTreeMap, ops::Range};
+use std::{borrow::Cow, collections::BTreeMap, ops::Range, sync::Arc};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MarkdownParseStats {
@@ -15,6 +16,7 @@ pub struct MarkdownParseStats {
     pub prefix_bytes_copied: usize,
     pub parses: u64,
     pub unsettled_blocks: u64,
+    pub highlighted_bytes: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +92,78 @@ struct OpenFence {
     line_start: usize,
     complete: usize,
     state: FenceLine,
+    syntax: Option<CodeSyntax>,
+}
+
+impl OpenFence {
+    fn publish(&mut self, code: &mut MarkdownCodeBlock, closed: bool, stats: &mut MarkdownParseStats) -> usize {
+        let definite = if closed {
+            code.lines.len()
+        } else {
+            let complete = self.complete.min(code.lines.len());
+            complete + usize::from(self.state == FenceLine::Content && code.lines.len() > complete)
+        };
+        let parsed = thread_work().parser_input_bytes;
+        let changed = self.syntax.as_mut().and_then(|syntax| syntax.feed(code, definite));
+        stats.highlighted_bytes += thread_work().parser_input_bytes - parsed;
+        if changed.is_none() {
+            self.syntax = None;
+        }
+        code.syntax = match &self.syntax {
+            Some(syntax) if !closed => SyntaxCell::from(SourceSyntax {
+                highlights: Arc::clone(syntax.stream.highlights()),
+                symbols: Arc::default(),
+            }),
+            Some(syntax) if syntax.holds(code) => SyntaxCell::from(syntax.stream.syntax()),
+            _ => SyntaxCell::default(),
+        };
+        changed.unwrap_or(0)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CodeSyntax {
+    stream: SyntaxStream,
+    lines: usize,
+    partial: usize,
+}
+
+impl CodeSyntax {
+    fn new(code: &MarkdownCodeBlock) -> Self {
+        Self { stream: SyntaxStream::new(LanguageHint::InfoString(code.highlight_hint())), lines: 0, partial: 0 }
+    }
+
+    fn feed(&mut self, code: &MarkdownCodeBlock, definite: usize) -> Option<usize> {
+        if definite < self.lines
+            || self.lines.checked_sub(1).is_some_and(|last| !code.lines[last].text.is_char_boundary(self.partial))
+        {
+            *self = Self::new(code);
+        }
+        let mut delta = String::new();
+        if let Some(last) = self.lines.checked_sub(1) {
+            delta.push_str(&code.lines[last].text[self.partial..]);
+        }
+        for (index, line) in code.lines[..definite].iter().enumerate().skip(self.lines) {
+            if index > 0 {
+                delta.push('\n');
+            }
+            delta.push_str(&line.text);
+        }
+        self.lines = definite;
+        self.partial = definite.checked_sub(1).map_or(0, |last| code.lines[last].text.len());
+        self.stream.append(&delta).ok().map(|update| update.changed_lines.start)
+    }
+
+    fn holds(&self, code: &MarkdownCodeBlock) -> bool {
+        let mut rest = self.stream.source();
+        code.lines.iter().enumerate().all(|(index, line)| {
+            let separated = if index == 0 { Some(rest) } else { rest.strip_prefix('\n') };
+            separated
+                .and_then(|separated| separated.strip_prefix(line.text.as_str()))
+                .map(|after| rest = after)
+                .is_some()
+        }) && rest.is_empty()
+    }
 }
 
 struct TailParse {
@@ -130,14 +204,13 @@ impl IncrementalDocument {
         self.fence.as_ref().map(|fence| fence.block)
     }
 
-    pub(crate) fn replace(&mut self, source: &str) -> usize {
+    pub(crate) fn replace(&mut self, source: &str) {
         let stats = self.stats;
         *self = Self { stats, ..Self::default() };
         self.append(source);
-        0
     }
 
-    pub(crate) fn append(&mut self, chunk: &str) -> usize {
+    pub(crate) fn append(&mut self, chunk: &str) -> (usize, usize) {
         let start = self.document.source.len();
         self.document.source.push_str(chunk);
         self.stats.source_bytes_copied += chunk.len();
@@ -145,16 +218,17 @@ impl IncrementalDocument {
         self.index.extend(&self.document.source, start);
         if self.fence.is_some() {
             let block = self.fence.as_ref().map_or(0, |fence| fence.block);
-            if let Some(resume) = self.extend_fence(start) {
+            let (resume, line) = self.extend_fence(start);
+            if let Some(resume) = resume {
                 self.settle_to(block + 1, resume);
                 self.fence = None;
                 if resume < self.document.source.len() {
                     self.parse_tail();
                 }
             }
-            return block;
+            return (block, line);
         }
-        self.parse_tail()
+        (self.parse_tail(), 0)
     }
 
     fn parse_tail(&mut self) -> usize {
@@ -325,7 +399,7 @@ impl IncrementalDocument {
             state = state.feed(byte, marker, count);
         }
         self.stats.scanned_bytes += len - line_start;
-        self.fence = Some(OpenFence {
+        let mut fence = OpenFence {
             block: index,
             marker,
             count,
@@ -334,16 +408,23 @@ impl IncrementalDocument {
             line_start,
             complete: self.index.line_breaks_after(opening_end),
             state,
-        });
+            syntax: Some(CodeSyntax::new(code)),
+        };
+        if let MarkdownBlockKind::CodeBlock(code) = &mut self.document.blocks[index].kind {
+            fence.publish(code, false, &mut self.stats);
+        }
+        self.fence = Some(fence);
     }
 
-    fn extend_fence(&mut self, start: usize) -> Option<usize> {
-        let mut fence = self.fence.take()?;
+    fn extend_fence(&mut self, start: usize) -> (Option<usize>, usize) {
+        let Some(mut fence) = self.fence.take() else {
+            return (None, 0);
+        };
         let MarkdownDocument { source, blocks, targets, .. } = &mut self.document;
         let bytes = source.as_bytes();
         let len = bytes.len();
         let MarkdownBlockKind::CodeBlock(code) = &mut blocks[fence.block].kind else {
-            return None;
+            return (None, 0);
         };
         let previous_lines = code.lines.len();
         code.lines.truncate(fence.complete);
@@ -400,12 +481,13 @@ impl IncrementalDocument {
         code.source = source_range(fence.start..block_end, &self.index);
         let block_source = code.source.clone();
         sync_code_targets(code, targets, first_changed_line);
+        let first_changed_line = first_changed_line.min(fence.publish(code, close.is_some(), &mut self.stats));
         blocks[fence.block].source = block_source;
         let resume = close.map(|(_, resume)| resume);
         if resume.is_none() {
             self.fence = Some(fence);
         }
-        resume
+        (resume, first_changed_line)
     }
 }
 

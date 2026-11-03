@@ -1,4 +1,6 @@
 use clankerdiff_markdown::MarkdownStream;
+use clankerdiff_syntax::{analyze, thread_work};
+use std::error::Error;
 
 #[test]
 fn source_updates_report_byte_ranges_without_promising_stable_prefixes() {
@@ -88,4 +90,41 @@ fn independent_and_cloned_streams_have_distinct_identities() {
     cloned.push(" second");
     assert_eq!(first.revision(), cloned.revision());
     assert_ne!(first.source(), cloned.source());
+}
+
+#[test]
+fn an_open_code_block_is_highlighted_as_it_streams_and_keeps_that_analysis_when_closed() -> Result<(), Box<dyn Error>> {
+    let code = "fn main() {\n    let a = 1;\n}";
+    let mut stream = MarkdownStream::new();
+    stream.push("```rust\nfn main");
+    stream.push(&code["fn main".len()..]);
+    assert_eq!(stream.open_code_block(), Some(0));
+    let parses = thread_work().parses();
+    let expected = analyze("rust", code).highlights;
+    let streamed = &stream.document().code_blocks()[0].syntax().highlights;
+    assert_eq!(thread_work().parses() - parses, 1, "only the reference is analyzed");
+    for line in 0..3 {
+        assert_eq!(streamed.line(line), expected.line(line));
+    }
+    let parses = thread_work().parses();
+    stream.push("\n``");
+    stream.push("`\n");
+    assert_eq!(stream.open_code_block(), None);
+    let closed = &stream.document().code_blocks()[0].syntax().highlights;
+    assert_eq!(thread_work().parses(), parses, "closing reuses the streamed analysis");
+    assert_eq!(closed.line_count(), 3);
+    assert_eq!(closed.line(2).ok_or("line")?, expected.line(2).ok_or("line")?);
+    Ok(())
+}
+
+#[test]
+fn changes_report_the_first_changed_line_of_the_open_code_block() {
+    let mut stream = MarkdownStream::new();
+    stream.push("Intro\n\n```rust\nfn a() {}\n");
+    let revision = stream.revision();
+    stream.push("fn b() {}\n");
+    let changes = stream.changes_since(revision);
+    assert_eq!((changes.first_block, changes.first_line), (1, 1));
+    stream.push("```\n\nAfter\n");
+    assert_eq!(stream.changes_since(revision).first_block, 1);
 }

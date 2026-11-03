@@ -2031,6 +2031,7 @@ version = "0.8.2"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
+ "clankerdiff-syntax",
  "pulldown-cmark",
  "serde",
  "serde_json",

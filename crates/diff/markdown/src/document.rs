@@ -1,3 +1,4 @@
+use clankerdiff_syntax::{LanguageHint, SourceSyntax, SyntaxCell};
 use pulldown_cmark::{
     Alignment, BrokenLink, CodeBlockKind, CowStr, Event, HeadingLevel, LinkType, Options, Parser, Tag,
 };
@@ -114,6 +115,11 @@ pub struct MarkdownBlock {
 }
 
 impl MarkdownBlock {
+    #[must_use]
+    pub fn code_blocks(&self) -> Vec<&MarkdownCodeBlock> {
+        code_blocks(std::slice::from_ref(self))
+    }
+
     /// Returns the target ID when this block is commentable.
     #[must_use]
     pub const fn target_id(&self) -> Option<MarkdownTargetId> {
@@ -176,6 +182,8 @@ pub struct MarkdownCodeBlock {
     pub content: SourceRange,
     pub lines: Vec<MarkdownCodeLine>,
     pub target_id: Option<MarkdownTargetId>,
+    #[serde(skip)]
+    pub(crate) syntax: SyntaxCell,
 }
 
 impl MarkdownCodeBlock {
@@ -188,6 +196,13 @@ impl MarkdownCodeBlock {
     #[must_use]
     pub fn highlight_hint(&self) -> &str {
         self.info.as_deref().or(self.language.as_deref()).unwrap_or_default()
+    }
+
+    #[must_use]
+    pub fn syntax(&self) -> &SourceSyntax {
+        self.syntax.get(LanguageHint::InfoString(self.highlight_hint()), || {
+            self.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n")
+        })
     }
 }
 
@@ -395,24 +410,28 @@ impl MarkdownDocument {
 
     #[must_use]
     pub fn code_blocks(&self) -> Vec<&MarkdownCodeBlock> {
-        fn collect<'a>(blocks: &'a [MarkdownBlock], output: &mut Vec<&'a MarkdownCodeBlock>) {
-            for block in blocks {
-                match &block.kind {
-                    MarkdownBlockKind::CodeBlock(code) => output.push(code),
-                    MarkdownBlockKind::List { items, .. } => {
-                        for item in items {
-                            collect(&item.blocks, output);
-                        }
+        code_blocks(&self.blocks)
+    }
+}
+
+fn code_blocks(blocks: &[MarkdownBlock]) -> Vec<&MarkdownCodeBlock> {
+    fn collect<'a>(blocks: &'a [MarkdownBlock], output: &mut Vec<&'a MarkdownCodeBlock>) {
+        for block in blocks {
+            match &block.kind {
+                MarkdownBlockKind::CodeBlock(code) => output.push(code),
+                MarkdownBlockKind::List { items, .. } => {
+                    for item in items {
+                        collect(&item.blocks, output);
                     }
-                    MarkdownBlockKind::BlockQuote { blocks } => collect(blocks, output),
-                    _ => {}
                 }
+                MarkdownBlockKind::BlockQuote { blocks } => collect(blocks, output),
+                _ => {}
             }
         }
-        let mut output = Vec::new();
-        collect(&self.blocks, &mut output);
-        output
     }
+    let mut output = Vec::new();
+    collect(blocks, &mut output);
+    output
 }
 
 #[derive(Debug, Clone)]
@@ -626,6 +645,7 @@ fn parse_code_block(
         content: source_range(content_bytes, line_index),
         lines,
         target_id: None,
+        syntax: SyntaxCell::default(),
     }
 }
 
