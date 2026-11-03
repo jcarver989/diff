@@ -2,7 +2,7 @@ use crate::{
     SyntaxError,
     incremental::{AppendContext, IncrementalDocument, SyntaxWorkStats},
     language::{LanguageHint, resolve_language},
-    spans::{Span, spans_to_flat_tokens},
+    spans::flatten,
     symbols::SymbolTags,
 };
 use clankerdiff_ui_core::HighlightSpan;
@@ -178,7 +178,7 @@ impl SyntaxStream {
         let first_line = self.line_starts.partition_point(|&offset| offset <= start).saturating_sub(1);
         let byte_start = self.line_starts.get(first_line).copied().unwrap_or(0);
         let raw = self.document.as_ref().map_or_else(Vec::new, |document| document.spans_from(byte_start));
-        let spans = map_spans(&self.source, raw);
+        let spans = flatten(&self.source, raw);
         let mut lines = self.highlights.lines.take(first_line.min(self.highlights.line_count()));
         let mut first_changed = lines.len();
         let mut first_span = 0;
@@ -244,28 +244,4 @@ impl DocumentHighlights {
     pub fn line_count(&self) -> usize {
         self.lines.len()
     }
-}
-
-fn map_spans(source: &str, raw_spans: Vec<Span>) -> Vec<HighlightSpan> {
-    if raw_spans.is_empty() {
-        return Vec::new();
-    }
-    let tokens = spans_to_flat_tokens(source, raw_spans);
-    let mut spans: Vec<HighlightSpan> = Vec::with_capacity(tokens.len());
-    for token in tokens {
-        let start = token.start as usize;
-        let end = token.end as usize;
-        if start >= end || end > source.len() || !source.is_char_boundary(start) || !source.is_char_boundary(end) {
-            continue;
-        }
-        if let Some(last) = spans.last_mut()
-            && last.range.end == start
-            && last.highlight == token.highlight
-        {
-            last.range.end = end;
-        } else {
-            spans.push(HighlightSpan { range: start..end, highlight: token.highlight });
-        }
-    }
-    spans
 }
