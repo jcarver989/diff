@@ -17,6 +17,7 @@ workspace = true
 [dependencies]
 clankerdiff-core = { workspace = true, optional = true }
 clankerdiff-fingerprint.workspace = true
+clankerdiff-syntax.workspace = true
 pulldown-cmark.workspace = true
 serde.workspace = true
 thiserror.workspace = true

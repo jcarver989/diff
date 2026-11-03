@@ -11,7 +11,7 @@ mod tests {
         markdown::{
             MarkdownDocument, MarkdownReviewCommand, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownStream,
         },
-        syntax::{LanguageHint, SyntaxHighlighter, resolve_language},
+        syntax::{LanguageHint, resolve_language},
         theme::{ReviewTheme, Rgba, ThemeChoice, ThemeId},
     };
     use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
@@ -56,13 +56,11 @@ mod tests {
     fn preview_and_review_events_use_facade_types() -> TestResult {
         let theme = ReviewTheme::builtin("sage")?;
         let choice = ThemeChoice::new("Consumer", theme.clone());
-        let mut highlighter = SyntaxHighlighter::default();
         assert_eq!(resolve_language(LanguageHint::Path("file.rs"), ""), Some("rust"));
         let mut preview = DiffPreviewState::new(FileDiff::from_texts("file.rs", "old\n", "new\n")?);
         let lines = preview.render(
             80,
             &theme,
-            &mut highlighter,
             DiffPreviewOptions { view_mode: ViewMode::Unified, ..DiffPreviewOptions::default() },
         );
         assert!(!lines.is_empty());
@@ -83,7 +81,6 @@ mod tests {
             (format!("```rust\n{}\n```\n", "let value = 123;\n".repeat(1600)), true),
         ] {
             let renderer = MarkdownRenderer::new();
-            let mut highlighter = SyntaxHighlighter::default();
             let mut stream = MarkdownStream::new();
             let mut state = StreamingMarkdownState::new(StreamingMarkdownPolicy::Terminal);
             let theme = ReviewTheme::default();
@@ -92,7 +89,7 @@ mod tests {
             let mut revision = 0;
             for chunk in source.as_bytes().chunks(256) {
                 stream.push(str::from_utf8(chunk)?);
-                renderer.render_stream_layout(&mut state, &stream, options, &theme, &mut highlighter)?;
+                renderer.render_stream_layout(&mut state, &stream, options, &theme)?;
                 let delta = state.update_since(revision);
                 assert!(delta.first_changed_row >= state.committed_rows());
                 host.truncate(delta.first_changed_row);
@@ -105,13 +102,8 @@ mod tests {
                 assert!(host.len() - state.committed_rows() <= 24);
             }
             stream.finish();
-            let layout = renderer.render_stream_layout(&mut state, &stream, options, &theme, &mut highlighter)?;
-            let expected = renderer.render_layout(
-                &MarkdownDocument::parse(&source),
-                options,
-                &theme,
-                &mut SyntaxHighlighter::default(),
-            );
+            let layout = renderer.render_stream_layout(&mut state, &stream, options, &theme)?;
+            let expected = renderer.render_layout(&MarkdownDocument::parse(&source), options, &theme);
             assert_eq!(layout.row_count(), expected.row_count());
             assert!(layout.rows().iter().zip(expected.rows().iter()).all(|(a, b)| a.line == b.line));
             let work = state.take_stats();
@@ -122,7 +114,7 @@ mod tests {
             assert!(work.blocks_visited <= budget, "{work:?}");
             assert!(work.targets_visited <= budget, "{work:?}");
             assert!(work.row_store_updates <= budget, "{work:?}");
-            renderer.render_stream_layout(&mut state, &stream, options, &theme, &mut highlighter)?;
+            renderer.render_stream_layout(&mut state, &stream, options, &theme)?;
             let settled = state.take_stats();
             assert_eq!(
                 settled.parsed_bytes

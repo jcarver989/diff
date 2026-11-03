@@ -4,7 +4,7 @@ use clankerdiff_core::{
     TargetLocation,
     testing::{DocumentBuilder, ResolutionBuilder, external, location, source, target},
 };
-use clankerdiff_symbols::{Activation, DefinitionCard, Hold, NameLookup, Settled, SymbolCache, SymbolIndex};
+use clankerdiff_symbols::{Activation, DefinitionCard, DocumentSyntax, Hold, NameLookup, Settled, SymbolIndex};
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -353,7 +353,7 @@ fn failures_and_empty_answers_are_asked_again_while_definitive_answers_are_reuse
 #[test]
 fn an_unchanged_old_side_line_is_looked_up_in_the_current_version() -> Result<(), Box<dyn Error>> {
     let mut session = ReviewSession::new(revisions());
-    let index = SymbolCache::default().index(&revisions());
+    let index = DocumentSyntax::new(revisions()).symbols();
     let mut names = NameLookup::default();
     let old = SourceLocation { side: DiffSide::Old, ..location("src/main.rs", 3)? };
     assert!(names.open_at(old, &session, &index, true));
@@ -374,7 +374,7 @@ fn an_unchanged_old_side_line_is_looked_up_in_the_current_version() -> Result<()
 #[test]
 fn a_removed_line_says_it_cannot_be_looked_up_and_matches_its_own_revision() -> Result<(), Box<dyn Error>> {
     let session = ReviewSession::new(revisions());
-    let index = SymbolCache::default().index(&revisions());
+    let index = DocumentSyntax::new(revisions()).symbols();
     let mut names = NameLookup::default();
     assert!(names.open_at(
         SourceLocation { side: DiffSide::Old, ..location("src/main.rs", 2)? },
@@ -396,9 +396,10 @@ fn a_removed_line_says_it_cannot_be_looked_up_and_matches_its_own_revision() -> 
     ));
     assert_eq!(names.take_lookups(), NONE);
     let content = card(&names)?.content(&index);
-    assert_eq!(content.code.map(|(_, code)| code), Some("fn helper(size: usize)"));
+    assert_eq!(content.code.map(|code| code.text), Some("fn helper(size: usize)"));
     assert!(names.open_at(location("src/main.rs", 6)?, &session, &index, false));
-    assert_eq!(card(&names)?.content(&index).code.map(|(_, code)| code), Some("fn helper()"));
+    assert_eq!(card(&names)?.content(&index).code.map(|code| code.text), Some("fn helper()"));
+    assert!(card(&names)?.content(&index).code.ok_or("code")?.map_lines(|_, spans| !spans.is_empty())[0]);
     Ok(())
 }
 
@@ -464,7 +465,7 @@ fn fixture() -> (ReviewSession, Arc<SymbolIndex>) {
 }
 
 fn index() -> Arc<SymbolIndex> {
-    SymbolCache::default().index(&document())
+    DocumentSyntax::new(document()).symbols()
 }
 
 fn revisions() -> Arc<DiffDocument> {

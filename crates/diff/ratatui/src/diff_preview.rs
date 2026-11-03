@@ -10,7 +10,7 @@ use clankerdiff_core::{
     DiffDocument, DiffPresentation, FileDiff, Layout, PresentationOptions, PresentedCell, PresentedRow, RowKind,
     ViewMode,
 };
-use clankerdiff_syntax::{HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxTheme, empty_spans};
+use clankerdiff_symbols::DocumentSyntax;
 use clankerdiff_ui_core::{Fingerprint, ReviewTheme};
 use ratatui::{
     style::Style,
@@ -46,7 +46,7 @@ impl Default for DiffPreviewOptions {
 pub struct DiffPreviewStats {
     pub presentations_built: usize,
     pub rows_generated: usize,
-    pub cache_hits: usize,
+    pub renders_reused: usize,
 }
 
 type PresentationKey = (ViewMode, bool);
@@ -54,7 +54,7 @@ type RenderKey = (u16, DiffPreviewOptions, Fingerprint);
 
 #[derive(Debug)]
 pub struct DiffPreviewState {
-    document: Arc<DiffDocument>,
+    syntax: DocumentSyntax,
     presentation: Option<(PresentationKey, DiffPresentation)>,
     rendered: Option<(RenderKey, Arc<[Line<'static>]>)>,
     stats: DiffPreviewStats,
@@ -64,7 +64,7 @@ impl DiffPreviewState {
     #[must_use]
     pub fn new(file: FileDiff) -> Self {
         Self {
-            document: preview_document(file),
+            syntax: DocumentSyntax::new(preview_document(file)),
             presentation: None,
             rendered: None,
             stats: DiffPreviewStats::default(),
@@ -79,30 +79,24 @@ impl DiffPreviewState {
         std::mem::take(&mut self.stats)
     }
 
-    pub fn render(
-        &mut self,
-        width: u16,
-        theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
-        options: DiffPreviewOptions,
-    ) -> Arc<[Line<'static>]> {
+    pub fn render(&mut self, width: u16, theme: &ReviewTheme, options: DiffPreviewOptions) -> Arc<[Line<'static>]> {
         let key = (width, options, theme.revision());
-        if let Some((cached, rows)) = &self.rendered
-            && *cached == key
+        if let Some((rendered, rows)) = &self.rendered
+            && *rendered == key
         {
-            self.stats.cache_hits += 1;
+            self.stats.renders_reused += 1;
             return Arc::clone(rows);
         }
         let presentation_key = (options.view_mode, width >= SPLIT_BREAKPOINT);
         let presentation = match &mut self.presentation {
-            Some((cached, presentation)) if *cached == presentation_key => presentation,
+            Some((built, presentation)) if *built == presentation_key => presentation,
             slot => {
                 self.stats.presentations_built += 1;
-                let presentation = preview_presentation(Arc::clone(&self.document), width, options);
+                let presentation = preview_presentation(Arc::clone(self.syntax.document()), width, options);
                 &slot.insert((presentation_key, presentation)).1
             }
         };
-        let rows: Arc<[Line<'static>]> = render_preview_rows(presentation, width, theme, highlighter, options).into();
+        let rows: Arc<[Line<'static>]> = render_preview_rows(presentation, &self.syntax, width, theme, options).into();
         self.stats.rows_generated += rows.len();
         self.rendered = Some((key, Arc::clone(&rows)));
         rows
@@ -124,22 +118,6 @@ fn preview_presentation(document: Arc<DiffDocument>, width: u16, options: DiffPr
     )
 }
 
-pub(crate) fn cell_highlights(
-    highlighter: &mut SyntaxHighlighter,
-    theme: &SyntaxTheme,
-    presentation: &DiffPresentation,
-    row: &PresentedRow,
-    cell: &PresentedCell,
-) -> Arc<[HighlightSpan]> {
-    let source = presentation.cell_context(row, cell);
-    highlighter
-        .with_theme(theme)
-        .highlight_document(source.id, LanguageHint::Path(source.path), || source.text())
-        .ok()
-        .and_then(|highlights| highlights.line_shared(source.target_line))
-        .unwrap_or_else(empty_spans)
-}
-
 /// Renders one file without constructing review state or executing Git.
 ///
 /// Hosts can call this for each replacement snapshot produced by
@@ -149,18 +127,18 @@ pub fn render_diff_preview(
     file: FileDiff,
     width: u16,
     theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
     options: DiffPreviewOptions,
 ) -> Vec<Line<'static>> {
-    let presentation = preview_presentation(preview_document(file), width, options);
-    render_preview_rows(&presentation, width, theme, highlighter, options)
+    let syntax = DocumentSyntax::new(preview_document(file));
+    let presentation = preview_presentation(Arc::clone(syntax.document()), width, options);
+    render_preview_rows(&presentation, &syntax, width, theme, options)
 }
 
 fn render_preview_rows(
     presentation: &DiffPresentation,
+    syntax: &DocumentSyntax,
     width: u16,
     theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
     options: DiffPreviewOptions,
 ) -> Vec<Line<'static>> {
     if width == 0 {
@@ -171,7 +149,7 @@ fn render_preview_rows(
         .iter()
         .filter(|row| options.include_gaps || row.kind != RowKind::ExpandGap)
         .collect::<Vec<_>>();
-    let mut renderer = PreviewRenderer { presentation, theme, highlighter, width, tab_width: options.tab_width };
+    let mut renderer = PreviewRenderer { presentation, syntax, theme, width, tab_width: options.tab_width };
     let mut lines = Vec::new();
     let mut overflow = 0;
     for (index, row) in eligible.iter().enumerate() {
@@ -196,8 +174,8 @@ fn render_preview_rows(
 
 struct PreviewRenderer<'a> {
     presentation: &'a DiffPresentation,
+    syntax: &'a DocumentSyntax,
     theme: &'a ReviewTheme,
-    highlighter: &'a mut SyntaxHighlighter,
     width: u16,
     tab_width: u16,
 }
@@ -265,8 +243,8 @@ impl PreviewRenderer<'_> {
         if width <= gutter_width {
             return vec![fit_line(Line::from(gutter(&number)).style(base), width, self.tab_width)];
         }
-        let spans = cell_highlights(self.highlighter, &self.theme.syntax, self.presentation, row, cell);
-        let content = highlighted_line(&cell.text, &spans, base).spans;
+        let spans = self.syntax.highlights(row, cell);
+        let content = highlighted_line(&cell.text, spans, &self.theme.syntax, base).spans;
         let content_width = width - gutter_width;
         let wrap = matches!(row.kind, RowKind::Code | RowKind::ExpandedContext);
         fit(content, content_width, wrap, self.tab_width)

@@ -3,17 +3,26 @@
 use crate::ui::typography::{Typography, TypographyExt};
 use clankerdiff_core::{FileStatus, LineStat};
 pub(crate) use clankerdiff_gpui_ui::theme::color;
-use clankerdiff_syntax::HighlightSpan;
+use clankerdiff_syntax::{HighlightLine, SyntaxTheme};
 use clankerdiff_ui_core::{DiffPalette, FontStyle, Rgba};
 use gpui::{
     Div, FontStyle as GpuiFontStyle, FontWeight, HighlightStyle, ParentElement, SharedString, Styled, StyledText,
     UnderlineStyle, div, px,
 };
+use std::ops::Range;
 
-pub(crate) fn code_text(line: SharedString, spans: &[HighlightSpan]) -> StyledText {
-    StyledText::new(line).with_highlights(
-        spans.iter().map(|span| (span.range.clone(), highlight_style(span.foreground, span.font_style))),
-    )
+pub(crate) fn code_text(line: SharedString, spans: HighlightLine<'_>, theme: &SyntaxTheme) -> StyledText {
+    StyledText::new(line).with_highlights(highlights(spans, theme))
+}
+
+pub(crate) fn highlights(spans: HighlightLine<'_>, theme: &SyntaxTheme) -> Vec<(Range<usize>, HighlightStyle)> {
+    spans
+        .iter()
+        .filter_map(|span| {
+            let style = theme.highlight(span.highlight)?;
+            Some((span.range, highlight_style(style.foreground, style.font_style)))
+        })
+        .collect()
 }
 
 /// Converts a syntax-highlight modifier and color to a GPUI highlight style.

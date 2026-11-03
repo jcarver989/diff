@@ -1,11 +1,10 @@
-use arborium_theme::tag_for_capture;
-use std::collections::BTreeMap;
+use clankerdiff_ui_core::{HighlightId, HighlightSpan};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Span {
     pub start: u32,
     pub end: u32,
-    pub capture: String,
+    pub highlight: Option<HighlightId>,
     pub pattern_index: u32,
 }
 
@@ -15,35 +14,29 @@ pub(crate) struct Injection {
     pub language: String,
 }
 
-pub(crate) struct FlatToken {
-    pub start: u32,
-    pub end: u32,
-    pub tag: &'static str,
-}
-
-pub(crate) fn spans_to_flat_tokens(source: &str, spans: Vec<Span>) -> Vec<FlatToken> {
+pub(crate) fn flatten(source: &str, spans: Vec<Span>) -> Vec<HighlightSpan> {
     let spans = normalize(spans);
     let mut events = Vec::with_capacity(spans.len() * 2);
     for (index, span) in spans.iter().enumerate() {
-        events.push((span.start, true, index));
-        events.push((span.end, false, index));
+        events.push((span.range.start, true, index));
+        events.push((span.range.end, false, index));
     }
     events.sort_by_key(|&(position, start, _)| (position, start));
     let length = source.trim_end_matches('\n').len();
-    let mut tokens: Vec<FlatToken> = Vec::new();
+    let mut flat: Vec<HighlightSpan> = Vec::new();
     let mut active: Vec<usize> = Vec::new();
     let mut previous = 0;
     for (position, start, index) in events {
-        if position > previous && position as usize <= length {
+        if position > previous && position <= length {
             if let Some(&top) = active.last() {
-                let tag = spans[top].tag;
-                if let Some(last) = tokens.last_mut()
-                    && last.tag == tag
-                    && last.end == previous
+                let highlight = spans[top].highlight;
+                if let Some(last) = flat.last_mut()
+                    && last.highlight == highlight
+                    && last.range.end == previous
                 {
-                    last.end = position;
+                    last.range.end = position;
                 } else {
-                    tokens.push(FlatToken { start: previous, end: position, tag });
+                    flat.push(HighlightSpan { range: previous..position, highlight });
                 }
             }
             previous = position;
@@ -54,32 +47,30 @@ pub(crate) fn spans_to_flat_tokens(source: &str, spans: Vec<Span>) -> Vec<FlatTo
             active.remove(offset);
         }
     }
-    tokens
+    flat.retain(|span| source.is_char_boundary(span.range.start) && source.is_char_boundary(span.range.end));
+    flat
 }
 
-fn normalize(spans: Vec<Span>) -> Vec<FlatToken> {
-    let mut unique: BTreeMap<(u32, u32), Span> = BTreeMap::new();
-    for span in spans {
-        let key = (span.start, span.end);
-        let priority = |span: &Span| (tag_for_capture(&span.capture).is_some(), span.pattern_index);
-        if unique.get(&key).is_none_or(|existing| priority(&span) >= priority(existing)) {
-            unique.insert(key, span);
+fn normalize(mut spans: Vec<Span>) -> Vec<HighlightSpan> {
+    spans.sort_by_key(|span| (span.start, span.end, span.highlight.is_some(), span.pattern_index));
+    let mut normalized: Vec<HighlightSpan> = Vec::new();
+    for (index, span) in spans.iter().enumerate() {
+        if spans.get(index + 1).is_some_and(|next| (next.start, next.end) == (span.start, span.end)) {
+            continue;
         }
-    }
-    let mut normalized: Vec<FlatToken> = Vec::new();
-    for span in unique.into_values() {
-        let Some(tag) = tag_for_capture(&span.capture) else {
+        let Some(highlight) = span.highlight else {
             continue;
         };
+        let range = span.start as usize..span.end as usize;
         if let Some(last) = normalized.last_mut()
-            && last.tag == tag
-            && span.start <= last.end
+            && last.highlight == highlight
+            && range.start <= last.range.end
         {
-            last.end = last.end.max(span.end);
+            last.range.end = last.range.end.max(range.end);
         } else {
-            normalized.push(FlatToken { start: span.start, end: span.end, tag });
+            normalized.push(HighlightSpan { range, highlight });
         }
     }
-    normalized.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end)));
+    normalized.sort_by(|a, b| a.range.start.cmp(&b.range.start).then_with(|| b.range.end.cmp(&a.range.end)));
     normalized
 }

@@ -18,7 +18,7 @@ use crate::{
     widgets::{render_vertical_scrollbar, rows_and_track},
 };
 use clankerdiff_core::{DiffSide, DiffTone, FileDiff, GapInfo, PresentedCell, PresentedRow, RowKind};
-use clankerdiff_syntax::SyntaxHighlighter;
+use clankerdiff_symbols::DocumentSyntax;
 use clankerdiff_ui_core::ReviewTheme;
 use ratatui::{
     buffer::Buffer,
@@ -259,17 +259,10 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
     let symbol_path = top.map(|top| state.symbol_path(top)).unwrap_or_default();
     let names = state.name_overlays();
     let pointer = state.pointer;
+    state.syntax.sync(state.session.presentation().document());
 
     let DiffReviewState {
-        session,
-        theme: diff_theme,
-        highlighter,
-        focus,
-        scroll,
-        patch_hits,
-        cursor_position,
-        options,
-        ..
+        session, theme: diff_theme, syntax, focus, scroll, patch_hits, cursor_position, options, ..
     } = state;
     patch_hits.clear();
     let presentation = session.presentation();
@@ -293,7 +286,7 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
                 let mut context = CellContext {
                     theme,
                     diff_theme,
-                    highlighter,
+                    syntax,
                     presentation,
                     row,
                     source: index,
@@ -441,7 +434,7 @@ struct CellContext<'a> {
     tab_width: u16,
     theme: &'a RatatuiTheme,
     diff_theme: &'a ReviewTheme,
-    highlighter: &'a mut SyntaxHighlighter,
+    syntax: &'a DocumentSyntax,
     presentation: &'a clankerdiff_core::DiffPresentation,
     row: &'a PresentedRow,
     source: usize,
@@ -529,17 +522,12 @@ fn render_cell(
         return;
     };
     let geometry = context.geometry().pane(side);
-    let highlights = crate::diff_preview::cell_highlights(
-        context.highlighter,
-        &context.diff_theme.syntax,
-        context.presentation,
-        context.row,
-        cell,
-    );
+    let highlights = context.syntax.highlights(context.row, cell);
     let card = Style::new().bg(native_color(context.diff_theme.carded_name(), background));
     let location = context.presentation.source_location(context.row, cell);
     let overlays = location.as_ref().map_or_else(Vec::new, |location| context.names.styles(location, card));
-    let source_spans = styled_spans(&cell.text, &highlights, &overlays, Style::new().bg(background));
+    let source_spans =
+        styled_spans(&cell.text, highlights, &context.diff_theme.syntax, &overlays, Style::new().bg(background));
     let fit = FitOptions {
         width: geometry.content_width,
         wrap: true,

@@ -17,7 +17,6 @@ use clankerdiff_markdown::{
     MarkdownDocument, MarkdownFocusPane, MarkdownReview, MarkdownReviewCommand, MarkdownReviewDecision,
     MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
 };
-use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext, Rems, ScrollHandle,
@@ -25,7 +24,7 @@ use gpui::{
 };
 use inline::InlineColors;
 use rows::{DocumentRow, document_rows};
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 actions!(
     markdown_reviewer,
@@ -93,7 +92,6 @@ pub struct MarkdownReviewer {
     theme: ReviewTheme,
     ui: UiTheme,
     inline: InlineColors,
-    highlighter: RefCell<SyntaxHighlighter>,
     rows: Vec<DocumentRow>,
     target_rows: HashMap<MarkdownTargetId, usize>,
     options: MarkdownReviewerOptions,
@@ -124,7 +122,6 @@ impl MarkdownReviewer {
             inline: InlineColors::new(&theme, &ui),
             ui,
             theme,
-            highlighter: RefCell::new(SyntaxHighlighter::default()),
             rows,
             target_rows,
             options,
@@ -198,7 +195,7 @@ impl MarkdownReviewer {
     }
 
     #[must_use]
-    pub const fn review(&self) -> &MarkdownReview {
+    pub fn review(&self) -> &MarkdownReview {
         self.session.review()
     }
 

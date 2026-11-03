@@ -13,15 +13,10 @@ use clankerdiff_core::{
     RepositoryAction, RevealAmount, Review, ReviewCapabilities, ReviewSession, ReviewTarget, RowKind, SourceLocation,
     ViewMode, ViewportAnchor,
 };
-use clankerdiff_symbols::{DefinitionCard, NameLookup, SymbolCache, SymbolIndex};
-use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
+use clankerdiff_symbols::{DefinitionCard, DocumentSyntax, NameLookup, SymbolIndex};
 use clankerdiff_ui_core::ReviewTheme;
 use ratatui::layout::{Position, Rect};
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::{ops::Range, sync::Arc};
 
 pub(crate) const SPLIT_BREAKPOINT: u16 = 96;
 
@@ -137,16 +132,12 @@ pub enum RepositoryOperationStatus {
     Error(String),
 }
 
-#[derive(Debug)]
-struct CachedPatchLayout {
-    key: u64,
-    layout: Arc<PatchVisualLayout>,
-}
+type ContentKey = (u64, u16, bool, u16, Range<usize>);
 
 #[derive(Debug)]
-struct CachedPatchContent {
-    key: u64,
-    layout: Arc<PatchContentLayout>,
+struct PatchLayout {
+    annotations: u64,
+    layout: Arc<PatchVisualLayout>,
 }
 
 #[derive(Debug)]
@@ -171,7 +162,7 @@ pub struct DiffReviewState {
     pub(crate) keybindings: Vec<KeyBinding<DiffReviewCommand>>,
     pub(crate) theme_choices: Arc<[ThemeChoice]>,
     pub(crate) theme: ReviewTheme,
-    pub(crate) highlighter: SyntaxHighlighter,
+    pub(crate) syntax: DocumentSyntax,
     pub(crate) status: DiffReviewStatus,
     pub(crate) focus: FocusPane,
     pub(crate) drawer: FileTree,
@@ -181,15 +172,14 @@ pub struct DiffReviewState {
     pub(crate) scroll: usize,
     pub(crate) last_height: usize,
     pub(crate) presentation_width: u16,
-    patch_content: Option<CachedPatchContent>,
-    patch_layout: Option<CachedPatchLayout>,
+    patch_content: Option<(ContentKey, Arc<PatchContentLayout>)>,
+    patch_layout: Option<PatchLayout>,
     diff_viewport: Option<DiffViewportBookmark>,
     pending_scroll: Option<PendingScroll>,
     followed_file: Option<usize>,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) names: NameLookup,
     pub(crate) links_visible: bool,
-    symbols: SymbolCache,
     pub(crate) repository_status: RepositoryOperationStatus,
     pub(crate) background_error: Option<String>,
     deferred_document: Option<Arc<DiffDocument>>,
@@ -222,7 +212,7 @@ impl DiffReviewState {
             keybindings: default_diff_keybindings(),
             theme_choices: Arc::from([]),
             theme,
-            highlighter: SyntaxHighlighter::default(),
+            syntax: DocumentSyntax::default(),
             status: DiffReviewStatus::Ready,
             focus: FocusPane::Files,
             drawer,
@@ -240,7 +230,6 @@ impl DiffReviewState {
             overlay: None,
             names: NameLookup::default(),
             links_visible: false,
-            symbols: SymbolCache::default(),
             repository_status: RepositoryOperationStatus::Idle,
             background_error: None,
             deferred_document: None,
@@ -291,12 +280,12 @@ impl DiffReviewState {
 
     /// Returns the structured review.
     #[must_use]
-    pub const fn review(&self) -> &Review {
+    pub fn review(&self) -> &Review {
         self.session.review()
     }
 
     /// Returns mutable review access for host-driven operations.
-    pub const fn review_mut(&mut self) -> &mut Review {
+    pub fn review_mut(&mut self) -> &mut Review {
         self.session.review_mut()
     }
 
@@ -332,7 +321,8 @@ impl DiffReviewState {
     }
 
     pub(crate) fn symbols(&mut self) -> Arc<SymbolIndex> {
-        self.symbols.index(self.session.presentation().document())
+        self.syntax.sync(self.session.presentation().document());
+        self.syntax.symbols()
     }
 
     /// Returns the current load status.
@@ -368,12 +358,6 @@ impl DiffReviewState {
     #[must_use]
     pub const fn theme(&self) -> &ReviewTheme {
         &self.theme
-    }
-
-    /// Returns syntax cache and work counters.
-    #[must_use]
-    pub const fn highlight_stats(&self) -> HighlightStats {
-        self.highlighter.stats()
     }
 
     /// Returns the first visible rendered-row index in the continuous diff.
@@ -905,55 +889,29 @@ impl DiffReviewState {
 
     pub(crate) fn patch_visual_layout(&mut self) -> Option<Arc<PatchVisualLayout>> {
         self.session.selected_file()?;
-        let content_key = self.patch_content_key();
-        if self.patch_content.as_ref().is_none_or(|cached| cached.key != content_key) {
-            self.patch_content = Some(CachedPatchContent {
-                key: content_key,
-                layout: Arc::new(PatchContentLayout::new(
-                    self.session.presentation(),
-                    self.session.visible_range(),
-                    self.presentation_width,
-                    self.options.tab_width,
-                )),
-            });
+        let key = (
+            self.session.projection_revision(),
+            self.presentation_width,
+            self.layout().is_split(),
+            self.options.tab_width,
+            self.session.visible_range(),
+        );
+        let content = match &self.patch_content {
+            Some((measured, content)) if *measured == key => Arc::clone(content),
+            _ => {
+                let content = PatchContentLayout::new(self.session.presentation(), key.4.clone(), key.1, key.3);
+                Arc::clone(&self.patch_content.insert((key, Arc::new(content))).1)
+            }
+        };
+        let annotations = self.session.annotations_revision();
+        let current = self.patch_layout.as_ref().is_some_and(|layout| {
+            std::ptr::eq(layout.layout.content(), Arc::as_ptr(&content)) && layout.annotations == annotations
+        });
+        if !current {
+            let layout = Arc::new(PatchVisualLayout::new(&self.session, content, self.presentation_width));
+            self.patch_layout = Some(PatchLayout { annotations, layout });
         }
-        let content = self.patch_content.as_ref()?.layout.clone();
-        let key = self.patch_annotation_key(content_key);
-        if self.patch_layout.as_ref().is_none_or(|cached| cached.key != key) {
-            self.patch_layout = Some(CachedPatchLayout {
-                key,
-                layout: Arc::new(PatchVisualLayout::new(&self.session, content, self.presentation_width)),
-            });
-        }
-        self.patch_layout.as_ref().map(|cached| cached.layout.clone())
-    }
-
-    fn patch_content_key(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        (Arc::as_ptr(self.document()) as usize).hash(&mut hasher);
-        self.presentation_width.hash(&mut hasher);
-        self.layout().is_split().hash(&mut hasher);
-        self.options.tab_width.hash(&mut hasher);
-        self.session.projection_revision().hash(&mut hasher);
-        self.session.visible_range().hash(&mut hasher);
-        hasher.finish()
-    }
-
-    fn patch_annotation_key(&self, content_key: u64) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        content_key.hash(&mut hasher);
-        for comment in self.review().comments() {
-            comment.id.hash(&mut hasher);
-            comment.anchor.hash(&mut hasher);
-            comment.body.hash(&mut hasher);
-            comment.outdated.hash(&mut hasher);
-        }
-        if let Some(draft) = self.session.draft() {
-            draft.anchor().hash(&mut hasher);
-            draft.body().hash(&mut hasher);
-            draft.cursor().hash(&mut hasher);
-        }
-        hasher.finish()
+        self.patch_layout.as_ref().map(|layout| Arc::clone(&layout.layout))
     }
 
     pub(crate) fn comment_at(&mut self, position: Position) -> bool {

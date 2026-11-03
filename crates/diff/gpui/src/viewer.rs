@@ -9,7 +9,7 @@ pub(crate) use overlay::{Overlay, PickerOverlay};
 use crate::{
     DiffViewerEvent, ThemeChanged, ViewModeChanged,
     comment_editor::{CommentEditor, CommentEditorEvent, init_input},
-    style::color,
+    style::{self, color},
     ui::{
         prelude::{
             Modal, Notification, SearchPicker, ThemePicker, ThemePickerEvent, ThemePickerOverlay, Typography,
@@ -24,13 +24,12 @@ use clankerdiff_core::{
     LineAnchor, PresentedCell, PresentedRow, RepoPath, RepositoryAction, RevealAmount, Review, ReviewSession,
     SourcePath, TargetLocation, ViewMode, ViewportAnchor,
 };
-use clankerdiff_symbols::{NameLookup, SymbolCache, SymbolIndex};
-use clankerdiff_syntax::{HighlightSpan, HighlightStats, LanguageHint, SyntaxHighlighter, empty_spans};
+use clankerdiff_symbols::{DocumentSyntax, NameLookup, SymbolIndex};
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use gpui::{
-    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, KeyContext,
-    ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollStrategy, Subscription, Task, UniformListScrollHandle,
-    Window, actions, div, prelude::*, px, rems,
+    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, HighlightStyle, KeyBinding,
+    KeyContext, ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollStrategy, Subscription, Task,
+    UniformListScrollHandle, Window, actions, div, prelude::*, px, rems,
 };
 use std::{ops::Range, sync::Arc};
 
@@ -53,8 +52,6 @@ pub struct DiffViewerOptions {
     pub sidebar_width: Option<Rems>,
     /// Diff-pane width at which automatic mode switches to split layout.
     pub auto_split_width: Rems,
-    /// Maximum number of syntax-highlight cache entries.
-    pub highlight_cache_capacity: usize,
     pub themes: bool,
     pub review_bar: bool,
     pub view_mode: ViewMode,
@@ -65,7 +62,6 @@ impl Default for DiffViewerOptions {
         Self {
             sidebar_width: None,
             auto_split_width: rem(900.0),
-            highlight_cache_capacity: 512,
             themes: true,
             review_bar: true,
             view_mode: ViewMode::Auto,
@@ -99,7 +95,7 @@ pub struct DiffViewer {
     pub(crate) capabilities: ReviewCapabilities,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) theme: ReviewTheme,
-    pub(crate) highlighter: SyntaxHighlighter,
+    syntax: DocumentSyntax,
     pub(crate) options: DiffViewerOptions,
     sidebar: SidebarLayout,
     rem_size: Pixels,
@@ -122,7 +118,6 @@ pub struct DiffViewer {
     repository_pending: bool,
     focus_handle: Option<gpui::FocusHandle>,
     pub(crate) links_visible: bool,
-    symbols: SymbolCache,
     pub(crate) names: NameLookup,
     pub(crate) card_timer: Option<Task<()>>,
 }
@@ -153,7 +148,7 @@ impl DiffViewer {
             capabilities: ReviewCapabilities::default(),
             overlay: None,
             theme,
-            highlighter: SyntaxHighlighter::new(options.highlight_cache_capacity),
+            syntax: DocumentSyntax::default(),
             options,
             sidebar: SidebarLayout { width: sidebar_width, preferred_width: options.sidebar_width, collapsed: false },
             rem_size,
@@ -176,7 +171,6 @@ impl DiffViewer {
             repository_pending: false,
             focus_handle: None,
             links_visible: false,
-            symbols: SymbolCache::default(),
             names: NameLookup::default(),
             card_timer: None,
         };
@@ -234,7 +228,7 @@ impl DiffViewer {
 
     /// Returns the structured review.
     #[must_use]
-    pub const fn review(&self) -> &Review {
+    pub fn review(&self) -> &Review {
         self.session.review()
     }
 
@@ -322,12 +316,6 @@ impl DiffViewer {
     /// Changes the changed-files sidebar width.
     pub fn set_sidebar_width(&mut self, width: Rems, cx: &mut Context<Self>) {
         self.update_sidebar_width(clamp_rems(width, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH), cx);
-    }
-
-    /// Returns highlighter cache/work counters.
-    #[must_use]
-    pub const fn highlight_stats(&self) -> HighlightStats {
-        self.highlighter.stats()
     }
 
     pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>) {
@@ -929,17 +917,17 @@ impl DiffViewer {
     }
 
     pub(crate) fn symbols(&mut self) -> Arc<SymbolIndex> {
-        self.symbols.index(self.session.presentation().document())
+        self.syntax.sync(self.session.presentation().document());
+        self.syntax.symbols()
     }
 
-    pub(crate) fn highlight_cell(&mut self, row: &PresentedRow, cell: &PresentedCell) -> Arc<[HighlightSpan]> {
-        let source = self.session.presentation().cell_context(row, cell);
-        self.highlighter
-            .with_theme(&self.theme.syntax)
-            .highlight_document(source.id, LanguageHint::Path(source.path), || source.text())
-            .ok()
-            .and_then(|highlights| highlights.line_shared(source.target_line))
-            .unwrap_or_else(empty_spans)
+    pub(crate) fn highlight_cell(
+        &mut self,
+        row: &PresentedRow,
+        cell: &PresentedCell,
+    ) -> Vec<(Range<usize>, HighlightStyle)> {
+        self.syntax.sync(self.session.presentation().document());
+        style::highlights(self.syntax.highlights(row, cell), &self.theme.syntax)
     }
 
     pub(crate) fn reveal_selected_row(&self) {
@@ -1294,6 +1282,7 @@ impl Render for DiffViewer {
 mod tests {
     use super::*;
     use clankerdiff_core::testing::DocumentBuilder;
+    use clankerdiff_syntax::thread_work;
 
     fn assert_close(actual: Rems, expected_px: f32) {
         assert!((actual.0 - rem(expected_px).0).abs() < f32::EPSILON);
@@ -1326,6 +1315,7 @@ mod tests {
         let mut viewer = DiffViewer::new(fixture);
         viewer.session_mut().set_view_mode(ViewMode::Split);
         let rows: Vec<PresentedRow> = viewer.presentation().rows(1_200..1_224).to_vec();
+        let before = thread_work().parses();
         for _frame in 0..3 {
             for row in &rows {
                 if row.kind != clankerdiff_core::RowKind::Code {
@@ -1336,6 +1326,6 @@ mod tests {
                 }
             }
         }
-        assert_eq!(viewer.highlight_stats().misses, 2, "each complete side is parsed once across repeated frames");
+        assert_eq!(thread_work().parses() - before, 2, "each complete side is parsed once across repeated frames");
     }
 }

@@ -1,5 +1,6 @@
 use clankerdiff_core::{DiffSide, RepoPath, SourceLocation, testing::DocumentBuilder};
-use clankerdiff_symbols::{SymbolCache, SymbolChange, SymbolIndex, SymbolKind};
+use clankerdiff_symbols::{DocumentSyntax, SymbolChange, SymbolIndex, SymbolKind};
+use clankerdiff_syntax::thread_work;
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -41,7 +42,7 @@ fn definitions_nearest_the_origin_rank_first_and_carry_signatures_and_docs() -> 
         .changed("src/b/y.rs", "", "fn helper() {}\n")
         .changed("src/b/x.rs", "", "fn helper() {}\nfn run() { helper(); }\n")
         .build();
-    let index = SymbolCache::default().index(&document);
+    let index = DocumentSyntax::new(document).symbols();
     let found = index.definitions("helper", Some(&location("src/b/x.rs", DiffSide::New, 2)?));
     let paths: Vec<_> = found.iter().map(|definition| definition.location.path.as_str()).collect();
     assert_eq!(paths, ["src/b/x.rs", "src/b/y.rs", "src/c.rs", "lib/a.rs"]);
@@ -111,7 +112,7 @@ fn uses_on_the_old_side_only_count_removed_lines() {
     let document = DocumentBuilder::new()
         .changed("src/lib.rs", "fn a() { helper(); }\nfn b() { helper(); }\n", "fn a() { helper(); }\n")
         .build();
-    let index = SymbolCache::default().index(&document);
+    let index = DocumentSyntax::new(document).symbols();
     let sides: Vec<_> =
         index.uses("helper").iter().map(|found| (found.location.side, found.location.line_number)).collect();
     assert_eq!(sides, [(DiffSide::New, 1), (DiffSide::Old, 2)]);
@@ -120,10 +121,37 @@ fn uses_on_the_old_side_only_count_removed_lines() {
 #[test]
 fn files_without_sources_or_grammars_contribute_nothing() -> Result<(), Box<dyn Error>> {
     let document = DocumentBuilder::new().changed("notes.md", "# a\n", "# b\n").binary("image.png").build();
-    let index = SymbolCache::default().index(&document);
+    let index = DocumentSyntax::new(document).symbols();
     assert_eq!(index.file_definitions(&RepoPath::new("notes.md")?, DiffSide::New).len(), 0);
     assert_eq!(index.uses("a").len(), 0);
     Ok(())
+}
+
+#[test]
+fn indexing_analyzes_only_sources_with_a_symbols_query_once() {
+    let document = DocumentBuilder::new()
+        .changed("src/lib.rs", "", "fn one() {}\n")
+        .changed("data.json", "{}\n", "{\"a\": 1}\n")
+        .build();
+    let before = thread_work().parses();
+    let syntax = DocumentSyntax::new(document);
+    assert_eq!(syntax.symbols().definitions("one", None).len(), 1);
+    assert_eq!(thread_work().parses() - before, 1, "only the Rust source with a symbols query is parsed");
+    assert!(Arc::ptr_eq(&syntax.symbols(), &syntax.symbols()));
+}
+
+#[test]
+fn syncing_to_an_edited_document_reindexes_and_keeps_unchanged_sources_analyzed() {
+    let document = DocumentBuilder::new().changed("src/lib.rs", "fn zero() {}\n", "fn one() {}\n").build();
+    let mut syntax = DocumentSyntax::new(Arc::clone(&document));
+    let first = syntax.symbols();
+    syntax.sync(&document);
+    assert!(Arc::ptr_eq(&first, &syntax.symbols()));
+    let next = DocumentBuilder::new().changed("src/lib.rs", "fn zero() {}\n", "fn one() {}\nfn two() {}\n").build();
+    let before = thread_work().parses();
+    syntax.sync(&next);
+    assert_eq!(syntax.symbols().definitions("two", None).len(), 1);
+    assert_eq!(thread_work().parses() - before, 1, "the unchanged old side keeps its analysis");
 }
 
 const OLD_LIB: &str = "pub struct Cache {
@@ -171,21 +199,9 @@ fn index() -> Arc<SymbolIndex> {
         .changed("src/lib.rs", OLD_LIB, NEW_LIB)
         .changed("src/main.rs", "", "fn main() {\n    let cache = Cache::build();\n    cache.len();\n}\n")
         .build();
-    SymbolCache::default().index(&document)
+    DocumentSyntax::new(document).symbols()
 }
 
 fn location(path: &str, side: DiffSide, line_number: usize) -> Result<SourceLocation, Box<dyn Error>> {
     Ok(SourceLocation { path: RepoPath::new(path)?, side, line_number })
-}
-
-#[test]
-fn the_cache_reuses_an_index_until_the_document_changes() {
-    let document = DocumentBuilder::new().changed("src/lib.rs", "", "fn one() {}\n").build();
-    let mut cache = SymbolCache::default();
-    let first = cache.index(&document);
-    assert!(Arc::ptr_eq(&first, &cache.index(&document)));
-    let next = DocumentBuilder::new().changed("src/lib.rs", "", "fn one() {}\nfn two() {}\n").build();
-    let second = cache.index(&next);
-    assert!(!Arc::ptr_eq(&first, &second));
-    assert_eq!(second.definitions("two", None).len(), 1);
 }

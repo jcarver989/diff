@@ -9,10 +9,14 @@ pub use picker::{PickerOption, PickerRow, PickerState};
 pub use selection::{ThemeChoice, ThemeSelection};
 pub use terminal::TerminalPalette;
 
-use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
+use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index, tag_to_name};
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt, sync::LazyLock};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{Arc, LazyLock},
+};
 
 const THEME_VERSION: u32 = 3;
 
@@ -88,12 +92,35 @@ impl FontStyle {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HighlightId(u8);
+
+impl HighlightId {
+    #[must_use]
+    pub fn from_tag(tag: &str) -> Option<Self> {
+        tag_to_name(tag)?;
+        let index = HIGHLIGHTS.iter().position(|highlight| highlight.tag == tag)?;
+        u8::try_from(index).ok().map(Self)
+    }
+}
+
+fn capture_for_name(name: &'static str) -> &'static str {
+    match name {
+        "title" => "markup.heading",
+        "strong" => "markup.bold",
+        "emphasis" => "markup.italic",
+        "link" => "markup.link",
+        "literal" => "markup.raw",
+        "strikethrough" => "markup.strikethrough",
+        name => name,
+    }
+}
+
 /// A highlighted, UTF-8-safe byte range into the supplied source.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HighlightSpan {
     pub range: std::ops::Range<usize>,
-    pub foreground: Rgba,
-    pub font_style: FontStyle,
+    pub highlight: HighlightId,
 }
 
 /// Style assigned to a Tree-sitter capture name.
@@ -770,6 +797,7 @@ impl ReviewThemeBuilder {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxTheme {
     captures: BTreeMap<String, SyntaxStyle>,
+    highlights: Arc<[Option<SyntaxStyle>]>,
     revision: Fingerprint,
 }
 
@@ -786,7 +814,11 @@ impl SyntaxTheme {
                 u8::from(style.font_style.underline),
             ]);
         }
-        Self { captures, revision: Fingerprint::of(fields) }
+        let highlights = HIGHLIGHTS
+            .iter()
+            .map(|highlight| tag_to_name(highlight.tag).and_then(|name| lookup(&captures, capture_for_name(name))))
+            .collect();
+        Self { captures, highlights, revision: Fingerprint::of(fields) }
     }
 
     #[must_use]
@@ -796,14 +828,23 @@ impl SyntaxTheme {
 
     #[must_use]
     pub fn style(&self, capture: &str) -> Option<SyntaxStyle> {
-        let mut candidate = capture;
-        loop {
-            if let Some(style) = self.captures.get(candidate) {
-                return Some(*style);
-            }
-            let (parent, _) = candidate.rsplit_once('.')?;
-            candidate = parent;
+        lookup(&self.captures, capture)
+    }
+
+    #[must_use]
+    pub fn highlight(&self, id: HighlightId) -> Option<SyntaxStyle> {
+        self.highlights.get(usize::from(id.0)).copied().flatten()
+    }
+}
+
+fn lookup(captures: &BTreeMap<String, SyntaxStyle>, capture: &str) -> Option<SyntaxStyle> {
+    let mut candidate = capture;
+    loop {
+        if let Some(style) = captures.get(candidate) {
+            return Some(*style);
         }
+        let (parent, _) = candidate.rsplit_once('.')?;
+        candidate = parent;
     }
 }
 

@@ -143,11 +143,12 @@ impl Review {
     }
 
     /// Reattaches comments to a replacement document and marks misses outdated.
-    pub fn reconcile(&mut self, document: &DiffDocument) {
+    pub fn reconcile(&mut self, document: &DiffDocument) -> bool {
+        let mut changed = self.target != document.target;
         self.target.clone_from(&document.target);
         let wanted: HashSet<Fingerprint> = self.comments().map(|comment| comment.anchor.content_fingerprint).collect();
         if wanted.is_empty() {
-            return;
+            return changed;
         }
         let mut candidates: HashMap<Fingerprint, Vec<LineAnchor>> = HashMap::new();
         for file in &document.files {
@@ -173,14 +174,17 @@ impl Review {
             let matched = candidates
                 .get(&comment.anchor.content_fingerprint)
                 .and_then(|bucket| reattach(bucket, &comment.anchor));
-            match matched {
-                Some(anchor) => {
-                    comment.anchor = anchor;
-                    comment.outdated = false;
-                }
-                None => comment.outdated = true,
+            let outdated = matched.is_none();
+            if let Some(anchor) = matched
+                && anchor != comment.anchor
+            {
+                comment.anchor = anchor;
+                changed = true;
             }
+            changed |= comment.outdated != outdated;
+            comment.outdated = outdated;
         }
+        changed
     }
 
     #[must_use]

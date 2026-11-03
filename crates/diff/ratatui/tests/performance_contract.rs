@@ -4,7 +4,7 @@ mod support;
 
 use clankerdiff_core::{DiffDocument, ViewMode, testing::DocumentBuilder};
 use clankerdiff_ratatui::{KeyCode, MouseEventKind, NavigationPane, ReviewOptions};
-use clankerdiff_syntax::{Fingerprint, SyntaxError, SyntaxHighlighter, SyntaxTheme};
+use clankerdiff_syntax::{analyze, thread_work};
 use clankerdiff_ui_core::ReviewTheme;
 use std::{error::Error, fmt::Write, str, sync::Arc};
 use support::{MarkdownStreamFixture, ReviewHarness, key, mouse};
@@ -29,8 +29,7 @@ fn source_view_large_snapshot_reuses_full_document_highlights() {
     for _ in 0..3 {
         harness.input_and_draw(key(KeyCode::Char('G')));
         let settled = harness.draw();
-        assert_eq!(settled.highlight_misses, 0);
-        assert!(settled.highlight_calls <= 24);
+        assert_eq!(settled.parses, 0);
         harness.input_and_draw(key(KeyCode::Char('o')));
         harness.input_and_draw(key(KeyCode::Char('o')));
     }
@@ -41,16 +40,15 @@ fn settled_frame_emits_no_terminal_cells_and_reuses_highlights() {
     let mut harness = ReviewHarness::new(large_document(1_000), 100, 24);
     let cold = harness.draw();
     assert!(cold.backend.cells_drawn > 0);
-    assert!(cold.highlight_misses > 0);
+    assert!(cold.parses > 0);
 
     let settled = harness.draw();
     assert_eq!(settled.backend.cells_drawn, 0);
-    assert_eq!(settled.highlight_misses, 0);
-    assert_eq!(settled.highlight_calls, settled.highlight_hits);
+    assert_eq!(settled.parses, 0);
 }
 
 #[test]
-fn wrapped_cells_are_highlighted_once_per_visible_side() {
+fn wrapped_cells_parse_each_side_once() {
     for split in [false, true] {
         let source = format!("{}\n", "identifier_".repeat(1000));
         let document =
@@ -62,13 +60,13 @@ fn wrapped_cells_are_highlighted_once_per_visible_side() {
             ..Default::default()
         });
         harness.state_mut().set_view_mode(if split { ViewMode::Split } else { ViewMode::Unified });
-        harness.draw();
+        let first = harness.draw();
+        assert!(first.parses <= 2);
         for _ in 0..5 {
-            harness.input_and_draw(key(KeyCode::PageDown));
+            assert_eq!(harness.input_and_draw(key(KeyCode::PageDown)).parses, 0);
         }
         assert!(harness.state().scroll_offset() > 20);
-        let settled = harness.draw();
-        assert_eq!(settled.highlight_calls, if split { 2 } else { 1 });
+        assert_eq!(harness.draw().parses, 0);
     }
 }
 
@@ -79,13 +77,12 @@ fn an_equal_content_snapshot_swap_reuses_every_highlight() {
     let fixture = || DocumentBuilder::new().changed("src/large.rs", &old, &new).build();
     let mut harness = ReviewHarness::new(fixture(), 100, 24);
     harness.draw();
-    assert_eq!(harness.draw().highlight_misses, 0);
+    assert_eq!(harness.draw().parses, 0);
 
     harness.state_mut().set_document(fixture());
 
     let swapped = harness.draw();
-    assert_eq!(swapped.highlight_misses, 0, "content-addressed highlights must survive a snapshot swap");
-    assert_eq!(swapped.highlight_calls, swapped.highlight_hits);
+    assert_eq!(swapped.parses, 0, "highlights of unchanged sources must survive a snapshot swap");
 }
 
 #[test]
@@ -95,19 +92,17 @@ fn highlighting_work_is_bounded_by_the_viewport_not_document_size() {
 
     let small_frame = small.draw();
     let large_frame = large.draw();
-    assert_eq!(small_frame.highlight_calls, large_frame.highlight_calls);
-    assert_eq!(small_frame.highlight_misses, large_frame.highlight_misses);
-    assert!(large_frame.highlight_calls <= 18);
-    assert_eq!(small_frame.highlighted_bytes, large_frame.highlighted_bytes);
+    assert_eq!(small_frame.parses, large_frame.parses);
+    assert_eq!(small_frame.parsed_bytes, large_frame.parsed_bytes);
     assert!(
-        large_frame.highlighted_bytes < 100_000,
-        "highlighted {} bytes from a 100,000-line document",
-        large_frame.highlighted_bytes
+        large_frame.parsed_bytes < 100_000,
+        "parsed {} bytes from a 100,000-line document",
+        large_frame.parsed_bytes
     );
 }
 
 #[test]
-fn deep_full_file_scroll_parses_complete_sources_once() -> Result<(), SyntaxError> {
+fn deep_full_file_scroll_parses_complete_sources_once() {
     let old = source_lines(100_000, "");
     let new = old.replacen("let value_50000 = 50000;", "let value_50000 = 50000 + 1;", 1);
     let fixture = DocumentBuilder::new().changed_with_hunk_window("src/large.rs", &old, &new, 49_997..=50_003).build();
@@ -116,23 +111,20 @@ fn deep_full_file_scroll_parses_complete_sources_once() -> Result<(), SyntaxErro
     harness.input(key(KeyCode::Char('f')));
     let first_parse = harness.draw();
     assert!(
-        first_parse.highlighted_bytes >= old.len(),
+        first_parse.parsed_bytes >= old.len(),
         "first visible complete side parsed {} bytes",
-        first_parse.highlighted_bytes
+        first_parse.parsed_bytes
     );
-    let mut reference = SyntaxHighlighter::new(0);
-    let theme = SyntaxTheme::default();
-    for source in [&old, &new] {
-        reference.with_theme(&theme).highlight_document(Fingerprint::of([source.as_str()]), "rust", || source)?;
-    }
-    assert!(first_parse.highlight_misses <= 2);
-    assert!(first_parse.highlighted_bytes <= reference.stats().bytes);
-    assert!(reference.stats().bytes <= 4 * (old.len() + new.len()) + 64 * 1024);
+    let before = thread_work().parser_input_bytes;
+    let _ = [&old, &new].map(|source| analyze("rust", source));
+    let reference = thread_work().parser_input_bytes - before;
+    assert!(first_parse.parses <= 2);
+    assert!(first_parse.parsed_bytes <= reference);
+    assert!(reference <= 4 * (old.len() + new.len()) + 64 * 1024);
     let jumped = harness.input_and_draw(key(KeyCode::End));
-    assert!(jumped.highlighted_bytes < 100_000, "deep full-file navigation parsed {} bytes", jumped.highlighted_bytes);
+    assert!(jumped.parsed_bytes < 100_000, "deep full-file navigation parsed {} bytes", jumped.parsed_bytes);
     let settled = harness.draw();
-    assert_eq!(settled.highlight_misses, 0);
-    Ok(())
+    assert_eq!(settled.parses, 0);
 }
 
 #[test]
@@ -154,15 +146,15 @@ fn deep_patch_only_split_scroll_highlights_visible_lines_and_then_settles() {
     }
     let jumped = harness.draw();
     assert!(
-        jumped.highlighted_bytes < 150_000,
+        jumped.parsed_bytes < 150_000,
         "a deep jump parses bounded context per side, parsed {} bytes",
-        jumped.highlighted_bytes
+        jumped.parsed_bytes
     );
 
     let settled = harness.draw();
-    assert_eq!(settled.highlight_misses, 0, "the current patch-only viewport stays cached");
+    assert_eq!(settled.parses, 0, "the current patch-only viewport stays highlighted");
     let paged = harness.input_and_draw(key(KeyCode::PageDown));
-    assert!(paged.highlight_misses <= 48, "patch-only fallback highlights at most the newly visible split cells");
+    assert!(paged.parses <= 2, "a page parses at most one new window per side");
 }
 
 #[test]
@@ -179,7 +171,7 @@ fn moving_one_row_changes_only_a_bounded_screen_region() {
         "one-row navigation changed {} cells",
         moved.backend.cells_drawn
     );
-    assert_eq!(moved.highlight_misses, 0);
+    assert_eq!(moved.parses, 0);
 }
 
 #[test]
@@ -200,11 +192,11 @@ fn one_wheel_notch_scrolls_without_moving_selection() {
         moved.backend.cells_drawn
     );
     assert_eq!(harness.state().selected_row(), selected);
-    assert!(moved.highlight_misses <= 2);
+    assert!(moved.parses <= 2);
 }
 
 #[test]
-fn moving_back_to_a_cached_row_does_not_rehighlight_it() {
+fn moving_back_to_a_shown_row_does_not_reparse_it() {
     let mut harness = ReviewHarness::new(large_document(1_000), 80, 20);
     harness.draw();
     harness.input(key(KeyCode::Enter));
@@ -212,8 +204,7 @@ fn moving_back_to_a_cached_row_does_not_rehighlight_it() {
     harness.input_and_draw(key(KeyCode::Down));
 
     let back = harness.input_and_draw(key(KeyCode::Up));
-    assert_eq!(back.highlight_misses, 0);
-    assert_eq!(back.highlight_calls, back.highlight_hits);
+    assert_eq!(back.parses, 0);
     assert!(harness.state().selected_row().is_some());
     assert_ne!(harness.buffer().content(), []);
 }
@@ -221,12 +212,11 @@ fn moving_back_to_a_cached_row_does_not_rehighlight_it() {
 #[test]
 fn changing_the_review_theme_does_not_reparse_visible_sources() -> Result<(), Box<dyn Error>> {
     let mut harness = ReviewHarness::new(large_document(1_000), 100, 24);
-    assert!(harness.draw().highlighted_bytes > 0);
+    assert!(harness.draw().parsed_bytes > 0);
     harness.state_mut().set_theme(ReviewTheme::ayu()?);
     let changed = harness.draw();
-    assert_eq!(changed.highlighted_bytes, 0);
-    assert_eq!(changed.highlight_misses, 0);
-    assert!(changed.highlight_hits > 0);
+    assert_eq!(changed.parsed_bytes, 0);
+    assert_eq!(changed.parses, 0);
     assert!(changed.backend.cells_drawn > 0);
     Ok(())
 }

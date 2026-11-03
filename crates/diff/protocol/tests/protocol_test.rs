@@ -4,7 +4,7 @@ use clankerdiff_core::{
     testing::{DocumentBuilder, ResolutionBuilder, commit_id, external, location, source},
 };
 use clankerdiff_protocol::{
-    client::{ClientCommand, DocumentCache},
+    client::{ClientCommand, DocumentReplica},
     server::{SentDocument, ServerMessage},
     shared::{DocumentUpdate, Event, FileEntry, LIVE_PROTOCOL_VERSION, ProtocolError, RemoteError, RemoteErrorCode},
 };
@@ -109,7 +109,7 @@ fn a_target_change_alone_reuses_every_file() -> Result<(), Box<dyn Error>> {
 #[test]
 fn commit_stacks_travel_with_documents() -> Result<(), Box<dyn Error>> {
     let mut sent = SentDocument::default();
-    let mut cache = DocumentCache::default();
+    let mut cache = DocumentReplica::default();
     let document = DocumentBuilder::new().commit("First").target(commit_id(1)).changed("a", "old", "new").build();
     let message = ServerMessage::Document(sent.encode(&document)).encode()?;
     let Event::Document(received) = cache.decode_event(&message)? else {
@@ -123,16 +123,16 @@ fn commit_stacks_travel_with_documents() -> Result<(), Box<dyn Error>> {
 fn updates_referring_to_absent_or_repeated_files_are_rejected() {
     let document = DocumentBuilder::new().changed("a", "old", "new").build();
     let missing = update(vec![FileEntry::Unchanged(document.files[0].path.clone())]);
-    assert!(DocumentCache::default().apply(&missing).is_err());
+    assert!(DocumentReplica::default().apply(&missing).is_err());
 
     let file = Arc::new(document.files[0].clone());
     let repeated = update(vec![FileEntry::Changed(Arc::clone(&file)), FileEntry::Changed(file)]);
-    assert!(DocumentCache::default().apply(&repeated).is_err());
+    assert!(DocumentReplica::default().apply(&repeated).is_err());
 }
 
 #[test]
 fn a_failed_update_leaves_the_previous_document_installed() -> Result<(), Box<dyn Error>> {
-    let mut cache = DocumentCache::default();
+    let mut cache = DocumentReplica::default();
     let document = DocumentBuilder::new().changed("a", "old", "new").build();
     let installed = cache.apply(&bootstrap(&document))?;
     let mut broken = bootstrap(&document);
@@ -154,7 +154,7 @@ fn truncated_and_foreign_payloads_are_rejected() -> Result<(), Box<dyn Error>> {
 #[derive(Debug, Default)]
 struct SyncPair {
     sent: SentDocument,
-    cache: DocumentCache,
+    cache: DocumentReplica,
 }
 
 impl SyncPair {
@@ -183,7 +183,7 @@ fn bootstrap(document: &DiffDocument) -> DocumentUpdate {
 fn document_updates_reuse_unchanged_files() -> Result<(), Box<dyn Error>> {
     let document = DocumentBuilder::new().changed("a", "old", "new").changed("b", "old", "new").build();
     let mut sent = SentDocument::default();
-    let mut cache = DocumentCache::default();
+    let mut cache = DocumentReplica::default();
     let first = sent.encode(&document);
     let message: ServerMessage = Event::Document(first);
     let Event::Document(received) = cache.decode_event(&message.encode()?)? else {
@@ -202,9 +202,9 @@ fn document_updates_reuse_unchanged_files() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn encoded_events_rebuild_through_the_cache() -> Result<(), Box<dyn Error>> {
+fn encoded_events_rebuild_through_the_replica() -> Result<(), Box<dyn Error>> {
     let mut sent = SentDocument::default();
-    let mut cache = DocumentCache::default();
+    let mut cache = DocumentReplica::default();
     let document = DocumentBuilder::new().changed("a", "old", "new").changed("b", "old", "new").build();
     let snapshot =
         |scope: DiffScope| Event::Document(Arc::new(DiffDocument { target: scope.into(), ..(*document).clone() }));

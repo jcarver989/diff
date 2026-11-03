@@ -1,4 +1,4 @@
-use clankerdiff_syntax::{LanguageHint, LineSpan, SymbolExtractor, SymbolKind, SymbolTags, SyntaxError};
+use clankerdiff_syntax::{LanguageHint, LineSpan, SymbolKind, SymbolTags, SyntaxError, analyze};
 use std::fmt::Write;
 
 #[test]
@@ -6,7 +6,7 @@ fn rust_definitions_carry_kinds_names_and_line_ranges() -> Result<(), SyntaxErro
     let tags = extract(
         "src/lib.rs",
         "pub struct Cache {\n    entries: Vec<Entry>,\n}\n\nimpl Cache {\n    pub fn build() -> Self {\n        Self { entries: Vec::new() }\n    }\n}\n\npub trait Store {}\npub enum Mode { A }\nmod nested {}\nmacro_rules! square { () => {} }\nconst LIMIT: usize = 4;\nfn free() {}\n",
-    )?;
+    );
     assert_eq!(
         definitions(&tags),
         [
@@ -27,37 +27,34 @@ fn rust_definitions_carry_kinds_names_and_line_ranges() -> Result<(), SyntaxErro
 }
 
 #[test]
-fn rust_references_cover_calls_methods_paths_types_and_macros() -> Result<(), SyntaxError> {
+fn rust_references_cover_calls_methods_paths_types_and_macros() {
     let tags = extract(
         "src/lib.rs",
         "fn run(cache: &Cache) {\n    let index = Index::build(cache);\n    index.lookup(\"x\");\n    helper();\n    println!(\"{index:?}\");\n    std::mem::drop(index);\n}\n",
-    )?;
+    );
     assert_eq!(
         references(&tags),
         [("Cache", 0), ("Index", 1), ("build", 1), ("lookup", 2), ("helper", 3), ("println", 4), ("drop", 5),]
     );
-    Ok(())
 }
 
 #[test]
-fn a_definition_name_is_never_also_reported_as_a_reference() -> Result<(), SyntaxError> {
-    let tags = extract("src/lib.rs", "struct Point;\nfn origin() -> Point { Point }\n")?;
+fn a_definition_name_is_never_also_reported_as_a_reference() {
+    let tags = extract("src/lib.rs", "struct Point;\nfn origin() -> Point { Point }\n");
     assert_eq!(references(&tags), [("Point", 1)]);
     assert_eq!(definitions(&tags).len(), 2);
-    Ok(())
 }
 
 #[test]
-fn enclosing_lists_every_definition_containing_a_line_outermost_first() -> Result<(), SyntaxError> {
-    let tags = extract("src/lib.rs", "impl Cache {\n    fn build() {\n        work();\n    }\n}\n")?;
+fn enclosing_lists_every_definition_containing_a_line_outermost_first() {
+    let tags = extract("src/lib.rs", "impl Cache {\n    fn build() {\n        work();\n    }\n}\n");
     let names: Vec<_> = tags.enclosing(2).map(|definition| (definition.name.as_str(), definition.kind)).collect();
     assert_eq!(names, [("Cache", SymbolKind::Implementation), ("build", SymbolKind::Method)]);
     assert_eq!(tags.references_on(2).iter().map(|reference| reference.name.as_str()).collect::<Vec<_>>(), ["work"]);
-    Ok(())
 }
 
 #[test]
-fn python_go_javascript_and_typescript_report_definitions_and_calls() -> Result<(), SyntaxError> {
+fn python_go_javascript_and_typescript_report_definitions_and_calls() {
     for (path, source, expected_definitions, expected_references) in [
         (
             "app.py",
@@ -101,40 +98,28 @@ fn python_go_javascript_and_typescript_report_definitions_and_calls() -> Result<
             vec!["render"],
         ),
     ] {
-        let tags = extract(path, source)?;
+        let tags = extract(path, source);
         let found: Vec<_> =
             tags.definitions.iter().map(|definition| (definition.name.as_str(), definition.kind)).collect();
         assert_eq!(found, expected_definitions, "{path}");
         let names: Vec<_> = tags.references.iter().map(|reference| reference.name.as_str()).collect();
         assert_eq!(names, expected_references, "{path}");
     }
-    Ok(())
 }
 
 #[test]
-fn languages_without_tags_queries_and_unknown_files_report_nothing() -> Result<(), SyntaxError> {
+fn languages_without_tags_queries_and_unknown_files_report_nothing() {
     for path in ["notes.md", "data.bin", "Cargo.toml"] {
-        assert_eq!(extract(path, "fn main() {}\n")?, SymbolTags::default(), "{path}");
+        assert_eq!(extract(path, "fn main() {}\n"), SymbolTags::default(), "{path}");
     }
-    Ok(())
 }
 
 #[test]
-fn an_extractor_reuses_compiled_queries_across_files() -> Result<(), SyntaxError> {
-    let mut extractor = SymbolExtractor::new();
-    for _ in 0..3 {
-        let tags = extractor.extract(LanguageHint::Path("src/lib.rs"), "fn one() {}\n")?;
-        assert_eq!(tags.definitions.len(), 1);
-    }
-    Ok(())
-}
-
-#[test]
-fn rust_definitions_carry_their_doc_comments_and_signatures() -> Result<(), SyntaxError> {
+fn rust_definitions_carry_their_doc_comments_and_signatures() {
     let tags = extract(
         "src/lib.rs",
         "// license header\n\n/// Parses source text.\n///\n/// Returns `Tags`.\n#[must_use]\npub fn parse(\n    source: &str,\n) -> Tags {\n    Tags::default()\n}\n\n/** Cached tags. */\npub struct Cache {\n    entries: Vec<Entry>,\n}\n\n// not documentation\nfn plain() {}\n\npub trait Store {\n    fn get(&self) -> u32;\n}\n",
-    )?;
+    );
     assert_eq!(
         documented(&tags),
         [
@@ -145,7 +130,6 @@ fn rust_definitions_carry_their_doc_comments_and_signatures() -> Result<(), Synt
             ("get", "fn get(&self) -> u32;", None),
         ]
     );
-    Ok(())
 }
 
 #[test]
@@ -159,7 +143,7 @@ fn methods_dedent_their_signatures_and_long_ones_are_truncated() -> Result<(), S
         &format!(
             "impl Cache {{\n    /// Builds it.\n    pub fn build(\n        size: usize,\n    ) -> Self {{\n        todo!()\n    }}\n}}\nstruct Wide {{\n{fields}}}\n"
         ),
-    )?;
+    );
     let build = tags.definitions.iter().find(|definition| definition.name == "build").ok_or(SyntaxError::NoTree)?;
     assert_eq!(build.signature, "pub fn build(\n    size: usize,\n) -> Self");
     assert_eq!(build.docs.as_deref(), Some("Builds it."));
@@ -209,7 +193,7 @@ fn python_go_and_typescript_docs_follow_their_conventions() -> Result<(), Syntax
             None,
         ),
     ] {
-        let tags = extract(path, source)?;
+        let tags = extract(path, source);
         let definition =
             tags.definitions.iter().find(|definition| definition.name == name).ok_or(SyntaxError::NoTree)?;
         assert_eq!(definition.signature, signature, "{path} {name}");
@@ -219,20 +203,19 @@ fn python_go_and_typescript_docs_follow_their_conventions() -> Result<(), Syntax
 }
 
 #[test]
-fn rustdoc_examples_hide_their_hidden_lines() -> Result<(), SyntaxError> {
+fn rustdoc_examples_hide_their_hidden_lines() {
     let tags = extract(
         "src/lib.rs",
         "/// Shared pointer, see [`Rc`].\n///\n/// ```\n/// # use std::sync::Arc;\n/// let shared = Arc::new(5);\n/// #\n/// ```\n///\n/// ```text\n/// # kept\n/// ```\npub struct Arc;\n",
-    )?;
+    );
     assert_eq!(
         documented(&tags)[0].2,
         Some("Shared pointer, see [`Rc`].\n\n```\nlet shared = Arc::new(5);\n```\n\n```text\n# kept\n```")
     );
-    Ok(())
 }
 
-fn extract(path: &str, source: &str) -> Result<SymbolTags, SyntaxError> {
-    SymbolExtractor::new().extract(LanguageHint::Path(path), source)
+fn extract(path: &str, source: &str) -> SymbolTags {
+    SymbolTags::clone(&analyze(LanguageHint::Path(path), source).symbols)
 }
 
 fn definitions(tags: &SymbolTags) -> Vec<(&str, SymbolKind, std::ops::Range<usize>)> {

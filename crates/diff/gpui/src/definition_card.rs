@@ -11,8 +11,9 @@ use clankerdiff_core::{
     DiffReviewCommand, DiffReviewEvent, LookupReply, ReviewSession, SourceLocation, TargetLocation,
 };
 use clankerdiff_markdown::{MarkdownOptions, parse_markdown};
-use clankerdiff_symbols::{Activation, DefinitionCard, Hold, NameLookup, Settled, SymbolIndex, SymbolReference};
-use clankerdiff_syntax::LanguageHint;
+use clankerdiff_symbols::{
+    Activation, CardCode, DefinitionCard, Hold, NameLookup, Settled, SymbolIndex, SymbolReference,
+};
 use gpui::{
     AnyElement, App, Context, Div, MouseDownEvent, Pixels, StyledText, anchored, deferred, div, font, prelude::*, px,
 };
@@ -170,10 +171,8 @@ impl DiffViewer {
                     .child(message.clone())
                     .into_any_element(),
             ),
-            (None, Some((path, code))) => Some(
-                self.render_code(LanguageHint::Path(path.as_str()), code)
-                    .debug_selector(|| "definition-card-signature".to_owned())
-                    .into_any_element(),
+            (None, Some(code)) => Some(
+                self.render_code(code).debug_selector(|| "definition-card-signature".to_owned()).into_any_element(),
             ),
             (None, None) => None,
         };
@@ -183,7 +182,6 @@ impl DiffViewer {
                 theme: &self.theme,
                 ui: &theme,
                 inline: InlineColors::new(&self.theme, &theme),
-                highlighter: &mut self.highlighter,
                 copy: false,
                 compact: true,
             };
@@ -231,14 +229,9 @@ impl DiffViewer {
             .into_any_element()
     }
 
-    fn render_code(&mut self, language: LanguageHint<'_>, code: &str) -> Div {
-        let lines: Vec<StyledText> = self
-            .highlighter
-            .with_theme(&self.theme.syntax)
-            .highlight_lines(language, code)
-            .into_iter()
-            .map(|(line, spans)| style::code_text(line.to_owned().into(), &spans))
-            .collect();
+    fn render_code(&self, code: &CardCode<'_>) -> Div {
+        let lines: Vec<StyledText> =
+            code.map_lines(|line, spans| style::code_text(line.to_owned().into(), spans, &self.theme.syntax));
         div().flex().flex_col().typography(Typography::Code).children(lines)
     }
 }

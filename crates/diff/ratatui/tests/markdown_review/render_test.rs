@@ -4,6 +4,7 @@ use clankerdiff_ratatui::{
     InputOutcome, InteractionPhase, KeyCode, MarkdownReviewState, MarkdownReviewWidget, MouseButton, MouseEventKind,
     NavigationPane, ReviewOptions,
 };
+use clankerdiff_syntax::thread_work;
 use clankerdiff_ui_core::ReviewTheme;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 use std::{error::Error, fmt::Write, sync::Arc};
@@ -226,18 +227,26 @@ fn outline_click_and_draft_cancellation() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn changing_the_theme_reuses_retained_code_captures() -> Result<(), Box<dyn Error>> {
+fn changing_the_theme_does_not_reparse_code_blocks() -> Result<(), Box<dyn Error>> {
     let mut state = MarkdownReviewState::new(document());
+    let before = thread_work().parses();
     draw(&mut state, 100, 30);
-    let before = state.highlight_stats();
-    assert!(before.bytes > 0);
+    let parsed = thread_work().parses();
+    assert!(parsed > before);
     state.set_theme(ReviewTheme::ayu()?);
     draw(&mut state, 100, 30);
-    let after = state.highlight_stats();
-    assert_eq!(after.bytes, before.bytes);
-    assert_eq!(after.misses, before.misses);
-    assert!(after.hits > before.hits);
+    assert_eq!(thread_work().parses(), parsed);
     Ok(())
+}
+
+#[test]
+fn replacing_the_document_through_the_session_relays_it_out() {
+    let mut state = MarkdownReviewState::new(document());
+    assert!(draw(&mut state, 100, 30).contains("# Plan"));
+    state.session_mut().replace_document(Arc::new(MarkdownDocument::parse("# Replaced\n")));
+    let rendered = draw(&mut state, 100, 30);
+    assert!(rendered.contains("# Replaced"), "{rendered}");
+    assert!(!rendered.contains("# Plan"), "{rendered}");
 }
 
 fn rendered_row(state: &mut MarkdownReviewState, text: &str) -> Result<u16, Box<dyn Error>> {

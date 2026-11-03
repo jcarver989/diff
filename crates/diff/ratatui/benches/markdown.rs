@@ -2,7 +2,6 @@ use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ratatui::{
     MarkdownLayoutOptions, MarkdownPresentation, MarkdownRenderer, testing::MarkdownStreamFixture,
 };
-use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
@@ -33,15 +32,9 @@ fn markdown(criterion: &mut Criterion) {
         });
         let document = MarkdownDocument::parse(&source);
         group.bench_function("static_flat_snapshot", |bencher| {
-            let mut highlighter = SyntaxHighlighter::default();
             let theme = ReviewTheme::default();
             bencher.iter(|| {
-                black_box(MarkdownRenderer::new().render_lines(
-                    &document,
-                    MarkdownLayoutOptions::default(),
-                    &theme,
-                    &mut highlighter,
-                ))
+                black_box(MarkdownRenderer::new().render_lines(&document, MarkdownLayoutOptions::default(), &theme))
             });
         });
         let mut unchanged = warmed(&source);
@@ -75,21 +68,14 @@ fn layout_work(criterion: &mut Criterion, name: &str, source: &str, tail: &str) 
         [("rendered", MarkdownPresentation::Rendered), ("source_lines", MarkdownPresentation::SourceLines)]
     {
         group.bench_function(mode, |bencher| {
-            let mut highlighter = SyntaxHighlighter::default();
             bencher.iter(|| {
-                black_box(renderer.render_layout(
-                    &document,
-                    MarkdownLayoutOptions { presentation, ..options },
-                    &theme,
-                    &mut highlighter,
-                ))
+                black_box(renderer.render_layout(&document, MarkdownLayoutOptions { presentation, ..options }, &theme))
             });
         });
     }
     group.bench_function("flat_materialization", |bencher| {
-        let mut highlighter = SyntaxHighlighter::default();
         bencher.iter_batched(
-            || renderer.render_layout(&document, options, &theme, &mut highlighter),
+            || renderer.render_layout(&document, options, &theme),
             |layout| black_box(layout.materialize()),
             BatchSize::SmallInput,
         );

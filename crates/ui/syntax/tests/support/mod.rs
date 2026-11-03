@@ -1,76 +1,46 @@
-use clankerdiff_syntax::{
-    CacheConfig, DocumentHighlights, Fingerprint, HighlightSpan, SyntaxError, SyntaxHighlighter, SyntaxStream,
-    SyntaxStreamUpdate, SyntaxTheme,
-};
+use clankerdiff_syntax::{DocumentHighlights, HighlightLine, SyntaxError, SyntaxStream, SyntaxStreamUpdate, analyze};
 use std::{error::Error, sync::Arc};
 
 pub type TestResult = Result<(), Box<dyn Error>>;
 
-pub struct CacheBuilder {
-    config: CacheConfig,
+pub struct SyntaxBuilder {
     language: String,
-    theme: SyntaxTheme,
 }
 
-impl Default for CacheBuilder {
+impl Default for SyntaxBuilder {
     fn default() -> Self {
-        Self { config: CacheConfig::default(), language: "rust".to_owned(), theme: SyntaxTheme::default() }
+        Self { language: "rust".to_owned() }
     }
 }
 
-impl CacheBuilder {
-    pub fn entries(mut self, limit: usize) -> Self {
-        self.config.max_documents = limit;
-        self
-    }
-
-    pub fn source_limit(mut self, limit: usize) -> Self {
-        self.config.max_source_bytes = limit;
-        self
-    }
-
+impl SyntaxBuilder {
     pub fn language(mut self, language: &str) -> Self {
         language.clone_into(&mut self.language);
         self
     }
 
     pub fn build(self) -> SyntaxFixture {
-        SyntaxFixture {
-            highlighter: SyntaxHighlighter::new(self.config),
-            stream: SyntaxStream::new(self.language.as_str()),
-            theme: self.theme,
-            language: self.language,
-        }
+        SyntaxFixture { stream: SyntaxStream::new(self.language.as_str()), language: self.language }
     }
 }
 
 pub struct SyntaxFixture {
-    pub highlighter: SyntaxHighlighter,
     pub stream: SyntaxStream,
-    pub theme: SyntaxTheme,
     language: String,
 }
 
 impl SyntaxFixture {
-    pub fn highlight(&mut self, source: &str) -> Result<Arc<DocumentHighlights>, SyntaxError> {
-        self.highlighter.with_theme(&self.theme).highlight_document(
-            Fingerprint::of([source]),
-            self.language.as_str(),
-            || source,
-        )
+    pub fn highlight(&self, source: &str) -> Arc<DocumentHighlights> {
+        analyze(self.language.as_str(), source).highlights
     }
 
     pub fn append(&mut self, source: &str) -> Result<SyntaxStreamUpdate, SyntaxError> {
-        self.highlighter.with_theme(&self.theme).append(&mut self.stream, source)
+        self.stream.append(source)
     }
 
-    pub fn assert_equivalent(&mut self) -> TestResult {
+    pub fn assert_equivalent(&self) {
         let source = self.stream.source();
-        let complete = SyntaxHighlighter::new(0).with_theme(&self.theme).highlight_document(
-            Fingerprint::of([source]),
-            self.language.as_str(),
-            || source,
-        )?;
+        let complete = analyze(self.language.as_str(), source).highlights;
         assert_eq!(self.stream.highlights().line_count(), complete.line_count());
         for index in 0..complete.line_count() {
             assert_eq!(
@@ -80,10 +50,9 @@ impl SyntaxFixture {
                 self.language
             );
         }
-        Ok(())
     }
 }
 
-pub fn line(highlights: &DocumentHighlights, index: usize) -> Result<&[HighlightSpan], Box<dyn Error>> {
+pub fn line(highlights: &DocumentHighlights, index: usize) -> Result<HighlightLine<'_>, Box<dyn Error>> {
     highlights.line(index).ok_or_else(|| format!("missing line {index}").into())
 }

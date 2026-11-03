@@ -2,12 +2,15 @@ use crate::{
     SyntaxError,
     language::resolve_language,
     spans::{Injection, Span},
+    symbols::TagsGrammar,
 };
+use arborium_theme::tag_for_capture;
+use clankerdiff_ui_core::HighlightId;
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
     fmt,
-    sync::Arc,
+    ops::Add,
+    sync::{Arc, OnceLock},
 };
 use tree_sitter::{InputEdit, Language, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
@@ -27,12 +30,76 @@ pub struct SyntaxWorkStats {
     pub compared_nodes: usize,
 }
 
-#[derive(Default)]
-pub(crate) struct Grammars(HashMap<String, Arc<Grammar>>);
+impl SyntaxWorkStats {
+    #[must_use]
+    pub const fn parses(&self) -> usize {
+        self.full_parses + self.incremental_parses
+    }
+}
+
+impl Add for SyntaxWorkStats {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            parser_input_bytes: self.parser_input_bytes + other.parser_input_bytes,
+            queried_bytes: self.queried_bytes + other.queried_bytes,
+            full_parses: self.full_parses + other.full_parses,
+            incremental_parses: self.incremental_parses + other.incremental_parses,
+            projected_bytes: self.projected_bytes + other.projected_bytes,
+            projected_lines: self.projected_lines + other.projected_lines,
+            reused_lines: self.reused_lines + other.reused_lines,
+            compared_nodes: self.compared_nodes + other.compared_nodes,
+        }
+    }
+}
+
+type Spec = (Language, &'static str, &'static str);
+
+type Compiled = OnceLock<Option<Arc<Grammar>>>;
+
+#[cfg(not(target_family = "wasm"))]
+fn with_registry<T>(read: impl FnOnce(&[Compiled]) -> T) -> T {
+    static REGISTRY: [Compiled; GRAMMARS.len()] = [const { OnceLock::new() }; GRAMMARS.len()];
+    read(&REGISTRY)
+}
+
+#[cfg(target_family = "wasm")]
+fn with_registry<T>(read: impl FnOnce(&[Compiled]) -> T) -> T {
+    thread_local! {
+        static REGISTRY: [Compiled; GRAMMARS.len()] = const { [const { OnceLock::new() }; GRAMMARS.len()] };
+    }
+    REGISTRY.with(|registry| read(registry))
+}
+
+pub(crate) fn grammar(language: &str) -> Option<Arc<Grammar>> {
+    let index = GRAMMARS.iter().position(|(name, _)| *name == language)?;
+    with_registry(|registry| registry[index].get_or_init(|| compile(GRAMMARS[index])).clone())
+}
+
+fn compile((name, spec): (&'static str, fn() -> Spec)) -> Option<Arc<Grammar>> {
+    let (language, highlights, injections) = spec();
+    let highlights = if name == "solidity" {
+        Cow::Owned(highlights.replace(
+            "(struct_expression type: ((expression (identifier)) @type .))",
+            "(struct_expression type: (expression (identifier)) @type .)",
+        ))
+    } else {
+        Cow::Borrowed(highlights)
+    };
+    let query_source = format!("{highlights}\n{injections}");
+    let highlights = Query::new(&language, &highlights).ok()?;
+    let injections = Query::new(&language, injections).ok()?;
+    let tags = TagsGrammar::new(name, &language).ok()?;
+    let non_local = [&highlights, &injections]
+        .into_iter()
+        .any(|query| (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index)));
+    let captures = highlights.capture_names().iter().map(|name| CaptureRole::of(name)).collect();
+    Some(Arc::new(Grammar { language, highlights, captures, injections, non_local, query_source, tags }))
+}
 
 /// Shared state for one append across a document and its injections.
 pub(crate) struct AppendContext<'a> {
-    pub grammars: &'a mut Grammars,
     pub stats: &'a mut SyntaxWorkStats,
     /// Line starts of the root stream, for Tree-sitter edit positions.
     pub line_starts: &'a [usize],
@@ -43,55 +110,33 @@ pub(crate) struct IncrementalDocument {
     tree: Option<Tree>,
     grammar: Arc<Grammar>,
     length: usize,
-    spans: BTreeMap<usize, Vec<Span>>,
-    injections: BTreeMap<usize, Vec<InjectedDocument>>,
-    boundaries: BTreeMap<usize, usize>,
+    spans: Vec<Span>,
+    injections: Vec<InjectedDocument>,
+    boundaries: Vec<(u32, u32)>,
 }
 
-impl Grammars {
+impl IncrementalDocument {
     /// Creates an empty document, or `None` when no grammar is bundled.
-    pub(crate) fn document(&mut self, language: &str) -> Result<Option<IncrementalDocument>, SyntaxError> {
-        let grammar = if let Some(grammar) = self.0.get(language) {
-            Arc::clone(grammar)
-        } else {
-            let Some((language_fn, highlights, injections)) = grammar_spec(language) else {
-                return Ok(None);
-            };
-            let highlights = if language == "solidity" {
-                Cow::Owned(highlights.replace(
-                    "(struct_expression type: ((expression (identifier)) @type .))",
-                    "(struct_expression type: (expression (identifier)) @type .)",
-                ))
-            } else {
-                Cow::Borrowed(highlights)
-            };
-            let compile = |source| {
-                Query::new(&language_fn, source)
-                    .map_err(|source| SyntaxError::Query { language: language.to_owned(), source })
-            };
-            let query_source = format!("{highlights}\n{injections}");
-            let highlights = compile(&highlights)?;
-            let injections = compile(injections)?;
-            let non_local = [&highlights, &injections]
-                .into_iter()
-                .any(|query| (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index)));
-            let grammar = Arc::new(Grammar { highlights, injections, language: language_fn, non_local, query_source });
-            self.0.insert(language.to_owned(), Arc::clone(&grammar));
-            grammar
-        };
-        Ok(Some(IncrementalDocument {
+    pub(crate) fn new(language: &str) -> Option<Self> {
+        grammar(language).map(|grammar| Self {
             parser: None,
             tree: None,
             grammar,
             length: 0,
-            spans: BTreeMap::new(),
-            injections: BTreeMap::new(),
-            boundaries: BTreeMap::new(),
-        }))
+            spans: Vec::new(),
+            injections: Vec::new(),
+            boundaries: Vec::new(),
+        })
     }
-}
 
-impl IncrementalDocument {
+    pub(crate) const fn tree(&self) -> Option<&Tree> {
+        self.tree.as_ref()
+    }
+
+    pub(crate) fn grammar(&self) -> &Grammar {
+        &self.grammar
+    }
+
     /// Appends the bytes of `source` beyond the previous length. `base` is the
     /// document's offset within the root stream.
     pub(crate) fn append(
@@ -119,13 +164,14 @@ impl IncrementalDocument {
         // A capture ending exactly at the edit point may be an unterminated
         // token that the appended text extends, so widen to it as well.
         loop {
-            let earlier = self.boundaries.range(start..).map(|(_, &begin)| begin).min().unwrap_or(start);
+            let first = self.boundaries.partition_point(|&(end, _)| (end as usize) < start);
+            let earlier = self.boundaries[first..].iter().map(|&(_, begin)| begin as usize).min().unwrap_or(start);
             if earlier >= start {
                 break;
             }
             start = earlier;
         }
-        let (spans, injections) = loop {
+        let (mut spans, mut injections) = loop {
             let result = query(&self.grammar, &tree, source, start, cx.stats);
             let capture_start = result
                 .0
@@ -140,25 +186,34 @@ impl IncrementalDocument {
                 break result;
             }
         };
-        self.boundaries.split_off(&start.saturating_add(1));
-        for (from, to) in spans
-            .iter()
-            .map(|span| (span.start, span.end))
-            .chain(injections.iter().map(|injection| (injection.start, injection.end)))
-        {
-            self.boundaries
-                .entry(to as usize)
-                .and_modify(|begin| *begin = (*begin).min(from as usize))
-                .or_insert(from as usize);
-        }
-        self.spans.split_off(&start);
-        for span in spans {
-            self.spans.entry(span.start as usize).or_default().push(span);
-        }
+        self.update_boundaries(start, &spans, &injections);
+        spans.retain(|span| span.highlight.is_some());
+        spans.sort_by_key(|span| span.start);
+        injections.sort_by_key(|injection| injection.start);
+        let kept = self.spans.partition_point(|span| (span.start as usize) < start);
+        self.spans.truncate(kept);
+        self.spans.extend(spans);
         self.update_injections(source, base, start, injections, depth, cx)?;
         self.tree = Some(tree);
         self.length = source.len();
         Ok(start)
+    }
+
+    fn update_boundaries(&mut self, start: usize, spans: &[Span], injections: &[Injection]) {
+        let kept = self.boundaries.partition_point(|&(end, _)| end as usize <= start);
+        self.boundaries.truncate(kept);
+        let mut added: Vec<(u32, u32)> = spans
+            .iter()
+            .map(|span| (span.end, span.start))
+            .chain(injections.iter().map(|injection| (injection.end, injection.start)))
+            .collect();
+        added.sort_unstable();
+        for (end, begin) in added {
+            match self.boundaries.last_mut() {
+                Some(last) if last.0 == end => last.1 = last.1.min(begin),
+                _ => self.boundaries.push((end, begin)),
+            }
+        }
     }
 
     fn parse_tree(&mut self, source: &str, base: usize, cx: &mut AppendContext<'_>) -> Result<Tree, SyntaxError> {
@@ -208,7 +263,8 @@ impl IncrementalDocument {
         depth: usize,
         cx: &mut AppendContext<'_>,
     ) -> Result<(), SyntaxError> {
-        let mut previous_injections = self.injections.split_off(&start);
+        let kept = self.injections.partition_point(|entry| entry.offset < start);
+        let mut previous = self.injections.split_off(kept);
         if depth > 0 {
             for injection in injections {
                 let from = injection.start as usize;
@@ -217,38 +273,39 @@ impl IncrementalDocument {
                     continue;
                 };
                 let language = resolve_language(injection.language.as_str(), text).unwrap_or(&injection.language);
-                let previous = previous_injections.get_mut(&from).and_then(|entries| {
-                    entries
-                        .iter()
-                        .position(|entry| entry.language == language && text.len() >= entry.document.length)
-                        .map(|index| entries.swap_remove(index))
-                });
-                let mut entry = match previous {
+                let reused = previous
+                    .iter()
+                    .position(|entry| {
+                        entry.offset == from && entry.language == language && text.len() >= entry.document.length
+                    })
+                    .map(|index| previous.swap_remove(index));
+                let mut entry = match reused {
                     Some(entry) => entry,
-                    None => match cx.grammars.document(language)? {
-                        Some(document) => InjectedDocument { language: language.to_owned(), document },
+                    None => match Self::new(language) {
+                        Some(document) => InjectedDocument { offset: from, language: language.to_owned(), document },
                         None => continue,
                     },
                 };
                 entry.document.append(text, base + from, depth - 1, cx)?;
-                self.injections.entry(from).or_default().push(entry);
+                self.injections.push(entry);
             }
         }
         Ok(())
     }
 
-    pub(crate) fn spans_from(&self, start: usize) -> Vec<Span> {
-        let mut result: Vec<_> = self.spans.range(start..).flat_map(|(_, spans)| spans.iter().cloned()).collect();
-        for (&offset, injections) in self.injections.range(start..) {
-            for injection in injections {
-                for mut span in injection.document.spans_from(0) {
-                    span.start += u32::try_from(offset).expect("source limit fits u32");
-                    span.end += u32::try_from(offset).expect("source limit fits u32");
-                    result.push(span);
-                }
+    pub(crate) fn spans_from(&self, start: usize, output: &mut Vec<Span>) {
+        let first = self.spans.partition_point(|span| (span.start as usize) < start);
+        output.extend_from_slice(&self.spans[first..]);
+        let first = self.injections.partition_point(|entry| entry.offset < start);
+        for injection in &self.injections[first..] {
+            let offset = u32::try_from(injection.offset).expect("source limit fits u32");
+            let from = output.len();
+            injection.document.spans_from(0, output);
+            for span in &mut output[from..] {
+                span.start += offset;
+                span.end += offset;
             }
         }
-        result
     }
 }
 
@@ -274,19 +331,42 @@ impl fmt::Debug for IncrementalDocument {
 
 #[derive(Clone)]
 struct InjectedDocument {
+    offset: usize,
     language: String,
     document: IncrementalDocument,
 }
 
-struct Grammar {
+#[derive(Clone, Copy)]
+enum CaptureRole {
+    Skip,
+    Highlight(Option<HighlightId>),
+}
+
+impl CaptureRole {
+    fn of(name: &str) -> Self {
+        if name.starts_with('_') || name.starts_with("injection.") {
+            Self::Skip
+        } else {
+            Self::Highlight(tag_for_capture(name).and_then(HighlightId::from_tag))
+        }
+    }
+}
+
+pub(crate) struct Grammar {
     language: Language,
     highlights: Query,
+    captures: Box<[CaptureRole]>,
     injections: Query,
     non_local: bool,
     query_source: String,
+    tags: Option<TagsGrammar>,
 }
 
 impl Grammar {
+    pub(crate) const fn tags(&self) -> Option<&TagsGrammar> {
+        self.tags.as_ref()
+    }
+
     fn error_prefix(&self, before: Node<'_>, after: Node<'_>, stats: &mut SyntaxWorkStats) -> Option<usize> {
         if self.non_local
             || self.query_source.contains("ERROR")
@@ -364,14 +444,13 @@ fn query(
     let mut spans = Vec::new();
     while let Some(found) = matches.next() {
         for capture in found.captures() {
-            let name = grammar.highlights.capture_names()[capture.index as usize];
-            if name.starts_with('_') || name.starts_with("injection.") {
+            let CaptureRole::Highlight(highlight) = grammar.captures[capture.index as usize] else {
                 continue;
-            }
+            };
             spans.push(Span {
                 start: u32::try_from(capture.node.start_byte()).expect("source limit fits u32"),
                 end: u32::try_from(capture.node.end_byte()).expect("source limit fits u32"),
-                capture: name.to_owned(),
+                highlight,
                 pattern_index: u32::try_from(found.pattern_index).expect("query pattern fits u32"),
             });
         }
@@ -407,79 +486,75 @@ fn query(
     (spans, injections)
 }
 
-pub(crate) fn grammar_language(language: &str) -> Option<Language> {
-    grammar_spec(language).map(|(language, ..)| language)
+macro_rules! grammars {
+    ($($name:literal => $module:ident),* $(,)?) => {
+        const GRAMMARS: &[(&str, fn() -> Spec)] = &[$((
+            $name,
+            || -> Spec { ($module::language().into(), &$module::HIGHLIGHTS_QUERY, &$module::INJECTIONS_QUERY) },
+        )),*];
+    };
 }
 
-fn grammar_spec(language: &str) -> Option<(Language, &'static str, &'static str)> {
-    macro_rules! grammar {
-        ($module:ident) => {{
-            use $module as grammar;
-            (grammar::language().into(), &grammar::HIGHLIGHTS_QUERY, &grammar::INJECTIONS_QUERY)
-        }};
-    }
-    Some(match language {
-        "asm" => grammar!(arborium_asm),
-        "bash" => grammar!(arborium_bash),
-        "batch" => grammar!(arborium_batch),
-        "c" => grammar!(arborium_c),
-        "c-sharp" => grammar!(arborium_c_sharp),
-        "clojure" => grammar!(arborium_clojure),
-        "cmake" => grammar!(arborium_cmake),
-        "commonlisp" => grammar!(arborium_commonlisp),
-        "cpp" => grammar!(arborium_cpp),
-        "css" => grammar!(arborium_css),
-        "dart" => grammar!(arborium_dart),
-        "diff" => grammar!(arborium_diff),
-        "dockerfile" => grammar!(arborium_dockerfile),
-        "elixir" => grammar!(arborium_elixir),
-        "erlang" => grammar!(arborium_erlang),
-        "fish" => grammar!(arborium_fish),
-        "go" => grammar!(arborium_go),
-        "graphql" => grammar!(arborium_graphql),
-        "haskell" => grammar!(arborium_haskell),
-        "hcl" => grammar!(arborium_hcl),
-        "html" => grammar!(arborium_html),
-        "ini" => grammar!(arborium_ini),
-        "java" => grammar!(arborium_java),
-        "javascript" => grammar!(arborium_javascript),
-        "json" => grammar!(arborium_json),
-        "just" => grammar!(arborium_just),
-        "kotlin" => grammar!(arborium_kotlin),
-        "lua" => grammar!(arborium_lua),
-        "make" => grammar!(arborium_make),
-        "markdown" => grammar!(arborium_markdown),
-        "meson" => grammar!(arborium_meson),
-        "ninja" => grammar!(arborium_ninja),
-        "nix" => grammar!(arborium_nix),
-        "objc" => grammar!(arborium_objc),
-        "ocaml" => grammar!(arborium_ocaml),
-        "perl" => grammar!(arborium_perl),
-        "php" => grammar!(arborium_php),
-        "powershell" => grammar!(arborium_powershell),
-        "proto" => grammar!(arborium_proto),
-        "python" => grammar!(arborium_python),
-        "r" => grammar!(arborium_r),
-        "rego" => grammar!(arborium_rego),
-        "ruby" => grammar!(arborium_ruby),
-        "rust" => grammar!(arborium_rust),
-        "scala" => grammar!(arborium_scala),
-        "scheme" => grammar!(arborium_scheme),
-        "scss" => grammar!(arborium_scss),
-        "solidity" => grammar!(arborium_solidity),
-        "sql" => grammar!(arborium_sql),
-        "starlark" => grammar!(arborium_starlark),
-        "svelte" => grammar!(arborium_svelte),
-        "swift" => grammar!(arborium_swift),
-        "toml" => grammar!(arborium_toml),
-        "tsx" => grammar!(arborium_tsx),
-        "typescript" => grammar!(arborium_typescript),
-        "vue" => grammar!(arborium_vue),
-        "x86asm" => grammar!(arborium_x86asm),
-        "xml" => grammar!(arborium_xml),
-        "yaml" => grammar!(arborium_yaml),
-        "zig" => grammar!(arborium_zig),
-        "zsh" => grammar!(arborium_zsh),
-        _ => return None,
-    })
+grammars! {
+    "asm" => arborium_asm,
+    "bash" => arborium_bash,
+    "batch" => arborium_batch,
+    "c" => arborium_c,
+    "c-sharp" => arborium_c_sharp,
+    "clojure" => arborium_clojure,
+    "cmake" => arborium_cmake,
+    "commonlisp" => arborium_commonlisp,
+    "cpp" => arborium_cpp,
+    "css" => arborium_css,
+    "dart" => arborium_dart,
+    "diff" => arborium_diff,
+    "dockerfile" => arborium_dockerfile,
+    "elixir" => arborium_elixir,
+    "erlang" => arborium_erlang,
+    "fish" => arborium_fish,
+    "go" => arborium_go,
+    "graphql" => arborium_graphql,
+    "haskell" => arborium_haskell,
+    "hcl" => arborium_hcl,
+    "html" => arborium_html,
+    "ini" => arborium_ini,
+    "java" => arborium_java,
+    "javascript" => arborium_javascript,
+    "json" => arborium_json,
+    "just" => arborium_just,
+    "kotlin" => arborium_kotlin,
+    "lua" => arborium_lua,
+    "make" => arborium_make,
+    "markdown" => arborium_markdown,
+    "meson" => arborium_meson,
+    "ninja" => arborium_ninja,
+    "nix" => arborium_nix,
+    "objc" => arborium_objc,
+    "ocaml" => arborium_ocaml,
+    "perl" => arborium_perl,
+    "php" => arborium_php,
+    "powershell" => arborium_powershell,
+    "proto" => arborium_proto,
+    "python" => arborium_python,
+    "r" => arborium_r,
+    "rego" => arborium_rego,
+    "ruby" => arborium_ruby,
+    "rust" => arborium_rust,
+    "scala" => arborium_scala,
+    "scheme" => arborium_scheme,
+    "scss" => arborium_scss,
+    "solidity" => arborium_solidity,
+    "sql" => arborium_sql,
+    "starlark" => arborium_starlark,
+    "svelte" => arborium_svelte,
+    "swift" => arborium_swift,
+    "toml" => arborium_toml,
+    "tsx" => arborium_tsx,
+    "typescript" => arborium_typescript,
+    "vue" => arborium_vue,
+    "x86asm" => arborium_x86asm,
+    "xml" => arborium_xml,
+    "yaml" => arborium_yaml,
+    "zig" => arborium_zig,
+    "zsh" => arborium_zsh,
 }

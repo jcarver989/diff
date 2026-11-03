@@ -36,12 +36,10 @@ impl MarkdownReviewer {
                 )))
             })
             .children({
-                let mut highlighter = self.highlighter.borrow_mut();
                 let mut content = MarkdownContent {
                     theme: &self.theme,
                     ui: &self.ui,
                     inline: self.inline,
-                    highlighter: &mut highlighter,
                     copy: self.capabilities.clipboard,
                     compact: false,
                 };

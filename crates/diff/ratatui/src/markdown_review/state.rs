@@ -1,17 +1,13 @@
-use super::layout::MarkdownVisualLayout;
+use super::layout::{MarkdownContentLayout, MarkdownVisualLayout};
 use crate::{
     KeyBinding, MarkdownReviewCommand, NavigationPane, ReviewOptions, ThemeChoice, default_markdown_keybindings,
     theme_picker::ThemePicker,
 };
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId};
-use clankerdiff_syntax::{HighlightStats, SyntaxHighlighter};
-use clankerdiff_ui_core::ReviewTheme;
+use clankerdiff_ui_core::{Fingerprint, ReviewTheme};
 use ratatui::layout::{Position, Rect};
-use std::{
-    hash::{Hash, Hasher},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 pub use clankerdiff_markdown::MarkdownFocusPane;
 
@@ -23,9 +19,16 @@ pub(crate) struct MarkdownHitRegion {
 }
 
 #[derive(Debug)]
-struct CachedLayout {
-    key: u64,
-    width: u16,
+struct ContentLayout {
+    document: Arc<MarkdownDocument>,
+    key: (u16, Fingerprint),
+    layout: Arc<MarkdownContentLayout>,
+}
+
+#[derive(Debug)]
+struct VisualLayout {
+    content: Arc<MarkdownContentLayout>,
+    annotations: u64,
     layout: Arc<MarkdownVisualLayout>,
 }
 
@@ -38,13 +41,13 @@ pub struct MarkdownReviewState {
     pub(crate) keybindings: Vec<KeyBinding<MarkdownReviewCommand>>,
     pub(crate) theme_choices: Arc<[ThemeChoice]>,
     pub(crate) theme: ReviewTheme,
-    pub(crate) highlighter: SyntaxHighlighter,
     pub(crate) focus: MarkdownFocusPane,
     pub(crate) scroll: usize,
     pub(crate) outline_scroll: usize,
     pub(crate) outline_selected: usize,
     pub(crate) last_height: usize,
-    layout: Option<CachedLayout>,
+    content: Option<ContentLayout>,
+    layout: Option<VisualLayout>,
     pub(crate) hit_regions: Vec<MarkdownHitRegion>,
     pub(crate) document_area: Rect,
     pub(crate) outline_area: Rect,
@@ -73,12 +76,12 @@ impl MarkdownReviewState {
             keybindings: default_markdown_keybindings(),
             theme_choices: Arc::from([]),
             theme,
-            highlighter: SyntaxHighlighter::default(),
             focus: MarkdownFocusPane::Document,
             scroll: 0,
             outline_scroll: 0,
             outline_selected: 0,
             last_height: 1,
+            content: None,
             layout: None,
             hit_regions: Vec::new(),
             document_area: Rect::default(),
@@ -107,11 +110,11 @@ impl MarkdownReviewState {
     }
 
     #[must_use]
-    pub const fn review(&self) -> &MarkdownReview {
+    pub fn review(&self) -> &MarkdownReview {
         self.session.review()
     }
 
-    pub const fn review_mut(&mut self) -> &mut MarkdownReview {
+    pub fn review_mut(&mut self) -> &mut MarkdownReview {
         self.session.review_mut()
     }
 
@@ -155,15 +158,9 @@ impl MarkdownReviewState {
         &self.theme
     }
 
-    #[must_use]
-    pub const fn highlight_stats(&self) -> HighlightStats {
-        self.highlighter.stats()
-    }
-
     /// Replaces the parsed snapshot and reconciles all existing comments.
     pub fn set_document(&mut self, document: Arc<MarkdownDocument>) {
         self.session.replace_document(document);
-        self.layout = None;
         self.cursor_position = None;
         self.scroll = 0;
         self.follow_pending = true;
@@ -219,34 +216,28 @@ impl MarkdownReviewState {
     }
 
     pub(crate) fn ensure_layout(&mut self, width: u16) -> Arc<MarkdownVisualLayout> {
-        let key = self.layout_key(width);
-        if self.layout.as_ref().is_none_or(|cached| cached.key != key || cached.width != width) {
-            self.layout = Some(CachedLayout {
-                key,
-                width,
-                layout: Arc::new(MarkdownVisualLayout::build(&self.session, width, &mut self.highlighter, &self.theme)),
-            });
+        let key = (width, self.theme.revision());
+        let document = self.session.document();
+        let content = match &self.content {
+            Some(content) if content.key == key && Arc::ptr_eq(&content.document, document) => {
+                Arc::clone(&content.layout)
+            }
+            _ => {
+                let layout = Arc::new(MarkdownContentLayout::build(&self.session, width, &self.theme));
+                let document = Arc::clone(document);
+                Arc::clone(&self.content.insert(ContentLayout { document, key, layout }).layout)
+            }
+        };
+        let annotations = self.session.annotations_revision();
+        let current = self
+            .layout
+            .as_ref()
+            .is_some_and(|layout| Arc::ptr_eq(&layout.content, &content) && layout.annotations == annotations);
+        if !current {
+            let layout = Arc::new(MarkdownVisualLayout::new(&self.session, Arc::clone(&content), width));
+            self.layout = Some(VisualLayout { content, annotations, layout });
         }
         Arc::clone(&self.layout.as_ref().expect("layout inserted above").layout)
-    }
-
-    fn layout_key(&self, width: u16) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.document().source().hash(&mut hasher);
-        width.hash(&mut hasher);
-        self.theme.revision().hash(&mut hasher);
-        self.review().comments().iter().for_each(|comment| {
-            comment.id.hash(&mut hasher);
-            comment.body.hash(&mut hasher);
-            comment.outdated.hash(&mut hasher);
-            format!("{:?}", comment.anchor).hash(&mut hasher);
-        });
-        if let Some(draft) = self.session.draft() {
-            draft.target().hash(&mut hasher);
-            draft.body().hash(&mut hasher);
-            draft.cursor().hash(&mut hasher);
-        }
-        hasher.finish()
     }
 
     pub(crate) fn request_follow(&mut self) {

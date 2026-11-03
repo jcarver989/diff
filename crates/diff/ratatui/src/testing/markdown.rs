@@ -3,7 +3,6 @@ use crate::{
     MarkdownStreamError, StreamingMarkdownPolicy, StreamingMarkdownState,
 };
 use clankerdiff_markdown::{MarkdownDocument, MarkdownStream};
-use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_ui_core::ReviewTheme;
 use ratatui::text::Line;
 use std::sync::Arc;
@@ -15,8 +14,6 @@ pub struct MarkdownStreamFixture {
     pub state: StreamingMarkdownState,
     pub options: MarkdownLayoutOptions,
     pub theme: ReviewTheme,
-    pub highlighter: SyntaxHighlighter,
-    pub reference_highlighter: SyntaxHighlighter,
     pub host: Vec<Arc<MarkdownRow>>,
     pub revision: u64,
 }
@@ -34,19 +31,12 @@ impl MarkdownStreamFixture {
         Self { state: StreamingMarkdownState::new(StreamingMarkdownPolicy::Terminal), ..Self::default() }
     }
 
-    /// Renders the current stream through the streaming cache.
     pub fn layout(&mut self) -> MarkdownLayout {
         self.try_layout().expect("stream renders")
     }
 
     pub fn try_layout(&mut self) -> Result<MarkdownLayout, MarkdownStreamError> {
-        MarkdownRenderer::new().render_stream_layout(
-            &mut self.state,
-            &self.stream,
-            self.options,
-            &self.theme,
-            &mut self.highlighter,
-        )
+        MarkdownRenderer::new().render_stream_layout(&mut self.state, &self.stream, self.options, &self.theme)
     }
 
     /// Commits every row except the last one when the host mirror exceeds
@@ -80,31 +70,18 @@ impl MarkdownStreamFixture {
 
     pub fn render_lines(&mut self) -> Arc<[Line<'static>]> {
         MarkdownRenderer::new()
-            .render_stream_lines(&mut self.state, &self.stream, self.options, &self.theme, &mut self.highlighter)
+            .render_stream_lines(&mut self.state, &self.stream, self.options, &self.theme)
             .expect("stream renders")
     }
 
     #[must_use]
-    pub fn one_shot_lines(&mut self) -> Arc<[Line<'static>]> {
-        self.reference_highlighter.clear_cache();
-        MarkdownRenderer::new().render_lines(
-            &MarkdownDocument::parse(self.stream.source()),
-            self.options,
-            &self.theme,
-            &mut self.reference_highlighter,
-        )
+    pub fn one_shot_lines(&self) -> Arc<[Line<'static>]> {
+        MarkdownRenderer::new().render_lines(&MarkdownDocument::parse(self.stream.source()), self.options, &self.theme)
     }
 
-    /// Renders the current source from scratch, without any streaming cache.
     #[must_use]
-    pub fn one_shot(&mut self) -> MarkdownLayout {
-        self.reference_highlighter.clear_cache();
-        MarkdownRenderer::new().render_layout(
-            &MarkdownDocument::parse(self.stream.source()),
-            self.options,
-            &self.theme,
-            &mut self.reference_highlighter,
-        )
+    pub fn one_shot(&self) -> MarkdownLayout {
+        MarkdownRenderer::new().render_layout(&MarkdownDocument::parse(self.stream.source()), self.options, &self.theme)
     }
 
     /// Renders, then applies the row update since the host's revision to `host`.

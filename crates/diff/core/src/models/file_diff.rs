@@ -157,7 +157,10 @@ impl FileDiff {
     }
 
     fn can_derive_patch(&self) -> bool {
-        !self.binary && self.side_text(DiffSide::Old).is_some() && self.side_text(DiffSide::New).is_some()
+        !self.binary
+            && self.omitted_bytes.is_none()
+            && self.side_text(DiffSide::Old).is_some()
+            && self.side_text(DiffSide::New).is_some()
     }
 
     /// The source result recorded for a side of a file whose complete versions

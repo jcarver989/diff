@@ -19,6 +19,7 @@ pub struct MarkdownStreamUpdate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MarkdownStreamChanges {
     pub first_block: usize,
+    pub first_line: usize,
     pub replaced: bool,
 }
 
@@ -39,7 +40,7 @@ pub struct MarkdownStream {
     source_revision: u64,
     identity: MarkdownStreamIdentity,
     finished: bool,
-    changes: Vec<(u64, usize)>,
+    changes: Vec<(u64, (usize, usize))>,
     replaced_at: u64,
 }
 
@@ -69,14 +70,14 @@ impl MarkdownStream {
         }
         let start = self.source().len();
         let reset = std::mem::take(&mut self.finished);
-        let mut first_block = self.inner.document().blocks().len();
+        let mut first = (self.block_count(), 0);
         if !chunk.is_empty() {
-            first_block = self.inner.append(chunk);
+            first = self.inner.append(chunk);
             self.source_revision = self.source_revision.wrapping_add(1);
         }
         self.revision = self.revision.wrapping_add(1);
-        self.record(first_block);
-        self.update(start..self.source().len(), first_block, reset)
+        self.record(first);
+        self.update(start..self.source().len(), first.0, reset)
     }
 
     pub fn replace(&mut self, source: impl Into<String>) -> MarkdownStreamUpdate {
@@ -148,27 +149,25 @@ impl MarkdownStream {
     #[must_use]
     pub fn changes_since(&self, revision: u64) -> MarkdownStreamChanges {
         if revision < self.replaced_at {
-            return MarkdownStreamChanges { first_block: 0, replaced: true };
+            return MarkdownStreamChanges { first_block: 0, first_line: 0, replaced: true };
         }
         let position = self.changes.partition_point(|(changed_at, _)| *changed_at <= revision);
-        MarkdownStreamChanges {
-            first_block: self.changes.get(position).map_or_else(|| self.block_count(), |(_, block)| *block),
-            replaced: false,
-        }
+        let (first_block, first_line) = self.changes.get(position).map_or((self.block_count(), 0), |(_, first)| *first);
+        MarkdownStreamChanges { first_block, first_line, replaced: false }
     }
 
     fn block_count(&self) -> usize {
         self.inner.document().blocks().len()
     }
 
-    fn record(&mut self, first_block: usize) {
-        if first_block >= self.block_count() {
+    fn record(&mut self, first: (usize, usize)) {
+        if first.0 >= self.block_count() {
             return;
         }
-        while self.changes.last().is_some_and(|(_, block)| *block >= first_block) {
+        while self.changes.last().is_some_and(|(_, change)| *change >= first) {
             self.changes.pop();
         }
-        self.changes.push((self.revision, first_block));
+        self.changes.push((self.revision, first));
     }
 
     fn update(&self, changed_source: Range<usize>, first_block: usize, reset: bool) -> MarkdownStreamUpdate {

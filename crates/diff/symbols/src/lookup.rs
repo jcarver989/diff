@@ -3,6 +3,7 @@ use clankerdiff_core::{
     DefinitionRequest, DefinitionTarget, DiffSide, Lookup, LookupReply, LookupRequest, LookupStatus, LookupUnavailable,
     RepoPath, Resolution, ReviewSession, SourceLocation, TargetLocation,
 };
+use clankerdiff_syntax::{HighlightLine, LanguageHint, analyze};
 use std::{collections::HashMap, mem, ops::Range};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -34,14 +35,32 @@ enum Answer {
 struct Candidate<'a> {
     target: TargetLocation,
     place: String,
-    code: Option<(RepoPath, &'a str)>,
+    code: Option<CardCode<'a>>,
     docs: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardCode<'a> {
+    pub path: RepoPath,
+    pub text: &'a str,
+}
+
+impl CardCode<'_> {
+    #[must_use]
+    pub fn map_lines<T>(&self, mut line: impl FnMut(&str, HighlightLine<'_>) -> T) -> Vec<T> {
+        let highlights = analyze(LanguageHint::Path(self.path.as_str()), self.text).highlights;
+        self.text
+            .lines()
+            .enumerate()
+            .map(|(index, text)| line(text, highlights.line(index).unwrap_or_default()))
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CardContent<'a> {
     pub message: Option<String>,
-    pub code: Option<(RepoPath, &'a str)>,
+    pub code: Option<CardCode<'a>>,
     pub docs: Option<&'a str>,
     pub place: Option<String>,
     pub uses: String,
@@ -215,7 +234,7 @@ impl DefinitionCard {
                         .preview
                         .as_deref()
                         .filter(|_| hover.is_none())
-                        .map(|preview| (target.location.path.display_path(), preview)),
+                        .map(|text| CardCode { path: target.location.path.display_path(), text }),
                     docs: hover,
                 })
                 .collect();
@@ -228,7 +247,7 @@ impl DefinitionCard {
                 Candidate {
                     target: location.clone().into(),
                     place: format!("{}:{}", location.path, location.line_number),
-                    code: Some((location.path.clone(), definition.signature.as_str())),
+                    code: Some(CardCode { path: location.path.clone(), text: &definition.signature }),
                     docs: definition.docs.as_deref(),
                 }
             })

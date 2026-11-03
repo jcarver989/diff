@@ -5,7 +5,6 @@ use clankerdiff_core::{
 };
 use clankerdiff_ratatui::KeyCode;
 use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, DiffReviewState, render_diff_preview};
-use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_ui_core::ReviewTheme;
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::{hint::black_box, sync::Arc};
@@ -204,19 +203,18 @@ fn preview_ownership(criterion: &mut Criterion) {
     let document = large_document(10_000);
     let file = &document.files[0];
     let theme = ReviewTheme::default();
-    let mut highlighter = SyntaxHighlighter::default();
     let options = DiffPreviewOptions::default();
     let mut group = criterion.benchmark_group("preview_10k");
     group.bench_function("input_clone", |bencher| {
         bencher.iter(|| black_box(file.clone()));
     });
     group.bench_function("unchanged_owned_render", |bencher| {
-        bencher.iter(|| black_box(render_diff_preview(file.clone(), 80, &theme, &mut highlighter, options)));
+        bencher.iter(|| black_box(render_diff_preview(file.clone(), 80, &theme, options)));
     });
     let mut state = DiffPreviewState::new(file.clone());
-    state.render(80, &theme, &mut highlighter, options);
+    state.render(80, &theme, options);
     group.bench_function("unchanged_shared_render", |bencher| {
-        bencher.iter(|| black_box(state.render(80, &theme, &mut highlighter, options)));
+        bencher.iter(|| black_box(state.render(80, &theme, options)));
     });
     group.finish();
 }

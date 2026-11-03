@@ -1,8 +1,8 @@
-mod document_cache;
+mod document_replica;
 mod message;
 mod transport;
 
-pub use document_cache::DocumentCache;
+pub use document_replica::DocumentReplica;
 pub use message::ClientCommand;
 pub use transport::{LocalClientMessageTransport, LocalClientTransport};
 

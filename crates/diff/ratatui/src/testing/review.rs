@@ -5,7 +5,7 @@ use crate::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, InputOutcome, KeyCode, MouseButton, MouseEventKind, ReviewInput,
 };
 use clankerdiff_core::{DiffDocument, Lookup, LookupAnswer, LookupReply, ReviewCapabilities, testing::DocumentBuilder};
-use clankerdiff_syntax::HighlightStats;
+use clankerdiff_syntax::{SyntaxWorkStats, thread_work};
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -18,10 +18,8 @@ use std::sync::Arc;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FrameStats {
     pub backend: BackendStats,
-    pub highlight_calls: u64,
-    pub highlight_hits: u64,
-    pub highlight_misses: u64,
-    pub highlighted_bytes: usize,
+    pub parses: usize,
+    pub parsed_bytes: usize,
 }
 
 /// Struct-update-friendly configuration for a [`ReviewHarness`].
@@ -105,7 +103,7 @@ impl ReviewHarness {
     ///
     /// Panics if the in-memory test terminal cannot draw the frame.
     pub fn draw(&mut self) -> FrameStats {
-        let before = self.state.highlight_stats();
+        let before = thread_work();
         self.terminal
             .draw(|frame| {
                 frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), &mut self.state);
@@ -114,8 +112,7 @@ impl ReviewHarness {
                 }
             })
             .expect("infallible test draw");
-        let after = self.state.highlight_stats();
-        FrameStats::new(self.terminal.backend_mut().take_stats(), before, after)
+        FrameStats::new(self.terminal.backend_mut().take_stats(), before, thread_work())
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -245,13 +242,11 @@ impl ReviewHarness {
 }
 
 impl FrameStats {
-    fn new(backend: BackendStats, before: HighlightStats, after: HighlightStats) -> Self {
+    fn new(backend: BackendStats, before: SyntaxWorkStats, after: SyntaxWorkStats) -> Self {
         Self {
             backend,
-            highlight_calls: after.calls.saturating_sub(before.calls),
-            highlight_hits: after.hits.saturating_sub(before.hits),
-            highlight_misses: after.misses.saturating_sub(before.misses),
-            highlighted_bytes: after.bytes.saturating_sub(before.bytes),
+            parses: after.parses() - before.parses(),
+            parsed_bytes: after.parser_input_bytes - before.parser_input_bytes,
         }
     }
 }

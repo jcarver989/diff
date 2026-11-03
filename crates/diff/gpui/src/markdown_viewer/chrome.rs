@@ -215,12 +215,13 @@ impl MarkdownReviewer {
             return 0;
         };
         let end = outline.get(index + 1).map_or(usize::MAX, |next| next.target_id.index());
-        document
-            .targets()
+        let section = heading.target_id.index()..end;
+        self.review()
+            .comments()
             .iter()
-            .filter(|target| (heading.target_id.index()..end).contains(&target.id.index()))
-            .map(|target| self.review().comments_for_target(document, target.id).len())
-            .sum()
+            .filter_map(|comment| document.exact_target(&comment.anchor))
+            .filter(|target| section.contains(&target.index()))
+            .count()
     }
 
     pub(super) fn render_shortcuts(&self) -> ShortcutHelp {

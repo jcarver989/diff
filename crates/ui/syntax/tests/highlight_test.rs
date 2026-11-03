@@ -5,17 +5,19 @@ use ast_grep_core::{
     matcher::PatternBuilder,
     tree_sitter::{LanguageExt, StrDoc, TSLanguage},
 };
-use clankerdiff_syntax::{CacheUsage, Fingerprint, HighlightStats, LanguageHint, SyntaxError};
+use clankerdiff_syntax::{
+    DocumentHighlights, Fingerprint, FontStyle, LanguageHint, MAX_SOURCE_BYTES, Rgba, SymbolTags, SyntaxError,
+    SyntaxTheme, analyze, thread_work,
+};
 use clankerdiff_ui_core::ReviewTheme;
-use std::{fmt::Write, num::NonZeroU16, sync::Arc};
-use support::{CacheBuilder, TestResult, line};
+use std::{fmt::Write, num::NonZeroU16, ops::Range};
+use support::{SyntaxBuilder, TestResult, line};
 
 #[test]
 fn shares_upstream_runtime_with_ast_grep() -> TestResult {
     let source = "fn main() {}";
-    let mut fixture = CacheBuilder::default().build();
-    let highlights = fixture.highlight(source)?;
-    assert_ne!(line(&highlights, 0)?, []);
+    let highlights = analyze("rust", source).highlights;
+    assert!(!line(&highlights, 0)?.is_empty());
     let document = StrDoc::try_new(source, Rust)?;
     let ast = AstGrep::doc(document);
     let pattern = Pattern::try_new(source, Rust)?;
@@ -75,13 +77,10 @@ fn matches_arborium_2_18_2_reference() -> TestResult {
     .into_iter()
     .zip(expected)
     {
-        let mut fixture = CacheBuilder::default().language(language).build();
+        let mut fixture = SyntaxBuilder::default().language(language).build();
         fixture.append(source)?;
-        fixture.assert_equivalent()?;
-        let highlights = fixture.stream.highlights();
-        let lines: Vec<_> = (0..highlights.line_count())
-            .map(|index| highlights.line(index))
-            .collect();
+        fixture.assert_equivalent();
+        let lines = resolved(fixture.stream.highlights(), &SyntaxTheme::default());
         assert_eq!(
             Fingerprint::of([format!("{lines:?}")]).to_string(),
             expected,
@@ -92,173 +91,75 @@ fn matches_arborium_2_18_2_reference() -> TestResult {
 }
 
 #[test]
-fn hits_promote_document_entries() -> TestResult {
-    let mut fixture = CacheBuilder::default().entries(2).build();
-    for source in ["let a = 1;", "let b = 2;", "let a = 1;", "let c = 3;"] {
-        fixture.highlight(source)?;
-    }
-    assert_eq!(fixture.highlighter.stats().evictions, 1);
-    fixture.highlighter.reset_stats();
-    fixture.highlight("let a = 1;")?;
-    fixture.highlight("let b = 2;")?;
-    assert_eq!(fixture.highlighter.stats().hits, 1);
-    assert_eq!(fixture.highlighter.stats().misses, 1);
-    Ok(())
-}
-
-#[test]
-fn entry_limits_and_clear_apply_to_retained_documents() -> TestResult {
-    let mut fixture = CacheBuilder::default().entries(2).build();
-    for source in ["let a = 1;", "let b = 2;", "let c = 3;", "let d = 4;"] {
-        fixture.highlight(source)?;
-    }
-    assert_eq!(fixture.highlighter.stats().evictions, 2);
-    assert_eq!(fixture.highlighter.cache_usage().document_entries, 2);
-    fixture.highlighter.clear_cache();
-    assert_eq!(fixture.highlighter.cache_usage(), CacheUsage::default());
-    fixture.highlighter.reset_stats();
-    fixture.highlight("let d = 4;")?;
-    assert_eq!(fixture.highlighter.stats().misses, 1);
-    assert_eq!(fixture.highlighter.stats().evictions, 0);
-    Ok(())
-}
-
-#[test]
-fn zero_capacity_disables_document_caching() -> TestResult {
-    let mut fixture = CacheBuilder::default().entries(0).build();
-    fixture.highlight("let a = 1;")?;
-    fixture.highlight("let a = 1;")?;
-    assert_eq!(fixture.highlighter.stats().misses, 2);
-    assert_eq!(fixture.highlighter.stats().evictions, 0);
-    assert_eq!(fixture.highlighter.cache_usage(), CacheUsage::default());
-    Ok(())
-}
-
-#[test]
-fn complete_input_and_first_append_perform_identical_work() -> TestResult {
-    let mut fixture = CacheBuilder::default().build();
+fn complete_input_and_first_append_produce_identical_highlights() -> TestResult {
+    let mut fixture = SyntaxBuilder::default().build();
     let source = "/* open\nclosed */\nlet café = 1;\n";
-    let document = fixture.highlight(source)?;
-    let complete = fixture.highlighter.take_stats();
-    assert_eq!(complete.calls, 1);
-    assert_eq!(complete.misses, 1);
-    assert!(complete.bytes >= source.len());
+    let document = fixture.highlight(source);
     let update = fixture.append(source)?;
-    assert_eq!(fixture.highlighter.take_stats().bytes, complete.bytes);
     assert_eq!(fixture.stream.work_stats().full_parses, 1);
     assert_eq!(document.line_count(), 3);
     for index in 0..document.line_count() {
         assert_eq!(document.line(index), update.highlights.line(index));
     }
-    fixture.assert_equivalent()?;
-    assert_eq!(fixture.highlighter.take_stats(), HighlightStats::default());
+    fixture.assert_equivalent();
     Ok(())
 }
 
 #[test]
-fn complete_document_is_parsed_once_then_reused_without_loading_source() -> TestResult {
+fn a_large_document_is_analyzed_in_one_parse() -> TestResult {
     let mut text = String::new();
     for index in 0..10_000 {
-        writeln!(text, "let value_{index} = {index};")?;
+        writeln!(text, "fn value_{index}() -> usize {{ {index} }}")?;
     }
-    let mut fixture = CacheBuilder::default().entries(4).build();
-    let highlights = fixture.highlight(&text)?;
-    assert_ne!(line(&highlights, 9_000)?, []);
-    let first = fixture.highlighter.take_stats();
-    assert_eq!(first.calls, 1);
-    assert_eq!(first.misses, 1);
-    assert!(first.bytes >= text.len());
-    for index in [0, 5_000, 9_999] {
-        assert!(highlights.line(index).is_some());
-    }
-    assert_eq!(fixture.highlighter.stats(), HighlightStats::default());
-    let cached = fixture.highlighter.with_theme(&fixture.theme).highlight_document(
-        Fingerprint::of([text.as_str()]),
-        "rust",
-        || -> &str { panic!("cached source must not be loaded") },
-    )?;
-    assert!(Arc::ptr_eq(&highlights, &cached));
-    assert_eq!(fixture.highlighter.stats(), HighlightStats { calls: 1, hits: 1, ..HighlightStats::default() });
+    let before = thread_work();
+    let analysis = analyze("rust", &text);
+    let after = thread_work();
+    assert_eq!(after.full_parses - before.full_parses, 1);
+    assert_eq!(after.incremental_parses, before.incremental_parses);
+    assert!(after.parser_input_bytes - before.parser_input_bytes >= text.len());
+    assert!(!line(&analysis.highlights, 9_000)?.is_empty());
+    assert_eq!(analysis.symbols.definitions.len(), 10_000);
     Ok(())
 }
 
 #[test]
-fn cached_documents_recolor_without_parsing_or_loading_source() -> TestResult {
-    let mut fixture = CacheBuilder::default().entries(1).build();
+fn highlights_are_theme_independent_and_resolve_per_theme() -> TestResult {
     let source = "<script>const café = 1;</script>";
-    let mut html = CacheBuilder::default().language("html").build();
-    let first = html.highlight(source)?;
-    html.highlighter.take_stats();
-    html.theme = ReviewTheme::ayu()?.syntax;
-    let recolored = html.highlighter.with_theme(&html.theme).highlight_document(
-        Fingerprint::of([source]),
-        "html",
-        || -> &str { panic!("recoloring must use retained source") },
-    )?;
-    assert_ne!(first.line(0), recolored.line(0));
-    assert_eq!(html.highlighter.stats(), HighlightStats { calls: 1, hits: 1, ..HighlightStats::default() });
-    html.append(source)?;
-    assert_eq!(recolored.line(0), html.stream.highlights().line(0));
-    html.assert_equivalent()?;
-    fixture.highlight("fn first() {}")?;
-    fixture.theme = ReviewTheme::ayu()?.syntax;
-    fixture.highlight("fn first() {}")?;
-    assert_eq!(fixture.highlighter.cache_usage().document_entries, 1);
-    assert_eq!(fixture.highlighter.stats().evictions, 0);
+    let fixture = SyntaxBuilder::default().language("html").build();
+    let highlights = fixture.highlight(source);
+    let sage = resolved(&highlights, &SyntaxTheme::default());
+    let ayu = resolved(&highlights, &ReviewTheme::ayu()?.syntax);
+    assert_ne!(sage[0], ayu[0]);
+    assert!(sage[0].as_ref().is_some_and(|spans| !spans.is_empty()));
     Ok(())
 }
 
 #[test]
-fn stream_updates_do_not_evict_cached_documents() -> TestResult {
-    let mut fixture = CacheBuilder::default().entries(1).build();
-    let text = "fn main() {}\n";
-    fixture.highlight(text)?;
-    for index in 0..4 {
-        fixture.append(&format!("let value_{index} = {index};\n"))?;
-    }
-    fixture.highlighter.take_stats();
-    fixture.highlight(text)?;
-    assert_eq!(fixture.highlighter.take_stats(), HighlightStats { calls: 1, hits: 1, ..HighlightStats::default() });
-    Ok(())
-}
-
-#[test]
-fn aliases_and_utf8_ranges_share_a_cache_entry() -> TestResult {
-    let mut fixture = CacheBuilder::default().language("rs").build();
+fn aliases_resolve_to_identical_utf8_highlights() -> TestResult {
     let source = "let café = 1;\n";
-    let highlights = fixture.highlight(source)?;
-    assert_ne!(line(&highlights, 0)?, []);
+    let alias = SyntaxBuilder::default().language("rs").build().highlight(source);
+    let canonical = SyntaxBuilder::default().language("RUST").build().highlight(source);
+    assert!(!line(&alias, 0)?.is_empty());
     assert!(
-        line(&highlights, 0)?
+        line(&alias, 0)?
             .iter()
             .all(|span| source.is_char_boundary(span.range.start) && source.is_char_boundary(span.range.end))
     );
-    let cached =
-        fixture
-            .highlighter
-            .with_theme(&fixture.theme)
-            .highlight_document(Fingerprint::of([source]), "RUST", || source)?;
-    assert!(Arc::ptr_eq(&highlights, &cached));
-    assert_eq!(fixture.highlighter.stats().hits, 1);
+    assert_eq!(alias.line(0), canonical.line(0));
     Ok(())
 }
 
 #[test]
 fn paths_and_shebangs_resolve_before_the_first_parse() -> TestResult {
-    let mut fixture = CacheBuilder::default().build();
     for (hint, source) in [
         (LanguageHint::Path("src/lib.rs"), "/* alpha\r\nbeta */\nlet café = 1;\n"),
         (LanguageHint::Auto, "#!/usr/bin/env python3\nprint('hi')\n"),
         (LanguageHint::InfoString("python linenums"), "print('hi')\n"),
     ] {
-        let highlights = fixture.highlighter.with_theme(&fixture.theme).highlight_document(
-            Fingerprint::of([source]),
-            hint,
-            || source,
-        )?;
+        let highlights = analyze(hint, source).highlights;
         assert_eq!(highlights.line_count(), source.lines().count());
         for (index, text) in source.lines().enumerate() {
-            assert_ne!(line(&highlights, index)?, []);
+            assert!(!line(&highlights, index)?.is_empty());
             assert!(line(&highlights, index)?.iter().all(|span| span.range.end <= text.len()));
         }
     }
@@ -266,42 +167,30 @@ fn paths_and_shebangs_resolve_before_the_first_parse() -> TestResult {
 }
 
 #[test]
-fn unknown_language_is_plain_text_and_cached() -> TestResult {
-    let mut fixture = CacheBuilder::default().language("binary.zzz").build();
-    for _ in 0..2 {
-        let highlights = fixture.highlight("abc\n\n")?;
-        assert_eq!(highlights.line_count(), 2);
-        assert_eq!(line(&highlights, 0)?, []);
-        assert_eq!(line(&highlights, 1)?, []);
-    }
-    assert_eq!(fixture.highlighter.stats().hits, 1);
-    assert_eq!(fixture.highlighter.stats().bytes, 0);
+fn unknown_language_is_plain_text_without_parsing() -> TestResult {
+    let before = thread_work();
+    let analysis = analyze("binary.zzz", "abc\n\n");
+    assert_eq!(analysis.highlights.line_count(), 2);
+    assert!(line(&analysis.highlights, 0)?.is_empty());
+    assert!(line(&analysis.highlights, 1)?.is_empty());
+    assert_eq!(thread_work().parses(), before.parses());
+    assert_eq!(*analysis.symbols, SymbolTags::default());
     Ok(())
 }
 
 #[test]
-fn highlight_lines_pairs_each_line_with_its_spans() {
-    let mut fixture = CacheBuilder::default().build();
-    let mut highlighter = fixture.highlighter.with_theme(&fixture.theme);
-    let lines = highlighter.highlight_lines(LanguageHint::Id("rust"), "fn main() {}\nlet x = 1;");
-    let text: Vec<&str> = lines.iter().map(|(line, _)| *line).collect();
-    assert_eq!(text, ["fn main() {}", "let x = 1;"]);
-    assert!(lines.iter().all(|(_, spans)| !spans.is_empty()));
-    let plain = highlighter.highlight_lines(LanguageHint::Id("not-a-language"), "plain");
-    assert_eq!(plain.len(), 1);
-    assert!(plain[0].1.is_empty());
-}
-
-#[test]
-fn complete_input_limits_leave_cache_and_counters_unchanged() -> TestResult {
-    let mut fixture = CacheBuilder::default().source_limit(12).build();
-    let accepted = fixture.highlight("let café=1;")?;
-    let stats = fixture.highlighter.stats();
-    let usage = fixture.highlighter.cache_usage();
-    assert!(matches!(fixture.highlight("let café = 123;"), Err(SyntaxError::InputLimit { limit: 12, .. })));
-    assert_eq!(fixture.highlighter.stats(), stats);
-    assert_eq!(fixture.highlighter.cache_usage(), usage);
-    assert!(Arc::ptr_eq(&accepted, &fixture.highlight("let café=1;")?));
+fn input_limits_reject_oversized_sources() -> TestResult {
+    let mut fixture = SyntaxBuilder::default().build();
+    let accepted = fixture.append("let café=1;")?;
+    assert!(matches!(
+        fixture.append(&"x".repeat(MAX_SOURCE_BYTES)),
+        Err(SyntaxError::InputLimit { limit: MAX_SOURCE_BYTES, attempted }) if attempted == MAX_SOURCE_BYTES + 12
+    ));
+    assert_eq!(fixture.stream.revision(), accepted.revision);
+    let before = thread_work();
+    let rejected = analyze("rust", &"x".repeat(MAX_SOURCE_BYTES + 1));
+    assert_eq!(thread_work(), before);
+    assert_eq!(rejected.highlights.line_count(), 0);
     Ok(())
 }
 
@@ -327,10 +216,10 @@ fn supported_languages_use_the_same_document_engine() -> TestResult {
         ("css", "b { color: red; }"),
         ("md", "# Heading"),
     ] {
-        let mut fixture = CacheBuilder::default().language(language).build();
+        let mut fixture = SyntaxBuilder::default().language(language).build();
         fixture.append(source)?;
         assert!(!line(fixture.stream.highlights(), 0)?.is_empty(), "{language}");
-        fixture.assert_equivalent()?;
+        fixture.assert_equivalent();
     }
     Ok(())
 }
@@ -341,11 +230,25 @@ fn injections_highlight_embedded_languages() -> TestResult {
         ("html", "<p>café</p><script>const π = 3.14;</script><style>b{color:red}</style>", 0),
         ("markdown", "# Title\n\n```rust\nfn main() {}\n```\n", 3),
     ] {
-        let mut fixture = CacheBuilder::default().language(language).build();
+        let mut fixture = SyntaxBuilder::default().language(language).build();
         fixture.append(source)?;
-        assert_ne!(line(fixture.stream.highlights(), index)?, []);
-        fixture.assert_equivalent()?;
+        assert!(!line(fixture.stream.highlights(), index)?.is_empty());
+        fixture.assert_equivalent();
     }
+    Ok(())
+}
+
+#[test]
+fn clipped_lines_keep_only_spans_that_end_within_the_length() -> TestResult {
+    let highlights = analyze("rust", "fn main() { let value = 1; }").highlights;
+    let full = line(&highlights, 0)?;
+    let ends: Vec<usize> = full.iter().map(|span| span.range.end).collect();
+    let cut = *ends.get(1).ok_or("two spans")?;
+    let clipped = full.clipped(cut + 1);
+    assert_eq!(clipped.len(), ends.iter().filter(|&&end| end <= cut + 1).count());
+    assert!(clipped.iter().all(|span| span.range.end <= cut + 1));
+    assert_eq!(full.clipped(usize::MAX), full);
+    assert!(full.clipped(0).is_empty());
     Ok(())
 }
 
@@ -370,4 +273,41 @@ impl LanguageExt for Rust {
     fn get_ts_language(&self) -> TSLanguage {
         arborium_rust::language().into()
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct HighlightSpan {
+    range: Range<usize>,
+    foreground: Rgba,
+    font_style: FontStyle,
+}
+
+fn resolved(highlights: &DocumentHighlights, theme: &SyntaxTheme) -> Vec<Option<Vec<HighlightSpan>>> {
+    (0..highlights.line_count())
+        .map(|index| {
+            highlights.line(index).map(|spans| {
+                let mut styled: Vec<HighlightSpan> = Vec::new();
+                for span in spans {
+                    let Some(style) = theme.highlight(span.highlight) else {
+                        continue;
+                    };
+                    match styled.last_mut() {
+                        Some(last)
+                            if last.range.end == span.range.start
+                                && last.foreground == style.foreground
+                                && last.font_style == style.font_style =>
+                        {
+                            last.range.end = span.range.end;
+                        }
+                        _ => styled.push(HighlightSpan {
+                            range: span.range.clone(),
+                            foreground: style.foreground,
+                            font_style: style.font_style,
+                        }),
+                    }
+                }
+                styled
+            })
+        })
+        .collect()
 }
