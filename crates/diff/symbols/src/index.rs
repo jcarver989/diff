@@ -1,5 +1,6 @@
-use clankerdiff_core::{DiffDocument, DiffSide, FileDiff, Fingerprint, RepoPath, SourceLocation};
-use clankerdiff_syntax::{LanguageHint, SymbolDefinition, SymbolExtractor, SymbolKind, SymbolReference, SymbolTags};
+use crate::DocumentSyntax;
+use clankerdiff_core::{DiffSide, FileDiff, RepoPath, SourceLocation};
+use clankerdiff_syntax::{SymbolDefinition, SymbolKind, SymbolReference, SymbolTags};
 use std::{
     cmp::Reverse,
     collections::{BTreeSet, HashMap, HashSet},
@@ -75,27 +76,19 @@ impl FileSymbols {
 }
 
 impl SymbolIndex {
-    fn build(document: &DiffDocument, cache: &mut SymbolCache) -> Self {
+    #[must_use]
+    pub fn new(syntax: &DocumentSyntax) -> Self {
         let mut index = Self::default();
-        let mut used = BTreeSet::new();
-        for file in &document.files {
-            let mut tags = |side| {
-                file.source_document(side).map_or_else(Arc::default, |source| {
-                    let key = (source.content_id(), file.path.clone());
-                    used.insert(key.clone());
-                    cache.tags(key, file.path.as_str(), source.text())
-                })
-            };
+        for (position, file) in syntax.document().files.iter().enumerate() {
             let symbols = FileSymbols {
                 path: file.path.clone(),
-                old: tags(DiffSide::Old),
-                new: tags(DiffSide::New),
+                old: syntax.tags(position, DiffSide::Old),
+                new: syntax.tags(position, DiffSide::New),
                 removed: file.changed_lines(DiffSide::Old),
             };
             index.add_file(file, &symbols);
             index.files.push(symbols);
         }
-        cache.retain(&used);
         index
     }
 
@@ -223,39 +216,6 @@ impl SymbolIndex {
 
     fn file(&self, path: &RepoPath) -> Option<&FileSymbols> {
         self.files.iter().find(|file| &file.path == path)
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct SymbolCache {
-    extractor: SymbolExtractor,
-    tags: HashMap<(Fingerprint, RepoPath), Arc<SymbolTags>>,
-    current: Option<(Arc<DiffDocument>, Arc<SymbolIndex>)>,
-}
-
-impl SymbolCache {
-    pub fn index(&mut self, document: &Arc<DiffDocument>) -> Arc<SymbolIndex> {
-        if let Some((indexed, index)) = &self.current
-            && Arc::ptr_eq(indexed, document)
-        {
-            return Arc::clone(index);
-        }
-        let index = Arc::new(SymbolIndex::build(document, self));
-        self.current = Some((Arc::clone(document), Arc::clone(&index)));
-        index
-    }
-
-    fn tags(&mut self, key: (Fingerprint, RepoPath), path: &str, text: &str) -> Arc<SymbolTags> {
-        if let Some(tags) = self.tags.get(&key) {
-            return Arc::clone(tags);
-        }
-        let tags = Arc::new(self.extractor.extract(LanguageHint::Path(path), text).unwrap_or_default());
-        self.tags.insert(key, Arc::clone(&tags));
-        tags
-    }
-
-    fn retain(&mut self, used: &BTreeSet<(Fingerprint, RepoPath)>) {
-        self.tags.retain(|key, _| used.contains(key));
     }
 }
 
