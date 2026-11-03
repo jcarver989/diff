@@ -5,7 +5,7 @@ mod support;
 use clankerdiff_client::{ClientOptions, DiffClient};
 use clankerdiff_core::DiffScope;
 use clankerdiff_protocol::{
-    client::{ClientCommand, DocumentCache},
+    client::{ClientCommand, DocumentReplica},
     server::ServerMessage,
     shared::{Event, LIVE_PROTOCOL_VERSION},
 };
@@ -32,12 +32,12 @@ async fn a_slow_consumer_converges_without_blocking_another_client() -> Result<(
         wait_for_text(&mut updates, source).await?;
     }
 
-    let mut cache = DocumentCache::default();
+    let mut replica = DocumentReplica::default();
     let mut latest = String::new();
     timeout(WAIT, async {
         while latest != "latest edit\n" {
             if let Event::Document(update) = receive(&mut paused).await? {
-                let snapshot = cache.apply(&update)?;
+                let snapshot = replica.apply(&update)?;
                 if let Some(file) = snapshot.files.first() {
                     latest = file.new_source.as_ref().map_err(Clone::clone)?.text().to_owned();
                 }
