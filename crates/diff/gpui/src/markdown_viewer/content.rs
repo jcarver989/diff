@@ -1,6 +1,6 @@
 use super::{
     inline::{InlineColors, inline_text},
-    rows::{CodeSource, DocumentRow, RowKind},
+    rows::{DocumentRow, RowKind},
 };
 use crate::{
     style,
@@ -9,10 +9,11 @@ use crate::{
         tokens::{RADIUS_CONTROL, RADIUS_INNER},
     },
 };
-use clankerdiff_markdown::{MarkdownInline, MarkdownTableAlignment};
-use clankerdiff_syntax::{LanguageHint, SyntaxHighlighter};
+use clankerdiff_core::join_lines;
+use clankerdiff_markdown::{MarkdownCodeBlock, MarkdownInline, MarkdownTableAlignment};
 use clankerdiff_ui_core::ReviewTheme;
 use gpui::{AnyElement, ClipboardItem, Div, FontWeight, Rems, StyledText, div, prelude::*, px};
+use std::sync::Arc;
 
 pub(super) const LIST_INDENT: f32 = 22.0;
 pub(super) const BLOCK_PADDING_Y: f32 = 4.0;
@@ -26,7 +27,6 @@ pub(crate) struct MarkdownContent<'a> {
     pub(crate) theme: &'a ReviewTheme,
     pub(crate) ui: &'a UiTheme,
     pub(crate) inline: InlineColors,
-    pub(crate) highlighter: &'a mut SyntaxHighlighter,
     pub(crate) copy: bool,
     pub(crate) compact: bool,
 }
@@ -102,10 +102,10 @@ impl MarkdownContent<'_> {
         }
     }
 
-    fn code_line(&mut self, code: &CodeSource, line: usize) -> Div {
+    fn code_line(&mut self, code: &MarkdownCodeBlock, line: usize) -> Div {
         let markdown = &self.theme.markdown;
         let scale = if self.compact { COMPACT_CODE } else { CODE };
-        let last = line + 1 == code.lines.len();
+        let last = line + 1 == code.lines().len();
         div()
             .px(rem(self.gap(16.0)))
             .min_h(rem(scale.line_height))
@@ -159,13 +159,15 @@ impl MarkdownContent<'_> {
             }))
     }
 
-    fn code_header(&self, code: &CodeSource) -> Div {
+    fn code_header(&self, code: &Arc<MarkdownCodeBlock>) -> Div {
         let colors = self.ui.colors;
         let markdown = &self.theme.markdown;
         let copy = self.copy.then(|| {
-            let text = code.text.clone();
-            IconButton::new("markdown-copy-code", IconName::Copy, "Copy code", *self.ui)
-                .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.to_string())))
+            let code = Arc::clone(code);
+            IconButton::new("markdown-copy-code", IconName::Copy, "Copy code", *self.ui).on_click(move |_, _, cx| {
+                let text = join_lines(code.lines().iter().map(|line| line.text.as_str()));
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            })
         });
         div()
             .h(rem(self.gap(CODE_HEADER_HEIGHT)))
@@ -180,21 +182,16 @@ impl MarkdownContent<'_> {
             .border_r_1()
             .border_color(colors.border)
             .rounded_t(rem(RADIUS_CONTROL))
-            .when(code.lines.is_empty(), |header| header.border_b_1().rounded_b(rem(RADIUS_CONTROL)))
+            .when(code.lines().is_empty(), |header| header.border_b_1().rounded_b(rem(RADIUS_CONTROL)))
             .typography(Typography::Caption)
             .text_color(colors.text_muted)
-            .child(code.language.clone().unwrap_or_else(|| "code".to_owned()))
+            .child(code.language().unwrap_or("code").to_owned())
             .children(copy)
     }
 
-    fn code_text(&mut self, code: &CodeSource, index: usize) -> StyledText {
-        let highlights = self
-            .highlighter
-            .with_theme(&self.theme.syntax)
-            .highlight_document(code.source_id, LanguageHint::InfoString(&code.info), || &code.text)
-            .ok();
-        let spans = highlights.as_ref().and_then(|highlights| highlights.line(index)).unwrap_or_default();
-        style::code_text(code.lines.get(index).cloned().unwrap_or_default().into(), spans)
+    fn code_text(&self, code: &MarkdownCodeBlock, index: usize) -> StyledText {
+        let text = code.lines().get(index).map(|line| line.text.clone()).unwrap_or_default();
+        style::code_text(text.into(), code.syntax().highlights.line(index).unwrap_or_default(), &self.theme.syntax)
     }
 
     fn gap(&self, value: f32) -> f32 {

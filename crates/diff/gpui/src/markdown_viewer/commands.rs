@@ -7,6 +7,7 @@ use clankerdiff_markdown::{
 use gpui::{App, Context, ScrollHandle, Window};
 
 impl MarkdownReviewer {
+    #[must_use]
     pub fn command_context(&self) -> CommandContext {
         CommandContext {
             phase: match self.overlay {
@@ -22,6 +23,7 @@ impl MarkdownReviewer {
         }
     }
 
+    #[must_use]
     pub fn command_enabled(&self, command: &MarkdownReviewCommand) -> bool {
         !matches!(command, MarkdownReviewCommand::Review(ReviewCommand::ScrollHelp(_)))
             && command.enabled(&self.command_context())

@@ -1,4 +1,3 @@
-use clankerdiff_core::{Fingerprint, SourceSequenceId, join_lines};
 use clankerdiff_markdown::{
     MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownInline, MarkdownListItem, MarkdownTable,
     MarkdownTableAlignment, MarkdownTargetId,
@@ -36,10 +35,10 @@ pub(crate) enum RowKind {
         rows: Vec<DocumentRow>,
     },
     CodeHeader {
-        code: Arc<CodeSource>,
+        code: Arc<MarkdownCodeBlock>,
     },
     CodeLine {
-        code: Arc<CodeSource>,
+        code: Arc<MarkdownCodeBlock>,
         index: usize,
     },
     TableRow {
@@ -53,15 +52,6 @@ pub(crate) enum RowKind {
     Html {
         content: Vec<MarkdownInline>,
     },
-}
-
-#[derive(Debug)]
-pub(crate) struct CodeSource {
-    pub language: Option<String>,
-    pub info: Arc<str>,
-    pub lines: Vec<String>,
-    pub text: Arc<str>,
-    pub source_id: Fingerprint,
 }
 
 pub(crate) fn document_rows(blocks: &[MarkdownBlock]) -> Vec<DocumentRow> {
@@ -102,16 +92,9 @@ fn push_list(ordered: bool, start: Option<u64>, items: &[MarkdownListItem], dept
 }
 
 fn push_code(code: &MarkdownCodeBlock, depth: u16, rows: &mut Vec<DocumentRow>) {
-    let lines: Vec<String> = code.lines.iter().map(|line| line.text.clone()).collect();
-    let code_source = Arc::new(CodeSource {
-        language: code.language.clone(),
-        info: Arc::from(code.highlight_hint()),
-        text: Arc::from(join_lines(lines.iter().map(String::as_str))),
-        source_id: SourceSequenceId::from_lines(lines.iter().map(String::as_str)).fingerprint(),
-        lines,
-    });
+    let code_source = Arc::new(code.clone());
     rows.push(DocumentRow::new(code.target_id, depth, RowKind::CodeHeader { code: Arc::clone(&code_source) }));
-    for line in &code.lines {
+    for line in code.lines() {
         rows.push(DocumentRow::new(
             line.target_id,
             depth,
