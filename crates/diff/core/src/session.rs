@@ -156,7 +156,7 @@ struct SelectionBookmark {
 pub struct ReviewSession {
     document: Arc<DiffDocument>,
     presentation: DiffPresentation,
-    review: Review,
+    review: Arc<Review>,
     scope: DiffScope,
     files_mode: FilesMode,
     view_mode: ViewMode,
@@ -164,7 +164,7 @@ pub struct ReviewSession {
     selected_file: usize,
     selected_row: usize,
     selected_side: DiffSide,
-    draft: Option<CommentDraft>,
+    draft: Option<Arc<CommentDraft>>,
     projection: ContentProjection,
     projection_revision: u64,
     pending_source_restore: Option<SourceLocation>,
@@ -180,7 +180,7 @@ impl ReviewSession {
             presentation: DiffPresentation::new(document.clone(), PresentationOptions::default()),
             scope: document.target.scope().unwrap_or_default(),
             document,
-            review: Review::default(),
+            review: Arc::default(),
             files_mode: FilesMode::Diff,
             view_mode: ViewMode::Auto,
             split_when_auto: false,
@@ -195,7 +195,7 @@ impl ReviewSession {
             navigation: Navigation::default(),
             reference: None,
         };
-        session.review.reconcile(&session.document);
+        Arc::make_mut(&mut session.review).reconcile(&session.document);
         session.selected_file = session.presentation.file_order().first().copied().unwrap_or(0);
         session.select_first_row();
         session
@@ -212,12 +212,17 @@ impl ReviewSession {
     }
 
     #[must_use]
-    pub const fn review(&self) -> &Review {
+    pub fn review(&self) -> &Review {
         &self.review
     }
 
-    pub const fn review_mut(&mut self) -> &mut Review {
-        &mut self.review
+    pub fn review_mut(&mut self) -> &mut Review {
+        Arc::make_mut(&mut self.review)
+    }
+
+    #[must_use]
+    pub fn annotations(&self) -> (&Arc<Review>, Option<&Arc<CommentDraft>>) {
+        (&self.review, self.draft.as_ref())
     }
 
     #[must_use]
@@ -388,12 +393,12 @@ impl ReviewSession {
     }
 
     #[must_use]
-    pub const fn draft(&self) -> Option<&CommentDraft> {
-        self.draft.as_ref()
+    pub fn draft(&self) -> Option<&CommentDraft> {
+        self.draft.as_deref()
     }
 
-    pub const fn draft_mut(&mut self) -> Option<&mut CommentDraft> {
-        self.draft.as_mut()
+    pub fn draft_mut(&mut self) -> Option<&mut CommentDraft> {
+        self.draft.as_mut().map(Arc::make_mut)
     }
 
     #[must_use]
@@ -619,7 +624,7 @@ impl ReviewSession {
         if let Some(scope) = document.target.scope() {
             self.scope = scope;
         }
-        self.review.reconcile(&document);
+        self.review_mut().reconcile(&document);
         if Arc::ptr_eq(&document, &self.document) || document == self.document {
             return;
         }
@@ -692,7 +697,7 @@ impl ReviewSession {
     }
 
     pub fn clear_review(&mut self) {
-        self.review.clear();
+        self.review_mut().clear();
         self.draft = None;
     }
 
@@ -828,7 +833,7 @@ impl ReviewSession {
         let line_text = self.selected_cell().map_or_else(String::new, |cell| cell.text.to_string());
         let body =
             editing.and_then(|id| self.review.comment(id)).map_or_else(String::new, |comment| comment.body.clone());
-        self.draft = Some(CommentDraft::new(anchor, line_text, body, editing));
+        self.draft = Some(Arc::new(CommentDraft::new(anchor, line_text, body, editing)));
         true
     }
 
@@ -837,7 +842,7 @@ impl ReviewSession {
     }
 
     pub fn undo_last_comment(&mut self) -> bool {
-        self.last_comment_id().is_some_and(|id| self.review.remove_comment(id).is_some())
+        self.last_comment_id().is_some_and(|id| self.review_mut().remove_comment(id).is_some())
     }
 
     pub fn cancel_draft(&mut self) {
@@ -845,18 +850,18 @@ impl ReviewSession {
     }
 
     pub fn submit_draft(&mut self) -> Option<u64> {
-        let draft = self.draft.take()?;
+        let draft = Arc::unwrap_or_clone(self.draft.take()?);
         if draft.body.trim().is_empty() {
             return None;
         }
         Some(match draft.editing {
             Some(id) => {
-                if !self.review.edit_comment(id, draft.body) {
+                if !self.review_mut().edit_comment(id, draft.body) {
                     return None;
                 }
                 id
             }
-            None => self.review.add_comment_with_context(draft.anchor, draft.line_text, draft.body),
+            None => self.review_mut().add_comment_with_context(draft.anchor, draft.line_text, draft.body),
         })
     }
 
@@ -864,7 +869,7 @@ impl ReviewSession {
         let Some(id) = self.comment_id_at_selection() else {
             return false;
         };
-        self.review.remove_comment(id).is_some()
+        self.review_mut().remove_comment(id).is_some()
     }
 
     #[must_use]

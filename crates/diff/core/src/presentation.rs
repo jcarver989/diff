@@ -1,25 +1,18 @@
 //! Framework-neutral, random-access unified and split row presentation.
 
 use crate::{
-    DiffDocument, DiffSide, FileDiff, FileStatus, Fingerprint, Hunk, LineAnchor, PatchLine, PatchLineKind, RepoPath,
-    SourceDocument, SourceLineRef, SourceLocation, SourceSequenceId, SourceUnavailable, file_tree::tree_order,
-    join_lines,
+    DiffDocument, DiffSide, FileDiff, FileStatus, Fingerprint, LineAnchor, PatchLine, PatchLineKind, RepoPath,
+    SourceDocument, SourceLineRef, SourceLocation, SourceUnavailable, file_tree::tree_order,
 };
 use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
 use std::{
-    borrow::Cow,
     collections::{HashMap, HashSet},
     ops::Range,
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 const NO_NEWLINE_TEXT: &str = "\\ No newline at end of file";
-
-/// Largest hunk (in total patch lines) served as a fallback syntax sequence.
-/// Larger hunks degrade to per-line highlighting so patch-only rendering work
-/// stays bounded by the viewport rather than the document.
-pub const MAX_HUNK_SEQUENCE_LINES: usize = 512;
 
 /// Requested diff layout.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,54 +235,6 @@ impl ContentProjection {
 
 pub use clankerdiff_ui_core::DiffTone;
 
-/// Renderer-neutral description of the hunk-side line sequence containing a
-/// patch cell, used to keep multiline syntax context for patch-only files.
-pub struct HunkSequence<'a> {
-    /// Content-derived, snapshot-local cache identity for this side's lines.
-    pub id: SourceSequenceId,
-    /// Side-specific repository path usable as a syntax language hint.
-    pub path: &'a str,
-    /// Zero-based index of the cell's line within [`Self::lines`].
-    pub target_line: usize,
-    hunk: &'a Hunk,
-    side: DiffSide,
-}
-
-impl HunkSequence<'_> {
-    /// This side's hunk lines in source order.
-    pub fn lines(&self) -> impl Iterator<Item = &str> {
-        self.hunk.lines.iter().filter(|line| line.line_number(self.side).is_some()).map(|line| line.text.as_ref())
-    }
-}
-
-pub struct CellContext<'a> {
-    pub id: Fingerprint,
-    pub path: &'a str,
-    pub target_line: usize,
-    source: CellContextSource<'a>,
-}
-
-impl CellContext<'_> {
-    #[must_use]
-    pub fn text(&self) -> Cow<'_, str> {
-        match &self.source {
-            CellContextSource::Text(text) => Cow::Borrowed(text),
-            CellContextSource::Hunk(sequence) => Cow::Owned(join_lines(sequence.lines())),
-        }
-    }
-}
-
-enum CellContextSource<'a> {
-    Text(&'a str),
-    Hunk(HunkSequence<'a>),
-}
-
-fn hunk_side_sequence_id(lines: &[PatchLine], side: DiffSide) -> SourceSequenceId {
-    SourceSequenceId::from_lines(
-        lines.iter().filter(|line| line.line_number(side).is_some()).map(|line| line.text.as_ref()),
-    )
-}
-
 /// Stable identity for a presented row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RowId(pub u64);
@@ -394,9 +339,6 @@ pub struct DiffPresentation {
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
     collapsed: Vec<bool>,
-    /// Lazily fingerprinted per hunk so presentations that never fall back to
-    /// hunk-sequence highlighting skip hashing the document.
-    sequence_ids: Vec<Vec<OnceLock<[SourceSequenceId; 2]>>>,
 }
 
 impl DiffPresentation {
@@ -502,8 +444,6 @@ impl DiffPresentation {
                 })
             })
             .collect();
-        let sequence_ids =
-            document.files.iter().map(|file| file.hunks.iter().map(|_| OnceLock::new()).collect()).collect();
         Self {
             document,
             layout,
@@ -515,7 +455,6 @@ impl DiffPresentation {
             file_ranges,
             hunk_ranges,
             collapsed,
-            sequence_ids,
         }
     }
 
@@ -604,79 +543,6 @@ impl DiffPresentation {
     pub fn anchor_at(&self, row_index: usize, side: DiffSide) -> Option<LineAnchor> {
         let row = self.row(row_index)?;
         self.cell_anchor(row, row.preferred_cell(side)?)
-    }
-
-    /// Returns the immutable complete source containing `cell`.
-    #[must_use]
-    pub fn source_document(&self, row: &PresentedRow, cell: &PresentedCell) -> Option<&SourceDocument> {
-        let source = cell.source_line?;
-        let file = self.document.files.get(row.file_index)?;
-        file.source_document(source.side).map(AsRef::as_ref)
-    }
-
-    /// Returns the side-specific repository path used as a syntax language hint.
-    #[must_use]
-    pub fn source_path<'a>(&'a self, row: &PresentedRow, cell: &PresentedCell) -> Option<&'a str> {
-        let source = cell.source_line?;
-        Some(self.document.files.get(row.file_index)?.path_for_side(source.side).as_str())
-    }
-
-    /// Describes the hunk-side line sequence containing a patch cell so hosts
-    /// can keep multiline syntax context when no complete source exists.
-    #[must_use]
-    pub fn hunk_sequence<'a>(&'a self, row: &PresentedRow, cell: &PresentedCell) -> Option<HunkSequence<'a>> {
-        let source = cell.patch_source?;
-        let file = self.document.files.get(row.file_index)?;
-        let hunk = file.hunks.get(source.hunk_index)?;
-        if hunk.lines.len() > MAX_HUNK_SEQUENCE_LINES {
-            return None;
-        }
-        hunk.lines.get(source.line_index)?;
-        let target_line =
-            hunk.lines[..source.line_index].iter().filter(|line| line.line_number(source.side).is_some()).count();
-        let ids = self.sequence_ids.get(row.file_index)?.get(source.hunk_index)?.get_or_init(|| {
-            [hunk_side_sequence_id(&hunk.lines, DiffSide::Old), hunk_side_sequence_id(&hunk.lines, DiffSide::New)]
-        });
-        Some(HunkSequence {
-            id: match source.side {
-                DiffSide::Old => ids[0],
-                DiffSide::New => ids[1],
-            },
-            path: file.path_for_side(source.side).as_str(),
-            target_line,
-            hunk,
-            side: source.side,
-        })
-    }
-
-    #[must_use]
-    pub fn cell_context<'a>(&'a self, row: &PresentedRow, cell: &'a PresentedCell) -> CellContext<'a> {
-        if let (Some(source), Some(path), Some(line)) = (
-            self.source_document(row, cell),
-            self.source_path(row, cell),
-            cell.line_number().and_then(|line| line.checked_sub(1)),
-        ) {
-            return CellContext {
-                id: source.content_id(),
-                path,
-                target_line: line,
-                source: CellContextSource::Text(source.text()),
-            };
-        }
-        if let Some(sequence) = self.hunk_sequence(row, cell) {
-            return CellContext {
-                id: sequence.id.fingerprint(),
-                path: sequence.path,
-                target_line: sequence.target_line,
-                source: CellContextSource::Hunk(sequence),
-            };
-        }
-        CellContext {
-            id: Fingerprint::of([b"diff-cell-context-v1".as_slice(), cell.text.as_bytes()]),
-            path: self.row_path(row),
-            target_line: 0,
-            source: CellContextSource::Text(&cell.text),
-        }
     }
 
     #[must_use]
@@ -1290,33 +1156,6 @@ mod tests {
 
     fn presentation(view_mode: ViewMode) -> DiffPresentation {
         DiffPresentation::new(document(), PresentationOptions { view_mode, ..PresentationOptions::default() })
-    }
-
-    #[test]
-    fn hunk_sequences_expose_bounded_side_lines_for_patch_only_cells() {
-        let presentation = presentation(ViewMode::Unified);
-        let (row, cell) = (0..presentation.row_count())
-            .find_map(|index| {
-                let row = presentation.row(index)?;
-                let cell = row.cell(DiffSide::New)?;
-                (cell.text.as_ref() == "ONE").then_some((row, cell))
-            })
-            .unwrap();
-        let sequence = presentation.hunk_sequence(row, cell).unwrap();
-        let lines: Vec<&str> = sequence.lines().collect();
-        assert_eq!(lines, ["same", "ONE", "keep", "TWO", "extra"]);
-        assert_eq!(sequence.target_line, 1);
-        assert_eq!(sequence.path, "src/a.rs");
-        assert_eq!(sequence.id, SourceSequenceId::from_lines(lines.iter().copied()));
-
-        let big = DocumentBuilder::new().generated("src/big.rs", MAX_HUNK_SEQUENCE_LINES + 1).build();
-        let presentation = DiffPresentation::new(big, PresentationOptions::default());
-        let row = (0..presentation.row_count())
-            .filter_map(|index| presentation.row(index))
-            .find(|row| row.kind == RowKind::Code)
-            .unwrap();
-        let cell = row.primary_cell().unwrap();
-        assert!(presentation.hunk_sequence(row, cell).is_none(), "oversized hunks degrade to per-line highlighting");
     }
 
     #[test]

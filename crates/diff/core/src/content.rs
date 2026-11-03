@@ -1,6 +1,6 @@
 //! Immutable complete-file source versions.
 
-use crate::{DiffSide, Fingerprint, RepoPath, SourceSequenceId};
+use crate::{DiffSide, Fingerprint, RepoPath};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use similar::{DiffOp, TextDiff};
 use std::sync::Arc;
@@ -37,7 +37,6 @@ pub struct SourceDocument {
     text: Arc<str>,
     line_starts: Arc<[usize]>,
     content_id: Fingerprint,
-    sequence_id: SourceSequenceId,
     byte_len: u64,
     trailing_newline: bool,
 }
@@ -104,12 +103,7 @@ impl SourceDocument {
         }
         let content_id = Fingerprint::of([b"diff-source-document-v1".as_slice(), text.as_bytes()]);
         let text: Arc<str> = Arc::from(text);
-        let sequence_id = SourceSequenceId::from_lines((0..line_count).map(|line| {
-            let start = line_starts[line];
-            let end = text[start..].find('\n').map_or(text.len(), |offset| start + offset);
-            text[start..end].strip_suffix('\r').unwrap_or(&text[start..end])
-        }));
-        Ok(Self { text, line_starts: line_starts.into(), content_id, sequence_id, byte_len, trailing_newline })
+        Ok(Self { text, line_starts: line_starts.into(), content_id, byte_len, trailing_newline })
     }
 
     /// Returns a one-based normalized source line.
@@ -153,11 +147,6 @@ impl SourceDocument {
     #[must_use]
     pub const fn content_id(&self) -> Fingerprint {
         self.content_id
-    }
-
-    #[must_use]
-    pub const fn sequence_id(&self) -> SourceSequenceId {
-        self.sequence_id
     }
 
     #[must_use]
@@ -221,7 +210,6 @@ mod tests {
         let crlf = SourceDocument::try_from_text("a\r\nb\r\n").unwrap();
         assert_eq!(lf.line(1), crlf.line(1));
         assert_eq!(lf.line(2), crlf.line(2));
-        assert_eq!(lf.sequence_id(), crlf.sequence_id());
         assert_ne!(lf.content_id(), crlf.content_id());
         assert_eq!(lf.line(1), Some("a"));
         assert_eq!(lf.line(2), Some("b"));
