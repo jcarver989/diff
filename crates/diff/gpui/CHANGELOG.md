@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/jcarver989/diff/compare/clankerdiff-gpui-v0.8.3...clankerdiff-gpui-v0.9.0) - 2026-11-03
+
+### Other
+
+- *(deps)* [**breaking**] upgrade gpui-pre to 0.3.11 and gpui-base to 0.9.0 ([#133](https://github.com/jcarver989/diff/pull/133))
+- [**breaking**] replace highlight and review caches with source-owned syntax ([#131](https://github.com/jcarver989/diff/pull/131))
+
 ## [0.8.1](https://github.com/jcarver989/diff/compare/clankerdiff-gpui-v0.8.0...clankerdiff-gpui-v0.8.1) - 2026-10-31
 
 ### Added
