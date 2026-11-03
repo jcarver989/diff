@@ -136,6 +136,39 @@ fn finishing_and_resuming_without_source_changes_do_not_repeat_work() {
 }
 
 #[test]
+fn relayout_keeps_the_open_code_block_parsed() {
+    let mut fixture = MarkdownStreamFixture::from_source("Intro\n\n```rust\nfn main() {\n    let a = 1;");
+    fixture.assert_output_equivalent();
+    assert!(fixture.state.take_stats().highlighted_bytes > 0);
+    fixture.options.width = 50;
+    fixture.assert_output_equivalent();
+    assert_eq!(fixture.state.take_stats().highlighted_bytes, 0);
+}
+
+#[test]
+fn closing_a_streamed_code_block_keeps_its_highlights() {
+    for options in [
+        MarkdownLayoutOptions::default(),
+        MarkdownLayoutOptions { presentation: MarkdownPresentation::SourceLines, ..MarkdownLayoutOptions::default() },
+    ] {
+        for closing in [&["\n```\n\nAfter the block."][..], &["\n", "``", "`", "\n\nAfter the block."]] {
+            let mut fixture = MarkdownStreamFixture::from_source("Intro\n\n```rust\nfn main() {\n    let a = 1;\n}")
+                .with_options(options);
+            fixture.assert_output_equivalent();
+            assert!(fixture.state.take_stats().highlighted_bytes > 0);
+            for chunk in closing {
+                fixture.stream.push(chunk);
+                fixture.assert_output_equivalent();
+            }
+            assert_eq!(fixture.state.take_stats().highlighted_bytes, 0, "{options:?} {closing:?}");
+            fixture.options.width = 50;
+            fixture.assert_output_equivalent();
+            assert_eq!(fixture.state.take_stats().highlighted_bytes, 0, "relayout of {options:?}");
+        }
+    }
+}
+
+#[test]
 fn source_fitting_preserves_text_within_the_requested_width() {
     for (source, width, wrap, expected) in [
         ("", 2, true, vec![""]),

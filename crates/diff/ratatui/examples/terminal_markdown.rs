@@ -3,7 +3,6 @@ use clankerdiff_ratatui::{
     MarkdownCommitError, MarkdownLayoutOptions, MarkdownRenderer, MarkdownRow, StreamingMarkdownPolicy,
     StreamingMarkdownState,
 };
-use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use std::{error::Error, sync::Arc};
 
@@ -28,7 +27,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let renderer = MarkdownRenderer::new();
     let options = MarkdownLayoutOptions { width: 40, ..MarkdownLayoutOptions::default() };
     let mut theme = ReviewTheme::default();
-    let mut highlighter = SyntaxHighlighter::default();
     let mut stream = MarkdownStream::new();
     let mut state = StreamingMarkdownState::new(StreamingMarkdownPolicy::Terminal);
     let mut history = NativeHistory { rows: Vec::new(), fail_next_write: false };
@@ -47,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     ];
     for (index, chunk) in chunks.iter().enumerate() {
         stream.push(chunk);
-        renderer.render_stream_layout(&mut state, &stream, options, &theme, &mut highlighter)?;
+        renderer.render_stream_layout(&mut state, &stream, options, &theme)?;
         let update = state.update_since(revision);
         live.truncate(update.first_changed_row - state.committed_rows());
         live.extend(update.replacement.iter().cloned());
@@ -71,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     stream.finish();
     theme.markdown.heading = Rgba::new(200, 120, 40, 255);
-    renderer.render_stream_layout(&mut state, &stream, options, &theme, &mut highlighter)?;
+    renderer.render_stream_layout(&mut state, &stream, options, &theme)?;
     let update = state.update_since(revision);
     assert!(update.first_changed_row >= state.committed_rows());
     live.truncate(update.first_changed_row - state.committed_rows());

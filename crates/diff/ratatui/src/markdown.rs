@@ -9,7 +9,6 @@ use crate::{
     syntax::highlighted_line,
     text::{FitOptions, FitPosition, fit_spans_from},
 };
-use clankerdiff_core::SourceSequenceId;
 pub use clankerdiff_markdown::{
     Fingerprint, FingerprintError, MarkdownAnchor, MarkdownBlock, MarkdownBlockAnchor, MarkdownBlockKind,
     MarkdownCodeBlock, MarkdownCodeLine, MarkdownCodeLineAnchor, MarkdownCommentContext, MarkdownCommentDraft,
@@ -21,7 +20,7 @@ pub use clankerdiff_markdown::{
     MarkdownTargetId, MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review,
     parse_markdown, rendered_text, resolve_anchor,
 };
-use clankerdiff_syntax::{DocumentHighlights, HighlightSpan, LanguageHint, SyntaxHighlighter, SyntaxStream};
+use clankerdiff_syntax::{HighlightSpan, SyntaxTheme, thread_work};
 use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Modifier, Style},
@@ -60,6 +59,7 @@ impl MarkdownRenderStats {
         self.source_bytes_copied += parse.source_bytes_copied.saturating_sub(seen.source_bytes_copied);
         self.prefix_bytes_copied += parse.prefix_bytes_copied.saturating_sub(seen.prefix_bytes_copied);
         self.parsed_documents += parse.parses.saturating_sub(seen.parses);
+        self.highlighted_bytes += parse.highlighted_bytes.saturating_sub(seen.highlighted_bytes);
     }
 }
 
@@ -88,12 +88,11 @@ pub enum MarkdownStreamError {
     CommittedSourceReplaced { committed: usize },
 }
 
-/// Renderer-owned cache for one logical streaming Markdown item.
 #[derive(Debug, Clone, Default)]
 pub struct StreamingMarkdownState {
     policy: StreamingMarkdownPolicy,
     layout: MarkdownLayout,
-    cache: LayoutCache,
+    incremental: IncrementalLayout,
     history: History,
     revision: u64,
     /// Last revision handed out; survives `reset` so hosts never see a reuse.
@@ -188,19 +187,18 @@ impl StreamingMarkdownState {
         self.history.store = frozen;
         self.history.rows = end_exclusive;
         self.update = None;
-        if let Some(boundary) = self.cache.boundary_at(end_exclusive) {
+        if let Some(boundary) = self.incremental.boundary_at(end_exclusive) {
             let mut boundary = boundary;
             boundary.checkpoint = self.layout.row(end_exclusive - 1).and_then(|row| row.checkpoint.clone());
             self.history.boundary = Some(boundary);
         }
         if self.history.bound.is_none() {
-            self.history.bound = self.cache.identity.map(|identity| (identity, self.cache.revision));
+            self.history.bound = self.incremental.identity.map(|identity| (identity, self.incremental.revision));
         }
         Ok(())
     }
 }
 
-/// Stateless whole-document renderer plus streaming cache services.
 #[derive(Debug, Default)]
 pub struct MarkdownRenderer;
 
@@ -217,9 +215,8 @@ impl MarkdownRenderer {
         document: &MarkdownDocument,
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
     ) -> Arc<[Line<'static>]> {
-        self.render_layout(document, options, theme, highlighter).materialize()
+        self.render_layout(document, options, theme).materialize()
     }
 
     pub fn render_stream_lines(
@@ -228,9 +225,8 @@ impl MarkdownRenderer {
         stream: &MarkdownStream,
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
     ) -> Result<Arc<[Line<'static>]>, MarkdownStreamError> {
-        let layout = self.render_stream_layout(state, stream, options, theme, highlighter)?;
+        let layout = self.render_stream_layout(state, stream, options, theme)?;
         if !layout.is_materialized() {
             state.stats.rows_materialized += layout.row_count();
         }
@@ -243,23 +239,21 @@ impl MarkdownRenderer {
         document: &MarkdownDocument,
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
     ) -> MarkdownLayout {
-        let mut cache = LayoutCache::default();
+        let mut incremental = IncrementalLayout::default();
         let mut stats = MarkdownRenderStats::default();
-        let build = cache.build(
+        let build = incremental.build(
             document,
             None,
-            0,
+            (0, 0),
             true,
             options,
             theme,
             theme.revision(),
-            highlighter,
             &History::default(),
             &mut stats,
         );
-        MarkdownLayout::new(build.store, cache.targets)
+        MarkdownLayout::new(build.store, incremental.targets)
     }
 
     pub fn render_stream_layout(
@@ -268,51 +262,49 @@ impl MarkdownRenderer {
         stream: &MarkdownStream,
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
     ) -> Result<MarkdownLayout, MarkdownStreamError> {
         let theme_revision = theme.revision();
         let document = stream.document();
         state.history.validate_source(stream)?;
-        let same_stream = state.cache.identity == Some(stream.identity());
-        let changes = same_stream.then(|| stream.changes_since(state.cache.revision));
-        let same_shape = state.cache.options == Some(options) && state.cache.theme == Some(theme_revision);
-        let same_source = same_stream && state.cache.source_revision == stream.source_revision();
+        let same_stream = state.incremental.identity == Some(stream.identity());
+        let changes = same_stream.then(|| stream.changes_since(state.incremental.revision));
+        let same_shape = state.incremental.options == Some(options) && state.incremental.theme == Some(theme_revision);
+        let same_source = same_stream && state.incremental.source_revision == stream.source_revision();
         let parse = stream.parse_stats();
-        let seen = if same_stream { state.cache.parse_stats } else { MarkdownParseStats::default() };
+        let seen = if same_stream { state.incremental.parse_stats } else { MarkdownParseStats::default() };
         state.stats.record_parse(parse, seen);
-        state.cache.parse_stats = parse;
+        state.incremental.parse_stats = parse;
         let unchanged = same_shape
             && same_source
             && changes.is_some_and(|changes| !changes.replaced && changes.first_block >= document.blocks().len());
         if unchanged {
-            state.cache.revision = stream.revision();
+            state.incremental.revision = stream.revision();
             state.stats.rows_reused += state.layout.row_count();
             return Ok(state.layout.clone());
         }
-        let (first_block, reset) = match changes {
-            Some(changes) if same_shape && !changes.replaced => (changes.first_block, false),
-            _ => (0, true),
+        let (first, reset) = match changes {
+            Some(changes) if same_shape && !changes.replaced => ((changes.first_block, changes.first_line), false),
+            _ => ((0, 0), true),
         };
-        let highlighted_before = highlighter.stats().bytes;
-        let build = state.cache.build(
+        let highlighted_before = thread_work().parser_input_bytes;
+        let build = state.incremental.build(
             document,
             stream.open_code_block(),
-            first_block,
+            first,
             reset,
             options,
             theme,
             theme_revision,
-            highlighter,
             &state.history,
             &mut state.stats,
         );
-        state.stats.highlighted_bytes += highlighter.stats().bytes.saturating_sub(highlighted_before);
-        state.cache.identity = Some(stream.identity());
-        state.cache.revision = stream.revision();
-        state.cache.source_revision = stream.source_revision();
-        state.cache.options = Some(options);
-        state.cache.theme = Some(theme_revision);
-        let layout = MarkdownLayout::new(build.store, state.cache.targets.clone());
+        state.stats.highlighted_bytes += thread_work().parser_input_bytes - highlighted_before;
+        state.incremental.identity = Some(stream.identity());
+        state.incremental.revision = stream.revision();
+        state.incremental.source_revision = stream.source_revision();
+        state.incremental.options = Some(options);
+        state.incremental.theme = Some(theme_revision);
+        let layout = MarkdownLayout::new(build.store, state.incremental.targets.clone());
         let previous = state.layout.rows();
         let reset = reset && state.history.rows == 0;
         let mut first_changed_row =
@@ -335,8 +327,8 @@ impl MarkdownRenderer {
         store.extend(&previous.slice(0..first_changed_row));
         store.extend(&layout.rows().slice(first_changed_row..layout.row_count()));
         state.stats.row_store_updates += store.take_updates();
-        state.cache.store = store.clone();
-        let layout = MarkdownLayout::new(store, state.cache.targets.clone());
+        state.incremental.store = store.clone();
+        let layout = MarkdownLayout::new(store, state.incremental.targets.clone());
         state.next_revision += 1;
         let revision = state.next_revision;
         state.update = Some(MarkdownRowUpdate {
@@ -402,23 +394,18 @@ impl Unit {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct OpenCode {
     block: usize,
-    hint: String,
-    syntax: SyntaxStream,
-    fed_lines: usize,
-    fed_partial: usize,
     checkpoint: Option<RowCheckpoint>,
     options: Option<MarkdownLayoutOptions>,
     store: RowStore,
     first_line: usize,
     line_ends: Vec<usize>,
-    failed: bool,
 }
 
 #[derive(Debug, Clone, Default)]
-struct LayoutCache {
+struct IncrementalLayout {
     identity: Option<MarkdownStreamIdentity>,
     revision: u64,
     source_revision: u64,
@@ -437,7 +424,7 @@ struct LayoutCache {
     line_ranges: Vec<SourceRange>,
 }
 
-impl LayoutCache {
+impl IncrementalLayout {
     fn boundary_at(&self, offset: usize) -> Option<Boundary> {
         let options = self.options?;
         let index = self.block_ends.partition_point(|end| *end <= offset);
@@ -457,12 +444,11 @@ impl LayoutCache {
         &mut self,
         document: &MarkdownDocument,
         open_block: Option<usize>,
-        first_block: usize,
+        first: (usize, usize),
         reset: bool,
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
         theme_revision: Fingerprint,
-        highlighter: &mut SyntaxHighlighter,
         history: &History,
         stats: &mut MarkdownRenderStats,
     ) -> LayoutBuild {
@@ -470,14 +456,14 @@ impl LayoutCache {
             self.spacer = None;
         }
         if reset {
-            self.open = None;
+            if let Some(open) = &mut self.open {
+                open.options = None;
+            }
             self.source_lines.clear();
             self.line_ranges.clear();
         }
-        if self.open.as_ref().is_some_and(|open| Some(open.block) != open_block) {
-            self.open = None;
-        }
-        self.sync_targets(document, first_block, open_block, stats);
+        self.open.take_if(|open| Some(open.block) != open_block);
+        self.sync_targets(document, first, open_block, stats);
         let mut store = history.store.clone();
         store.take_updates();
         stats.rows_reused += history.rows;
@@ -487,10 +473,9 @@ impl LayoutCache {
                 self.build_rendered(
                     document,
                     open_block,
-                    first_block,
+                    first,
                     options,
                     theme,
-                    highlighter,
                     history,
                     stats,
                     &mut store,
@@ -504,10 +489,9 @@ impl LayoutCache {
                 self.build_source_lines(
                     document,
                     open_block,
-                    first_block,
+                    first,
                     options,
                     theme,
-                    highlighter,
                     history,
                     stats,
                     &mut store,
@@ -523,7 +507,7 @@ impl LayoutCache {
     fn sync_targets(
         &mut self,
         document: &MarkdownDocument,
-        first_block: usize,
+        (first_block, first_line): (usize, usize),
         open_block: Option<usize>,
         stats: &mut MarkdownRenderStats,
     ) {
@@ -531,20 +515,12 @@ impl LayoutCache {
         let mut first_target = document.blocks().get(first_block).map_or(targets.len(), |block| {
             targets.partition_point(|target| target.source.bytes.start < block.source.bytes.start)
         });
-        let code_prefix = self.open.as_ref().and_then(|open| {
-            if open_block != Some(first_block) || open.block != first_block || open.failed {
-                return None;
+        let code_prefix = match document.blocks().get(first_block).map(|block| &block.kind) {
+            Some(MarkdownBlockKind::CodeBlock(code)) if open_block == Some(first_block) => {
+                code.target_id.map(|root| (root.index(), root.index() + 1 + first_line.min(code.lines().len())))
             }
-            let MarkdownBlockKind::CodeBlock(code) = &document.blocks()[first_block].kind else {
-                return None;
-            };
-            if code.lines.len() < open.fed_lines || code.highlight_hint() != open.hint {
-                return None;
-            }
-            let root = code.target_id?.index();
-            let line = open.fed_lines.saturating_sub(1).min(code.lines.len());
-            Some((root, root + 1 + line))
-        });
+            _ => None,
+        };
         if let Some((root, first_line)) = code_prefix {
             if let Some(target) = targets.get(root) {
                 stats.targets_visited += 1;
@@ -572,15 +548,15 @@ impl LayoutCache {
         &mut self,
         document: &MarkdownDocument,
         open_block: Option<usize>,
-        first_block: usize,
+        (first_block, first_line): (usize, usize),
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
         history: &History,
         stats: &mut MarkdownRenderStats,
         store: &mut RowStore,
         first_generated: &mut Option<usize>,
     ) {
+        let changed_block = first_block;
         let blocks = document.blocks();
         let boundary_index = history.boundary.as_ref().map_or(0, |boundary| {
             blocks.partition_point(|block| {
@@ -623,18 +599,9 @@ impl LayoutCache {
             let checkpoint = at_boundary.and_then(|boundary| boundary.checkpoint.as_ref());
             let unit_options =
                 at_boundary.filter(|_| checkpoint.is_none()).map_or(options, |boundary| boundary.options);
-            let unit = self.render_unit(
-                document,
-                index,
-                block,
-                gap,
-                open_block,
-                unit_options,
-                checkpoint,
-                theme,
-                highlighter,
-                stats,
-            );
+            let changed_line = if index == changed_block { first_line } else { 0 };
+            let open = (open_block == Some(index)).then_some(changed_line);
+            let unit = self.render_unit(document, index, block, gap, open, unit_options, checkpoint, theme, stats);
             self.units.push(unit.clone());
             let skip = at_boundary.filter(|_| checkpoint.is_none()).map_or(0, |boundary| boundary.rows);
             self.skipped_rows.push(skip.min(unit.len));
@@ -650,11 +617,10 @@ impl LayoutCache {
         index: usize,
         block: &MarkdownBlock,
         gap: Range<usize>,
-        open_block: Option<usize>,
+        open_changed_line: Option<usize>,
         options: MarkdownLayoutOptions,
         checkpoint: Option<&RowCheckpoint>,
         theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
         stats: &mut MarkdownRenderStats,
     ) -> Unit {
         let mut unit = Unit { block_start: block.source.bytes.start, ..Unit::default() };
@@ -688,11 +654,14 @@ impl LayoutCache {
             unit.push(spacer, true);
         }
         let context = BlockContext { target: None, foreground: theme.diff.foreground, prefix: "" };
-        if let (MarkdownBlockKind::CodeBlock(code), true) = (&block.kind, open_block == Some(index)) {
-            let (highlights, changed_from) = self.open_code_highlights(index, code, theme, highlighter);
-            let open = self.open.as_mut().expect("open code cache initialised");
+        if let (MarkdownBlockKind::CodeBlock(code), Some(changed_from)) = (&block.kind, open_changed_line) {
+            let highlights = &code.syntax().highlights;
+            let open = match &mut self.open {
+                Some(open) if open.block == index => open,
+                slot => slot.insert(OpenCode { block: index, ..OpenCode::default() }),
+            };
             let first_line = checkpoint.map_or(0, |checkpoint| {
-                code.lines.partition_point(|line| line.source.bytes.end <= checkpoint.source.bytes.start)
+                code.lines().partition_point(|line| line.source.bytes.end <= checkpoint.source.bytes.start)
             });
             let reuse = if open.options == Some(options)
                 && open.checkpoint.as_ref() == checkpoint
@@ -713,12 +682,13 @@ impl LayoutCache {
                 unit.first_generated = None;
             }
             let base = fenced_code_style(theme);
-            for (line_index, line) in code.lines.iter().enumerate().skip(first_line + reuse) {
+            for (line_index, line) in code.lines().iter().enumerate().skip(first_line + reuse) {
                 stats.chunks_visited += 1;
                 let mut output = RowOutput::new(options).after(checkpoint);
                 render_code_line(
                     line,
                     highlights.line(line_index).unwrap_or_default(),
+                    &theme.syntax,
                     base,
                     "",
                     line.target_id.or(code.target_id),
@@ -738,85 +708,13 @@ impl LayoutCache {
             return unit;
         }
         let mut output = RowOutput::new(options).after(checkpoint);
-        render_block(block, theme, highlighter, &mut output, context);
+        render_block(block, theme, &mut output, context);
         let chunk: RowChunk = Arc::from(output.rows);
         stats.rows_generated += chunk.len();
         stats.chunks_visited += 1;
         unit.push(&chunk, true);
         stats.row_store_updates += unit.store.take_updates();
         unit
-    }
-
-    fn open_code_highlights(
-        &mut self,
-        index: usize,
-        code: &MarkdownCodeBlock,
-        theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
-    ) -> (Arc<DocumentHighlights>, usize) {
-        let hint = code.highlight_hint();
-        let reusable = self.open.as_ref().is_some_and(|open| {
-            open.block == index
-                && !open.failed
-                && open.hint == hint
-                && code.lines.len() >= open.fed_lines
-                && open.fed_lines.checked_sub(1).is_none_or(|last| code.lines[last].text.len() >= open.fed_partial)
-        });
-        if !reusable {
-            self.open = Some(OpenCode {
-                block: index,
-                hint: hint.to_owned(),
-                syntax: SyntaxStream::new(LanguageHint::InfoString(hint)),
-                fed_lines: 0,
-                fed_partial: 0,
-                checkpoint: None,
-                options: None,
-                store: RowStore::default(),
-                first_line: 0,
-                line_ends: Vec::new(),
-                failed: false,
-            });
-        }
-        let open = self.open.as_mut().expect("open code cache initialised");
-        let first_text_change = open.fed_lines.saturating_sub(1);
-        let mut delta = String::new();
-        if let Some(last) = open.fed_lines.checked_sub(1) {
-            delta.push_str(&code.lines[last].text[open.fed_partial..]);
-        }
-        for (index, line) in code.lines.iter().enumerate().skip(open.fed_lines) {
-            if index > 0 {
-                delta.push('\n');
-            }
-            delta.push_str(&line.text);
-        }
-        open.fed_lines = code.lines.len();
-        open.fed_partial = code.lines.last().map_or(0, |line| line.text.len());
-        if open.failed {
-            return (Arc::default(), 0);
-        }
-        if let Ok(update) = highlighter.with_theme(&theme.syntax).append(&mut open.syntax, &delta) {
-            (update.highlights, update.changed_lines.start.min(first_text_change))
-        } else {
-            open.failed = true;
-            open.store = RowStore::default();
-            open.line_ends.clear();
-            (Arc::default(), 0)
-        }
-    }
-
-    fn block_highlights(
-        &mut self,
-        index: usize,
-        code: &MarkdownCodeBlock,
-        open_block: Option<usize>,
-        theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
-    ) -> (Arc<DocumentHighlights>, usize) {
-        if open_block == Some(index) {
-            self.open_code_highlights(index, code, theme, highlighter)
-        } else {
-            (highlight_code_block(code, theme, highlighter), 0)
-        }
     }
 
     fn line_ranges(&mut self, source: &str) -> usize {
@@ -849,10 +747,9 @@ impl LayoutCache {
         &mut self,
         document: &MarkdownDocument,
         open_block: Option<usize>,
-        first_block: usize,
+        (first_block, first_code_line): (usize, usize),
         options: MarkdownLayoutOptions,
         theme: &ReviewTheme,
-        highlighter: &mut SyntaxHighlighter,
         history: &History,
         stats: &mut MarkdownRenderStats,
         store: &mut RowStore,
@@ -873,18 +770,13 @@ impl LayoutCache {
         let mut code_lines = HashMap::new();
         for (index, block) in blocks.iter().enumerate().skip(first_block) {
             stats.blocks_visited += 1;
-            for code in block_code_blocks(block) {
-                let own = matches!(block.kind, MarkdownBlockKind::CodeBlock(_));
-                let (highlights, changed_from) = if own {
-                    self.block_highlights(index, code, open_block, theme, highlighter)
-                } else {
-                    (highlight_code_block(code, theme, highlighter), 0)
-                };
-                if own && open_block == Some(index) {
+            for code in block.code_blocks() {
+                let highlights = &code.syntax().highlights;
+                if open_block == Some(index) && index == first_block {
                     let content_line = code.content.lines.start.saturating_sub(1);
-                    first_line = first_line.max(content_line + changed_from);
+                    first_line = first_line.max(content_line + first_code_line);
                 }
-                for (line_index, line) in code.lines.iter().enumerate() {
+                for (line_index, line) in code.lines().iter().enumerate() {
                     stats.chunks_visited += 1;
                     if let Some(source_line) = line.source_line {
                         code_lines.insert(
@@ -948,8 +840,9 @@ impl LayoutCache {
             stats.rows_compared += usize::from(self.source_lines.get(index).is_some());
             self.source_lines.truncate(index);
             let mut output = RowOutput::new(options).after(checkpoint);
-            let code = code_input
-                .and_then(|(code, spans)| Some((text.strip_suffix(code)?, highlighted_line(code, spans, code_style))));
+            let code = code_input.and_then(|(code, spans)| {
+                Some((text.strip_suffix(code)?, highlighted_line(code, spans, &theme.syntax, code_style)))
+            });
             let spans = match code {
                 Some((prefix, line)) => {
                     let mut spans = vec![Span::styled(prefix.to_owned(), code_style)];
@@ -1005,26 +898,6 @@ fn emit_unit(unit: &Unit, skip: usize, store: &mut RowStore, first_generated: &m
     }
 }
 
-fn block_code_blocks(block: &MarkdownBlock) -> Vec<&MarkdownCodeBlock> {
-    fn collect<'a>(blocks: &'a [MarkdownBlock], output: &mut Vec<&'a MarkdownCodeBlock>) {
-        for block in blocks {
-            match &block.kind {
-                MarkdownBlockKind::CodeBlock(code) => output.push(code),
-                MarkdownBlockKind::List { items, .. } => {
-                    for item in items {
-                        collect(&item.blocks, output);
-                    }
-                }
-                MarkdownBlockKind::BlockQuote { blocks } => collect(blocks, output),
-                _ => {}
-            }
-        }
-    }
-    let mut output = Vec::new();
-    collect(std::slice::from_ref(block), &mut output);
-    output
-}
-
 /// Foreground and background for fenced code, composited over the page.
 fn fenced_code_style(theme: &ReviewTheme) -> Style {
     layered_style(theme.markdown.code, theme.markdown.code_background, theme.diff.background)
@@ -1033,25 +906,6 @@ fn fenced_code_style(theme: &ReviewTheme) -> Style {
 /// Applies the inline-code role on top of `style`.
 fn inline_code_style(style: Style, theme: &ReviewTheme) -> Style {
     style.patch(layered_style(theme.markdown.inline_code, theme.markdown.inline_code_background, theme.diff.background))
-}
-
-/// Highlights a fenced block with its complete content as parser context.
-fn highlight_code_block(
-    code: &MarkdownCodeBlock,
-    theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
-) -> Arc<DocumentHighlights> {
-    highlighter
-        .with_theme(&theme.syntax)
-        .highlight_document(
-            Fingerprint::of([
-                b"markdown-code-without-final-newline".as_slice(),
-                SourceSequenceId::from_lines(code.lines.iter().map(|line| line.text.as_str())).fingerprint().as_bytes(),
-            ]),
-            LanguageHint::InfoString(code.highlight_hint()),
-            || code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n"),
-        )
-        .unwrap_or_default()
 }
 
 /// Ownership and styling a block inherits from its enclosing blocks.
@@ -1159,13 +1013,7 @@ fn translated_offset(before: &str, after: &str, offset: usize) -> usize {
     new
 }
 
-fn render_block(
-    block: &MarkdownBlock,
-    theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
-    output: &mut RowOutput,
-    context: BlockContext<'_>,
-) {
+fn render_block(block: &MarkdownBlock, theme: &ReviewTheme, output: &mut RowOutput, context: BlockContext<'_>) {
     let prefix = context.prefix;
     let width = output.options.width;
     let origin = RowOrigin { source: &block.source, target: block.target_id.or(context.target) };
@@ -1187,28 +1035,22 @@ fn render_block(
             spans.extend(inline_spans(content, base, theme));
             output.push_wrapped(spans, prefix, origin);
         }
-        MarkdownBlockKind::List { ordered, start, items } => render_list(
-            items,
-            (*ordered, *start),
-            theme,
-            highlighter,
-            output,
-            BlockContext { target: origin.target, ..context },
-        ),
+        MarkdownBlockKind::List { ordered, start, items } => {
+            render_list(items, (*ordered, *start), theme, output, BlockContext { target: origin.target, ..context });
+        }
         MarkdownBlockKind::BlockQuote { blocks } => {
             let quote_prefix = format!("{prefix}│ ");
             for child in blocks {
                 render_block(
                     child,
                     theme,
-                    highlighter,
                     output,
                     BlockContext { target: origin.target, foreground: theme.markdown.quote, prefix: &quote_prefix },
                 );
             }
         }
         MarkdownBlockKind::CodeBlock(code) => {
-            render_code(code, theme, highlighter, output, origin.target, prefix);
+            render_code(code, theme, output, origin.target, prefix);
         }
         MarkdownBlockKind::Table(table) => {
             render_table(table, theme, output, context.foreground, origin.target, prefix);
@@ -1224,7 +1066,6 @@ fn render_list(
     items: &[MarkdownListItem],
     (ordered, start): (bool, Option<u64>),
     theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
     output: &mut RowOutput,
     context: BlockContext<'_>,
 ) {
@@ -1240,13 +1081,7 @@ fn render_list(
         output.push_wrapped(spans, &continuation, RowOrigin { source: &item.source, target: item_target });
         let child_prefix = format!("{prefix}  ");
         for child in &item.blocks {
-            render_block(
-                child,
-                theme,
-                highlighter,
-                output,
-                BlockContext { target: item_target, prefix: &child_prefix, ..context },
-            );
+            render_block(child, theme, output, BlockContext { target: item_target, prefix: &child_prefix, ..context });
         }
     }
 }
@@ -1254,17 +1089,17 @@ fn render_list(
 fn render_code(
     code: &MarkdownCodeBlock,
     theme: &ReviewTheme,
-    highlighter: &mut SyntaxHighlighter,
     output: &mut RowOutput,
     target: Option<MarkdownTargetId>,
     prefix: &str,
 ) {
-    let highlights = highlight_code_block(code, theme, highlighter);
+    let highlights = &code.syntax().highlights;
     let base = fenced_code_style(theme);
-    for (index, line) in code.lines.iter().enumerate() {
+    for (index, line) in code.lines().iter().enumerate() {
         render_code_line(
             line,
             highlights.line(index).unwrap_or_default(),
+            &theme.syntax,
             base,
             prefix,
             line.target_id.or(target),
@@ -1276,12 +1111,13 @@ fn render_code(
 fn render_code_line(
     line: &clankerdiff_markdown::MarkdownCodeLine,
     spans: &[HighlightSpan],
+    syntax: &SyntaxTheme,
     base: Style,
     prefix: &str,
     target: Option<MarkdownTargetId>,
     output: &mut RowOutput,
 ) {
-    let mut rendered = highlighted_line(&line.text, spans, base);
+    let mut rendered = highlighted_line(&line.text, spans, syntax, base);
     rendered.spans.insert(0, Span::styled(prefix.to_owned(), base));
     output.push_wrapped(rendered.spans, prefix, RowOrigin { source: &line.source, target });
 }
