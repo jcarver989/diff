@@ -33,8 +33,9 @@ pub fn run(window: impl Into<AnyWindowHandle>, script: String, cx: &mut App) {
                     }
                 }
                 "keys" => {
+                    let os = cx.update(|cx| cx.platform_info().os);
                     for keystroke in argument.split_whitespace() {
-                        match Keystroke::parse(keystroke) {
+                        match Keystroke::parse_with_os(keystroke, os) {
                             Ok(keystroke) => {
                                 let _ =
                                     cx.update_window(window, |_, window, cx| window.dispatch_keystroke(keystroke, cx));

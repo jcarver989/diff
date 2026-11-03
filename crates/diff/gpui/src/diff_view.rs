@@ -20,8 +20,7 @@ use clankerdiff_core::{
 };
 use gpui::{
     Action, Anchor, AnyElement, Context, DispatchPhase, Div, Entity, EntityId, HitboxBehavior, ListState, MouseButton,
-    Pixels, ScrollDelta, ScrollWheelEvent, SharedString, Stateful, StyledText, Window, canvas, div, list, prelude::*,
-    px,
+    Pixels, ScrollDelta, ScrollEvent, SharedString, Stateful, StyledText, Window, canvas, div, list, prelude::*, px,
 };
 use gpui_base::Popover;
 
@@ -681,7 +680,7 @@ fn wheel_line_scroller(list_state: ListState, line_height: Pixels, viewer: Entit
     canvas(
         |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
         move |_, hitbox, window, _| {
-            window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
+            window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
                 let ScrollDelta::Lines(lines) = event.delta else {
                     return;
                 };

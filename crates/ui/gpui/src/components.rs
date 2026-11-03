@@ -1045,7 +1045,7 @@ impl RenderOnce for Backdrop {
                     dismiss(window, cx);
                 }
             })
-            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .on_scroll(|_, _, cx| cx.stop_propagation())
             .child(IndicatorMark::occluder("occluder").absolute().inset_0())
             .children(self.children)
     }

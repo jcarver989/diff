@@ -348,8 +348,8 @@ impl MarkdownReviewer {
         self.run(MarkdownReviewCommand::CopyReview(decision), window, cx);
     }
 
-    fn key_context(&self) -> KeyContext {
-        let mut key_context = KeyContext::new_with_defaults();
+    fn key_context(&self, cx: &App) -> KeyContext {
+        let mut key_context = KeyContext::new_with_defaults(cx.platform_info().os);
         key_context.add("MarkdownReviewer");
         key_context.set(
             "mode",
@@ -386,7 +386,7 @@ impl Render for MarkdownReviewer {
         let palette = &self.theme.diff;
 
         div()
-            .key_context(self.key_context())
+            .key_context(self.key_context(cx))
             .track_focus(&focus)
             .on_action(Self::dispatch::<MarkdownNextTarget>(C::MoveSelection(1), cx))
             .on_action(Self::dispatch::<MarkdownPreviousTarget>(C::MoveSelection(-1), cx))

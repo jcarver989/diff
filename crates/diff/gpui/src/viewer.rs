@@ -28,10 +28,10 @@ use clankerdiff_symbols::{DocumentSyntax, NameLookup, SymbolIndex};
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use gpui::{
     Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, HighlightStyle, KeyBinding,
-    KeyContext, ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollStrategy, Subscription, Task,
-    UniformListScrollHandle, Window, actions, div, prelude::*, px, rems,
+    KeyBindingContextPredicate, KeyContext, ListAlignment, ListOffset, ListState, Pixels, Rems, ScrollStrategy,
+    Subscription, Task, UniformListScrollHandle, Window, actions, div, prelude::*, px, rems,
 };
-use std::{ops::Range, sync::Arc};
+use std::{ops::Range, rc::Rc, sync::Arc};
 
 pub(crate) const MIN_SIDEBAR_WIDTH: Rems = rem(180.0);
 pub(crate) const MAX_SIDEBAR_WIDTH: Rems = rem(960.0);
@@ -181,10 +181,23 @@ impl DiffViewer {
     pub fn bind_keys(cx: &mut App) {
         const DRAFT: &str = "DiffViewer && mode == draft";
         const DISCARD: &str = "DiffViewer && mode == repository-discard";
-        let shortcuts = diff_shortcuts().into_iter().map(|(chord, scope, entry)| {
-            KeyBinding::new(&keystroke(chord), RunCommand(entry.command.clone()), Some(&key_context(chord, scope)))
-        });
-        cx.bind_keys(shortcuts.chain([
+        let shortcuts = diff_shortcuts()
+            .into_iter()
+            .map(|(chord, scope, entry)| {
+                let context =
+                    KeyBindingContextPredicate::parse(&key_context(chord, scope)).expect("a valid shortcut context");
+                KeyBinding::load(
+                    &keystroke(chord),
+                    Box::new(RunCommand(entry.command.clone())),
+                    Some(Rc::new(context)),
+                    false,
+                    None,
+                    cx,
+                )
+                .expect("a valid shortcut keystroke")
+            })
+            .collect::<Vec<_>>();
+        cx.bind_keys(shortcuts.into_iter().chain([
             KeyBinding::new("cmd-enter", SubmitComment, Some(DRAFT)),
             KeyBinding::new("ctrl-enter", SubmitComment, Some(DRAFT)),
             KeyBinding::new("escape", CancelComment, Some(DRAFT)),

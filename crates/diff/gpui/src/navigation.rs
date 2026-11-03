@@ -58,7 +58,7 @@ impl DiffViewer {
 
     pub(crate) fn modifiers_changed(&mut self, event: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
         let modifiers = event.modifiers;
-        let visible = modifiers.secondary() && !modifiers.shift && !modifiers.alt;
+        let visible = modifiers.secondary(cx) && !modifiers.shift && !modifiers.alt;
         if self.links_visible != visible {
             self.links_visible = visible;
             cx.notify();
@@ -146,7 +146,7 @@ impl DiffViewer {
             Some(reference) if self.names.card().is_some_and(|card| card.shows(location, &reference.span.columns)) => {
                 self.card_token_hovered(true, cx);
             }
-            Some(reference) if modifiers.secondary() => {
+            Some(reference) if modifiers.secondary(cx) => {
                 self.show_definition(location.clone(), reference, Hold::Hover, cx);
             }
             _ if self.card_at(location) => {
@@ -223,7 +223,7 @@ fn line_links(
         .on_click(ranges, {
             let (viewer, references, location) = (viewer.clone(), Rc::clone(&references), location.clone());
             move |index, window, cx| {
-                let Some(reference) = references.get(index).filter(|_| window.modifiers().secondary()) else {
+                let Some(reference) = references.get(index).filter(|_| window.modifiers().secondary(cx)) else {
                     return;
                 };
                 let _ = viewer.update(cx, |viewer, cx| viewer.follow_definition(location.clone(), reference, cx));

@@ -13,7 +13,7 @@ fn empty_caret_tracks_focus_and_remains_available_after_input(cx: &mut TestAppCo
         assert!(harness.comment_focused(cx)?);
         let empty = caret(&harness, cx)?;
         let input = harness.bounds(cx, "comment-input").ok_or("input missing")?;
-        assert_eq!(empty.size.width, px(KEYS.caret_width));
+        assert_eq!(empty.size.width, px(1.0));
         assert!(empty.size.height > px(0.0));
         assert!(empty.origin.x > input.origin.x);
         harness.simulate_input(cx, "a");
@@ -329,7 +329,6 @@ fn click(harness: &DiffViewerHarness, cx: &mut TestAppContext, position: Point<P
 }
 
 struct PlatformKeys {
-    caret_width: f32,
     document_start: &'static str,
     document_end: &'static str,
     select_all: &'static str,
@@ -344,7 +343,6 @@ struct PlatformKeys {
 
 #[cfg(target_os = "macos")]
 const KEYS: PlatformKeys = PlatformKeys {
-    caret_width: 1.5,
     document_start: "cmd-up",
     document_end: "cmd-down",
     select_all: "cmd-a",
@@ -359,7 +357,6 @@ const KEYS: PlatformKeys = PlatformKeys {
 
 #[cfg(not(target_os = "macos"))]
 const KEYS: PlatformKeys = PlatformKeys {
-    caret_width: 2.0,
     document_start: "ctrl-home",
     document_end: "ctrl-end",
     select_all: "ctrl-a",
