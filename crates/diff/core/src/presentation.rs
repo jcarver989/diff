@@ -12,6 +12,7 @@ use std::{
     sync::Arc,
 };
 
+pub const MAX_CELL_TEXT_BYTES: usize = 4 * 1024;
 const NO_NEWLINE_TEXT: &str = "\\ No newline at end of file";
 
 /// Requested diff layout.
@@ -253,6 +254,8 @@ pub struct PresentedCell {
     pub source_line: Option<SourceLineRef>,
     pub text: Arc<str>,
     pub tone: DiffTone,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truncated_at: Option<usize>,
 }
 
 /// One cheap renderer-neutral row descriptor.
@@ -270,6 +273,11 @@ impl PresentedCell {
     #[must_use]
     pub fn line_number(&self) -> Option<usize> {
         self.source_line.map(|source| source.line_number)
+    }
+
+    #[must_use]
+    pub fn source_text(&self) -> &str {
+        &self.text[..self.truncated_at.unwrap_or(self.text.len())]
     }
 }
 
@@ -1007,7 +1015,14 @@ fn cell(
     text: impl Into<Arc<str>>,
     tone: DiffTone,
 ) -> PresentedCell {
-    PresentedCell { patch_source, source_line, text: text.into(), tone }
+    let text: Arc<str> = text.into();
+    if text.len() <= MAX_CELL_TEXT_BYTES {
+        return PresentedCell { patch_source, source_line, text, tone, truncated_at: None };
+    }
+    let shown = text.floor_char_boundary(MAX_CELL_TEXT_BYTES);
+    let hidden = text.len() - shown;
+    let text = format!("{} … {hidden} more bytes", &text[..shown]);
+    PresentedCell { patch_source, source_line, text: text.into(), tone, truncated_at: Some(shown) }
 }
 
 fn code_cell(side: DiffSide, hunk_index: usize, line_index: usize, line: &PatchLine) -> PresentedCell {

@@ -1,8 +1,8 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    ContentProjection, DiffPresentation, DiffSide, DiffTone, Layout, PresentationOptions, RowKind, SourceUnavailable,
-    ViewMode, ViewportAnchor, testing::DocumentBuilder,
+    ContentProjection, DiffPresentation, DiffSide, DiffTone, Layout, MAX_CELL_TEXT_BYTES, PresentationOptions,
+    PresentedCell, PresentedRow, RowKind, SourceUnavailable, ViewMode, ViewportAnchor, testing::DocumentBuilder,
 };
 use std::error::Error;
 
@@ -160,4 +160,21 @@ fn split_presentations_show_one_sided_files_unified() {
     let presentation = DiffPresentation::new(document, options);
     let layouts: Vec<Layout> = (0..4).map(|index| presentation.file_layout(index)).collect();
     assert_eq!(layouts, [Layout::Split, Layout::Unified, Layout::Unified, Layout::Unified]);
+}
+
+#[test]
+fn overlong_lines_show_a_bounded_prefix_and_how_much_is_hidden() -> Result<(), Box<dyn Error>> {
+    let shown = "a".repeat(MAX_CELL_TEXT_BYTES - 1);
+    let long = format!("{shown}界{}", "b".repeat(10_000));
+    let document = DocumentBuilder::new().changed("data.json", "short\n", &format!("{long}\n")).build();
+    let presentation = DiffPresentation::new(document, PresentationOptions::default());
+    let rows = presentation.rows(0..presentation.row_count());
+    let cells: Vec<&PresentedCell> =
+        rows.iter().flat_map(PresentedRow::cells).filter(|cell| cell.patch_source.is_some()).collect();
+    let short = cells.iter().find(|cell| cell.text.as_ref() == "short").ok_or("short cell")?;
+    assert_eq!((short.truncated_at, short.source_text()), (None, "short"));
+    let truncated = cells.iter().find(|cell| cell.truncated_at.is_some()).ok_or("truncated cell")?;
+    assert_eq!(truncated.source_text(), shown);
+    assert_eq!(truncated.text.as_ref(), format!("{shown} … {} more bytes", long.len() - shown.len()));
+    Ok(())
 }

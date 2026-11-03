@@ -1,5 +1,6 @@
 use clankerdiff_core::{
-    DiffPresentation, PresentationOptions, PresentedCell, PresentedRow, RowKind, join_lines, testing::DocumentBuilder,
+    DiffPresentation, MAX_CELL_TEXT_BYTES, PresentationOptions, PresentedCell, PresentedRow, RowKind, join_lines,
+    testing::DocumentBuilder,
 };
 use clankerdiff_symbols::{DocumentSyntax, HUNK_WINDOW_LINES};
 use clankerdiff_syntax::{LanguageHint, analyze, thread_work};
@@ -87,6 +88,20 @@ fn an_edited_file_keeps_the_analysis_of_its_unchanged_side() {
     let before = thread_work().parses();
     highlight_every_cell(&syntax);
     assert_eq!(thread_work().parses() - before, 1, "only the edited new side is analyzed again");
+}
+
+#[test]
+fn truncated_cells_are_highlighted_only_within_their_shown_text() -> Result<(), Box<dyn Error>> {
+    let long = format!("let values = [{}];\n", "1, ".repeat(MAX_CELL_TEXT_BYTES));
+    let document = DocumentBuilder::new().changed("a.rs", "fn a() {}\n", &long).build();
+    let presentation = DiffPresentation::new(Arc::clone(&document), PresentationOptions::default());
+    let syntax = DocumentSyntax::new(document);
+    let (row, cell) =
+        code_cells(&presentation).into_iter().find(|(_, cell)| cell.truncated_at.is_some()).ok_or("truncated cell")?;
+    let spans = syntax.highlights(row, cell);
+    assert!(!spans.is_empty());
+    assert!(spans.iter().all(|span| span.range.end <= cell.source_text().len()));
+    Ok(())
 }
 
 fn highlight_every_cell(syntax: &DocumentSyntax) {

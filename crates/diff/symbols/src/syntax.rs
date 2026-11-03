@@ -80,7 +80,7 @@ impl DocumentSyntax {
 
     #[must_use]
     pub fn highlights(&self, row: &PresentedRow, cell: &PresentedCell) -> HighlightLine<'_> {
-        self.cell_highlights(row, cell).unwrap_or_default()
+        self.cell_highlights(row, cell).unwrap_or_default().clipped(cell.source_text().len())
     }
 
     #[must_use]

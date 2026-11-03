@@ -238,6 +238,20 @@ fn injections_highlight_embedded_languages() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn clipped_lines_keep_only_spans_that_end_within_the_length() -> TestResult {
+    let highlights = analyze("rust", "fn main() { let value = 1; }").highlights;
+    let full = line(&highlights, 0)?;
+    let ends: Vec<usize> = full.iter().map(|span| span.range.end).collect();
+    let cut = *ends.get(1).ok_or("two spans")?;
+    let clipped = full.clipped(cut + 1);
+    assert_eq!(clipped.len(), ends.iter().filter(|&&end| end <= cut + 1).count());
+    assert!(clipped.iter().all(|span| span.range.end <= cut + 1));
+    assert_eq!(full.clipped(usize::MAX), full);
+    assert!(full.clipped(0).is_empty());
+    Ok(())
+}
+
 #[derive(Clone)]
 struct Rust;
 

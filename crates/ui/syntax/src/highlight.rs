@@ -330,6 +330,12 @@ impl<'a> HighlightLine<'a> {
         self.ids.is_empty()
     }
 
+    #[must_use]
+    pub fn clipped(self, len: usize) -> Self {
+        let kept = self.ends.partition_point(|&end| end as usize <= len);
+        Self { starts: &self.starts[..kept], ends: &self.ends[..kept], ids: &self.ids[..kept] }
+    }
+
     pub fn iter(&self) -> HighlightSpans<'a> {
         self.starts
             .iter()

@@ -849,7 +849,7 @@ impl ReviewSession {
         let Some(anchor) = self.selected_anchor() else {
             return false;
         };
-        let line_text = self.selected_cell().map_or_else(String::new, |cell| cell.text.to_string());
+        let line_text = self.selected_cell().map_or_else(String::new, |cell| cell.source_text().to_owned());
         let body =
             editing.and_then(|id| self.review.comment(id)).map_or_else(String::new, |comment| comment.body.clone());
         self.set_draft(Some(CommentDraft::new(anchor, line_text, body, editing)));
