@@ -420,7 +420,7 @@ struct IncrementalLayout {
     spacer: Option<RowChunk>,
     targets: TargetIndex,
     target_ids: Vec<MarkdownTargetId>,
-    source_lines: Vec<CachedSourceLine>,
+    source_lines: Vec<RowChunk>,
     line_ranges: Vec<SourceRange>,
 }
 
@@ -813,11 +813,9 @@ impl IncrementalLayout {
         let mut unit = Unit::default();
         for (index, range) in lines.iter().enumerate() {
             stats.chunks_visited += 1;
-            if index < first_line
-                && let Some(cached) = self.source_lines.get(index)
-            {
-                stats.rows_reused += cached.rows.len();
-                unit.push(&cached.rows, false);
+            if let Some(rows) = self.source_lines.get(index) {
+                stats.rows_reused += rows.len();
+                unit.push(rows, false);
                 continue;
             }
             let raw = &source[range.bytes.clone()];
@@ -827,18 +825,6 @@ impl IncrementalLayout {
             let target = target_by_line.get(&line_number).map(|(_, id)| *id);
             let code_input = code_lines.get(&line_number);
             let styles = styles_by_line.get(&line_number).map_or(&[][..], Vec::as_slice);
-            if let Some(cached) = self
-                .source_lines
-                .get(index)
-                .filter(|cached| cached.key.matches(text, range, target, styles, code_input))
-            {
-                stats.rows_compared += 1;
-                stats.rows_reused += cached.rows.len();
-                unit.push(&cached.rows, false);
-                continue;
-            }
-            stats.rows_compared += usize::from(self.source_lines.get(index).is_some());
-            self.source_lines.truncate(index);
             let mut output = RowOutput::new(options).after(checkpoint);
             let code = code_input.and_then(|(code, spans)| {
                 Some((text.strip_suffix(code)?, highlighted_line(code, spans, &theme.syntax, code_style)))
@@ -864,16 +850,7 @@ impl IncrementalLayout {
             output.push_wrapped(spans, "", RowOrigin { source: range, target });
             let chunk: RowChunk = output.rows.into();
             stats.rows_generated += chunk.len();
-            self.source_lines.push(CachedSourceLine {
-                key: Arc::new(SourceLineKey {
-                    text: text.to_owned(),
-                    source: range.clone(),
-                    target,
-                    styles: styles.iter().copied().cloned().collect(),
-                    code: code_input.map(|(text, spans)| ((*text).to_owned(), Arc::clone(spans))),
-                }),
-                rows: Arc::clone(&chunk),
-            });
+            self.source_lines.push(Arc::clone(&chunk));
             unit.push(&chunk, true);
         }
         self.source_lines.truncate(lines.len());
@@ -1257,44 +1234,6 @@ fn inline_spans(inlines: &[MarkdownInline], style: Style, theme: &ReviewTheme) -
         append(inline, style, theme, &mut output);
     }
     output
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SourceLineKey {
-    text: String,
-    source: SourceRange,
-    target: Option<MarkdownTargetId>,
-    styles: Vec<MarkdownSourceStyle>,
-    code: Option<(String, Arc<[HighlightSpan]>)>,
-}
-
-impl SourceLineKey {
-    fn matches(
-        &self,
-        text: &str,
-        source: &SourceRange,
-        target: Option<MarkdownTargetId>,
-        styles: &[&MarkdownSourceStyle],
-        code: Option<&(&str, Arc<[HighlightSpan]>)>,
-    ) -> bool {
-        self.text == text
-            && self.source == *source
-            && self.target == target
-            && self.styles.iter().eq(styles.iter().copied())
-            && match (&self.code, code) {
-                (None, None) => true,
-                (Some((cached_text, cached_spans)), Some((text, spans))) => {
-                    cached_text == text && (Arc::ptr_eq(cached_spans, spans) || cached_spans == spans)
-                }
-                _ => false,
-            }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct CachedSourceLine {
-    key: Arc<SourceLineKey>,
-    rows: RowChunk,
 }
 
 fn source_role_style(role: MarkdownSourceRole, style: Style, theme: &ReviewTheme) -> Style {
