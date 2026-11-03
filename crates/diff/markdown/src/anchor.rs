@@ -56,6 +56,30 @@ impl MarkdownDocument {
         resolve_anchor(self, anchor)
     }
 
+    #[must_use]
+    pub fn exact_target(&self, anchor: &MarkdownAnchor) -> Option<MarkdownTargetId> {
+        let block = match anchor {
+            MarkdownAnchor::Block(block) => block,
+            MarkdownAnchor::CodeLine(line) => &line.block,
+        };
+        let lines = block.source_lines;
+        let targets = self.targets();
+        let first = targets.partition_point(|target| target.source.lines.start < lines.start);
+        targets[first..]
+            .iter()
+            .take_while(|target| target.source.lines.start == lines.start)
+            .filter(|target| target.kind == block.kind && target.source.lines == lines)
+            .find_map(|target| {
+                let id = match anchor {
+                    MarkdownAnchor::Block(_) => target.id,
+                    MarkdownAnchor::CodeLine(line) => {
+                        code_block(self, target.id)?.lines.get(line.code_line_index)?.target_id?
+                    }
+                };
+                (self.anchor_for_target(id).as_ref() == Some(anchor)).then_some(id)
+            })
+    }
+
     /// Returns the style-free rendered text for a target.
     #[must_use]
     pub fn rendered_target_text(&self, id: MarkdownTargetId) -> Option<String> {

@@ -118,16 +118,16 @@ impl MarkdownCommentDraft {
 #[derive(Debug, Clone)]
 pub struct MarkdownReviewSession {
     document: Arc<MarkdownDocument>,
-    review: MarkdownReview,
+    review: Arc<MarkdownReview>,
     selected_target: Option<MarkdownTargetId>,
-    draft: Option<MarkdownCommentDraft>,
+    draft: Option<Arc<MarkdownCommentDraft>>,
 }
 
 impl MarkdownReviewSession {
     #[must_use]
     pub fn new(document: Arc<MarkdownDocument>) -> Self {
         let selected_target = document.targets().first().map(|target| target.id);
-        Self { document, review: MarkdownReview::default(), selected_target, draft: None }
+        Self { document, review: Arc::default(), selected_target, draft: None }
     }
 
     #[must_use]
@@ -136,12 +136,17 @@ impl MarkdownReviewSession {
     }
 
     #[must_use]
-    pub const fn review(&self) -> &MarkdownReview {
+    pub fn review(&self) -> &MarkdownReview {
         &self.review
     }
 
-    pub const fn review_mut(&mut self) -> &mut MarkdownReview {
-        &mut self.review
+    pub fn review_mut(&mut self) -> &mut MarkdownReview {
+        Arc::make_mut(&mut self.review)
+    }
+
+    #[must_use]
+    pub fn annotations(&self) -> (&Arc<MarkdownReview>, Option<&Arc<MarkdownCommentDraft>>) {
+        (&self.review, self.draft.as_ref())
     }
 
     #[must_use]
@@ -160,12 +165,12 @@ impl MarkdownReviewSession {
     }
 
     #[must_use]
-    pub const fn draft(&self) -> Option<&MarkdownCommentDraft> {
-        self.draft.as_ref()
+    pub fn draft(&self) -> Option<&MarkdownCommentDraft> {
+        self.draft.as_deref()
     }
 
-    pub const fn draft_mut(&mut self) -> Option<&mut MarkdownCommentDraft> {
-        self.draft.as_mut()
+    pub fn draft_mut(&mut self) -> Option<&mut MarkdownCommentDraft> {
+        self.draft.as_mut().map(Arc::make_mut)
     }
 
     /// Selects a target from this document.
@@ -284,7 +289,7 @@ impl MarkdownReviewSession {
             }
             None => String::new(),
         };
-        self.draft = Some(MarkdownCommentDraft::new(target, anchor, context, body, editing));
+        self.draft = Some(Arc::new(MarkdownCommentDraft::new(target, anchor, context, body, editing)));
         true
     }
 
@@ -294,18 +299,18 @@ impl MarkdownReviewSession {
 
     /// Saves the active draft, returning its comment ID. Blank drafts are discarded.
     pub fn submit_draft(&mut self) -> Option<u64> {
-        let draft = self.draft.take()?;
+        let draft = Arc::unwrap_or_clone(self.draft.take()?);
         if draft.body.trim().is_empty() {
             return None;
         }
         Some(match draft.editing {
             Some(id) => {
-                if !self.review.edit_comment(id, draft.body) {
+                if !self.review_mut().edit_comment(id, draft.body) {
                     return None;
                 }
                 id
             }
-            None => self.review.add_comment_with_context(draft.anchor, draft.context, draft.body),
+            None => self.review_mut().add_comment_with_context(draft.anchor, draft.context, draft.body),
         })
     }
 
@@ -323,7 +328,7 @@ impl MarkdownReviewSession {
         let Some(id) = self.comment_id_at_selection() else {
             return false;
         };
-        self.review.remove_comment(id).is_some()
+        self.review_mut().remove_comment(id).is_some()
     }
 
     /// Removes the most recently added comment, if there is one.
@@ -331,18 +336,18 @@ impl MarkdownReviewSession {
         let Some(id) = self.review.most_recent_comment_id() else {
             return false;
         };
-        self.review.remove_comment(id).is_some()
+        self.review_mut().remove_comment(id).is_some()
     }
 
     pub fn clear_review(&mut self) {
-        self.review.clear();
+        self.review_mut().clear();
         self.draft = None;
     }
 
     /// Replaces the document, reconciles comments, and preserves selection when possible.
     pub fn replace_document(&mut self, document: Arc<MarkdownDocument>) {
         let selected_anchor = self.selected_anchor();
-        self.review.reconcile(&document);
+        self.review_mut().reconcile(&document);
         self.document = document;
         self.draft = None;
         self.selected_target = selected_anchor
