@@ -260,7 +260,7 @@ impl DiffViewerHarness {
     }
 
     pub fn hold_secondary(&self, cx: &mut TestAppContext, held: bool) {
-        let modifiers = if held { Modifiers::secondary_key() } else { Modifiers::default() };
+        let modifiers = if held { cx.update(|cx| Modifiers::secondary_key(cx)) } else { Modifiers::default() };
         self.simulate_event(cx, ModifiersChangedEvent { modifiers, capslock: Capslock::default() });
         self.draw(cx);
     }
@@ -305,12 +305,10 @@ impl DiffViewerHarness {
         let bounds = self.bounds(cx, selector).ok_or(selector)?;
         let y = bounds.top() + px(6.0);
         let mut x = bounds.left() + px(1.0);
+        let modifiers = cx.update(|cx| Modifiers::secondary_key(cx));
         while x < bounds.right() {
             let position = point(x, y);
-            self.simulate_event(
-                cx,
-                MouseMoveEvent { position, pressed_button: None, modifiers: Modifiers::secondary_key() },
-            );
+            self.simulate_event(cx, MouseMoveEvent { position, pressed_button: None, modifiers });
             self.draw(cx);
             if self.definition_card_name(cx).as_deref() == Some(name) {
                 return Ok(position);

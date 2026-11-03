@@ -2,7 +2,7 @@ use crate::{InterfaceSize, tokens::BASE_SIZE};
 use gpui::{
     Action, AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, EventEmitter, InputEvent, KeyDownEvent,
     KeyUpEvent, Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Pixels, Point, Render, ScrollDelta,
-    ScrollWheelEvent, TestAppContext, VisualTestContext, Window, WindowBounds, WindowHandle, WindowOptions, div, point,
+    ScrollEvent, TestAppContext, VisualTestContext, Window, WindowBounds, WindowHandle, WindowOptions, div, point,
     prelude::*, px, size,
 };
 use std::{error::Error, ops::Deref, time::Duration};
@@ -123,7 +123,7 @@ impl WindowDriver {
         delta: ScrollDelta,
     ) -> Result<(), HarnessError> {
         let position = self.center(cx, selector)?;
-        self.simulate_event(cx, ScrollWheelEvent { position, delta, ..ScrollWheelEvent::default() });
+        self.simulate_event(cx, ScrollEvent { position, delta, ..ScrollEvent::default() });
         Ok(())
     }
 
@@ -138,7 +138,8 @@ impl WindowDriver {
     }
 
     pub fn press_key(&self, cx: &mut TestAppContext, key: &str) {
-        let keystroke = Keystroke::parse(key).expect("a valid test keystroke");
+        let os = cx.update(|cx| cx.platform_info().os);
+        let keystroke = Keystroke::parse_with_os(key, os).expect("a valid test keystroke");
         self.simulate_event(
             cx,
             KeyDownEvent { keystroke: keystroke.clone(), is_held: false, prefer_character_input: false },
@@ -177,7 +178,8 @@ impl WindowDriver {
     }
 
     pub fn secondary_click_at(&self, cx: &mut TestAppContext, position: Point<Pixels>) {
-        self.click_position(cx, position, MouseButton::Left, 1, Modifiers::secondary_key());
+        let modifiers = cx.update(|cx| Modifiers::secondary_key(cx));
+        self.click_position(cx, position, MouseButton::Left, 1, modifiers);
     }
 
     fn click_times(

@@ -218,11 +218,11 @@ impl DiffViewer {
             .cursor_default()
             .on_hover(cx.listener(|viewer, hovered: &bool, _, cx| viewer.card_hovered(*hovered, cx)))
             .on_mouse_down_out(cx.listener(|viewer, event: &MouseDownEvent, _, cx| {
-                if !event.modifiers.secondary() {
+                if !event.modifiers.secondary(cx) {
                     viewer.close_names(cx);
                 }
             }))
-            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .on_scroll(|_, _, cx| cx.stop_propagation())
             .children(head.map(|head| div().px_3().py_2p5().child(head)))
             .children(head_divider.then(|| div().h(px(1.0)).bg(colors.border_subtle)))
             .child(div().px_3().py_2p5().flex().flex_col().gap_2p5().children(docs).child(meta))

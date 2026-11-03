@@ -2,8 +2,8 @@ use framer::github::Step;
 use framer::toml_edit::{Array, InlineTable, Value};
 use framer::{KeyPath, Preset, Project, TomlKeys};
 
-const GPUI_VERSION: &str = "=0.3.7";
-const GPUI_BASE_VERSION: &str = "=0.7.0";
+const GPUI_VERSION: &str = "=0.3.11";
+const GPUI_BASE_VERSION: &str = "=0.9.0";
 const GPUI_PLATFORM_FEATURES: [&str; 4] = ["font-kit", "runtime_shaders", "wayland", "x11"];
 
 pub const CRATES: [(&str, &str); 18] = [
