@@ -1,7 +1,7 @@
 use crate::{
     ClientError,
     protocol::{
-        client::{ClientCommand, DocumentCache, LocalClientTransport},
+        client::{ClientCommand, DocumentReplica, LocalClientTransport},
         server::{ServerEvent, ServerMessage},
         shared::LocalEnd,
     },
@@ -81,12 +81,12 @@ impl ClientMessageTransport for LocalEnd<ClientCommand, ServerMessage> {
 
 pub(crate) struct Decoded<T> {
     transport: T,
-    cache: DocumentCache,
+    replica: DocumentReplica,
 }
 
 impl<T> Decoded<T> {
     pub(crate) fn new(transport: T) -> Self {
-        Self { transport, cache: DocumentCache::default() }
+        Self { transport, replica: DocumentReplica::default() }
     }
 }
 
@@ -97,7 +97,7 @@ impl<T: ClientMessageTransport> Transport for Decoded<T> {
 
     async fn recv(&mut self) -> Result<ServerEvent, ClientError> {
         let message = self.transport.recv().await?;
-        Ok(self.cache.apply_event(message)?)
+        Ok(self.replica.apply_event(message)?)
     }
 
     async fn close(&mut self) {
