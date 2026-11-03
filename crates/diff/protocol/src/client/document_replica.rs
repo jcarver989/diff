@@ -6,12 +6,12 @@ use clankerdiff_core::{DiffDocument, RepoPath};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Default)]
-pub struct DocumentCache {
+pub struct DocumentReplica {
     document: Arc<DiffDocument>,
     index: BTreeMap<RepoPath, usize>,
 }
 
-impl DocumentCache {
+impl DocumentReplica {
     pub fn decode_event(&mut self, text: &str) -> Result<ServerEvent, ProtocolError> {
         self.apply_event(ServerMessage::decode(text)?)
     }
