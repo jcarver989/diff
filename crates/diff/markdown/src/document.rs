@@ -175,12 +175,11 @@ impl MarkdownListItem {
 /// A fenced or indented code block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MarkdownCodeBlock {
-    pub language: Option<String>,
-    /// The complete info string for a fenced block, when present.
-    pub info: Option<String>,
+    pub(crate) language: Option<String>,
+    pub(crate) info: Option<String>,
     pub source: SourceRange,
     pub content: SourceRange,
-    pub lines: Vec<MarkdownCodeLine>,
+    pub(crate) lines: Vec<MarkdownCodeLine>,
     pub target_id: Option<MarkdownTargetId>,
     #[serde(skip)]
     pub(crate) syntax: SyntaxCell,
@@ -191,6 +190,21 @@ impl MarkdownCodeBlock {
     #[must_use]
     pub const fn target_id(&self) -> Option<MarkdownTargetId> {
         self.target_id
+    }
+
+    #[must_use]
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+
+    #[must_use]
+    pub fn info(&self) -> Option<&str> {
+        self.info.as_deref()
+    }
+
+    #[must_use]
+    pub fn lines(&self) -> &[MarkdownCodeLine] {
+        &self.lines
     }
 
     #[must_use]

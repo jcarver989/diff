@@ -227,7 +227,7 @@ fn open_fences_report_their_block_and_close_precisely() -> TestResult {
     let MarkdownBlockKind::CodeBlock(code) = &stream.document().blocks()[1].kind else {
         return Err("expected code block".into());
     };
-    assert_eq!(code.lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), ["let a = 1;", "```x"]);
+    assert_eq!(code.lines().iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), ["let a = 1;", "```x"]);
     Ok(())
 }
 
