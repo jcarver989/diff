@@ -4,7 +4,6 @@ use crate::{
     annotation_layout::{AnnotationLayout, AnnotationRow},
 };
 use clankerdiff_markdown::{MarkdownReviewSession, MarkdownTargetId};
-use clankerdiff_syntax::SyntaxHighlighter;
 use clankerdiff_ui_core::ReviewTheme;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -35,19 +34,13 @@ impl MarkdownVisualRow<'_> {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct MarkdownVisualLayout {
-    content: MarkdownRows,
-    annotations: AnnotationLayout,
+pub(crate) struct MarkdownContentLayout {
+    rows: MarkdownRows,
     ranges: HashMap<MarkdownTargetId, Range<usize>>,
 }
 
-impl MarkdownVisualLayout {
-    pub(crate) fn build(
-        session: &MarkdownReviewSession,
-        width: u16,
-        highlighter: &mut SyntaxHighlighter,
-        theme: &ReviewTheme,
-    ) -> Self {
+impl MarkdownContentLayout {
+    pub(crate) fn build(session: &MarkdownReviewSession, width: u16, theme: &ReviewTheme) -> Self {
         let document = session.document();
         let layout = MarkdownRenderer::new().render_layout(
             document,
@@ -58,25 +51,48 @@ impl MarkdownVisualLayout {
                 ..MarkdownLayoutOptions::default()
             },
             theme,
-            highlighter,
         );
         let ranges = document
             .targets()
             .iter()
             .filter_map(|target| Some((target.id, layout.rows_for_target(target.id)?)))
-            .collect::<Vec<(MarkdownTargetId, Range<usize>)>>();
+            .collect();
+        Self { rows: layout.rows().clone(), ranges }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct MarkdownVisualLayout {
+    content: Arc<MarkdownContentLayout>,
+    annotations: AnnotationLayout,
+}
+
+impl MarkdownVisualLayout {
+    pub(crate) fn new(session: &MarkdownReviewSession, content: Arc<MarkdownContentLayout>, width: u16) -> Self {
+        let document = session.document();
         let mut anchored: BTreeMap<usize, Vec<AnnotationBox>> = BTreeMap::new();
-        for (target, range) in &ranges {
-            let boxes = annotation_boxes(session, *target, width);
-            if !boxes.is_empty() {
-                anchored.entry(range.end - 1).or_default().extend(boxes);
+        let mut anchor = |target, annotation| {
+            if let Some(range) = content.ranges.get(&target) {
+                anchored.entry(range.end - 1).or_default().push(annotation);
+            }
+        };
+        for comment in session.review().comments() {
+            if let Some(target) = document.exact_target(&comment.anchor) {
+                let (kind, title) = if comment.outdated {
+                    (AnnotationKind::Outdated, "Outdated comment")
+                } else {
+                    (AnnotationKind::Comment, "Comment")
+                };
+                anchor(target, AnnotationBox::new(kind, title, &comment.body, None, width));
             }
         }
-        Self {
-            content: layout.rows().clone(),
-            annotations: AnnotationLayout::new(0..layout.row_count(), anchored),
-            ranges: ranges.into_iter().collect(),
+        if let Some(draft) = session.draft() {
+            let annotation =
+                AnnotationBox::new(AnnotationKind::Draft, "Draft", draft.body(), Some(draft.cursor()), width);
+            anchor(draft.target(), annotation);
         }
+        let annotations = AnnotationLayout::new(0..content.rows.len(), anchored);
+        Self { content, annotations }
     }
 
     pub(crate) const fn len(&self) -> usize {
@@ -88,7 +104,7 @@ impl MarkdownVisualLayout {
     }
 
     pub(crate) fn focused_row(&self, target: MarkdownTargetId, drafting: bool) -> Option<usize> {
-        let range = self.ranges.get(&target)?;
+        let range = self.content.ranges.get(&target)?;
         if drafting {
             self.annotations.focused_visual_row(range.end - 1, true)
         } else {
@@ -98,31 +114,12 @@ impl MarkdownVisualLayout {
 
     pub(crate) fn row(&self, visual: usize) -> Option<MarkdownVisualRow<'_>> {
         Some(match self.annotations.row(visual)? {
-            AnnotationRow::Source(index) => MarkdownVisualRow::Content(self.content.get(index)?),
+            AnnotationRow::Source(index) => MarkdownVisualRow::Content(self.content.rows.get(index)?),
             AnnotationRow::Annotation { source, annotation, line } => MarkdownVisualRow::Annotation {
                 annotation,
                 line,
-                target: self.content.get(source).and_then(|row| row.target),
+                target: self.content.rows.get(source).and_then(|row| row.target),
             },
         })
     }
-}
-
-fn annotation_boxes(session: &MarkdownReviewSession, target: MarkdownTargetId, width: u16) -> Vec<AnnotationBox> {
-    let mut boxes = session
-        .review()
-        .comments_for_target(session.document(), target)
-        .map(|comment| {
-            let (kind, title) = if comment.outdated {
-                (AnnotationKind::Outdated, "Outdated comment")
-            } else {
-                (AnnotationKind::Comment, "Comment")
-            };
-            AnnotationBox::new(kind, title, &comment.body, None, width)
-        })
-        .collect::<Vec<_>>();
-    if let Some(draft) = session.draft().filter(|draft| draft.target() == target) {
-        boxes.push(AnnotationBox::new(AnnotationKind::Draft, "Draft", draft.body(), Some(draft.cursor()), width));
-    }
-    boxes
 }
