@@ -3,6 +3,9 @@
     ".config/nextest.toml": {
       "kind": "managed"
     },
+    ".github/scripts/checkout-rouge.sh": {
+      "kind": "managed"
+    },
     ".github/workflows/ci.yml": {
       "kind": "managed"
     },
@@ -31,17 +34,18 @@
         "workspace.lints",
         "profile.dev",
         "profile.dist",
-        "workspace.dependencies.gpui",
-        "workspace.dependencies.gpui_platform",
-        "workspace.dependencies.gpui-base",
-        "workspace.dependencies.gpui_web",
+        "workspace.dependencies.rouge",
+        "workspace.dependencies.rouge-core",
+        "workspace.dependencies.rouge-reactive",
+        "workspace.dependencies.rouge-widgets",
+        "workspace.dependencies.rouge-web",
         "workspace.dependencies.clankerdiff-fingerprint.path",
         "workspace.dependencies.clankerdiff-remote.path",
         "workspace.dependencies.clankerdiff-lspd.path",
         "workspace.dependencies.clankerdiff-ui-core.path",
         "workspace.dependencies.clankerdiff-syntax.path",
-        "workspace.dependencies.clankerdiff-gpui-ui.path",
-        "workspace.dependencies.clankerdiff-gpui-shell.path",
+        "workspace.dependencies.clankerdiff-rouge-ui.path",
+        "workspace.dependencies.clankerdiff-rouge-shell.path",
         "workspace.dependencies.clankerdiff-core.path",
         "workspace.dependencies.clankerdiff-protocol.path",
         "workspace.dependencies.clankerdiff-client.path",
@@ -50,9 +54,10 @@
         "workspace.dependencies.clankerdiff-server.path",
         "workspace.dependencies.clankerdiff-markdown.path",
         "workspace.dependencies.clankerdiff-symbols.path",
-        "workspace.dependencies.clankerdiff-gpui.path",
+        "workspace.dependencies.clankerdiff-rouge.path",
         "workspace.dependencies.clankerdiff-ratatui.path",
-        "workspace.dependencies.clankerdiff-gpui-desktop.path"
+        "workspace.dependencies.clankerdiff-desktop.path",
+        "workspace.dependencies.clankerdiff-web.path"
       ]
     },
     "clippy.toml": {
@@ -79,7 +84,8 @@
         "workspace.release",
         "workspace.git_only",
         "workspace.publish",
-        "workspace.semver_check"
+        "workspace.semver_check",
+        "package"
       ]
     },
     "rust-toolchain.toml": {

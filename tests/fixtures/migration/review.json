@@ -1,0 +1,29 @@
+{
+  "comments": [
+    {
+      "id": 0,
+      "anchor": {
+        "path": "src/added.rs",
+        "side": "New",
+        "old_line_no": null,
+        "new_line_no": 1,
+        "kind": "Added",
+        "fingerprint": "b8a1519a551c5543a5fe180e031d53abe84631e6bafda3d77f4c81274a2ddc11",
+        "content_fingerprint": "2b49f42403de4bc49235128e96278277394a540c671078320377b20510e19b5c"
+      },
+      "body": "Check Unicode, tabs, anchors, and wrapped review comments.\nA second line must survive export.",
+      "context": {
+        "path": "src/added.rs",
+        "side": "New",
+        "line_number": 1,
+        "line_kind": "Added",
+        "line_text": ""
+      },
+      "outdated": false,
+      "target": {
+        "working_tree": "Both"
+      }
+    }
+  ],
+  "formatted": "I'm reviewing the working tree diff. Here are my comments:\n\n## `src/added.rs`\n\n**Line 1 (added):** ``\n> Check Unicode, tabs, anchors, and wrapped review comments.\n> A second line must survive export."
+}

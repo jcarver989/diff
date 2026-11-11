@@ -1,19 +1,20 @@
 use framer::github::Step;
-use framer::toml_edit::{Array, InlineTable, Value};
+use framer::toml_edit::{InlineTable, Value};
 use framer::{KeyPath, Preset, Project, TomlKeys};
 
-const GPUI_VERSION: &str = "=0.3.11";
-const GPUI_BASE_VERSION: &str = "=0.9.0";
-const GPUI_PLATFORM_FEATURES: [&str; 4] = ["font-kit", "runtime_shaders", "wayland", "x11"];
+const ROUGE_REPOSITORY: &str = "https://github.com/jcarver989/rouge.git";
+const ROUGE_REVISION: &str = "96c14f83e4f13ebdb2df356722c002b02df708ac";
+pub const ROUGE_LINUX_PACKAGES: [&str; 3] = ["libfontconfig1-dev", "libxkbcommon-dev", "libwayland-dev"];
+const ROUGE_CRATES: [&str; 4] = ["rouge", "rouge-core", "rouge-reactive", "rouge-widgets"];
 
-pub const CRATES: [(&str, &str); 18] = [
+pub const CRATES: [(&str, &str); 19] = [
     ("clankerdiff-fingerprint", "crates/util/fingerprint"),
     ("clankerdiff-remote", "crates/util/remote"),
     ("clankerdiff-lspd", "crates/util/lspd"),
     ("clankerdiff-ui-core", "crates/ui/core"),
     ("clankerdiff-syntax", "crates/ui/syntax"),
-    ("clankerdiff-gpui-ui", "crates/ui/gpui"),
-    ("clankerdiff-gpui-shell", "crates/ui/gpui-shell"),
+    ("clankerdiff-rouge-ui", "crates/ui/rouge"),
+    ("clankerdiff-rouge-shell", "crates/ui/rouge-shell"),
     ("clankerdiff-core", "crates/diff/core"),
     ("clankerdiff-protocol", "crates/diff/protocol"),
     ("clankerdiff-client", "crates/diff/client"),
@@ -22,21 +23,29 @@ pub const CRATES: [(&str, &str); 18] = [
     ("clankerdiff-server", "crates/diff/server"),
     ("clankerdiff-markdown", "crates/diff/markdown"),
     ("clankerdiff-symbols", "crates/diff/symbols"),
-    ("clankerdiff-gpui", "crates/diff/gpui"),
+    ("clankerdiff-rouge", "crates/diff/rouge"),
     ("clankerdiff-ratatui", "crates/diff/ratatui"),
-    ("clankerdiff-gpui-desktop", "crates/diff/desktop"),
+    ("clankerdiff-desktop", "crates/diff/desktop"),
+    ("clankerdiff-web", "crates/diff/web"),
 ];
 
-pub struct GpuiApp {
+pub struct RougeApp {
     diff: String,
+    rouge: String,
     crates: Vec<String>,
     web: bool,
 }
 
-impl GpuiApp {
+impl RougeApp {
     #[must_use]
     pub fn new(diff: &str) -> Self {
-        Self { diff: diff.into(), crates: Vec::new(), web: false }
+        Self { diff: diff.into(), rouge: "../rouge".into(), crates: Vec::new(), web: false }
+    }
+
+    #[must_use]
+    pub fn rouge(mut self, path: &str) -> Self {
+        self.rouge = path.into();
+        self
     }
 
     #[must_use]
@@ -53,8 +62,41 @@ impl GpuiApp {
 
     #[must_use]
     pub fn linux_dependencies() -> Step {
-        Step::run("sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-x11-dev")
-            .name("Install Linux build dependencies")
+        Step::run(format!(
+            "sudo apt-get update && sudo apt-get install --yes {} mesa-vulkan-drivers",
+            ROUGE_LINUX_PACKAGES.join(" "),
+        ))
+        .name("Install Linux build dependencies")
+    }
+
+    #[must_use]
+    pub fn checkout_step() -> Step {
+        Step::run("bash .github/scripts/checkout-rouge.sh").name("Check out pinned Rouge sibling")
+    }
+
+    #[must_use]
+    pub fn checkout_script() -> String {
+        format!(
+            r#"set -euo pipefail
+
+revision={ROUGE_REVISION}
+if [[ -e ../rouge ]]; then
+    if [[ $(git -C ../rouge rev-parse --verify HEAD 2>/dev/null) == "$revision" && -f ../rouge/crates/rouge-web/Cargo.toml ]]; then
+        exit 0
+    fi
+    echo 'Expected the pinned Rouge checkout in ../rouge; refusing to replace the existing path.' >&2
+    exit 1
+fi
+
+checkout=$(mktemp -d ../rouge.XXXXXX)
+trap 'rm -rf "$checkout"' EXIT
+git -C "$checkout" init --quiet
+git -C "$checkout" remote add origin {ROUGE_REPOSITORY}
+git -C "$checkout" fetch --depth=1 origin "$revision"
+git -C "$checkout" checkout --quiet --detach FETCH_HEAD
+mv "$checkout" ../rouge
+"#,
+        )
     }
 
     fn crate_path(&self, name: &str) -> String {
@@ -66,45 +108,17 @@ impl GpuiApp {
     }
 }
 
-impl Preset for GpuiApp {
+impl Preset for RougeApp {
     fn apply(self, project: &mut Project) {
-        let mut keys = TomlKeys::new("Cargo.toml")
-            .set(dependency("gpui"), gpui("gpui-pre").with("default-features", false))
-            .set(dependency("gpui_platform"), gpui("gpui-pre-platform").with("features", features()))
-            .set(dependency("gpui-base"), GPUI_BASE_VERSION);
-        if self.web {
-            keys = keys.set(dependency("gpui_web"), gpui("gpui-pre-web").with("default-features", false));
+        let mut keys = TomlKeys::new("Cargo.toml");
+        for name in ROUGE_CRATES.into_iter().chain(self.web.then_some("rouge-web")) {
+            let mut dependency = InlineTable::new();
+            dependency.insert("path", format!("{}/crates/{name}", self.rouge).into());
+            keys = keys.set(KeyPath::new(["workspace", "dependencies", name]), Value::InlineTable(dependency));
         }
         for name in &self.crates {
             keys = keys.set(KeyPath::new(["workspace", "dependencies", name, "path"]), self.crate_path(name));
         }
         project.add(keys);
     }
-}
-
-struct Table(InlineTable);
-
-impl Table {
-    fn with(mut self, key: &str, setting: impl Into<Value>) -> Self {
-        self.0.insert(key, setting.into());
-        self
-    }
-}
-
-impl From<Table> for Value {
-    fn from(table: Table) -> Self {
-        Value::InlineTable(table.0)
-    }
-}
-
-fn dependency(name: &str) -> KeyPath {
-    KeyPath::new(["workspace", "dependencies", name])
-}
-
-fn gpui(package: &str) -> Table {
-    Table(InlineTable::new()).with("package", package).with("version", GPUI_VERSION)
-}
-
-fn features() -> Array {
-    GPUI_PLATFORM_FEATURES.iter().map(|feature| Value::from(*feature)).collect()
 }

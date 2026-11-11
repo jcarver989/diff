@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{cmp, ops::Range};
 
 /// A one-based, inclusive range of lines in the original Markdown source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct MarkdownLineRange {
     pub start: usize,
     pub end: usize,

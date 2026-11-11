@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-11-10T21:49:34.170Z",
+  "source_revision": "09a11f7e7fbaa354a2df4743b4ee18ede000a30c",
+  "tracked_changes_at_capture": [
+    "crates/diff/core/Cargo.toml"
+  ],
+  "capture_script_sha256": "8222be057c6c525fc9a803c7216bf8662c7089b6629bf4d8c02e4d07d67c45f1",
+  "profile": "trunk build --release",
+  "browser": "156.0.8078.4",
+  "environment": {
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.8078.4 Safari/537.36",
+    "viewport": {
+      "width": 1280,
+      "height": 800,
+      "dpr": 1
+    },
+    "webgpu_available": true,
+    "webgl_renderer_probe": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    "note": "The WebGL probe identifies available Chromium graphics, not necessarily the canvas renderer backend."
+  },
+  "assets": {
+    "clankerdiff-gpui-web-c109bd1dc290c316.js": {
+      "bytes": 176231,
+      "sha256": "f31d504fec6861494afe86286ab0df0ce419b0f08d8d58990b7b66329e7c07cd"
+    },
+    "clankerdiff-gpui-web-c109bd1dc290c316_bg.wasm": {
+      "bytes": 86043908,
+      "sha256": "7c6524e8b166ac8dad3d4af341a86da5668335b3c52f891c8ac7992a398f7f90"
+    },
+    "index.html": {
+      "bytes": 1249,
+      "sha256": "86b21e63754f3a1229454d87c7282559f27d5d300ea5af6de63489457b558267"
+    }
+  },
+  "fixture_sha256": {
+    "small.json": "c9c30d8b0c02c7af4c35204354550595866016060f3edf804c8592789de8f154",
+    "same-count-refresh.json": "7f50a2b23391f2bc7252e60170c94a5383115bcdbb24a55a2d44ab0e8a5f6f8e",
+    "review.md": "4153dc80cd0618b3e810701a139a6f39e6ef44977e16a51c867236be6d0b1d48",
+    "large.json": "ddd787a567a5dc9f4a8ee52645e2e631c044a9face80200def3f43795c35f1e4",
+    "many-files.json": "5943be5847218b018fa0f7720bb580729e0ac4272fc61170e6704c2c2ebd6956",
+    "long-lines.json": "eea17f975d247e2a82c53ba21890943129b2072420e9ea3d988fe20e608370b6"
+  },
+  "sample_count": 5,
+  "memory_settle_ms": 1000,
+  "startup_to_ready_and_settle_ms": 735.699508,
+  "screenshots": [
+    {
+      "name": "diff-unified",
+      "file": "screenshots/diff-unified.png",
+      "sha256": "83a7fffe6f72d914f641ac48999c10c01681863109ce13d7dc463920db36b37b",
+      "bytes": 80221
+    },
+    {
+      "name": "diff-split",
+      "file": "screenshots/diff-split.png",
+      "sha256": "89310e49890e28c85ae140bd58de86ca3383d657b294d25f990b5b996e3edd81",
+      "bytes": 83675
+    },
+    {
+      "name": "comment-draft",
+      "file": "screenshots/comment-draft.png",
+      "sha256": "bbd6ef300e346a647d40bb876f630026f32ac20ea85ec3c56b49657543613f8e",
+      "bytes": 93913
+    },
+    {
+      "name": "comment-thread",
+      "file": "screenshots/comment-thread.png",
+      "sha256": "a23541a4842bd3215238c22ea6f2626a38b86db178799e9acef3e71c75737b11",
+      "bytes": 93870
+    },
+    {
+      "name": "theme-picker",
+      "file": "screenshots/theme-picker.png",
+      "sha256": "8f38909a8f14fa8752d62b5963545a8f543743b808328f327d805b3a063068dd",
+      "bytes": 86062
+    },
+    {
+      "name": "theme-ayu-dark",
+      "file": "screenshots/theme-ayu-dark.png",
+      "sha256": "6a7fe4e326fc7085d2cae3f3a7a14856ec014cd7738bb27bcef7f172fe9931e2",
+      "bytes": 94713
+    },
+    {
+      "name": "interface-size-20",
+      "file": "screenshots/interface-size-20.png",
+      "sha256": "839de36298c671a04990d71d1d62a42562b5e8463c28e2aa0f10eafbcb8e40b5",
+      "bytes": 105793
+    },
+    {
+      "name": "markdown",
+      "file": "screenshots/markdown.png",
+      "sha256": "bc49bedb00ff3d3cee3a9388bebe46acc4be81f0427dd8d98b9edf5ac4b93c56",
+      "bytes": 73551
+    }
+  ],
+  "measurements": [
+    {
+      "fixture": "small",
+      "memory": {
+        "JSHeapUsedSize": 5061620,
+        "JSHeapTotalSize": 7163904,
+        "wasm_linear_bytes": 93454336,
+        "chromium_process_tree_rss_bytes": 824401920
+      },
+      "layout_boundary_ms": [
+        116.10000000149012,
+        132.10000000149012,
+        117.69999999925494,
+        114.30000000074506,
+        124.89999999850988
+      ],
+      "scroll_boundary_ms": [
+        112.40000000223517,
+        121.30000000074506,
+        121.69999999925494,
+        110.79999999701977,
+        122.5
+      ],
+      "refresh_boundary_ms": [
+        123.39999999850988,
+        119.10000000149012,
+        119.89999999850988,
+        126.59999999776483,
+        130
+      ]
+    },
+    {
+      "fixture": "large",
+      "memory": {
+        "JSHeapUsedSize": 99648676,
+        "JSHeapTotalSize": 102019072,
+        "wasm_linear_bytes": 148176896,
+        "chromium_process_tree_rss_bytes": 1021263872
+      },
+      "layout_boundary_ms": [
+        135.10000000149012,
+        123.19999999925494,
+        123.69999999925494,
+        142.10000000149012,
+        138.10000000149012
+      ],
+      "scroll_boundary_ms": [
+        97.19999999925494,
+        105.19999999925494,
+        106.60000000149012,
+        110.30000000074506,
+        101.19999999925494
+      ],
+      "refresh_boundary_ms": [
+        381.8999999985099,
+        404.70000000298023,
+        375.5,
+        390.4000000022352,
+        382.0999999977648
+      ]
+    },
+    {
+      "fixture": "many-files",
+      "memory": {
+        "JSHeapUsedSize": 104957092,
+        "JSHeapTotalSize": 177795072,
+        "wasm_linear_bytes": 185663488,
+        "chromium_process_tree_rss_bytes": 1194020864
+      },
+      "layout_boundary_ms": [
+        106.30000000074506,
+        115.09999999776483,
+        111.29999999701977,
+        111.69999999925494,
+        105.5
+      ],
+      "scroll_boundary_ms": [
+        119.19999999925494,
+        108.19999999925494,
+        113.60000000149012,
+        107.39999999850988,
+        118.20000000298023
+      ],
+      "refresh_boundary_ms": [
+        119.30000000074506,
+        119,
+        115.40000000223517,
+        128.10000000149012,
+        120.5
+      ]
+    },
+    {
+      "fixture": "long-lines",
+      "memory": {
+        "JSHeapUsedSize": 125321572,
+        "JSHeapTotalSize": 199532544,
+        "wasm_linear_bytes": 185663488,
+        "chromium_process_tree_rss_bytes": 1203720192
+      },
+      "layout_boundary_ms": [
+        111,
+        109.39999999850988,
+        121.69999999925494,
+        113,
+        115.30000000074506
+      ],
+      "scroll_boundary_ms": [
+        115.10000000149012,
+        107.80000000074506,
+        112.80000000074506,
+        111.40000000223517,
+        120.80000000074506
+      ],
+      "refresh_boundary_ms": [
+        150.19999999925494,
+        137.20000000298023,
+        150.39999999850988,
+        149.10000000149012,
+        140.80000000074506
+      ]
+    }
+  ],
+  "limitations": [
+    "Boundary latency includes command/JSON processing and two requestAnimationFrame callbacks; it is not isolated CPU frame time or GPU presentation time.",
+    "Startup is navigation to readiness, two animation frames and 150ms settle in a fresh browser context; it is not a native startup measurement and OS caches are not cleared.",
+    "Memory is renderer JS heap, WASM linear memory and aggregate dedicated Chromium process-tree RSS; RSS includes shared pages and is not native Diff RSS.",
+    "Memory is sampled after a fixed one-second settle, without forcing GC; long-lived steady state is not established.",
+    "GPUI test-window node counts and native/macOS window behavior are not measured by this browser capture.",
+    "Generated large/many-file fixtures have patch-only sources as provided by DocumentBuilder::generated."
+  ],
+  "errors": []
+}

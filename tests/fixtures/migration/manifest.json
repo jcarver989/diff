@@ -1,0 +1,41 @@
+{
+  "documents": [
+    {
+      "files": 6,
+      "name": "small",
+      "split_rows": 15,
+      "unified_rows": 17
+    },
+    {
+      "files": 6,
+      "name": "same-count-refresh",
+      "split_rows": 15,
+      "unified_rows": 17
+    },
+    {
+      "files": 1,
+      "name": "large",
+      "split_rows": 100001,
+      "unified_rows": 100001
+    },
+    {
+      "files": 100,
+      "name": "many-files",
+      "split_rows": 6100,
+      "unified_rows": 6100
+    },
+    {
+      "files": 1,
+      "name": "long-lines",
+      "split_rows": 2,
+      "unified_rows": 3
+    },
+    {
+      "files": 0,
+      "name": "empty",
+      "split_rows": 0,
+      "unified_rows": 0
+    }
+  ],
+  "schema_version": 1
+}

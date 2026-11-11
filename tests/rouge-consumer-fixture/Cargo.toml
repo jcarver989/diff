@@ -1,0 +1,15 @@
+[package]
+name = "clankerdiff-rouge-consumer-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dev-dependencies]
+clankerdiff-core = { path = "../../crates/diff/core", features = ["test-support"] }
+clankerdiff-rouge = { path = "../../crates/diff/rouge" }
+clankerdiff-rouge-ui = { path = "../../crates/ui/rouge" }
+clankerdiff-ui-core = { path = "../../crates/ui/core" }
+rouge-core = { path = "../../../rouge/crates/rouge-core" }
+rouge-reactive = { path = "../../../rouge/crates/rouge-reactive" }

@@ -23,10 +23,10 @@ pub enum WebError {
     /// The supplied scope string was not a valid `DiffScope`.
     #[error("invalid diff scope `{0}`")]
     InvalidScope(String),
-    /// The GPUI command channel has not been installed yet.
+    /// The viewer command channel has not been installed yet.
     #[error("the diff viewer has not started")]
     NotStarted,
-    /// The GPUI command channel is no longer accepting commands.
+    /// The viewer command channel is no longer accepting commands.
     #[error("the diff viewer command channel is closed")]
     CommandChannelClosed,
 }
@@ -211,41 +211,62 @@ mod wasm {
     use async_channel::{Receiver, Sender};
     use clankerdiff_client::{ClientOptions, ClientState, DiffClient};
     use clankerdiff_core::{
-        DiffDocument, DiffReviewEvent, Lookup, LookupReply, RepoPath, ReviewCapabilities, ReviewSubmission,
-        ReviewTarget, ViewMode,
-    };
-    use clankerdiff_gpui::{
-        DiffViewer, DiffViewerOptions, MarkdownReviewer, MarkdownReviewerOptions, ThemeChanged, ViewModeChanged,
-        ui::{InterfaceSize, fonts::load_fonts, interface_size::DEFAULT_INTERFACE_SIZE, prelude::UI_FONT},
+        DiffDocument, DiffReviewEvent, LookupReply, RepoPath, ReviewCapabilities, ReviewSubmission, ReviewTarget,
+        ViewMode,
     };
     use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
-    use clankerdiff_ui_core::ReviewTheme;
-    use gpui::{
-        App, AppContext, ApplicationHandle, Bounds, Context, Entity, Render, Subscription, Task, Window, WindowBounds,
-        WindowOptions, div, prelude::*, px, size,
+    use clankerdiff_rouge::{
+        DiffViewerOptions, MarkdownController, MarkdownHandle, MarkdownOutput, ReviewController, ReviewHandle,
+        ReviewOutput, diff_view, markdown_review_view,
+        ui::{InterfaceSize, fonts::bundled_fonts, interface_size::DEFAULT_INTERFACE_SIZE},
     };
+    use clankerdiff_ui_core::ReviewTheme;
+    use rouge_core::{Color, Styled, View, div, dynamic};
+    use rouge_reactive::{Signal, Task, on_cleanup, signal, spawn};
     use std::{
         cell::{Cell, RefCell},
-        rc::Rc,
         sync::Arc,
     };
     use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
     use wasm_bindgen_futures::spawn_local;
-    use web_sys::{CustomEvent, CustomEventInit};
+    use web_sys::{CustomEvent, CustomEventInit, HtmlCanvasElement};
 
     const CONNECTION_STATE_EVENT: &str = "diff-review-connection-state";
 
     thread_local! {
-        static APPLICATION: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
         static COMMANDS: RefCell<Option<Sender<WebCommand>>> = const { RefCell::new(None) };
         static MANAGED: Cell<bool> = const { Cell::new(false) };
+        static GENERATION: Cell<u64> = const { Cell::new(0) };
+        static APP: RefCell<Option<Mounted>> = const { RefCell::new(None) };
+        static STARTING: Cell<bool> = const { Cell::new(false) };
+    }
+
+    struct Mounted {
+        _app: rouge_web::BrowserApp,
+        _listeners: Vec<Listener>,
+        canvas: HtmlCanvasElement,
+    }
+
+    impl Drop for Mounted {
+        fn drop(&mut self) {
+            self.canvas.remove();
+        }
+    }
+
+    struct Listener(web_sys::Document, &'static str, Closure<dyn FnMut(CustomEvent)>);
+    impl Drop for Listener {
+        fn drop(&mut self) {
+            let _ = self.0.remove_event_listener_with_callback(self.1, self.2.as_ref().unchecked_ref());
+        }
     }
 
     enum WebCommand {
-        InstallRemote(DiffClient),
+        InstallRemote(u64, DiffClient),
         DisconnectRemote,
-        RemoteFinished(RepositoryReply),
-        LookupFinished(LookupReply),
+        RemoteState(u64, Arc<ClientState>),
+        RemoteFinished(u64, RepositoryReply),
+        LookupFinished(u64, LookupReply),
+        Output(ReviewOutput),
         SetDocument { document: Arc<DiffDocument>, revision: Option<u64>, request_id: Option<u64> },
         SetTheme(ReviewTheme),
         SetMarkdownDocument(Arc<MarkdownDocument>),
@@ -256,122 +277,74 @@ mod wasm {
     }
 
     struct WebRoot {
-        remote: Option<DiffClient>,
-        remote_task: Option<Task<()>>,
+        remote: Option<(u64, DiffClient)>,
+        remote_task: Option<Task>,
+        repository_task: Option<Task>,
+        lookup_task: Option<Task>,
         capabilities: ReviewCapabilities,
         installed_snapshot: Option<Arc<DiffDocument>>,
         listed_files: Option<Arc<[RepoPath]>>,
         applied_revision: Option<u64>,
         requests: RepositoryRequests,
-        viewer: Entity<DiffViewer>,
-        _viewer_subscription: Subscription,
-        _viewer_theme_subscription: Subscription,
-        _viewer_view_mode_subscription: Subscription,
-        markdown: Option<Entity<MarkdownReviewer>>,
-        markdown_subscription: Option<Subscription>,
-        markdown_theme_subscription: Option<Subscription>,
-        _command_task: Task<()>,
+        viewer: ReviewHandle,
+        markdown: Signal<Option<MarkdownHandle>>,
+        markdown_scope: Option<rouge_reactive::Scope>,
+    }
+
+    fn root(receiver: Receiver<WebCommand>) -> impl View {
+        let _ = InterfaceSize::install(DEFAULT_INTERFACE_SIZE);
+        let viewer = ReviewController::with_options(
+            Arc::new(demo_document()),
+            stored_theme(),
+            DiffViewerOptions { view_mode: stored_view_mode(), ..DiffViewerOptions::default() },
+        )
+        .mount(|output| {
+            let _ = send(WebCommand::Output(output));
+        });
+        let markdown = signal(None::<MarkdownHandle>);
+        let mut state = WebRoot {
+            remote: None,
+            remote_task: None,
+            repository_task: None,
+            lookup_task: None,
+            capabilities: ReviewCapabilities::default(),
+            installed_snapshot: None,
+            listed_files: None,
+            applied_revision: None,
+            requests: RepositoryRequests::default(),
+            viewer: viewer.clone(),
+            markdown,
+            markdown_scope: None,
+        };
+        let task = spawn(async move {
+            while let Ok(command) = receiver.recv().await {
+                state.apply(command);
+            }
+        });
+        on_cleanup(move || task.cancel());
+        div().size_full().child(dynamic(move || {
+            markdown.with(|handle| match handle {
+                Some(handle) => markdown_review_view(handle.clone()).into_any(),
+                None => diff_view(viewer.clone()).into_any(),
+            })
+        }))
+    }
+
+    impl Drop for WebRoot {
+        fn drop(&mut self) {
+            self.drop_remote();
+        }
     }
 
     impl WebRoot {
-        fn new(receiver: Receiver<WebCommand>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-            let theme = stored_theme();
-            let capabilities = ReviewCapabilities::default();
-            let viewer = cx.new(|cx| {
-                let mut viewer = DiffViewer::with_options(
-                    Arc::new(demo_document()),
-                    theme,
-                    DiffViewerOptions { view_mode: stored_view_mode(), ..DiffViewerOptions::default() },
-                );
-                viewer.set_capabilities(capabilities, cx);
-                viewer
-            });
-            let viewer_subscription = cx.subscribe(&viewer, |this: &mut Self, _viewer, event: &DiffReviewEvent, cx| {
-                if let DiffReviewEvent::Lookup(lookup) = event {
-                    this.remote_lookup(lookup.clone());
-                    return;
-                }
-                if MANAGED.get() && !matches!(event, DiffReviewEvent::CopyFormattedReview(_)) {
-                    this.remote_request(event.clone(), cx);
-                    return;
-                }
-                match event {
-                    DiffReviewEvent::RepositoryAction(action) => {
-                        this.request_repository(cx, |request_id| dispatch_repository_action(request_id, action))
-                    }
-                    DiffReviewEvent::SetTarget(target) => {
-                        this.request_repository(cx, |_| dispatch_target_request(target));
-                    }
-                    DiffReviewEvent::Refresh => this.request_repository(cx, |request_id| {
-                        let detail = serde_json::json!({ "request_id": request_id }).to_string();
-                        dispatch_custom_event(super::REFRESH_REQUEST_EVENT, Some(&detail))
-                    }),
-                    _ => dispatch_viewer_event(event),
-                }
-            });
-            let viewer_theme_subscription = cx.subscribe(&viewer, |_this, _viewer, event: &ThemeChanged, _cx| {
-                store_theme(&event.id);
-            });
-            let viewer_view_mode_subscription =
-                cx.subscribe(&viewer, |_this, _viewer, event: &ViewModeChanged, _cx| {
-                    store_view_mode(event.mode);
-                });
-            let command_task = cx.spawn_in(window, async move |this, cx| {
-                while let Ok(command) = receiver.recv().await {
-                    if this
-                        .update_in(cx, |root, window, cx| {
-                            root.apply_command(command, window, cx);
-                        })
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            });
-
-            Self {
-                remote: None,
-                remote_task: None,
-                capabilities,
-                installed_snapshot: None,
-                listed_files: None,
-                applied_revision: None,
-                requests: RepositoryRequests::default(),
-                viewer,
-                _viewer_subscription: viewer_subscription,
-                _viewer_theme_subscription: viewer_theme_subscription,
-                _viewer_view_mode_subscription: viewer_view_mode_subscription,
-                markdown: None,
-                markdown_subscription: None,
-                markdown_theme_subscription: None,
-                _command_task: command_task,
-            }
-        }
-
-        fn install_remote(&mut self, client: DiffClient, cx: &mut Context<Self>) {
-            if !MANAGED.get() {
-                close(client);
-                return;
-            }
-            self.drop_remote();
-            self.markdown = None;
-            self.markdown_subscription = None;
-            self.markdown_theme_subscription = None;
-            let mut subscription = client.subscribe();
-            self.apply_remote_state(&subscription.latest(), cx);
-            self.remote = Some(client);
-            self.remote_task = Some(cx.spawn(async move |this, cx| {
-                while let Ok(state) = subscription.changed().await {
-                    if this.update(cx, |this, cx| this.apply_remote_state(&state, cx)).is_err() {
-                        break;
-                    }
-                }
-            }));
-        }
-
         fn drop_remote(&mut self) {
-            self.remote_task = None;
-            if let Some(client) = self.remote.take() {
+            for task in [self.repository_task.take(), self.lookup_task.take()].into_iter().flatten() {
+                task.cancel();
+            }
+            if let Some(task) = self.remote_task.take() {
+                task.cancel();
+            }
+            if let Some((_, client)) = self.remote.take() {
                 close(client);
             }
             self.requests.pending = None;
@@ -380,208 +353,337 @@ mod wasm {
             self.applied_revision = None;
         }
 
-        fn apply_remote_state(&mut self, state: &ClientState, cx: &mut Context<Self>) {
-            if let Some(snapshot) = state.snapshot_if_changed(&mut self.installed_snapshot) {
-                self.viewer.update(cx, |viewer, cx| {
-                    viewer.set_document(snapshot.clone(), cx);
-                });
+        fn close_markdown(&mut self) {
+            self.markdown.set(None);
+            if let Some(scope) = self.markdown_scope.take() {
+                scope.dispose();
             }
-            let error = state.status();
-            let files = state.files_if_changed(&mut self.listed_files);
-            self.viewer.update(cx, |viewer, cx| {
-                viewer.set_capabilities(state.capabilities, cx);
-                viewer.set_background_error(error.clone(), cx);
-                if let Some(files) = files {
-                    viewer.set_repository_files(files, cx);
+        }
+
+        fn apply(&mut self, command: WebCommand) {
+            match command {
+                WebCommand::InstallRemote(id, client) => {
+                    if !MANAGED.get() || id != GENERATION.get() {
+                        close(client);
+                        return;
+                    }
+                    self.drop_remote();
+                    self.close_markdown();
+                    let mut updates = client.subscribe();
+                    self.remote = Some((id, client));
+                    self.remote_state(&updates.latest());
+                    self.remote_task = Some(spawn(async move {
+                        while let Ok(state) = updates.changed().await {
+                            if send(WebCommand::RemoteState(id, state)).is_err() {
+                                break;
+                            }
+                        }
+                    }));
                 }
-            });
-            let _ = emit_connection_state(state.label(), error.as_deref());
-        }
-
-        fn remote_lookup(&self, lookup: Lookup) {
-            let Some(client) = self.remote.clone() else {
-                return;
-            };
-            spawn_local(async move {
-                let _ = send(WebCommand::LookupFinished(client.lookup(lookup).await));
-            });
-        }
-
-        fn remote_request(&mut self, event: DiffReviewEvent, cx: &mut Context<Self>) {
-            let Some(client) = self.remote.clone() else {
-                return;
-            };
-            let Some(request_id) = self.requests.begin() else {
-                return;
-            };
-            self.viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
-            spawn_local(async move {
-                let result = client.handle(event).await;
-                let _ = send(WebCommand::RemoteFinished(RepositoryReply {
-                    request_id,
-                    error: result.err().map(|error| error.to_string()),
-                }));
-            });
-        }
-
-        fn finish_repository(&mut self, reply: RepositoryReply, cx: &mut Context<Self>) {
-            if self.requests.finish(reply.request_id) {
-                self.viewer.update(cx, |viewer, cx| match reply.error {
-                    Some(message) => viewer.set_repository_error(message, cx),
-                    None => viewer.set_repository_pending(false, cx),
-                });
-            }
-        }
-
-        fn request_repository(&mut self, cx: &mut Context<Self>, dispatch: impl FnOnce(u64) -> Result<(), JsValue>) {
-            let Some(request_id) = self.requests.begin() else {
-                return;
-            };
-            self.viewer.update(cx, |viewer, cx| viewer.set_repository_pending(true, cx));
-            if let Err(error) = dispatch(request_id) {
-                self.finish_repository(
-                    RepositoryReply { request_id, error: Some(format!("could not dispatch request: {error:?}")) },
-                    cx,
-                );
-            }
-        }
-
-        fn dispatch_command(&mut self, request: CommandRequest, window: &mut Window, cx: &mut Context<Self>) {
-            let result = match request.command {
-                ViewerCommand::Diff(command) if self.markdown.is_none() => {
-                    Ok(self.viewer.update(cx, |viewer, cx| viewer.handle_command(command, window, cx)))
+                WebCommand::DisconnectRemote => {
+                    self.drop_remote();
+                    self.viewer.command_finished(Ok(()));
+                    self.viewer.set_background_error(None);
+                    self.viewer.set_capabilities(self.capabilities);
+                    report(emit_connection_state("host", None));
                 }
-                ViewerCommand::Markdown(command) => {
-                    if let Some(markdown) = &self.markdown {
-                        markdown
-                            .update(cx, |reviewer, cx| reviewer.handle_command(command, window, cx))
-                            .map_err(|error| error.to_string())
+                WebCommand::RemoteState(id, state) if self.is_current(id) => self.remote_state(&state),
+                WebCommand::RemoteFinished(id, reply) if self.is_current(id) => self.finish_repository(reply),
+                WebCommand::LookupFinished(id, reply) if self.is_current(id) => self.viewer.lookup_finished(reply),
+                WebCommand::RemoteState(..) | WebCommand::RemoteFinished(..) | WebCommand::LookupFinished(..) => {}
+                WebCommand::Output(output) => self.output(output),
+                WebCommand::SetDocument { document, revision, request_id } => {
+                    let decision = document_update_decision(self.applied_revision, revision, || {
+                        self.viewer.with(|v| v.session().document().as_ref() == document.as_ref())
+                    });
+                    if decision == UpdateDecision::Apply {
+                        self.viewer.set_document(document);
+                    }
+                    if decision != UpdateDecision::SkipStale {
+                        self.close_markdown();
+                        self.applied_revision = revision.or(self.applied_revision);
+                    }
+                    if let Some(request_id) = request_id {
+                        self.finish_repository(RepositoryReply { request_id, error: None });
+                    }
+                    report(dispatch_document_applied(revision, decision == UpdateDecision::Apply));
+                }
+                WebCommand::SetMarkdownDocument(document) => {
+                    if let Some(handle) = self.markdown.get_untracked() {
+                        handle.set_document(document);
                     } else {
-                        Err(CommandError::InactiveReviewer.to_string())
+                        let scope = rouge_reactive::Scope::new();
+                        let handle =
+                            scope.run(|| MarkdownController::new(document, stored_theme()).mount(markdown_output));
+                        handle.set_capabilities(self.capabilities);
+                        self.markdown_scope = Some(scope);
+                        self.markdown.set(Some(handle));
                     }
                 }
-                ViewerCommand::Diff(_) => Err(CommandError::InactiveReviewer.to_string()),
+                WebCommand::SetTheme(theme) => {
+                    if let Some(handle) = self.markdown.get_untracked() {
+                        handle.set_theme(theme);
+                    } else {
+                        self.viewer.set_theme(theme);
+                    }
+                }
+                WebCommand::RepositoryFinished(reply) => self.finish_repository(reply),
+                WebCommand::SetCapabilities(capabilities) => {
+                    self.capabilities = capabilities;
+                    self.viewer.set_capabilities(capabilities);
+                    if let Some(handle) = self.markdown.get_untracked() {
+                        handle.set_capabilities(capabilities);
+                    }
+                }
+                WebCommand::Dispatch(request) => self.dispatch(request),
+                WebCommand::ClearReview => {
+                    if let Some(handle) = self.markdown.get_untracked() {
+                        handle.clear_review();
+                    } else {
+                        self.viewer.clear_review();
+                    }
+                }
+            }
+        }
+
+        fn is_current(&self, id: u64) -> bool {
+            MANAGED.get() && GENERATION.get() == id && self.remote.as_ref().is_some_and(|(active, _)| *active == id)
+        }
+
+        fn remote_state(&mut self, state: &ClientState) {
+            if let Some(document) = state.snapshot_if_changed(&mut self.installed_snapshot) {
+                self.viewer.set_document(document.clone());
+            }
+            if let Some(files) = state.files_if_changed(&mut self.listed_files) {
+                self.viewer.set_repository_files(files);
+            }
+            let status = state.status();
+            self.viewer.set_capabilities(state.capabilities);
+            self.viewer.set_background_error(status.clone());
+            report(emit_connection_state(state.label(), status.as_deref()));
+        }
+
+        fn finish_repository(&mut self, reply: RepositoryReply) {
+            if self.requests.finish(reply.request_id) {
+                self.viewer.command_finished(reply.error.map_or(Ok(()), Err));
+            }
+        }
+
+        fn dispatch(&self, request: CommandRequest) {
+            let markdown = self.markdown.get_untracked();
+            let result = match (request.command, markdown) {
+                (ViewerCommand::Diff(command), None) => Ok(self.viewer.handle_command(command)),
+                (ViewerCommand::Markdown(command), Some(handle)) => {
+                    handle.handle_command(command).map_err(|error| error.to_string())
+                }
+                _ => Err(CommandError::InactiveReviewer.to_string()),
             };
             let result = CommandResult {
                 request_id: request.request_id,
                 handled: result.as_ref().copied().unwrap_or(false),
                 error: result.err(),
             };
-            let dispatched = serde_json::to_string(&result)
-                .map_err(|error| JsValue::from_str(&error.to_string()))
-                .and_then(|detail| dispatch_custom_event(COMMAND_RESULT_EVENT, Some(&detail)));
-            if let Err(error) = dispatched {
-                web_sys::console::error_1(&error);
-            }
+            report(
+                serde_json::to_string(&result)
+                    .map_err(|error| JsValue::from_str(&error.to_string()))
+                    .and_then(|detail| dispatch_custom_event(COMMAND_RESULT_EVENT, Some(&detail))),
+            );
         }
 
-        fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>) {
-            self.capabilities = capabilities;
-            self.viewer.update(cx, |viewer, cx| viewer.set_capabilities(capabilities, cx));
-            if let Some(markdown) = &self.markdown {
-                markdown.update(cx, |reviewer, cx| {
-                    reviewer.set_capabilities(capabilities, cx);
+        fn output(&mut self, output: ReviewOutput) {
+            let event = match output {
+                ReviewOutput::ThemeChanged(id) => {
+                    store_theme(&id);
+                    return;
+                }
+                ReviewOutput::ViewModeChanged(mode) => {
+                    store_view_mode(mode);
+                    return;
+                }
+                ReviewOutput::Event(event) => event,
+            };
+            if let DiffReviewEvent::Lookup(lookup) = event {
+                if let Some((id, client)) = self.remote.clone() {
+                    if let Some(task) = self.lookup_task.take() {
+                        task.cancel();
+                    }
+                    self.lookup_task = Some(spawn(async move {
+                        let _ = send(WebCommand::LookupFinished(id, client.lookup(lookup).await));
+                    }));
+                }
+                return;
+            }
+            if MANAGED.get() && !matches!(event, DiffReviewEvent::CopyFormattedReview(_)) {
+                if let Some((id, client)) = self.remote.clone()
+                    && let Some(request_id) = self.requests.begin()
+                {
+                    if let Some(task) = self.repository_task.take() {
+                        task.cancel();
+                    }
+                    self.repository_task = Some(spawn(async move {
+                        let error = client.handle(event).await.err().map(|error| error.to_string());
+                        let _ = send(WebCommand::RemoteFinished(id, RepositoryReply { request_id, error }));
+                    }));
+                } else {
+                    self.viewer.command_finished(Err("Remote connection is not ready".into()));
+                }
+                return;
+            }
+            if !matches!(
+                event,
+                DiffReviewEvent::Refresh | DiffReviewEvent::SetTarget(_) | DiffReviewEvent::RepositoryAction(_)
+            ) {
+                if let DiffReviewEvent::CopyFormattedReview(text) = &event {
+                    copy(text.clone());
+                }
+                dispatch_viewer_event(&event);
+                return;
+            }
+            let Some(request_id) = self.requests.begin() else {
+                return;
+            };
+            let result = match event {
+                DiffReviewEvent::Refresh => dispatch_custom_event(
+                    super::REFRESH_REQUEST_EVENT,
+                    Some(&serde_json::json!({"request_id": request_id}).to_string()),
+                ),
+                DiffReviewEvent::SetTarget(target) => dispatch_target_request(&target),
+                DiffReviewEvent::RepositoryAction(action) => dispatch_repository_action(request_id, &action),
+                _ => return,
+            };
+            if let Err(error) = result {
+                self.finish_repository(RepositoryReply {
+                    request_id,
+                    error: Some(format!("could not dispatch request: {error:?}")),
                 });
             }
         }
+    }
 
-        fn apply_command(&mut self, command: WebCommand, window: &mut Window, cx: &mut Context<Self>) {
-            match command {
-                WebCommand::InstallRemote(client) => self.install_remote(client, cx),
-                WebCommand::DisconnectRemote => {
-                    self.drop_remote();
-                    self.viewer.update(cx, |viewer, cx| {
-                        viewer.set_repository_pending(false, cx);
-                        viewer.set_background_error(None, cx);
-                    });
-                    self.set_capabilities(self.capabilities, cx);
-                    let _ = emit_connection_state("host", None);
+    fn report(result: Result<(), JsValue>) {
+        if let Err(error) = result {
+            web_sys::console::error_1(&error);
+        }
+    }
+    fn copy(text: String) {
+        spawn_local(async move {
+            report(rouge_web::copy_text(&text).await);
+        });
+    }
+    fn markdown_output(output: MarkdownOutput) {
+        match output {
+            MarkdownOutput::Event(event) => {
+                if let MarkdownReviewEvent::CopyFormatted(text) = &event {
+                    copy(text.clone());
                 }
-                WebCommand::RemoteFinished(reply) => {
-                    if self.remote.is_some() {
-                        self.finish_repository(reply, cx);
-                    }
-                }
-                WebCommand::LookupFinished(reply) => {
-                    self.viewer.update(cx, |viewer, cx| viewer.lookup_finished(reply, cx));
-                }
-                WebCommand::SetDocument { document, revision, request_id } => {
-                    let decision = document_update_decision(self.applied_revision, revision, || {
-                        self.viewer.read(cx).document().as_ref() == document.as_ref()
-                    });
-                    if decision == UpdateDecision::Apply {
-                        self.viewer.update(cx, |viewer, cx| viewer.set_document(document, cx));
-                    }
-                    if decision != UpdateDecision::SkipStale {
-                        self.markdown = None;
-                        self.markdown_subscription = None;
-                        self.markdown_theme_subscription = None;
-                        // An unchanged push still advances the host's ordering.
-                        self.applied_revision = revision.or(self.applied_revision);
-                    }
-                    if let Some(request_id) = request_id {
-                        self.finish_repository(RepositoryReply { request_id, error: None }, cx);
-                    }
-                    if let Err(error) = dispatch_document_applied(revision, decision == UpdateDecision::Apply) {
-                        web_sys::console::error_1(&error);
-                    }
-                }
-                WebCommand::SetMarkdownDocument(document) => {
-                    if let Some(markdown) = &self.markdown {
-                        markdown.update(cx, |reviewer, cx| reviewer.set_document(document, cx));
-                    } else {
-                        let theme = stored_theme();
-                        let markdown = cx.new(|cx| {
-                            let mut reviewer =
-                                MarkdownReviewer::with_options(document, theme, MarkdownReviewerOptions::default());
-                            reviewer.set_capabilities(self.capabilities, cx);
-                            reviewer
-                        });
-                        self.markdown_subscription =
-                            Some(cx.subscribe(&markdown, |_this, _reviewer, event: &MarkdownReviewEvent, _cx| {
-                                dispatch_markdown_event(event);
-                            }));
-                        self.markdown_theme_subscription =
-                            Some(cx.subscribe(&markdown, |_this, _reviewer, event: &ThemeChanged, _cx| {
-                                store_theme(&event.id)
-                            }));
-                        self.markdown = Some(markdown);
-                    }
-                }
-                WebCommand::SetTheme(theme) => {
-                    if let Some(markdown) = &self.markdown {
-                        markdown.update(cx, |reviewer, cx| reviewer.set_theme(theme, cx));
-                    } else {
-                        self.viewer.update(cx, |viewer, cx| viewer.set_theme(theme, cx));
-                    }
-                }
-                WebCommand::RepositoryFinished(reply) => self.finish_repository(reply, cx),
-                WebCommand::Dispatch(request) => self.dispatch_command(request, window, cx),
-                WebCommand::SetCapabilities(capabilities) => {
-                    self.set_capabilities(capabilities, cx);
-                }
-                WebCommand::ClearReview => {
-                    if let Some(markdown) = &self.markdown {
-                        markdown.update(cx, MarkdownReviewer::clear_review);
-                    } else {
-                        self.viewer.update(cx, DiffViewer::clear_review);
-                    }
+                dispatch_markdown_event(&event);
+            }
+            MarkdownOutput::ThemeChanged(id) => store_theme(&id),
+            MarkdownOutput::CopyCode(text) => copy(text),
+            MarkdownOutput::OpenLink(url) => {
+                if let Some(window) = web_sys::window() {
+                    let _ = window.open_with_url_and_target_and_features(&url, "_blank", "noopener,noreferrer");
                 }
             }
-            cx.notify();
         }
     }
 
-    impl Render for WebRoot {
-        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-            InterfaceSize::apply(window, cx);
-            div().size_full().font_family(UI_FONT).child(
-                self.markdown.as_ref().map_or_else(
-                    || self.viewer.clone().into_any_element(),
-                    |reviewer| reviewer.clone().into_any_element(),
-                ),
+    #[wasm_bindgen]
+    pub fn start() -> Result<(), JsValue> {
+        console_error_panic_hook::set_once();
+        let receiver = install_command_channel()?;
+        let result = prepare();
+        let (canvas, listeners) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                COMMANDS.take();
+                return Err(error);
+            }
+        };
+        STARTING.set(true);
+        connect_from_query();
+        spawn_local(async move {
+            let app = rouge_web::BrowserApp::mount(
+                canvas.clone(),
+                bundled_fonts(),
+                Color::new(0.06, 0.08, 0.10, 1.0),
+                move || root(receiver),
             )
+            .await;
+            STARTING.set(false);
+            match app {
+                Ok(app) => {
+                    APP.replace(Some(Mounted { _app: app, _listeners: listeners, canvas }));
+                }
+                Err(error) => {
+                    COMMANDS.take();
+                    MANAGED.set(false);
+                    GENERATION.set(GENERATION.get().wrapping_add(1));
+                    canvas.remove();
+                    if let Some(doc) = web_sys::window().and_then(|window| window.document())
+                        && let Some(body) = doc.body()
+                    {
+                        body.set_text_content(Some(&format!("Could not start Diff Review: {error}")));
+                    }
+                    report(Err(JsValue::from_str(&error.to_string())));
+                }
+            }
+        });
+        Ok(())
+    }
+
+    #[wasm_bindgen]
+    pub fn stop() -> Result<(), JsValue> {
+        if STARTING.get() {
+            return Err(JsValue::from_str("the diff viewer is still starting"));
         }
+        COMMANDS.take().ok_or_else(|| js_error(WebError::NotStarted))?;
+        MANAGED.set(false);
+        GENERATION.set(GENERATION.get().wrapping_add(1));
+        drop(APP.take());
+        Ok(())
+    }
+
+    fn prepare() -> Result<(HtmlCanvasElement, Vec<Listener>), JsValue> {
+        let doc = web_sys::window()
+            .and_then(|window| window.document())
+            .ok_or_else(|| JsValue::from_str("browser document is unavailable"))?;
+        let canvas = doc.create_element("canvas")?.dyn_into::<HtmlCanvasElement>().map_err(JsValue::from)?;
+        canvas.set_attribute("aria-label", "Diff Review")?;
+        let mut listeners = Vec::new();
+        for (name, command) in [
+            ("diff-review-set-document", set_document_json as fn(&str) -> Result<(), JsValue>),
+            (MARKDOWN_SET_DOCUMENT_EVENT, set_markdown_document_json),
+            ("diff-review-set-theme", set_theme),
+            (COMMAND_EVENT, dispatch_command_json),
+            (CAPABILITIES_EVENT, set_capabilities_json),
+            ("diff-review-repository-completed", complete_repository_json),
+        ] {
+            listeners.push(listen(&doc, name, move |event| {
+                report(
+                    event
+                        .detail()
+                        .as_string()
+                        .ok_or_else(|| JsValue::from_str("diff review command detail must be a string"))
+                        .and_then(|detail| command(&detail)),
+                );
+            })?);
+        }
+        for name in ["diff-review-clear", MARKDOWN_CLEAR_EVENT] {
+            listeners.push(listen(&doc, name, |_| report(clear_review()))?);
+        }
+        doc.body().ok_or_else(|| JsValue::from_str("browser body is unavailable"))?.append_child(&canvas)?;
+        Ok((canvas, listeners))
+    }
+
+    fn listen(
+        doc: &web_sys::Document,
+        name: &'static str,
+        handle: impl FnMut(CustomEvent) + 'static,
+    ) -> Result<Listener, JsValue> {
+        let handle = Closure::new(handle);
+        doc.add_event_listener_with_callback(name, handle.as_ref().unchecked_ref())?;
+        Ok(Listener(doc.clone(), name, handle))
     }
 
     fn dispatch_viewer_event(event: &DiffReviewEvent) {
@@ -704,72 +806,7 @@ mod wasm {
         JsValue::from_str(&error.to_string())
     }
 
-    fn single_threaded_web() -> gpui::Application {
-        let platform = Rc::new(gpui_web::WebPlatform::new(false));
-        let http_client = Arc::new(platform.fetch_http_client());
-        gpui::Application::with_platform(platform).with_http_client(http_client)
-    }
-
-    fn install_host_event_listeners() -> Result<(), JsValue> {
-        let document = web_sys::window()
-            .and_then(|window| window.document())
-            .ok_or_else(|| JsValue::from_str("browser document is unavailable"))?;
-
-        install_string_command(&document, "diff-review-set-document", set_document_json)?;
-        install_string_command(&document, MARKDOWN_SET_DOCUMENT_EVENT, set_markdown_document_json)?;
-        install_string_command(&document, "diff-review-set-theme", set_theme)?;
-        install_string_command(&document, COMMAND_EVENT, dispatch_command_json)?;
-        install_string_command(&document, CAPABILITIES_EVENT, set_capabilities_json)?;
-        install_string_command(&document, "diff-review-repository-completed", complete_repository_json)?;
-
-        let clear = Closure::<dyn FnMut(CustomEvent)>::new(|_event: CustomEvent| {
-            if let Err(error) = clear_review() {
-                web_sys::console::error_1(&error);
-            }
-        });
-        document.add_event_listener_with_callback("diff-review-clear", clear.as_ref().unchecked_ref())?;
-        clear.forget();
-
-        let clear_markdown = Closure::<dyn FnMut(CustomEvent)>::new(|_event: CustomEvent| {
-            if let Err(error) = clear_review() {
-                web_sys::console::error_1(&error);
-            }
-        });
-        document.add_event_listener_with_callback(MARKDOWN_CLEAR_EVENT, clear_markdown.as_ref().unchecked_ref())?;
-        clear_markdown.forget();
-        Ok(())
-    }
-
-    fn install_string_command(
-        document: &web_sys::Document,
-        event_name: &str,
-        command: fn(&str) -> Result<(), JsValue>,
-    ) -> Result<(), JsValue> {
-        let listener = Closure::<dyn FnMut(CustomEvent)>::new(move |event: CustomEvent| {
-            let Some(value) = event.detail().as_string() else {
-                web_sys::console::error_1(&JsValue::from_str("diff review command detail must be a string"));
-                return;
-            };
-            if let Err(error) = command(&value) {
-                web_sys::console::error_1(&error);
-            }
-        });
-        document.add_event_listener_with_callback(event_name, listener.as_ref().unchecked_ref())?;
-        listener.forget();
-        Ok(())
-    }
-
-    /// Initializes the single-threaded GPUI browser platform and its one canvas.
-    ///
-    /// # Errors
-    /// Returns an error if already started or browser listeners cannot be installed.
-    ///
-    /// # Panics
-    /// Panics if bundled fonts cannot load or the canvas cannot be opened.
-    #[wasm_bindgen(start)]
-    pub fn start() -> Result<(), JsValue> {
-        console_error_panic_hook::set_once();
-        gpui_web::init_logging();
+    fn install_command_channel() -> Result<Receiver<WebCommand>, JsValue> {
         let (sender, receiver) = async_channel::unbounded();
         COMMANDS.with(|commands| {
             if commands.borrow().is_some() {
@@ -778,26 +815,10 @@ mod wasm {
             *commands.borrow_mut() = Some(sender);
             Ok(())
         })?;
-        install_host_event_listeners()?;
+        Ok(receiver)
+    }
 
-        let application = single_threaded_web().run_embedded(move |cx: &mut App| {
-            load_fonts(cx).expect("failed to load the bundled fonts");
-            InterfaceSize::init(DEFAULT_INTERFACE_SIZE, cx);
-            DiffViewer::bind_keys(cx);
-            MarkdownReviewer::bind_keys(cx);
-            let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    focus: true,
-                    ..Default::default()
-                },
-                |window, cx| cx.new(|cx| WebRoot::new(receiver, window, cx)),
-            )
-            .expect("GPUI web must be able to open its document-owned canvas");
-            cx.activate(true);
-        });
-        APPLICATION.with(|current| *current.borrow_mut() = Some(application));
+    fn connect_from_query() {
         if let Some(url) = web_sys::window()
             .and_then(|window| window.location().search().ok())
             .and_then(|query| web_sys::UrlSearchParams::new_with_str(&query).ok())
@@ -809,7 +830,6 @@ mod wasm {
                 }
             });
         }
-        Ok(())
     }
 
     /// Pushes a document, as a bare `DiffDocument` or a revision envelope.
@@ -902,10 +922,16 @@ mod wasm {
         if !COMMANDS.with(|commands| commands.borrow().is_some()) {
             return Err(js_error(WebError::NotStarted));
         }
+        let id = GENERATION.get().wrapping_add(1);
+        GENERATION.set(id);
         MANAGED.set(true);
         match DiffClient::connect(url, ClientOptions::default()).await {
             Ok(client) => {
-                if let Err(error) = send(WebCommand::InstallRemote(client.clone())) {
+                if GENERATION.get() != id {
+                    let _ = client.close().await;
+                    return Err(JsValue::from_str("remote connection was superseded"));
+                }
+                if let Err(error) = send(WebCommand::InstallRemote(id, client.clone())) {
                     MANAGED.set(false);
                     let _ = client.close().await;
                     return Err(js_error(error));
@@ -913,6 +939,9 @@ mod wasm {
                 Ok(())
             }
             Err(error) => {
+                if GENERATION.get() != id {
+                    return Err(JsValue::from_str("remote connection was superseded"));
+                }
                 MANAGED.set(false);
                 let message = error.to_string();
                 let _ = emit_connection_state("failed", Some(&message));
@@ -924,6 +953,7 @@ mod wasm {
     #[wasm_bindgen]
     pub fn disconnect_remote() -> Result<(), JsValue> {
         MANAGED.set(false);
+        GENERATION.set(GENERATION.get().wrapping_add(1));
         send(WebCommand::DisconnectRemote).map_err(js_error)
     }
 
@@ -944,7 +974,7 @@ mod wasm {
 #[cfg(target_arch = "wasm32")]
 pub use wasm::{
     clear_review, complete_repository_json, connect_remote, disconnect_remote, dispatch_command_json,
-    set_capabilities_json, set_document_json, set_markdown_document_json, set_theme, start,
+    set_capabilities_json, set_document_json, set_markdown_document_json, set_theme, start, stop,
 };
 
 #[cfg(test)]

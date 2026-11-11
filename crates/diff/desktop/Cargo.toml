@@ -1,7 +1,7 @@
 [package]
-name = "clankerdiff-gpui-desktop"
+name = "clankerdiff-desktop"
 publish = false
-description = "Native desktop shell for the GPUI diff viewer"
+description = "Native desktop shell for the Rouge diff viewer"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,10 +21,8 @@ clankerdiff-ui-core.workspace = true
 clankerdiff-client = { workspace = true, features = ["websocket"] }
 clankerdiff-lspd = { workspace = true, features = ["daemon"] }
 clankerdiff-server.workspace = true
-clankerdiff-gpui.workspace = true
-clankerdiff-gpui-shell.workspace = true
-gpui.workspace = true
-gpui-base.workspace = true
+clankerdiff-rouge.workspace = true
+clankerdiff-rouge-shell.workspace = true
 log = { workspace = true, features = ["release_max_level_info"] }
 serde_json.workspace = true
 thiserror.workspace = true

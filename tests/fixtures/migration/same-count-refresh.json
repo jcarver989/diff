@@ -1,0 +1,222 @@
+{
+  "repo_root": "/migration-fixture",
+  "target": {
+    "working_tree": "Both"
+  },
+  "files": [
+    {
+      "old_path": "src/greeting.rs",
+      "path": "src/greeting.rs",
+      "status": "Modified",
+      "staged": "Unstaged",
+      "hunks": [
+        {
+          "header": "@@ -1,3 +1,3 @@",
+          "function_context": null,
+          "old_start": 1,
+          "old_count": 3,
+          "new_start": 1,
+          "new_count": 3,
+          "lines": [
+            {
+              "kind": "Context",
+              "text": "fn greeting(name: &str) -> String {",
+              "old_line_no": 1,
+              "new_line_no": 1,
+              "no_newline": false
+            },
+            {
+              "kind": "Removed",
+              "text": "\tformat!(\"Hello, {name}\")",
+              "old_line_no": 2,
+              "new_line_no": null,
+              "no_newline": false
+            },
+            {
+              "kind": "Added",
+              "text": "\tformat!(\"Howdy, {name}! café é 日本語\")",
+              "old_line_no": null,
+              "new_line_no": 2,
+              "no_newline": false
+            },
+            {
+              "kind": "Context",
+              "text": "}",
+              "old_line_no": 3,
+              "new_line_no": 3,
+              "no_newline": false
+            }
+          ]
+        }
+      ],
+      "binary": false,
+      "mode": null,
+      "no_newline_at_end": false,
+      "old_source": {
+        "Ok": "fn greeting(name: &str) -> String {\n\tformat!(\"Hello, {name}\")\n}\n"
+      },
+      "new_source": {
+        "Ok": "fn greeting(name: &str) -> String {\n\tformat!(\"Howdy, {name}! café é 日本語\")\n}\n"
+      }
+    },
+    {
+      "old_path": "src/old.rs",
+      "path": "src/renamed.rs",
+      "status": "Renamed",
+      "staged": "Unstaged",
+      "hunks": [
+        {
+          "header": "@@ -1,1 +1,1 @@",
+          "function_context": null,
+          "old_start": 1,
+          "old_count": 1,
+          "new_start": 1,
+          "new_count": 1,
+          "lines": [
+            {
+              "kind": "Removed",
+              "text": "let old = 1;",
+              "old_line_no": 1,
+              "new_line_no": null,
+              "no_newline": false
+            },
+            {
+              "kind": "Added",
+              "text": "let new = 2;",
+              "old_line_no": null,
+              "new_line_no": 1,
+              "no_newline": false
+            }
+          ]
+        }
+      ],
+      "binary": false,
+      "mode": null,
+      "no_newline_at_end": false,
+      "old_source": {
+        "Ok": "let old = 1;\n"
+      },
+      "new_source": {
+        "Ok": "let new = 2;\n"
+      }
+    },
+    {
+      "old_path": null,
+      "path": "src/added.rs",
+      "status": "Added",
+      "staged": "Unstaged",
+      "hunks": [
+        {
+          "header": "@@ -0,0 +1,1 @@",
+          "function_context": null,
+          "old_start": 0,
+          "old_count": 0,
+          "new_start": 1,
+          "new_count": 1,
+          "lines": [
+            {
+              "kind": "Added",
+              "text": "pub const ADDED: bool = true;",
+              "old_line_no": null,
+              "new_line_no": 1,
+              "no_newline": false
+            }
+          ]
+        }
+      ],
+      "binary": false,
+      "mode": null,
+      "no_newline_at_end": false,
+      "old_source": {
+        "Err": "Absent"
+      },
+      "new_source": {
+        "Ok": "pub const ADDED: bool = true;\n"
+      }
+    },
+    {
+      "old_path": "src/deleted.rs",
+      "path": "src/deleted.rs",
+      "status": "Deleted",
+      "staged": "Unstaged",
+      "hunks": [
+        {
+          "header": "@@ -1,1 +0,0 @@",
+          "function_context": null,
+          "old_start": 1,
+          "old_count": 1,
+          "new_start": 0,
+          "new_count": 0,
+          "lines": [
+            {
+              "kind": "Removed",
+              "text": "pub const REMOVED: bool = true;",
+              "old_line_no": 1,
+              "new_line_no": null,
+              "no_newline": false
+            }
+          ]
+        }
+      ],
+      "binary": false,
+      "mode": null,
+      "no_newline_at_end": false,
+      "old_source": {
+        "Ok": "pub const REMOVED: bool = true;\n"
+      },
+      "new_source": {
+        "Err": "Absent"
+      }
+    },
+    {
+      "old_path": null,
+      "path": "notes.txt",
+      "status": "Untracked",
+      "staged": "Unstaged",
+      "hunks": [
+        {
+          "header": "@@ -0,0 +1,1 @@",
+          "function_context": null,
+          "old_start": 0,
+          "old_count": 0,
+          "new_start": 1,
+          "new_count": 1,
+          "lines": [
+            {
+              "kind": "Added",
+              "text": "A new file without a trailing newline",
+              "old_line_no": null,
+              "new_line_no": 1,
+              "no_newline": true
+            }
+          ]
+        }
+      ],
+      "binary": false,
+      "mode": null,
+      "no_newline_at_end": true,
+      "old_source": {
+        "Err": "Absent"
+      },
+      "new_source": {
+        "Ok": "A new file without a trailing newline"
+      }
+    },
+    {
+      "old_path": "assets/image.png",
+      "path": "assets/image.png",
+      "status": "Modified",
+      "staged": "Unstaged",
+      "hunks": [],
+      "binary": true,
+      "mode": null,
+      "no_newline_at_end": false,
+      "old_source": {
+        "Err": "Binary"
+      },
+      "new_source": {
+        "Err": "Binary"
+      }
+    }
+  ]
+}

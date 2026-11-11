@@ -21,6 +21,8 @@ use std::{
 };
 use thiserror::Error;
 use tokio::runtime::Runtime;
+#[cfg(feature = "desktop")]
+use tokio::task::block_in_place;
 
 fn main() -> ExitCode {
     if let Some(exit) = clankerdiff_lspd::run_if_requested() {
@@ -109,7 +111,7 @@ async fn connect(args: ConnectArgs) -> Result<ReviewOutcome, AppError> {
     let outcome = match args.ui {
         Ui::Tui => tui::run_client(&client),
         #[cfg(feature = "desktop")]
-        Ui::Desktop => Ok(clankerdiff_gpui_desktop::run_client_review(client.clone())),
+        Ui::Desktop => Ok(block_in_place(|| clankerdiff_desktop::run_client_review(client.clone()))),
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
     };
@@ -128,11 +130,13 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
         #[cfg(feature = "desktop")]
-        Ui::Desktop => clankerdiff_gpui_desktop::run_review(clankerdiff_gpui_desktop::args::CliArgs {
-            repository: root.clone(),
-            scope: args.scope,
-            commits: args.commits,
-            connect: None,
+        Ui::Desktop => block_in_place(|| {
+            clankerdiff_desktop::run_review(clankerdiff_desktop::args::CliArgs {
+                repository: root.clone(),
+                scope: args.scope,
+                commits: args.commits,
+                connect: None,
+            })
         }),
         Ui::Tui => match args.tui_placement {
             TuiPlacement::Current => {
@@ -203,7 +207,7 @@ fn run_markdown(args: &MarkdownArgs) -> Result<ReviewResponse, AppError> {
     let submission = match args.ui {
         Ui::Tui => tui::run_markdown(Arc::new(document))?,
         #[cfg(feature = "desktop")]
-        Ui::Desktop => clankerdiff_gpui_desktop::run_markdown_review(document),
+        Ui::Desktop => block_in_place(|| clankerdiff_desktop::run_markdown_review(document)),
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
     };

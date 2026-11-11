@@ -6,12 +6,11 @@ use crate::{
 };
 use arborium_theme::tag_for_capture;
 use clankerdiff_ui_core::HighlightId;
-use std::{
-    borrow::Cow,
-    fmt,
-    ops::Add,
-    sync::{Arc, OnceLock},
-};
+#[cfg(target_family = "wasm")]
+use std::rc::Rc as SharedGrammar;
+#[cfg(not(target_family = "wasm"))]
+use std::sync::Arc as SharedGrammar;
+use std::{borrow::Cow, fmt, ops::Add, sync::OnceLock};
 use tree_sitter::{InputEdit, Language, Node, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
 /// Bytes handed to Tree-sitter per input callback. `parser_input_bytes` counts
@@ -56,7 +55,7 @@ impl Add for SyntaxWorkStats {
 
 type Spec = (Language, &'static str, &'static str);
 
-type Compiled = OnceLock<Option<Arc<Grammar>>>;
+type Compiled = OnceLock<Option<SharedGrammar<Grammar>>>;
 
 #[cfg(not(target_family = "wasm"))]
 fn with_registry<T>(read: impl FnOnce(&[Compiled]) -> T) -> T {
@@ -72,12 +71,12 @@ fn with_registry<T>(read: impl FnOnce(&[Compiled]) -> T) -> T {
     REGISTRY.with(|registry| read(registry))
 }
 
-pub(crate) fn grammar(language: &str) -> Option<Arc<Grammar>> {
+pub(crate) fn grammar(language: &str) -> Option<SharedGrammar<Grammar>> {
     let index = GRAMMARS.iter().position(|(name, _)| *name == language)?;
     with_registry(|registry| registry[index].get_or_init(|| compile(GRAMMARS[index])).clone())
 }
 
-fn compile((name, spec): (&'static str, fn() -> Spec)) -> Option<Arc<Grammar>> {
+fn compile((name, spec): (&'static str, fn() -> Spec)) -> Option<SharedGrammar<Grammar>> {
     let (language, highlights, injections) = spec();
     let highlights = if name == "solidity" {
         Cow::Owned(highlights.replace(
@@ -95,7 +94,7 @@ fn compile((name, spec): (&'static str, fn() -> Spec)) -> Option<Arc<Grammar>> {
         .into_iter()
         .any(|query| (0..query.pattern_count()).any(|index| query.is_pattern_non_local(index)));
     let captures = highlights.capture_names().iter().map(|name| CaptureRole::of(name)).collect();
-    Some(Arc::new(Grammar { language, highlights, captures, injections, non_local, query_source, tags }))
+    Some(SharedGrammar::new(Grammar { language, highlights, captures, injections, non_local, query_source, tags }))
 }
 
 /// Shared state for one append across a document and its injections.
@@ -108,7 +107,7 @@ pub(crate) struct AppendContext<'a> {
 pub(crate) struct IncrementalDocument {
     parser: Option<Parser>,
     tree: Option<Tree>,
-    grammar: Arc<Grammar>,
+    grammar: SharedGrammar<Grammar>,
     length: usize,
     spans: Vec<Span>,
     injections: Vec<InjectedDocument>,
@@ -314,7 +313,7 @@ impl Clone for IncrementalDocument {
         Self {
             parser: None,
             tree: self.tree.clone(),
-            grammar: Arc::clone(&self.grammar),
+            grammar: SharedGrammar::clone(&self.grammar),
             length: self.length,
             spans: self.spans.clone(),
             injections: self.injections.clone(),

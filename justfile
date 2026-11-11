@@ -2,11 +2,15 @@
 install:
     cargo install --path crates/diff/cli --locked --force --profile release
 
+# Scroll the desktop diff of REPO with a scripted wheel workload, print a frame summary and write a Chrome trace to ./rouge-trace.json.
+profile-desktop repo="." bench="scroll:60:600" *args="":
+    ROUGE_PROFILE=rouge-trace.json ROUGE_BENCH={{bench}} cargo run --locked --profile release -p clankerdiff-desktop -- {{args}} {{repo}}
+
 tui:
     cargo run -p clankerdiff-ratatui --features crossterm-backend --example review
 
 desktop:
-    cargo run -p clankerdiff-gpui-desktop
+    cargo run -p clankerdiff-desktop
 
 ensure_trunk_installed:
     if ! command -v trunk >/dev/null 2>&1; then \
@@ -48,14 +52,17 @@ layer-check:
     if [ -n "$violations" ]; then printf '%s\n' "$violations" >&2; exit 1; fi
 
 feature-check: consumer-check layer-check
-    tree="$(cargo tree -p clankerdiff-git -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(notify|ratatui[^ ]*|crossterm|clankerdiff-(watch|ratatui|syntax|markdown|gpui[^ ]*)) v'; then echo "unexpected UI or watcher dependency in Git graph" >&2; exit 1; fi
-    tree="$(cargo tree -p clankerdiff-watch -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(ratatui[^ ]*|crossterm|clankerdiff-(ratatui|syntax|markdown|gpui[^ ]*)) v'; then echo "unexpected renderer dependency in watcher graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-desktop -e normal,build,dev --prefix none && cargo tree -p clankerdiff-web --target wasm32-unknown-unknown -e normal,build,dev --prefix none)"; if printf '%s\n' "$tree" | grep -Ei '^(gpui[^ ]*|clankerdiff-gpui[^ ]*) v'; then echo "legacy renderer present in graphical graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-git -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge[^ ]*|wgpu[^ ]*|winit|notify|ratatui[^ ]*|crossterm|clankerdiff-(watch|ratatui|syntax|markdown|rouge[^ ]*)) v'; then echo "unexpected UI or watcher dependency in Git graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-watch -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge[^ ]*|wgpu[^ ]*|winit|ratatui[^ ]*|crossterm|clankerdiff-(ratatui|syntax|markdown|rouge[^ ]*)) v'; then echo "unexpected renderer dependency in watcher graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-cli --no-default-features -e normal,build --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge[^ ]*|wgpu[^ ]*|winit|clankerdiff-(rouge[^ ]*|desktop|web)) v'; then echo "unexpected renderer dependency in headless CLI graph" >&2; exit 1; fi
     cargo check -p clankerdiff-ratatui --all-features --all-targets
-    tree="$(cargo tree -p clankerdiff-ratatui --no-default-features --features test-support -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(crossterm|ratatui-crossterm|syntect|two-face|clankerdiff-(git|watch|gpui[^ ]*)) v'; then echo "unexpected dependency in portable ratatui graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-ratatui --no-default-features --features test-support -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge[^ ]*|wgpu[^ ]*|winit|crossterm|ratatui-crossterm|syntect|two-face|clankerdiff-(git|watch|rouge[^ ]*)) v'; then echo "unexpected dependency in portable ratatui graph" >&2; exit 1; fi
     tree="$(cargo tree -p clankerdiff-server --no-default-features -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(axum|tower[^ ]*|matchit|tokio-tungstenite|tungstenite) v'; then echo "unexpected WebSocket dependency in embedded server graph" >&2; exit 1; fi
     cargo clippy -p clankerdiff-server --no-default-features --all-targets -- -D warnings
 
 consumer-check:
+    cargo test --manifest-path tests/rouge-consumer-fixture/Cargo.toml --target-dir target
     cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
     cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
     cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
@@ -64,7 +71,7 @@ consumer-check:
     cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
 
 wasm-check:
-    cargo check -p clankerdiff-core -p clankerdiff-ui-core -p clankerdiff-syntax -p clankerdiff-markdown -p clankerdiff-gpui-ui -p clankerdiff-gpui -p clankerdiff-gpui-web --target wasm32-unknown-unknown
+    cargo check -p clankerdiff-core -p clankerdiff-ui-core -p clankerdiff-syntax -p clankerdiff-markdown -p clankerdiff-rouge-ui -p clankerdiff-rouge -p clankerdiff-web --target wasm32-unknown-unknown
     cargo check -p clankerdiff-ratatui --no-default-features --target wasm32-unknown-unknown
 
 # Build the release WASM and execute its smoke test in Chromium.
@@ -97,10 +104,12 @@ automation-check:
 verify: fmt-check check feature-check lint test wasm-check doc-check automation-check package-check
 
 package-check:
-    python3 scripts/check-consumer.py
+    cargo build --locked -p clankerdiff-desktop -p clankerdiff-cli
+    just dist-check
+    dist plan
 
 published-consumer-check:
-    python3 scripts/check-consumer.py --published
+    @echo "Unavailable: the Rouge dependency graph uses unpublished sibling path packages." >&2; exit 1
 
 release-pr-preview:
     release-plz release-pr --dry-run
@@ -163,9 +172,9 @@ dist-plan:
 
 # Regenerate the release workflow from dist-workspace.toml
 dist-generate:
-    dist generate
+    python3 scripts/generate-dist-workflow.py
 
 # Check the release workflow matches dist-workspace.toml
 dist-check:
-    dist generate --check
+    python3 scripts/generate-dist-workflow.py --check
 # framer:end rust-monorepo

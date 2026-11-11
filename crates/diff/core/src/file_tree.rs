@@ -21,6 +21,8 @@ pub struct FileTree {
     all: Vec<FileTreeEntry>,
     toggled: HashSet<String>,
     visible: Vec<FileTreeEntry>,
+    visible_by_path: HashMap<String, usize>,
+    file_by_index: HashMap<usize, usize>,
     selected: Option<String>,
 }
 
@@ -103,6 +105,8 @@ impl FileTree {
             });
             open = directories;
         }
+        self.file_by_index =
+            self.all.iter().enumerate().filter_map(|(index, entry)| entry.file.map(|file| (file, index))).collect();
         let all = &self.all;
         let directory = |path: &String| all.iter().any(|entry| entry.directory && entry.path == *path);
         self.toggled.retain(directory);
@@ -118,7 +122,7 @@ impl FileTree {
     #[must_use]
     pub fn selected_position(&self) -> Option<usize> {
         let selected = self.selected.as_ref()?;
-        self.visible.iter().position(|entry| entry.path == *selected)
+        self.visible_by_path.get(selected).copied()
     }
 
     #[must_use]
@@ -182,7 +186,7 @@ impl FileTree {
         };
         let visible = std::iter::once(path.as_str())
             .chain(path.match_indices('/').rev().map(|(end, _)| &path[..end]))
-            .find(|candidate| self.visible.iter().any(|entry| entry.path == *candidate));
+            .find(|candidate| self.visible_by_path.contains_key(*candidate));
         if let Some(visible) = visible {
             self.selected = Some(visible.to_owned());
         }
@@ -227,7 +231,7 @@ impl FileTree {
     }
 
     fn file_path(&self, file: usize) -> Option<String> {
-        self.all.iter().find(|entry| entry.file == Some(file)).map(|entry| entry.path.clone())
+        self.file_by_index.get(&file).map(|&index| self.all[index].path.clone())
     }
 
     fn refresh(&mut self) {
@@ -244,6 +248,8 @@ impl FileTree {
             })
             .map(|entry| FileTreeEntry { expanded: !entry.directory || self.is_expanded(&entry.path), ..entry.clone() })
             .collect();
+        self.visible_by_path =
+            self.visible.iter().enumerate().map(|(index, entry)| (entry.path.clone(), index)).collect();
     }
 }
 

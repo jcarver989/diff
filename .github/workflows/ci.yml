@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - run: just fmt-check
@@ -26,6 +28,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -33,7 +37,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-x11-dev
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
       - run: just lint
   test:
     name: Test
@@ -42,6 +46,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -49,7 +55,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-x11-dev
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
       - run: just test-ci
       - name: Upload test results
         if: always()
@@ -65,6 +71,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -72,7 +80,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-x11-dev
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
       - run: just doc-check
   framer:
     name: Generated files
@@ -81,6 +89,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - run: just framer-check
@@ -91,6 +101,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -98,7 +110,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-x11-dev
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
       - run: just feature-check
       - name: Test remote backend and headless CLI
         run: just remote-test
@@ -109,6 +121,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -116,12 +130,12 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-x11-dev
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
       - uses: jetli/trunk-action@v0.5.1
         with:
           version: v0.21.14
       - run: just wasm-check
       - name: Install browser test dependencies
         run: cd crates/diff/web && npm ci && npx playwright install --with-deps chromium
-      - name: Run browser highlighting smoke test
+      - name: Run Rouge browser contract tests
         run: cd crates/diff/web && npm test

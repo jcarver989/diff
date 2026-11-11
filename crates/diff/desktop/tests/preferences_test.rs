@@ -1,5 +1,5 @@
 use clankerdiff_core::ViewMode;
-use clankerdiff_gpui_desktop::preferences::{ThemeStore, ViewModeStore};
+use clankerdiff_desktop::preferences::{ThemeStore, ViewModeStore};
 use clankerdiff_ui_core::{Appearance, ThemeId, ThemePair};
 use std::{error::Error, fs};
 

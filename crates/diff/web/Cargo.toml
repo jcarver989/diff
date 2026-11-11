@@ -1,7 +1,7 @@
 [package]
-name = "clankerdiff-gpui-web"
+name = "clankerdiff-web"
 publish = false
-description = "Browser WASM shell for the GPUI diff viewer"
+description = "Browser WASM shell for the Rouge diff viewer"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,18 +18,19 @@ workspace = true
 clankerdiff-core.workspace = true
 clankerdiff-markdown = { workspace = true, features = ["review"] }
 clankerdiff-ui-core.workspace = true
-clankerdiff-gpui.workspace = true
+clankerdiff-rouge.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+rouge-web.workspace = true
+rouge-core.workspace = true
+rouge-reactive.workspace = true
 clankerdiff-client = { workspace = true, features = ["websocket"] }
 wasm-bindgen-futures = "0.4.70"
 async-channel.workspace = true
 console_error_panic_hook.workspace = true
-gpui.workspace = true
-gpui_web.workspace = true
 wasm-bindgen.workspace = true
 web-sys = { workspace = true, features = [
     "console",
@@ -37,6 +38,8 @@ web-sys = { workspace = true, features = [
     "CustomEventInit",
     "Document",
     "EventTarget",
+    "HtmlCanvasElement",
+    "HtmlElement",
     "Storage",
     "Location",
     "UrlSearchParams",

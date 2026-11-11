@@ -15,14 +15,14 @@ use serde::{Deserialize, Serialize};
 pub const SNAPSHOT_CHAR_LIMIT: usize = 512;
 
 /// An identity for either a semantic Markdown block or one code line.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum MarkdownAnchor {
     Block(MarkdownBlockAnchor),
     CodeLine(MarkdownCodeLineAnchor),
 }
 
 /// Durable identity and context for a non-code-line Markdown target.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct MarkdownBlockAnchor {
     pub source_path: Option<String>,
     pub kind: MarkdownTargetKind,
@@ -34,7 +34,7 @@ pub struct MarkdownBlockAnchor {
 }
 
 /// Durable identity for a code line, including the identity of its parent block.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct MarkdownCodeLineAnchor {
     pub block: MarkdownBlockAnchor,
     pub code_line_index: usize,

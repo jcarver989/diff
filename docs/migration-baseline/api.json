@@ -1,0 +1,4023 @@
+{
+  "schema_version": 1,
+  "revision": "09a11f7e7fbaa354a2df4743b4ee18ede000a30c",
+  "scope": "Public declarations in the five renderer source trees, excluding comments and string contents, including declarations in private implementation modules; lib.rs declarations define the root exports. Names from actions! macros are captured through their root reexports, not macro expansion. This is a source inventory, not a semver-compatible API promise.",
+  "files": [
+    {
+      "file": "crates/diff/desktop/src/app.rs",
+      "sha256": "3a7cbaab6aca4598064f421717d2638979d5513154452db8a2db743c2a1bc296",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/desktop/src/args.rs",
+      "sha256": "040a4b03ffaefde84052cc1bfcf18c419322bf64e4e6822e969912fb96157529",
+      "declarations": [
+        {
+          "kind": "const",
+          "name": "USAGE",
+          "line": 6,
+          "declaration": "pub const USAGE: &str = \"Usage: clankerdiff-gpui-desktop [OPTIONS] [REPOSITORY]\\n\\nOptions:\\n --connect <URL> Connect to a remote WebSocket backend instead of a local repository\\n -s, --scope <SCOPE> Initial scope: unstaged, staged, or both [default: both]\\n --unstaged Show unstaged changes\\n --staged Show staged changes\\n --both Show all working-tree changes\\n --commits Start on the branch's oldest commit\\n -h, --help Print help\""
+        },
+        {
+          "kind": "struct",
+          "name": "CliArgs",
+          "line": 10,
+          "declaration": "pub struct CliArgs"
+        },
+        {
+          "kind": "fn",
+          "name": "parse",
+          "line": 31,
+          "declaration": "pub fn parse() -> Result<Self, ArgsError>"
+        },
+        {
+          "kind": "fn",
+          "name": "parse_from",
+          "line": 40,
+          "declaration": "pub fn parse_from(arguments: impl IntoIterator<Item = OsString>) -> Result<Self, ArgsError>"
+        },
+        {
+          "kind": "enum",
+          "name": "ArgsError",
+          "line": 92,
+          "declaration": "pub enum ArgsError"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/desktop/src/lib.rs",
+      "sha256": "725e89e5575556bf6a73997f0999caf354ee52424d5870a49b234d266cdbcdcc",
+      "declarations": [
+        {
+          "kind": "mod",
+          "name": "args",
+          "line": 4,
+          "declaration": "pub mod args"
+        },
+        {
+          "kind": "mod",
+          "name": "preferences",
+          "line": 7,
+          "declaration": "pub mod preferences"
+        },
+        {
+          "kind": "fn",
+          "name": "run",
+          "line": 41,
+          "declaration": "pub fn run(args: CliArgs, client: Option<DiffClient>)"
+        },
+        {
+          "kind": "fn",
+          "name": "run_review",
+          "line": 49,
+          "declaration": "pub fn run_review(args: CliArgs) -> Option<ReviewSubmission>"
+        },
+        {
+          "kind": "fn",
+          "name": "run_markdown_review",
+          "line": 62,
+          "declaration": "pub fn run_markdown_review(document: MarkdownDocument) -> Option<MarkdownReviewSubmission>"
+        },
+        {
+          "kind": "fn",
+          "name": "run_client_review",
+          "line": 78,
+          "declaration": "pub fn run_client_review(client: DiffClient) -> Option<ReviewSubmission>"
+        },
+        {
+          "kind": "use",
+          "name": "clankerdiff_gpui_shell",
+          "line": 106,
+          "declaration": "pub use clankerdiff_gpui_shell::menus::{About, Hide, HideOthers, Minimize, Quit, ShowAll, Zoom};",
+          "exported_names": [
+            "About",
+            "Hide",
+            "HideOthers",
+            "Minimize",
+            "Quit",
+            "ShowAll",
+            "Zoom"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/desktop/src/main.rs",
+      "sha256": "4750fe23ab0267d3ae4ae0d2e5c80d5118cce44f49313657d8892b96e5f43d90",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/desktop/src/markdown_app.rs",
+      "sha256": "8043de3366d55187304795ddc97c7423ba3adf8c193c93a93df73ce485d0608b",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/desktop/src/menus.rs",
+      "sha256": "f55dd6541e02d94e78d984f7772a61c627a64b157e88acff117230121ee9b425",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/desktop/src/preferences.rs",
+      "sha256": "bbbde53dc57b62504d710732ea39b4d97c598da6e641989d1b1fb0a51b36ce2a",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "ThemeStore",
+          "line": 6,
+          "declaration": "pub struct ThemeStore"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 12,
+          "declaration": "pub const fn new(file: Option<PathBuf>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "user",
+          "line": 17,
+          "declaration": "pub fn user() -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "pair",
+          "line": 22,
+          "declaration": "pub fn pair(&self) -> ThemePair"
+        },
+        {
+          "kind": "fn",
+          "name": "theme",
+          "line": 27,
+          "declaration": "pub fn theme(&self, appearance: Appearance) -> ReviewTheme"
+        },
+        {
+          "kind": "fn",
+          "name": "remember",
+          "line": 31,
+          "declaration": "pub fn remember(&self, appearance: Appearance, id: &str) -> io::Result<()>"
+        },
+        {
+          "kind": "struct",
+          "name": "ViewModeStore",
+          "line": 41,
+          "declaration": "pub struct ViewModeStore"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 47,
+          "declaration": "pub const fn new(file: Option<PathBuf>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "user",
+          "line": 52,
+          "declaration": "pub fn user() -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "view_mode",
+          "line": 57,
+          "declaration": "pub fn view_mode(&self) -> ViewMode"
+        },
+        {
+          "kind": "fn",
+          "name": "remember",
+          "line": 61,
+          "declaration": "pub fn remember(&self, mode: ViewMode) -> io::Result<()>"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/annotation.rs",
+      "sha256": "900f8dd510bbc2181114a3022c016fd2641da5430853ee8d18dcedeb6d58509e",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/client_view.rs",
+      "sha256": "68a0bae4ecc1a6aa46681fd5b862062be3823cc1df15f7c3f0a774a91595e897",
+      "declarations": [
+        {
+          "kind": "enum",
+          "name": "DiffClientEvent",
+          "line": 14,
+          "declaration": "pub enum DiffClientEvent"
+        },
+        {
+          "kind": "struct",
+          "name": "DiffClientView",
+          "line": 22,
+          "declaration": "pub struct DiffClientView"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 36,
+          "declaration": "pub fn new(theme: ReviewTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_options",
+          "line": 41,
+          "declaration": "pub const fn with_options(theme: ReviewTheme, options: DiffViewerOptions) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "theme",
+          "line": 56,
+          "declaration": "pub const fn theme(&self) -> &ReviewTheme"
+        },
+        {
+          "kind": "fn",
+          "name": "set_theme",
+          "line": 60,
+          "declaration": "pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "set_state",
+          "line": 69,
+          "declaration": "pub fn set_state(&mut self, state: &ClientState, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "command_finished",
+          "line": 87,
+          "declaration": "pub fn command_finished(&mut self, result: Result<(), String>, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "lookup_finished",
+          "line": 97,
+          "declaration": "pub fn lookup_finished(&mut self, reply: LookupReply, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "clear_review",
+          "line": 103,
+          "declaration": "pub fn clear_review(&mut self, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "handle_command",
+          "line": 109,
+          "declaration": "pub fn handle_command(&mut self, command: DiffReviewCommand, window: &mut Window, cx: &mut Context<Self>) -> bool"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/comment_editor.rs",
+      "sha256": "4b70a780729c57f8a449d1dfa1356274707cba478a4ee91e233585ba05cd1be3",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/comments.rs",
+      "sha256": "84efba10ec1eb6c804bf59da6bd92445d046a031247ded4c7b9d550334241cde",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/commits.rs",
+      "sha256": "888182bf69529970f28418a1217193aeddee55ad106ccd2cb11002c7929f4e6b",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/definition_card.rs",
+      "sha256": "f9426e99defd4df74868abedd13f53f28d5fa3992fe72247c1c670b5cbe112e9",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "lookup_finished",
+          "line": 53,
+          "declaration": "pub fn lookup_finished(&mut self, reply: LookupReply, cx: &mut Context<Self>)"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/diff_preview.rs",
+      "sha256": "10485dd811a7eead67a45904651ec9cf4f3ad076e782c67aa24b43bc97cfa4c5",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "PatchPreview",
+          "line": 16,
+          "declaration": "pub struct PatchPreview(Result<(DiffPresentation, DocumentSyntax), (DiffError, String)>)"
+        },
+        {
+          "kind": "fn",
+          "name": "parse",
+          "line": 20,
+          "declaration": "pub fn parse(patch: &str) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "stats",
+          "line": 25,
+          "declaration": "pub fn stats(&self) -> Option<(usize, usize)>"
+        },
+        {
+          "kind": "fn",
+          "name": "render",
+          "line": 30,
+          "declaration": "pub fn render( &self, id: impl Into<ElementId>, theme: &ReviewTheme, on_open: impl Fn(&Arc<DiffDocument>, &mut Window, &mut App) + 'static, ) -> AnyElement"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/diff_view.rs",
+      "sha256": "c6c6556c2a00999374385b33b366cf4fc8e9c5fabc1ec70db67ca07fcbf810a5",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/lib.rs",
+      "sha256": "163562dd973dc5c9ef86f0699910b06e76df6bdbf9087dde548f2871302a081f",
+      "declarations": [
+        {
+          "kind": "mod",
+          "name": "style",
+          "line": 20,
+          "declaration": "pub mod style"
+        },
+        {
+          "kind": "mod",
+          "name": "testing",
+          "line": 22,
+          "declaration": "pub mod testing"
+        },
+        {
+          "kind": "use",
+          "name": "clankerdiff_core",
+          "line": 28,
+          "declaration": "pub use clankerdiff_core::DiffReviewEvent as DiffViewerEvent;",
+          "exported_names": [
+            "DiffViewerEvent"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "clankerdiff_gpui_ui",
+          "line": 29,
+          "declaration": "pub use clankerdiff_gpui_ui as ui;",
+          "exported_names": [
+            "ui"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "clankerdiff_markdown",
+          "line": 30,
+          "declaration": "pub use clankerdiff_markdown::MarkdownReviewEvent as MarkdownReviewerEvent;",
+          "exported_names": [
+            "MarkdownReviewerEvent"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "client_view",
+          "line": 31,
+          "declaration": "pub use client_view::{DiffClientEvent, DiffClientView};",
+          "exported_names": [
+            "DiffClientEvent",
+            "DiffClientView"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "diff_preview",
+          "line": 32,
+          "declaration": "pub use diff_preview::PatchPreview;",
+          "exported_names": [
+            "PatchPreview"
+          ]
+        },
+        {
+          "kind": "struct",
+          "name": "ThemeChanged",
+          "line": 36,
+          "declaration": "pub struct ThemeChanged"
+        },
+        {
+          "kind": "struct",
+          "name": "ViewModeChanged",
+          "line": 41,
+          "declaration": "pub struct ViewModeChanged"
+        },
+        {
+          "kind": "use",
+          "name": "markdown_viewer",
+          "line": 44,
+          "declaration": "pub use markdown_viewer::{ MarkdownAddComment, MarkdownApprove, MarkdownCancel, MarkdownCopyReview, MarkdownDeleteComment, MarkdownEditComment, MarkdownFirstTarget, MarkdownLastTarget, MarkdownNextHeading, MarkdownNextTarget, MarkdownOpenSelected, MarkdownPageDown, MarkdownPageUp, MarkdownPreviousHeading, MarkdownPreviousTarget, MarkdownRequestChanges, MarkdownReviewer, MarkdownReviewerOptions, MarkdownShowShortcuts, MarkdownShowThemePicker, MarkdownSubmitComment, MarkdownToggleFocus, MarkdownToggleOutline, MarkdownUndoComment, };",
+          "exported_names": [
+            "MarkdownAddComment",
+            "MarkdownApprove",
+            "MarkdownCancel",
+            "MarkdownCopyReview",
+            "MarkdownDeleteComment",
+            "MarkdownEditComment",
+            "MarkdownFirstTarget",
+            "MarkdownLastTarget",
+            "MarkdownNextHeading",
+            "MarkdownNextTarget",
+            "MarkdownOpenSelected",
+            "MarkdownPageDown",
+            "MarkdownPageUp",
+            "MarkdownPreviousHeading",
+            "MarkdownPreviousTarget",
+            "MarkdownRequestChanges",
+            "MarkdownReviewer",
+            "MarkdownReviewerOptions",
+            "MarkdownShowShortcuts",
+            "MarkdownShowThemePicker",
+            "MarkdownSubmitComment",
+            "MarkdownToggleFocus",
+            "MarkdownToggleOutline",
+            "MarkdownUndoComment"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "viewer",
+          "line": 51,
+          "declaration": "pub use viewer::{ CancelComment, CancelRepositoryPrompt, ConfirmDiscard, DiffViewer, DiffViewerOptions, RunCommand, SubmitComment, ViewerPane, };",
+          "exported_names": [
+            "CancelComment",
+            "CancelRepositoryPrompt",
+            "ConfirmDiscard",
+            "DiffViewer",
+            "DiffViewerOptions",
+            "RunCommand",
+            "SubmitComment",
+            "ViewerPane"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/markdown_viewer.rs",
+      "sha256": "98387e8341ff95dad782853a0a63d4335c216fe14032319cd5d48e055703b1bb",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "MarkdownReviewerOptions",
+          "line": 61,
+          "declaration": "pub struct MarkdownReviewerOptions"
+        },
+        {
+          "kind": "struct",
+          "name": "MarkdownReviewer",
+          "line": 85,
+          "declaration": "pub struct MarkdownReviewer"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 107,
+          "declaration": "pub fn new(document: Arc<MarkdownDocument>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_options",
+          "line": 112,
+          "declaration": "pub fn with_options(document: Arc<MarkdownDocument>, theme: ReviewTheme, options: MarkdownReviewerOptions) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "bind_keys",
+          "line": 136,
+          "declaration": "pub fn bind_keys(cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "session",
+          "line": 185,
+          "declaration": "pub const fn session(&self) -> &MarkdownReviewSession"
+        },
+        {
+          "kind": "fn",
+          "name": "session_mut",
+          "line": 189,
+          "declaration": "pub const fn session_mut(&mut self) -> &mut MarkdownReviewSession"
+        },
+        {
+          "kind": "fn",
+          "name": "document",
+          "line": 194,
+          "declaration": "pub const fn document(&self) -> &Arc<MarkdownDocument>"
+        },
+        {
+          "kind": "fn",
+          "name": "review",
+          "line": 199,
+          "declaration": "pub fn review(&self) -> &MarkdownReview"
+        },
+        {
+          "kind": "fn",
+          "name": "set_document",
+          "line": 203,
+          "declaration": "pub fn set_document(&mut self, document: Arc<MarkdownDocument>, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "theme",
+          "line": 212,
+          "declaration": "pub const fn theme(&self) -> &ReviewTheme"
+        },
+        {
+          "kind": "fn",
+          "name": "set_theme",
+          "line": 216,
+          "declaration": "pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "clear_review",
+          "line": 262,
+          "declaration": "pub fn clear_review(&mut self, cx: &mut Context<Self>)"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/markdown_viewer/chrome.rs",
+      "sha256": "0335be6ceb8995fb56635f8f55b565dedd6b0f815f25dd4ae703600067505015",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/markdown_viewer/commands.rs",
+      "sha256": "10d16ef28ccd095f3dcc0437010b5ebc5ad7c1388e29f9bf400a53aded86feac",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "command_context",
+          "line": 11,
+          "declaration": "pub fn command_context(&self) -> CommandContext"
+        },
+        {
+          "kind": "fn",
+          "name": "command_enabled",
+          "line": 27,
+          "declaration": "pub fn command_enabled(&self, command: &MarkdownReviewCommand) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "set_capabilities",
+          "line": 32,
+          "declaration": "pub fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "handle_command",
+          "line": 38,
+          "declaration": "pub fn handle_command( &mut self, command: impl Into<MarkdownReviewCommand>, window: &mut Window, cx: &mut Context<Self>, ) -> Result<bool, MarkdownReviewError>"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/markdown_viewer/content.rs",
+      "sha256": "8ac60a803d6d8cd31fbd9e97febb8b16e40c37e97b18bb4a43990250e15d73d9",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/markdown_viewer/document.rs",
+      "sha256": "9ef9e19593adf501c2d6372b16b650572214abddeb874f9f395428eb446b2cbf",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/markdown_viewer/inline.rs",
+      "sha256": "91620a25147adef0b3dbadfbdcb75df1276729d356af1387af1f0fc6370b7109",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/markdown_viewer/rows.rs",
+      "sha256": "ce51a1c7cd25d61b9e57787174e3f5e695c46b2a34f0f57850cb7e92ad8ca093",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/navigation.rs",
+      "sha256": "01e42cab00df238e4ab725577b00044426bb953e111dd6037ac83b8027c73198",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/palette.rs",
+      "sha256": "ef0ac63bacade133ad9ad9057dc1b7fa95bb72ba120795b66e0ce242f9b3ce6a",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/review_bar.rs",
+      "sha256": "c67a2b5938388c1c259ea2d3585666462f7bfcc660496d2c9ad1b3a28b44ac50",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/shortcuts.rs",
+      "sha256": "e405fa1ddd95d9cbcd7c6587b05ec0591ad635cc85023b49442db99b131f6cf2",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/sidebar.rs",
+      "sha256": "1fc66f63a797062873f69f8e6a66f7f30e5a78ffe6a9c5bc3105124b9cff3dc8",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/style.rs",
+      "sha256": "62d5b0580a064f020e73929a1533cb0bbbaba853ff5fea49e09323e59447df3a",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "highlight_style",
+          "line": 30,
+          "declaration": "pub fn highlight_style(foreground: Rgba, style: FontStyle) -> HighlightStyle"
+        },
+        {
+          "kind": "fn",
+          "name": "stat_badges",
+          "line": 53,
+          "declaration": "pub fn stat_badges(palette: &DiffPalette, stat: LineStat) -> [Div"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/testing.rs",
+      "sha256": "6fbe62d096f1206efdf412ad4dd400a428a8c52b00d5b292ff6856b92e38a677",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "Harness",
+          "line": 29,
+          "declaration": "pub struct Harness<T: 'static, U: 'static>(ViewHarness<T, U>)"
+        },
+        {
+          "kind": "type",
+          "name": "DiffViewerHarness",
+          "line": 31,
+          "declaration": "pub type DiffViewerHarness = Harness<DiffViewer, DiffViewerEvent>"
+        },
+        {
+          "kind": "type",
+          "name": "MarkdownReviewerHarness",
+          "line": 32,
+          "declaration": "pub type MarkdownReviewerHarness = Harness<MarkdownReviewer, MarkdownReviewEvent>"
+        },
+        {
+          "kind": "struct",
+          "name": "DiffViewerHarnessBuilder",
+          "line": 62,
+          "declaration": "pub struct DiffViewerHarnessBuilder"
+        },
+        {
+          "kind": "fn",
+          "name": "with_comments",
+          "line": 88,
+          "declaration": "pub fn with_comments<T: Into<String>>(mut self, comments: impl IntoIterator<Item = T>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_view_mode",
+          "line": 94,
+          "declaration": "pub fn with_view_mode(mut self, view_mode: ViewMode) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_lookups",
+          "line": 100,
+          "declaration": "pub const fn with_lookups(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_window_size",
+          "line": 106,
+          "declaration": "pub fn with_window_size(mut self, width: f32, height: f32) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "run",
+          "line": 111,
+          "declaration": "pub fn run( self, cx: &mut TestAppContext, test: impl FnOnce(&DiffViewerHarness, &mut TestAppContext) -> Result<(), Box<dyn Error>>, )"
+        },
+        {
+          "kind": "fn",
+          "name": "build",
+          "line": 125,
+          "declaration": "pub fn build(self, cx: &mut TestAppContext) -> DiffViewerHarness"
+        },
+        {
+          "kind": "fn",
+          "name": "viewer",
+          "line": 141,
+          "declaration": "pub fn viewer(&self) -> Entity<DiffViewer>"
+        },
+        {
+          "kind": "fn",
+          "name": "show",
+          "line": 145,
+          "declaration": "pub fn show(&self, cx: &mut TestAppContext, document: Arc<DiffDocument>)"
+        },
+        {
+          "kind": "fn",
+          "name": "add_comment",
+          "line": 150,
+          "declaration": "pub fn add_comment(&self, cx: &mut TestAppContext, body: impl Into<String>) -> Result<u64, Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "review",
+          "line": 163,
+          "declaration": "pub fn review(&self, cx: &TestAppContext) -> Review"
+        },
+        {
+          "kind": "fn",
+          "name": "comment_bodies",
+          "line": 168,
+          "declaration": "pub fn comment_bodies(&self, cx: &TestAppContext) -> Vec<String>"
+        },
+        {
+          "kind": "fn",
+          "name": "selected_file",
+          "line": 173,
+          "declaration": "pub fn selected_file(&self, cx: &TestAppContext) -> Option<usize>"
+        },
+        {
+          "kind": "fn",
+          "name": "selected_row",
+          "line": 178,
+          "declaration": "pub fn selected_row(&self, cx: &TestAppContext) -> Option<usize>"
+        },
+        {
+          "kind": "fn",
+          "name": "draft_body",
+          "line": 183,
+          "declaration": "pub fn draft_body(&self, cx: &TestAppContext) -> Option<String>"
+        },
+        {
+          "kind": "fn",
+          "name": "dispatch_command",
+          "line": 187,
+          "declaration": "pub fn dispatch_command( &self, cx: &mut TestAppContext, command: impl Into<DiffReviewCommand>, ) -> Result<bool, Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "with_comment_input",
+          "line": 200,
+          "declaration": "pub fn with_comment_input<T>( &self, cx: &mut TestAppContext, update: impl FnOnce(&mut dyn InputHandler, &mut Window, &mut App) -> T, ) -> Result<T, Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "with_comment_state",
+          "line": 217,
+          "declaration": "pub fn with_comment_state<T>( &self, cx: &mut TestAppContext, update: impl FnOnce(&mut TextareaState, &mut Window, &mut Context<TextareaState>) -> T, ) -> Result<T, Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "comment_focused",
+          "line": 231,
+          "declaration": "pub fn comment_focused(&self, cx: &mut TestAppContext) -> Result<bool, Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "comment_text_bounds",
+          "line": 236,
+          "declaration": "pub fn comment_text_bounds(&self, cx: &TestAppContext) -> Option<Bounds<Pixels>>"
+        },
+        {
+          "kind": "fn",
+          "name": "settle",
+          "line": 242,
+          "declaration": "pub fn settle(&self, cx: &mut TestAppContext)"
+        },
+        {
+          "kind": "fn",
+          "name": "select_line",
+          "line": 248,
+          "declaration": "pub fn select_line(&self, cx: &mut TestAppContext, location: &SourceLocation) -> Result<(), Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "selected_line",
+          "line": 258,
+          "declaration": "pub fn selected_line(&self, cx: &TestAppContext) -> Option<SourceLocation>"
+        },
+        {
+          "kind": "fn",
+          "name": "hold_secondary",
+          "line": 262,
+          "declaration": "pub fn hold_secondary(&self, cx: &mut TestAppContext, held: bool)"
+        },
+        {
+          "kind": "fn",
+          "name": "definition_card_name",
+          "line": 269,
+          "declaration": "pub fn definition_card_name(&self, cx: &TestAppContext) -> Option<String>"
+        },
+        {
+          "kind": "fn",
+          "name": "definition_card",
+          "line": 274,
+          "declaration": "pub fn definition_card(&self, cx: &TestAppContext) -> Option<DefinitionCard>"
+        },
+        {
+          "kind": "fn",
+          "name": "last_lookup",
+          "line": 279,
+          "declaration": "pub fn last_lookup(&self, cx: &TestAppContext) -> Option<Lookup>"
+        },
+        {
+          "kind": "fn",
+          "name": "answer_lookup",
+          "line": 286,
+          "declaration": "pub fn answer_lookup(&self, cx: &mut TestAppContext, lookup: Lookup, result: Result<LookupAnswer, String>)"
+        },
+        {
+          "kind": "fn",
+          "name": "list_files",
+          "line": 291,
+          "declaration": "pub fn list_files(&self, cx: &mut TestAppContext, paths: &[&str]) -> Result<(), RepoPathError>"
+        },
+        {
+          "kind": "fn",
+          "name": "hover_name",
+          "line": 298,
+          "declaration": "pub fn hover_name( &self, cx: &mut TestAppContext, selector: &'static str, name: &str, ) -> Result<Point<Pixels>, Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "diff_scroll_top",
+          "line": 322,
+          "declaration": "pub fn diff_scroll_top(&self, cx: &TestAppContext) -> ListOffset"
+        },
+        {
+          "kind": "fn",
+          "name": "scroll_to_bottom_of_diff",
+          "line": 326,
+          "declaration": "pub fn scroll_to_bottom_of_diff(&self, cx: &mut TestAppContext)"
+        },
+        {
+          "kind": "struct",
+          "name": "MarkdownReviewerHarnessBuilder",
+          "line": 332,
+          "declaration": "pub struct MarkdownReviewerHarnessBuilder"
+        },
+        {
+          "kind": "fn",
+          "name": "with_source",
+          "line": 358,
+          "declaration": "pub fn with_source(mut self, source: &str) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_metadata",
+          "line": 364,
+          "declaration": "pub fn with_metadata(mut self, path: Option<&str>, title: Option<&str>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_options",
+          "line": 371,
+          "declaration": "pub fn with_options(mut self, options: MarkdownReviewerOptions) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_window_size",
+          "line": 377,
+          "declaration": "pub fn with_window_size(mut self, width: f32, height: f32) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_comments",
+          "line": 383,
+          "declaration": "pub fn with_comments<T: Into<String>>(mut self, comments: impl IntoIterator<Item = T>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "run",
+          "line": 388,
+          "declaration": "pub fn run( self, cx: &mut TestAppContext, test: impl FnOnce(&MarkdownReviewerHarness, &mut TestAppContext) -> Result<(), Box<dyn Error>>, )"
+        },
+        {
+          "kind": "fn",
+          "name": "build",
+          "line": 402,
+          "declaration": "pub fn build(self, cx: &mut TestAppContext) -> MarkdownReviewerHarness"
+        },
+        {
+          "kind": "fn",
+          "name": "dispatch_command",
+          "line": 417,
+          "declaration": "pub fn dispatch_command( &self, cx: &mut TestAppContext, command: impl Into<MarkdownReviewCommand>, ) -> Result<bool, Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "add_comment",
+          "line": 430,
+          "declaration": "pub fn add_comment(&self, cx: &mut TestAppContext, body: impl Into<String>) -> Result<u64, Box<dyn Error>>"
+        },
+        {
+          "kind": "fn",
+          "name": "review",
+          "line": 446,
+          "declaration": "pub fn review(&self, cx: &TestAppContext) -> MarkdownReview"
+        },
+        {
+          "kind": "fn",
+          "name": "comment_bodies",
+          "line": 451,
+          "declaration": "pub fn comment_bodies(&self, cx: &TestAppContext) -> Vec<String>"
+        },
+        {
+          "kind": "fn",
+          "name": "selected_target",
+          "line": 456,
+          "declaration": "pub fn selected_target(&self, cx: &TestAppContext) -> Option<MarkdownTargetId>"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/toolbar.rs",
+      "sha256": "01efe76444b4feeab2d664f1d7351cae93a71dffb3ea5a7c79f54f627e1aac58",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/gpui/src/viewer.rs",
+      "sha256": "54a47aace7a77cce413d92734b4b40ce9b49ede781b322347b228502b32a67e1",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "RunCommand",
+          "line": 46,
+          "declaration": "pub struct RunCommand(pub DiffReviewCommand)"
+        },
+        {
+          "kind": "struct",
+          "name": "DiffViewerOptions",
+          "line": 50,
+          "declaration": "pub struct DiffViewerOptions"
+        },
+        {
+          "kind": "use",
+          "name": "clankerdiff_core",
+          "line": 78,
+          "declaration": "pub use clankerdiff_core::FocusPane as ViewerPane;",
+          "exported_names": [
+            "ViewerPane"
+          ]
+        },
+        {
+          "kind": "struct",
+          "name": "DiffViewer",
+          "line": 93,
+          "declaration": "pub struct DiffViewer"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 128,
+          "declaration": "pub fn new(document: Arc<DiffDocument>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_options",
+          "line": 134,
+          "declaration": "pub fn with_options(document: Arc<DiffDocument>, theme: ReviewTheme, options: DiffViewerOptions) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "bind_keys",
+          "line": 181,
+          "declaration": "pub fn bind_keys(cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "scope",
+          "line": 201,
+          "declaration": "pub const fn scope(&self) -> DiffScope"
+        },
+        {
+          "kind": "fn",
+          "name": "session",
+          "line": 206,
+          "declaration": "pub const fn session(&self) -> &ReviewSession"
+        },
+        {
+          "kind": "fn",
+          "name": "session_mut",
+          "line": 210,
+          "declaration": "pub const fn session_mut(&mut self) -> &mut ReviewSession"
+        },
+        {
+          "kind": "fn",
+          "name": "document",
+          "line": 216,
+          "declaration": "pub const fn document(&self) -> &Arc<DiffDocument>"
+        },
+        {
+          "kind": "fn",
+          "name": "theme",
+          "line": 222,
+          "declaration": "pub const fn theme(&self) -> &ReviewTheme"
+        },
+        {
+          "kind": "fn",
+          "name": "review",
+          "line": 233,
+          "declaration": "pub fn review(&self) -> &Review"
+        },
+        {
+          "kind": "fn",
+          "name": "presentation",
+          "line": 239,
+          "declaration": "pub const fn presentation(&self) -> &DiffPresentation"
+        },
+        {
+          "kind": "fn",
+          "name": "view_mode",
+          "line": 245,
+          "declaration": "pub const fn view_mode(&self) -> ViewMode"
+        },
+        {
+          "kind": "fn",
+          "name": "layout",
+          "line": 250,
+          "declaration": "pub const fn layout(&self) -> Layout"
+        },
+        {
+          "kind": "fn",
+          "name": "selected_file",
+          "line": 255,
+          "declaration": "pub fn selected_file(&self) -> Option<usize>"
+        },
+        {
+          "kind": "fn",
+          "name": "pane",
+          "line": 261,
+          "declaration": "pub const fn pane(&self) -> ViewerPane"
+        },
+        {
+          "kind": "fn",
+          "name": "commands_open",
+          "line": 266,
+          "declaration": "pub const fn commands_open(&self) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "theme_picker_open",
+          "line": 272,
+          "declaration": "pub const fn theme_picker_open(&self) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "diff_scroll_top",
+          "line": 278,
+          "declaration": "pub fn diff_scroll_top(&self) -> ListOffset"
+        },
+        {
+          "kind": "fn",
+          "name": "scroll_diff_to_end",
+          "line": 282,
+          "declaration": "pub fn scroll_diff_to_end(&mut self, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "sidebar_width",
+          "line": 289,
+          "declaration": "pub const fn sidebar_width(&self) -> Rems"
+        },
+        {
+          "kind": "fn",
+          "name": "sidebar_collapsed",
+          "line": 294,
+          "declaration": "pub const fn sidebar_collapsed(&self) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "set_sidebar_collapsed",
+          "line": 306,
+          "declaration": "pub fn set_sidebar_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "set_sidebar_width",
+          "line": 319,
+          "declaration": "pub fn set_sidebar_width(&mut self, width: Rems, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "set_document",
+          "line": 323,
+          "declaration": "pub fn set_document(&mut self, document: Arc<DiffDocument>, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "files_mode",
+          "line": 350,
+          "declaration": "pub const fn files_mode(&self) -> FilesMode"
+        },
+        {
+          "kind": "fn",
+          "name": "browsable",
+          "line": 355,
+          "declaration": "pub const fn browsable(&self) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "set_repository_files",
+          "line": 420,
+          "declaration": "pub fn set_repository_files(&mut self, files: &[RepoPath], cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "set_repository_pending",
+          "line": 491,
+          "declaration": "pub fn set_repository_pending(&mut self, pending: bool, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "set_repository_error",
+          "line": 501,
+          "declaration": "pub fn set_repository_error(&mut self, message: impl Into<String>, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "set_background_error",
+          "line": 509,
+          "declaration": "pub fn set_background_error(&mut self, message: Option<String>, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "repository_pending",
+          "line": 518,
+          "declaration": "pub const fn repository_pending(&self) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "repository_error",
+          "line": 524,
+          "declaration": "pub fn repository_error(&self) -> Option<&str>"
+        },
+        {
+          "kind": "fn",
+          "name": "set_theme",
+          "line": 528,
+          "declaration": "pub fn set_theme(&mut self, theme: ReviewTheme, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "set_view_mode",
+          "line": 587,
+          "declaration": "pub fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "clear_review",
+          "line": 594,
+          "declaration": "pub fn clear_review(&mut self, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "add_comment",
+          "line": 602,
+          "declaration": "pub fn add_comment( &mut self, anchor: LineAnchor, line_text: impl Into<String>, body: impl Into<String>, cx: &mut Context<Self>, ) -> u64"
+        },
+        {
+          "kind": "fn",
+          "name": "edit_comment",
+          "line": 616,
+          "declaration": "pub fn edit_comment(&mut self, id: u64, body: impl Into<String>, cx: &mut Context<Self>) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "remove_comment",
+          "line": 626,
+          "declaration": "pub fn remove_comment(&mut self, id: u64, cx: &mut Context<Self>) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "active_file",
+          "line": 677,
+          "declaration": "pub fn active_file(&self) -> Option<usize>"
+        },
+        {
+          "kind": "fn",
+          "name": "toggle_source_view",
+          "line": 904,
+          "declaration": "pub fn toggle_source_view(&mut self, cx: &mut Context<Self>) -> bool"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/viewer/commands.rs",
+      "sha256": "15eda284c539009e6fe839cd0f2fcbbb428ac7b03548dbf508e58f76d6e00b3f",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "command_context",
+          "line": 11,
+          "declaration": "pub fn command_context(&self) -> CommandContext"
+        },
+        {
+          "kind": "fn",
+          "name": "command_enabled",
+          "line": 30,
+          "declaration": "pub fn command_enabled(&self, command: &DiffReviewCommand) -> bool"
+        },
+        {
+          "kind": "fn",
+          "name": "set_capabilities",
+          "line": 36,
+          "declaration": "pub fn set_capabilities(&mut self, capabilities: ReviewCapabilities, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "handle_command",
+          "line": 49,
+          "declaration": "pub fn handle_command( &mut self, command: impl Into<DiffReviewCommand>, window: &mut Window, cx: &mut Context<Self>, ) -> bool"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/gpui/src/viewer/overlay.rs",
+      "sha256": "a5b2ca1947c74d52fc4e18f5f4d1938694978d0d7be521bda18456f9e778eb0a",
+      "declarations": []
+    },
+    {
+      "file": "crates/diff/web/src/commands.rs",
+      "sha256": "389d1aa62661d24b8c5cde6d6929cfc7c3ed6767542b212c6277991a954001c3",
+      "declarations": [
+        {
+          "kind": "enum",
+          "name": "ViewerCommand",
+          "line": 7,
+          "declaration": "pub enum ViewerCommand"
+        },
+        {
+          "kind": "struct",
+          "name": "CommandRequest",
+          "line": 13,
+          "declaration": "pub struct CommandRequest"
+        },
+        {
+          "kind": "struct",
+          "name": "CommandResult",
+          "line": 21,
+          "declaration": "pub struct CommandResult"
+        },
+        {
+          "kind": "enum",
+          "name": "CommandError",
+          "line": 28,
+          "declaration": "pub enum CommandError"
+        },
+        {
+          "kind": "const",
+          "name": "COMMAND_EVENT",
+          "line": 37,
+          "declaration": "pub const COMMAND_EVENT: &str = \"diff-review-command\""
+        },
+        {
+          "kind": "const",
+          "name": "COMMAND_RESULT_EVENT",
+          "line": 38,
+          "declaration": "pub const COMMAND_RESULT_EVENT: &str = \"diff-review-command-result\""
+        },
+        {
+          "kind": "const",
+          "name": "CAPABILITIES_EVENT",
+          "line": 39,
+          "declaration": "pub const CAPABILITIES_EVENT: &str = \"diff-review-set-capabilities\""
+        },
+        {
+          "kind": "fn",
+          "name": "decode_command",
+          "line": 41,
+          "declaration": "pub fn decode_command(json: &str) -> Result<CommandRequest, CommandError>"
+        },
+        {
+          "kind": "fn",
+          "name": "decode_capabilities",
+          "line": 45,
+          "declaration": "pub fn decode_capabilities(json: &str) -> Result<ReviewCapabilities, CommandError>"
+        }
+      ]
+    },
+    {
+      "file": "crates/diff/web/src/lib.rs",
+      "sha256": "c095f456d766214571076a2934b43bf144a9d21de07012e61e348c3613e569b1",
+      "declarations": [
+        {
+          "kind": "mod",
+          "name": "commands",
+          "line": 1,
+          "declaration": "pub mod commands"
+        },
+        {
+          "kind": "const",
+          "name": "REFRESH_REQUEST_EVENT",
+          "line": 9,
+          "declaration": "pub const REFRESH_REQUEST_EVENT: &str = \"diff-review-refresh\""
+        },
+        {
+          "kind": "enum",
+          "name": "WebError",
+          "line": 13,
+          "declaration": "pub enum WebError"
+        },
+        {
+          "kind": "struct",
+          "name": "DocumentCommand",
+          "line": 36,
+          "declaration": "pub struct DocumentCommand"
+        },
+        {
+          "kind": "fn",
+          "name": "decode_document_command",
+          "line": 65,
+          "declaration": "pub fn decode_document_command(json: &str) -> Result<DocumentCommand, WebError>"
+        },
+        {
+          "kind": "const",
+          "name": "TARGET_REQUEST_EVENT",
+          "line": 79,
+          "declaration": "pub const TARGET_REQUEST_EVENT: &str = \"diff-review-set-target\""
+        },
+        {
+          "kind": "fn",
+          "name": "decode_document",
+          "line": 85,
+          "declaration": "pub fn decode_document(json: &str) -> Result<DiffDocument, WebError>"
+        },
+        {
+          "kind": "enum",
+          "name": "UpdateDecision",
+          "line": 91,
+          "declaration": "pub enum UpdateDecision"
+        },
+        {
+          "kind": "fn",
+          "name": "document_update_decision",
+          "line": 105,
+          "declaration": "pub fn document_update_decision( applied: Option<u64>, incoming: Option<u64>, unchanged: impl FnOnce() -> bool, ) -> UpdateDecision"
+        },
+        {
+          "kind": "struct",
+          "name": "RepositoryReply",
+          "line": 123,
+          "declaration": "pub struct RepositoryReply"
+        },
+        {
+          "kind": "const",
+          "name": "DOCUMENT_APPLIED_EVENT",
+          "line": 156,
+          "declaration": "pub const DOCUMENT_APPLIED_EVENT: &str = \"diff-review-document-applied\""
+        },
+        {
+          "kind": "struct",
+          "name": "MarkdownSourcePayload",
+          "line": 160,
+          "declaration": "pub struct MarkdownSourcePayload"
+        },
+        {
+          "kind": "fn",
+          "name": "decode_markdown_document",
+          "line": 170,
+          "declaration": "pub fn decode_markdown_document(json: &str) -> Result<MarkdownDocument, WebError>"
+        },
+        {
+          "kind": "const",
+          "name": "MARKDOWN_SET_DOCUMENT_EVENT",
+          "line": 176,
+          "declaration": "pub const MARKDOWN_SET_DOCUMENT_EVENT: &str = \"markdown-review-set-document\""
+        },
+        {
+          "kind": "const",
+          "name": "MARKDOWN_CLEAR_EVENT",
+          "line": 177,
+          "declaration": "pub const MARKDOWN_CLEAR_EVENT: &str = \"markdown-review-clear\""
+        },
+        {
+          "kind": "const",
+          "name": "MARKDOWN_SUBMIT_EVENT",
+          "line": 178,
+          "declaration": "pub const MARKDOWN_SUBMIT_EVENT: &str = \"markdown-review-submit\""
+        },
+        {
+          "kind": "const",
+          "name": "MARKDOWN_COPY_EVENT",
+          "line": 179,
+          "declaration": "pub const MARKDOWN_COPY_EVENT: &str = \"markdown-review-copy\""
+        },
+        {
+          "kind": "const",
+          "name": "MARKDOWN_CANCEL_EVENT",
+          "line": 180,
+          "declaration": "pub const MARKDOWN_CANCEL_EVENT: &str = \"markdown-review-cancel\""
+        },
+        {
+          "kind": "fn",
+          "name": "demo_document",
+          "line": 187,
+          "declaration": "pub fn demo_document() -> DiffDocument"
+        },
+        {
+          "kind": "fn",
+          "name": "decode_theme",
+          "line": 195,
+          "declaration": "pub fn decode_theme(name: &str) -> Result<ReviewTheme, WebError>"
+        },
+        {
+          "kind": "fn",
+          "name": "start",
+          "line": 770,
+          "declaration": "pub fn start() -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "set_document_json",
+          "line": 823,
+          "declaration": "pub fn set_document_json(json: &str) -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "set_markdown_document_json",
+          "line": 842,
+          "declaration": "pub fn set_markdown_document_json(json: &str) -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "complete_repository_json",
+          "line": 853,
+          "declaration": "pub fn complete_repository_json(json: &str) -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "set_theme",
+          "line": 865,
+          "declaration": "pub fn set_theme(name: &str) -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "clear_review",
+          "line": 876,
+          "declaration": "pub fn clear_review() -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "connect_remote",
+          "line": 900,
+          "declaration": "pub async fn connect_remote(url: &str) -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "disconnect_remote",
+          "line": 925,
+          "declaration": "pub fn disconnect_remote() -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "dispatch_command_json",
+          "line": 931,
+          "declaration": "pub fn dispatch_command_json(json: &str) -> Result<(), JsValue>"
+        },
+        {
+          "kind": "fn",
+          "name": "set_capabilities_json",
+          "line": 937,
+          "declaration": "pub fn set_capabilities_json(json: &str) -> Result<(), JsValue>"
+        },
+        {
+          "kind": "use",
+          "name": "wasm",
+          "line": 945,
+          "declaration": "pub use wasm::{ clear_review, complete_repository_json, connect_remote, disconnect_remote, dispatch_command_json, set_capabilities_json, set_document_json, set_markdown_document_json, set_theme, start, };",
+          "exported_names": [
+            "clear_review",
+            "complete_repository_json",
+            "connect_remote",
+            "disconnect_remote",
+            "dispatch_command_json",
+            "set_capabilities_json",
+            "set_document_json",
+            "set_markdown_document_json",
+            "set_theme",
+            "start"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui-shell/src/lib.rs",
+      "sha256": "47b8f08c8635cb8244720f0b2487f187392c3092f00ab2419d5ae51b10fd1472",
+      "declarations": [
+        {
+          "kind": "mod",
+          "name": "menus",
+          "line": 1,
+          "declaration": "pub mod menus"
+        },
+        {
+          "kind": "mod",
+          "name": "persist",
+          "line": 2,
+          "declaration": "pub mod persist"
+        },
+        {
+          "kind": "mod",
+          "name": "run_loop",
+          "line": 3,
+          "declaration": "pub mod run_loop"
+        },
+        {
+          "kind": "mod",
+          "name": "runtime",
+          "line": 4,
+          "declaration": "pub mod runtime"
+        },
+        {
+          "kind": "mod",
+          "name": "script",
+          "line": 6,
+          "declaration": "pub mod script"
+        },
+        {
+          "kind": "fn",
+          "name": "launch",
+          "line": 11,
+          "declaration": "pub fn launch(init: impl FnOnce(&mut App) + 'static)"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui-shell/src/menus.rs",
+      "sha256": "1f9207b7ae3fba8df38bce7a9e86f2a9d7e6794dce035e62142e15f4e4845945",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "install",
+          "line": 8,
+          "declaration": "pub fn install(cx: &mut App, name: &'static str, version: &'static str, app_items: Vec<MenuItem>, menus: Vec<Menu>)"
+        },
+        {
+          "kind": "fn",
+          "name": "build",
+          "line": 27,
+          "declaration": "pub fn build(name: &str, app_items: Vec<MenuItem>, menus: Vec<Menu>) -> Vec<Menu>"
+        },
+        {
+          "kind": "fn",
+          "name": "commands",
+          "line": 69,
+          "declaration": "pub fn commands(menus: &[Menu]) -> Vec<(SharedString, Box<dyn Action>)>"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui-shell/src/persist.rs",
+      "sha256": "4fea658f2b3ab8371b8b96af316075e7ed296750758cc87963f450c1e431f33e",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "Store",
+          "line": 11,
+          "declaration": "pub struct Store<T>"
+        },
+        {
+          "kind": "fn",
+          "name": "load",
+          "line": 20,
+          "declaration": "pub fn load(file: Option<PathBuf>, cx: &mut Context<Self>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "state",
+          "line": 32,
+          "declaration": "pub fn state(&self) -> &T"
+        },
+        {
+          "kind": "fn",
+          "name": "update",
+          "line": 36,
+          "declaration": "pub fn update(this: &Entity<Self>, cx: &mut App, change: impl FnOnce(&mut T))"
+        },
+        {
+          "kind": "fn",
+          "name": "config_dir",
+          "line": 62,
+          "declaration": "pub fn config_dir(name: &str) -> Option<PathBuf>"
+        },
+        {
+          "kind": "fn",
+          "name": "read",
+          "line": 76,
+          "declaration": "pub fn read<T: DeserializeOwned>(file: &Path) -> Option<T>"
+        },
+        {
+          "kind": "fn",
+          "name": "write",
+          "line": 80,
+          "declaration": "pub fn write<T: Serialize>(file: &Path, value: &T) -> io::Result<()>"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui-shell/src/run_loop.rs",
+      "sha256": "56cb63e4ecac1b05054ae9e9e65c31701099f2557fbd6dd091890f54b9f6e562",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "install",
+          "line": 9,
+          "declaration": "pub fn install(cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "stop",
+          "line": 23,
+          "declaration": "pub fn stop(cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "stop",
+          "line": 49,
+          "declaration": "pub fn stop(cx: &mut App)"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui-shell/src/runtime.rs",
+      "sha256": "953dce43f620ffd8928f5cb2dde47aae8fd82f34abbd8730e1696bc3290a00d1",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "build",
+          "line": 9,
+          "declaration": "pub fn build() -> Runtime"
+        },
+        {
+          "kind": "fn",
+          "name": "install",
+          "line": 17,
+          "declaration": "pub fn install(cx: &mut App, handle: Handle)"
+        },
+        {
+          "kind": "fn",
+          "name": "spawn",
+          "line": 22,
+          "declaration": "pub fn spawn<T>(cx: &impl AppContext, operation: impl Future<Output = T> + Send + 'static) -> Task<Result<T, JoinError>> where T: Send + 'static,"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui-shell/src/script.rs",
+      "sha256": "a2fd8648d78600843858996624e32e4ae1069ab39af1d3ac8b2eb75a39e0a9b8",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "run",
+          "line": 20,
+          "declaration": "pub fn run(window: impl Into<AnyWindowHandle>, script: String, cx: &mut App)"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/components.rs",
+      "sha256": "ed1ae059e09e93e9e6f102a315b1861d389a105e30eaa7ba49ed264dc2dc93f0",
+      "declarations": [
+        {
+          "kind": "use",
+          "name": "clankerdiff_ui_core",
+          "line": 11,
+          "declaration": "pub use clankerdiff_ui_core::{ ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone, SelectionState, };",
+          "exported_names": [
+            "ButtonVariant",
+            "ControlSize",
+            "ControlState",
+            "InteractionState",
+            "ModalSize",
+            "NoticeTone",
+            "SelectionState"
+          ]
+        },
+        {
+          "kind": "struct",
+          "name": "Button",
+          "line": 50,
+          "declaration": "pub struct Button"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 67,
+          "declaration": "pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "icon",
+          "line": 85,
+          "declaration": "pub fn icon(mut self, icon: IconName) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "variant",
+          "line": 91,
+          "declaration": "pub fn variant(mut self, variant: ButtonVariant) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "size",
+          "line": 97,
+          "declaration": "pub fn size(mut self, size: ControlSize) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "aria_label",
+          "line": 103,
+          "declaration": "pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "tooltip",
+          "line": 109,
+          "declaration": "pub fn tooltip(mut self, label: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "keyboard_focusable",
+          "line": 115,
+          "declaration": "pub fn keyboard_focusable(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "disabled",
+          "line": 121,
+          "declaration": "pub fn disabled(mut self, disabled: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "selected",
+          "line": 127,
+          "declaration": "pub fn selected(mut self, selected: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "full_width",
+          "line": 134,
+          "declaration": "pub fn full_width(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_click",
+          "line": 140,
+          "declaration": "pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "IconButton",
+          "line": 208,
+          "declaration": "pub struct IconButton"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 222,
+          "declaration": "pub fn new(id: impl Into<ElementId>, icon: IconName, label: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "icon_size",
+          "line": 237,
+          "declaration": "pub const fn icon_size(mut self, size: f32) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "selected",
+          "line": 243,
+          "declaration": "pub fn selected(mut self, selected: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "disabled",
+          "line": 249,
+          "declaration": "pub const fn disabled(mut self, disabled: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "keyboard_focusable",
+          "line": 255,
+          "declaration": "pub fn keyboard_focusable(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_click",
+          "line": 261,
+          "declaration": "pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "Segment",
+          "line": 320,
+          "declaration": "pub struct Segment"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 332,
+          "declaration": "pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "icon",
+          "line": 345,
+          "declaration": "pub fn icon(id: impl Into<ElementId>, icon: IconName, label: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "detail",
+          "line": 350,
+          "declaration": "pub fn detail(mut self, detail: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "selected",
+          "line": 356,
+          "declaration": "pub const fn selected(mut self, selected: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "disabled",
+          "line": 362,
+          "declaration": "pub const fn disabled(mut self, disabled: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_click",
+          "line": 368,
+          "declaration": "pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "SegmentedControl",
+          "line": 375,
+          "declaration": "pub struct SegmentedControl"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 383,
+          "declaration": "pub fn new(id: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "segments",
+          "line": 388,
+          "declaration": "pub fn segments(mut self, segments: impl IntoIterator<Item = Segment>) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "Tooltip",
+          "line": 462,
+          "declaration": "pub struct Tooltip"
+        },
+        {
+          "kind": "fn",
+          "name": "text",
+          "line": 468,
+          "declaration": "pub fn text(label: impl Into<SharedString>, theme: UiTheme) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static"
+        },
+        {
+          "kind": "struct",
+          "name": "Disclosure",
+          "line": 492,
+          "declaration": "pub struct Disclosure"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 503,
+          "declaration": "pub fn new(id: impl Into<ElementId>, expanded: bool, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_toggle",
+          "line": 515,
+          "declaration": "pub fn on_toggle(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "Badge",
+          "line": 564,
+          "declaration": "pub struct Badge"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 574,
+          "declaration": "pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "tone",
+          "line": 579,
+          "declaration": "pub const fn tone(mut self, tone: NoticeTone) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "icon",
+          "line": 585,
+          "declaration": "pub const fn icon(mut self, icon: IconName) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "SectionHeader",
+          "line": 619,
+          "declaration": "pub struct SectionHeader"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 634,
+          "declaration": "pub fn new(id: impl Into<SharedString>, title: impl Into<SharedString>, expanded: bool, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "icon",
+          "line": 650,
+          "declaration": "pub const fn icon(mut self, icon: IconName, color: Hsla) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "detail",
+          "line": 656,
+          "declaration": "pub fn detail(mut self, detail: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "badge",
+          "line": 662,
+          "declaration": "pub fn badge(mut self, badge: Badge) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "action",
+          "line": 668,
+          "declaration": "pub fn action(mut self, action: impl IntoElement) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "actions_always_visible",
+          "line": 674,
+          "declaration": "pub const fn actions_always_visible(mut self, always_visible: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_toggle",
+          "line": 680,
+          "declaration": "pub fn on_toggle(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "trait",
+          "name": "SurfaceExt",
+          "line": 766,
+          "declaration": "pub trait SurfaceExt: Styled + Sized"
+        },
+        {
+          "kind": "struct",
+          "name": "Surface",
+          "line": 794,
+          "declaration": "pub struct Surface"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 804,
+          "declaration": "pub fn new(theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "padded",
+          "line": 809,
+          "declaration": "pub fn padded(mut self, padded: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "raised",
+          "line": 814,
+          "declaration": "pub fn raised(mut self, raised: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "selected",
+          "line": 819,
+          "declaration": "pub fn selected(mut self, selected: bool) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "ListRow",
+          "line": 849,
+          "declaration": "pub struct ListRow"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 861,
+          "declaration": "pub fn new(id: impl Into<ElementId>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "hover_group",
+          "line": 874,
+          "declaration": "pub fn hover_group(id: &str) -> SharedString"
+        },
+        {
+          "kind": "fn",
+          "name": "depth",
+          "line": 881,
+          "declaration": "pub const fn depth(mut self, depth: usize) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "state",
+          "line": 886,
+          "declaration": "pub const fn state(mut self, state: SelectionState) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "selected",
+          "line": 891,
+          "declaration": "pub const fn selected(self, selected: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "disabled",
+          "line": 895,
+          "declaration": "pub const fn disabled(self, disabled: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_click",
+          "line": 899,
+          "declaration": "pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_mouse_move",
+          "line": 904,
+          "declaration": "pub fn on_mouse_move(mut self, handler: impl Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "ActionBar",
+          "line": 963,
+          "declaration": "pub struct ActionBar"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 969,
+          "declaration": "pub fn new(theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "Backdrop",
+          "line": 996,
+          "declaration": "pub struct Backdrop"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 1005,
+          "declaration": "pub fn new(id: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "align_top",
+          "line": 1009,
+          "declaration": "pub fn align_top(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_dismiss",
+          "line": 1014,
+          "declaration": "pub fn on_dismiss(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "Modal",
+          "line": 1056,
+          "declaration": "pub struct Modal"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 1069,
+          "declaration": "pub fn new(id: impl Into<SharedString>, title: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "hint",
+          "line": 1083,
+          "declaration": "pub fn hint(mut self, hint: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "width",
+          "line": 1088,
+          "declaration": "pub fn width(mut self, width: Rems) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "height",
+          "line": 1093,
+          "declaration": "pub fn height(mut self, height: Rems) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "size",
+          "line": 1098,
+          "declaration": "pub fn size(mut self, size: ModalSize) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "align_top",
+          "line": 1107,
+          "declaration": "pub fn align_top(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_dismiss",
+          "line": 1112,
+          "declaration": "pub fn on_dismiss(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "MutedText",
+          "line": 1165,
+          "declaration": "pub struct MutedText"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 1172,
+          "declaration": "pub fn new(text: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "EmptyState",
+          "line": 1186,
+          "declaration": "pub struct EmptyState"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 1194,
+          "declaration": "pub fn new( title: impl Into<SharedString>, detail: impl Into<SharedString>, tone: NoticeTone, theme: UiTheme, ) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "Notification",
+          "line": 1223,
+          "declaration": "pub struct Notification"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 1230,
+          "declaration": "pub fn new(message: impl Into<SharedString>, tone: NoticeTone, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "error",
+          "line": 1235,
+          "declaration": "pub fn error(message: impl Into<SharedString>, theme: UiTheme) -> Self"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/dialog.rs",
+      "sha256": "a7585f17a71f7bee844acd5fefd05373562a258b38329f169e81df58dbcae3cc",
+      "declarations": [
+        {
+          "kind": "const",
+          "name": "CONTEXT",
+          "line": 11,
+          "declaration": "pub const CONTEXT: &str = \"ConfirmDialog\""
+        },
+        {
+          "kind": "enum",
+          "name": "ConfirmDialogEvent",
+          "line": 14,
+          "declaration": "pub enum ConfirmDialogEvent"
+        },
+        {
+          "kind": "struct",
+          "name": "ConfirmDialog",
+          "line": 20,
+          "declaration": "pub struct ConfirmDialog"
+        },
+        {
+          "kind": "fn",
+          "name": "bind_keys",
+          "line": 34,
+          "declaration": "pub fn bind_keys(cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 41,
+          "declaration": "pub fn new( id: impl Into<SharedString>, title: impl Into<SharedString>, message: impl Into<SharedString>, confirm: impl Into<SharedString>, theme: UiTheme, window: &mut Window, cx: &mut Context<Self>, ) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "confirm_variant",
+          "line": 67,
+          "declaration": "pub const fn confirm_variant(mut self, variant: ButtonVariant) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "alternate",
+          "line": 73,
+          "declaration": "pub fn alternate(mut self, label: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "alternate_variant",
+          "line": 79,
+          "declaration": "pub const fn alternate_variant(mut self, variant: ButtonVariant) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "without_cancel",
+          "line": 85,
+          "declaration": "pub const fn without_cancel(mut self) -> Self"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/fonts.rs",
+      "sha256": "03ab7ac55486bceebcba37f7448e778ffe9c5ded4eda2a9d6a1e53d710b59d71",
+      "declarations": [
+        {
+          "kind": "const",
+          "name": "UI_FONT",
+          "line": 4,
+          "declaration": "pub const UI_FONT: &str = \"Inter\""
+        },
+        {
+          "kind": "const",
+          "name": "CODE_FONT",
+          "line": 5,
+          "declaration": "pub const CODE_FONT: &str = \"Lilex\""
+        },
+        {
+          "kind": "fn",
+          "name": "load_fonts",
+          "line": 26,
+          "declaration": "pub fn load_fonts(cx: &mut App) -> Result<()>"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/icon.rs",
+      "sha256": "3c35028f17ca24154fa5371544f7e2681bfd220150b1f32ec4478d004d900c74",
+      "declarations": [
+        {
+          "kind": "enum",
+          "name": "IconName",
+          "line": 10,
+          "declaration": "pub enum IconName"
+        },
+        {
+          "kind": "fn",
+          "name": "spin_when_shown",
+          "line": 156,
+          "declaration": "pub fn spin_when_shown(window: &Window) -> Subscription"
+        },
+        {
+          "kind": "struct",
+          "name": "Icon",
+          "line": 165,
+          "declaration": "pub struct Icon"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 175,
+          "declaration": "pub fn new(name: IconName, color: Hsla) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "size",
+          "line": 180,
+          "declaration": "pub fn size(mut self, size: f32) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "inherit_color",
+          "line": 186,
+          "declaration": "pub fn inherit_color(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "spin",
+          "line": 194,
+          "declaration": "pub fn spin(mut self, id: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "group_hover",
+          "line": 200,
+          "declaration": "pub fn group_hover(mut self, group: impl Into<SharedString>, color: Hsla) -> Self"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/indicator_layer.rs",
+      "sha256": "105dfdc823389915bc6da6e9deb3e4ad96f499bb7a2e6ce6e5209cd22a684261",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "IndicatorLayer",
+          "line": 16,
+          "declaration": "pub struct IndicatorLayer"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 22,
+          "declaration": "pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "shown",
+          "line": 37,
+          "declaration": "pub fn shown(&self) -> Vec<Bounds<Pixels>>"
+        },
+        {
+          "kind": "struct",
+          "name": "IndicatorMark",
+          "line": 53,
+          "declaration": "pub struct IndicatorMark"
+        },
+        {
+          "kind": "fn",
+          "name": "occluder",
+          "line": 66,
+          "declaration": "pub fn occluder(id: impl Into<ElementId>) -> Self"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/inline_edit.rs",
+      "sha256": "3820397fd0fdd1843c834ebf5f60df1802882a8eb60c5964dc1bb2a6a7f5f6bc",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "InlineEdit",
+          "line": 11,
+          "declaration": "pub struct InlineEdit"
+        },
+        {
+          "kind": "fn",
+          "name": "input",
+          "line": 19,
+          "declaration": "pub fn input( value: impl Into<SharedString>, theme: UiTheme, window: &mut Window, cx: &mut App, ) -> Entity<InputState>"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 38,
+          "declaration": "pub fn new(input: &Entity<InputState>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_commit",
+          "line": 43,
+          "declaration": "pub fn on_commit(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_cancel",
+          "line": 49,
+          "declaration": "pub fn on_cancel(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/interface_size.rs",
+      "sha256": "6cbe489484aea01604993ae62ae902e5ba1773d71e9235dfd635aba9899f2fa7",
+      "declarations": [
+        {
+          "kind": "const",
+          "name": "DEFAULT_INTERFACE_SIZE",
+          "line": 6,
+          "declaration": "pub const DEFAULT_INTERFACE_SIZE: f32 = if cfg!(target_os = \"macos\")"
+        },
+        {
+          "kind": "const",
+          "name": "MIN_INTERFACE_SIZE",
+          "line": 7,
+          "declaration": "pub const MIN_INTERFACE_SIZE: f32 = 10.0"
+        },
+        {
+          "kind": "const",
+          "name": "MAX_INTERFACE_SIZE",
+          "line": 8,
+          "declaration": "pub const MAX_INTERFACE_SIZE: f32 = 32.0"
+        },
+        {
+          "kind": "struct",
+          "name": "InterfaceSize",
+          "line": 12,
+          "declaration": "pub struct InterfaceSize"
+        },
+        {
+          "kind": "fn",
+          "name": "init",
+          "line": 20,
+          "declaration": "pub fn init(default: f32, cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "get",
+          "line": 39,
+          "declaration": "pub fn get(cx: &App) -> f32"
+        },
+        {
+          "kind": "fn",
+          "name": "set",
+          "line": 43,
+          "declaration": "pub fn set(size: f32, cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "apply",
+          "line": 53,
+          "declaration": "pub fn apply(window: &mut Window, cx: &App)"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/keymap.rs",
+      "sha256": "33670108488ed5e38e294ee4c7bad66d5bdd6d20b1c6866fdeac9650b1909106",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "key_binding",
+          "line": 5,
+          "declaration": "pub fn key_binding<T: Action>(keystrokes: &str, action: T, context: Option<&str>, cx: &App) -> KeyBinding"
+        },
+        {
+          "kind": "fn",
+          "name": "binding_label",
+          "line": 16,
+          "declaration": "pub fn binding_label(binding: &KeyBinding, cx: &App) -> String"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/lib.rs",
+      "sha256": "8712c3a66731c2ea13cc01290f352d6722baa5ac880ac3bd4d91ac1120508620",
+      "declarations": [
+        {
+          "kind": "mod",
+          "name": "components",
+          "line": 1,
+          "declaration": "pub mod components"
+        },
+        {
+          "kind": "mod",
+          "name": "dialog",
+          "line": 2,
+          "declaration": "pub mod dialog"
+        },
+        {
+          "kind": "mod",
+          "name": "fonts",
+          "line": 3,
+          "declaration": "pub mod fonts"
+        },
+        {
+          "kind": "mod",
+          "name": "icon",
+          "line": 4,
+          "declaration": "pub mod icon"
+        },
+        {
+          "kind": "mod",
+          "name": "indicator_layer",
+          "line": 5,
+          "declaration": "pub mod indicator_layer"
+        },
+        {
+          "kind": "mod",
+          "name": "inline_edit",
+          "line": 6,
+          "declaration": "pub mod inline_edit"
+        },
+        {
+          "kind": "mod",
+          "name": "interface_size",
+          "line": 7,
+          "declaration": "pub mod interface_size"
+        },
+        {
+          "kind": "mod",
+          "name": "keymap",
+          "line": 8,
+          "declaration": "pub mod keymap"
+        },
+        {
+          "kind": "mod",
+          "name": "menu",
+          "line": 9,
+          "declaration": "pub mod menu"
+        },
+        {
+          "kind": "mod",
+          "name": "picker",
+          "line": 10,
+          "declaration": "pub mod picker"
+        },
+        {
+          "kind": "mod",
+          "name": "resizable",
+          "line": 11,
+          "declaration": "pub mod resizable"
+        },
+        {
+          "kind": "mod",
+          "name": "scrollbar",
+          "line": 12,
+          "declaration": "pub mod scrollbar"
+        },
+        {
+          "kind": "mod",
+          "name": "testing",
+          "line": 14,
+          "declaration": "pub mod testing"
+        },
+        {
+          "kind": "mod",
+          "name": "theme",
+          "line": 15,
+          "declaration": "pub mod theme"
+        },
+        {
+          "kind": "mod",
+          "name": "tokens",
+          "line": 16,
+          "declaration": "pub mod tokens"
+        },
+        {
+          "kind": "mod",
+          "name": "tree",
+          "line": 17,
+          "declaration": "pub mod tree"
+        },
+        {
+          "kind": "mod",
+          "name": "typography",
+          "line": 18,
+          "declaration": "pub mod typography"
+        },
+        {
+          "kind": "mod",
+          "name": "waveform",
+          "line": 19,
+          "declaration": "pub mod waveform"
+        },
+        {
+          "kind": "mod",
+          "name": "window_chrome",
+          "line": 20,
+          "declaration": "pub mod window_chrome"
+        },
+        {
+          "kind": "use",
+          "name": "interface_size",
+          "line": 22,
+          "declaration": "pub use interface_size::InterfaceSize;",
+          "exported_names": [
+            "InterfaceSize"
+          ]
+        },
+        {
+          "kind": "mod",
+          "name": "prelude",
+          "line": 24,
+          "declaration": "pub mod prelude"
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 25,
+          "declaration": "pub use super::components::{ ActionBar, Backdrop, Badge, Button, ButtonVariant, ControlSize, ControlState, Disclosure, EmptyState, IconButton, InteractionState, ListRow, Modal, ModalSize, MutedText, NoticeTone, Notification, SectionHeader, Segment, SegmentedControl, SelectionState, Surface, SurfaceExt, Tooltip, };",
+          "exported_names": [
+            "ActionBar",
+            "Backdrop",
+            "Badge",
+            "Button",
+            "ButtonVariant",
+            "ControlSize",
+            "ControlState",
+            "Disclosure",
+            "EmptyState",
+            "IconButton",
+            "InteractionState",
+            "ListRow",
+            "Modal",
+            "ModalSize",
+            "MutedText",
+            "NoticeTone",
+            "Notification",
+            "SectionHeader",
+            "Segment",
+            "SegmentedControl",
+            "SelectionState",
+            "Surface",
+            "SurfaceExt",
+            "Tooltip"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 30,
+          "declaration": "pub use super::dialog::{ConfirmDialog, ConfirmDialogEvent};",
+          "exported_names": [
+            "ConfirmDialog",
+            "ConfirmDialogEvent"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 31,
+          "declaration": "pub use super::fonts::{CODE_FONT, UI_FONT};",
+          "exported_names": [
+            "CODE_FONT",
+            "UI_FONT"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 32,
+          "declaration": "pub use super::icon::{Icon, IconName, spin_when_shown};",
+          "exported_names": [
+            "Icon",
+            "IconName",
+            "spin_when_shown"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 33,
+          "declaration": "pub use super::indicator_layer::{IndicatorLayer, IndicatorMark};",
+          "exported_names": [
+            "IndicatorLayer",
+            "IndicatorMark"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 34,
+          "declaration": "pub use super::inline_edit::InlineEdit;",
+          "exported_names": [
+            "InlineEdit"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 35,
+          "declaration": "pub use super::keymap::{binding_label, key_binding};",
+          "exported_names": [
+            "binding_label",
+            "key_binding"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 36,
+          "declaration": "pub use super::menu::{MenuItem, with_menu};",
+          "exported_names": [
+            "MenuItem",
+            "with_menu"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 37,
+          "declaration": "pub use super::picker::{ PickerDetail, PickerItem, PickerList, PickerMarker, SearchPicker, SearchPickerEvent, ThemePicker, ThemePickerEvent, ThemePickerOverlay, };",
+          "exported_names": [
+            "PickerDetail",
+            "PickerItem",
+            "PickerList",
+            "PickerMarker",
+            "SearchPicker",
+            "SearchPickerEvent",
+            "ThemePicker",
+            "ThemePickerEvent",
+            "ThemePickerOverlay"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 41,
+          "declaration": "pub use super::resizable::{PanelSide, ResizablePanel};",
+          "exported_names": [
+            "PanelSide",
+            "ResizablePanel"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 42,
+          "declaration": "pub use super::scrollbar::{ListScrollbar, uniform_height_hints};",
+          "exported_names": [
+            "ListScrollbar",
+            "uniform_height_hints"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 43,
+          "declaration": "pub use super::theme::{ActiveTheme, UiColors, UiStyle, UiTheme, color, window_appearance};",
+          "exported_names": [
+            "ActiveTheme",
+            "UiColors",
+            "UiStyle",
+            "UiTheme",
+            "color",
+            "window_appearance"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 44,
+          "declaration": "pub use super::tokens::rem;",
+          "exported_names": [
+            "rem"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 45,
+          "declaration": "pub use super::tree::TreeRow;",
+          "exported_names": [
+            "TreeRow"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 46,
+          "declaration": "pub use super::typography::{Typography, TypographyExt};",
+          "exported_names": [
+            "Typography",
+            "TypographyExt"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 47,
+          "declaration": "pub use super::waveform::Waveform;",
+          "exported_names": [
+            "Waveform"
+          ]
+        },
+        {
+          "kind": "use",
+          "name": "super",
+          "line": 48,
+          "declaration": "pub use super::window_chrome::WindowDragExt;",
+          "exported_names": [
+            "WindowDragExt"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/menu.rs",
+      "sha256": "fc78718b17feb100241b353942cba25f848f94921cfc8b498b280bd38af1de96",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "MenuItem",
+          "line": 12,
+          "declaration": "pub struct MenuItem(Entry)"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 27,
+          "declaration": "pub fn new( selector: impl Into<SharedString>, label: impl Into<SharedString>, action: impl Fn(&mut Window, &mut App) + 'static, ) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "separator",
+          "line": 42,
+          "declaration": "pub const fn separator() -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "icon",
+          "line": 47,
+          "declaration": "pub fn icon(mut self, name: IconName) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "destructive",
+          "line": 55,
+          "declaration": "pub fn destructive(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "with_menu",
+          "line": 69,
+          "declaration": "pub fn with_menu<T: Selectable + IntoElement + 'static>( selector: &str, trigger: T, button: MouseButton, items: impl FnOnce(&mut Window, &mut App) -> Vec<MenuItem> + 'static, theme: &UiTheme, ) -> Popover"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/picker.rs",
+      "sha256": "6866ad2028d0e8c300b7a558bd8291a3129813b6be2c36766b7cebd1f2e7ff1d",
+      "declarations": [
+        {
+          "kind": "const",
+          "name": "CONTEXT",
+          "line": 23,
+          "declaration": "pub const CONTEXT: &str = \"SearchPicker\""
+        },
+        {
+          "kind": "struct",
+          "name": "PickerDetail",
+          "line": 26,
+          "declaration": "pub struct PickerDetail"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 34,
+          "declaration": "pub fn new(text: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "color",
+          "line": 39,
+          "declaration": "pub const fn color(mut self, color: Hsla) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "code",
+          "line": 45,
+          "declaration": "pub const fn code(mut self) -> Self"
+        },
+        {
+          "kind": "enum",
+          "name": "PickerMarker",
+          "line": 70,
+          "declaration": "pub enum PickerMarker"
+        },
+        {
+          "kind": "struct",
+          "name": "PickerItem",
+          "line": 76,
+          "declaration": "pub struct PickerItem"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 92,
+          "declaration": "pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "marker",
+          "line": 109,
+          "declaration": "pub const fn marker(mut self, marker: PickerMarker) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "icon",
+          "line": 115,
+          "declaration": "pub const fn icon(mut self, icon: IconName) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "group",
+          "line": 121,
+          "declaration": "pub fn group(mut self, group: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "prefix",
+          "line": 127,
+          "declaration": "pub fn prefix(mut self, prefix: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "subtitle",
+          "line": 133,
+          "declaration": "pub fn subtitle(mut self, subtitle: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "detail",
+          "line": 139,
+          "declaration": "pub fn detail(mut self, detail: impl Into<PickerDetail>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "keywords",
+          "line": 145,
+          "declaration": "pub fn keywords(mut self, keywords: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "disabled",
+          "line": 151,
+          "declaration": "pub const fn disabled(mut self, disabled: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "checked",
+          "line": 157,
+          "declaration": "pub const fn checked(mut self, checked: bool) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "PickerList",
+          "line": 180,
+          "declaration": "pub struct PickerList"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 196,
+          "declaration": "pub fn new(id: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "items",
+          "line": 213,
+          "declaration": "pub fn items(mut self, items: impl IntoIterator<Item = PickerItem>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "align_with",
+          "line": 221,
+          "declaration": "pub fn align_with<'a>(mut self, items: impl IntoIterator<Item = &'a PickerItem>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "highlighted",
+          "line": 234,
+          "declaration": "pub const fn highlighted(mut self, position: Option<usize>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "empty",
+          "line": 240,
+          "declaration": "pub fn empty(mut self, message: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "max_height",
+          "line": 246,
+          "declaration": "pub const fn max_height(mut self, height: Rems) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "track_scroll",
+          "line": 252,
+          "declaration": "pub fn track_scroll(mut self, scroll: &ScrollHandle) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_choose",
+          "line": 258,
+          "declaration": "pub fn on_choose(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_hover",
+          "line": 264,
+          "declaration": "pub fn on_hover(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "dot",
+          "line": 384,
+          "declaration": "pub fn dot(self, colors: &UiColors) -> Div"
+        },
+        {
+          "kind": "enum",
+          "name": "SearchPickerEvent",
+          "line": 440,
+          "declaration": "pub enum SearchPickerEvent"
+        },
+        {
+          "kind": "struct",
+          "name": "SearchPicker",
+          "line": 447,
+          "declaration": "pub struct SearchPicker"
+        },
+        {
+          "kind": "fn",
+          "name": "bind_keys",
+          "line": 467,
+          "declaration": "pub fn bind_keys(cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 478,
+          "declaration": "pub fn new(id: impl Into<SharedString>, items: Vec<PickerItem>, theme: UiTheme, cx: &mut Context<Self>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "searchable",
+          "line": 500,
+          "declaration": "pub fn searchable( mut self, placeholder: impl Into<SharedString>, window: &mut Window, cx: &mut Context<Self>, ) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "title",
+          "line": 526,
+          "declaration": "pub fn title(mut self, title: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "footer",
+          "line": 532,
+          "declaration": "pub fn footer(mut self, footer: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "empty",
+          "line": 538,
+          "declaration": "pub fn empty(mut self, message: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "unfiltered",
+          "line": 544,
+          "declaration": "pub fn unfiltered(mut self) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "max_matches",
+          "line": 550,
+          "declaration": "pub fn max_matches(mut self, limit: usize) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "width",
+          "line": 556,
+          "declaration": "pub const fn width(mut self, width: Rems) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "height",
+          "line": 562,
+          "declaration": "pub const fn height(mut self, height: Rems) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "max_list_height",
+          "line": 568,
+          "declaration": "pub const fn max_list_height(mut self, height: Rems) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "preview",
+          "line": 574,
+          "declaration": "pub fn preview(mut self, render: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "highlight",
+          "line": 580,
+          "declaration": "pub fn highlight(mut self, index: usize) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "set_items",
+          "line": 587,
+          "declaration": "pub fn set_items(&mut self, items: Vec<PickerItem>, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "move_highlight",
+          "line": 594,
+          "declaration": "pub fn move_highlight(&mut self, by: isize, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "highlight_item",
+          "line": 602,
+          "declaration": "pub fn highlight_item(&mut self, index: usize, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "choose_highlighted",
+          "line": 610,
+          "declaration": "pub fn choose_highlighted(&mut self, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "dismiss",
+          "line": 614,
+          "declaration": "pub fn dismiss(&mut self, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "set_status",
+          "line": 618,
+          "declaration": "pub fn set_status(&mut self, status: Option<SharedString>, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "query",
+          "line": 624,
+          "declaration": "pub fn query(&self, cx: &App) -> String"
+        },
+        {
+          "kind": "enum",
+          "name": "ThemePickerEvent",
+          "line": 785,
+          "declaration": "pub enum ThemePickerEvent"
+        },
+        {
+          "kind": "struct",
+          "name": "ThemePicker",
+          "line": 791,
+          "declaration": "pub struct ThemePicker"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 799,
+          "declaration": "pub fn new( id: impl Into<SharedString>, current: &ReviewTheme, themes: Arc<[ThemeChoice]>, theme: UiTheme, window: &mut Window, cx: &mut Context<Self>, ) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "move_highlight",
+          "line": 838,
+          "declaration": "pub fn move_highlight(&mut self, by: isize, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "highlight",
+          "line": 842,
+          "declaration": "pub fn highlight(&mut self, index: usize, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "commit",
+          "line": 846,
+          "declaration": "pub fn commit(&mut self, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "fn",
+          "name": "cancel",
+          "line": 850,
+          "declaration": "pub fn cancel(&mut self, cx: &mut Context<Self>)"
+        },
+        {
+          "kind": "struct",
+          "name": "ThemePickerOverlay",
+          "line": 879,
+          "declaration": "pub struct ThemePickerOverlay"
+        },
+        {
+          "kind": "fn",
+          "name": "open",
+          "line": 885,
+          "declaration": "pub fn open<T: 'static>( current: &ReviewTheme, themes: Arc<[ThemeChoice]>, theme: UiTheme, window: &mut Window, cx: &mut Context<T>, on_event: impl Fn(&mut T, &ThemePickerEvent, &mut Window, &mut Context<T>) + 'static, ) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "picker",
+          "line": 901,
+          "declaration": "pub const fn picker(&self) -> &Entity<ThemePicker>"
+        },
+        {
+          "kind": "fn",
+          "name": "render",
+          "line": 906,
+          "declaration": "pub fn render(&self, theme: UiTheme) -> Backdrop"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/resizable.rs",
+      "sha256": "b7ceaaaac6518e8c0a7c8cfd195c3d2fb6dc49cebfa4c9cd413fab6a12615b34",
+      "declarations": [
+        {
+          "kind": "enum",
+          "name": "PanelSide",
+          "line": 16,
+          "declaration": "pub enum PanelSide"
+        },
+        {
+          "kind": "fn",
+          "name": "toggle_button",
+          "line": 23,
+          "declaration": "pub fn toggle_button(self, id: impl Into<ElementId>, open: bool, name: &str, theme: UiTheme) -> IconButton"
+        },
+        {
+          "kind": "struct",
+          "name": "ResizablePanel",
+          "line": 39,
+          "declaration": "pub struct ResizablePanel"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 54,
+          "declaration": "pub fn new(id: impl Into<ElementId>, side: PanelSide, width: Rems, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "min_width",
+          "line": 70,
+          "declaration": "pub fn min_width(mut self, width: Rems) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "max_width",
+          "line": 76,
+          "declaration": "pub fn max_width(mut self, width: Rems) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_resize",
+          "line": 82,
+          "declaration": "pub fn on_resize(mut self, handler: impl Fn(Rems, &mut Window, &mut App) + 'static) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_reset",
+          "line": 88,
+          "declaration": "pub fn on_reset(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/scrollbar.rs",
+      "sha256": "5f875e48d080f405f4283e5270e07d461885397b04e90616961f646271ca352c",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "ListScrollbar",
+          "line": 16,
+          "declaration": "pub struct ListScrollbar"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 24,
+          "declaration": "pub fn new(id: impl Into<ElementId>, list: ListState, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "uniform_height_hints",
+          "line": 111,
+          "declaration": "pub fn uniform_height_hints(list: ListState, height: Pixels) -> impl IntoElement"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/testing.rs",
+      "sha256": "54e351b7af04926306c24bf18caa4340e675765cbb2c5f4d643c1ba2b6deaa1e",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "advance_clock",
+          "line": 14,
+          "declaration": "pub fn advance_clock(cx: &mut TestAppContext, duration: Duration)"
+        },
+        {
+          "kind": "fn",
+          "name": "selector",
+          "line": 22,
+          "declaration": "pub fn selector(name: String) -> &'static str"
+        },
+        {
+          "kind": "enum",
+          "name": "HarnessError",
+          "line": 27,
+          "declaration": "pub enum HarnessError"
+        },
+        {
+          "kind": "struct",
+          "name": "WindowDriver",
+          "line": 33,
+          "declaration": "pub struct WindowDriver"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 39,
+          "declaration": "pub fn new(window: impl Into<AnyWindowHandle>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "window",
+          "line": 44,
+          "declaration": "pub const fn window(&self) -> AnyWindowHandle"
+        },
+        {
+          "kind": "fn",
+          "name": "draw",
+          "line": 48,
+          "declaration": "pub fn draw(&self, cx: &mut TestAppContext)"
+        },
+        {
+          "kind": "fn",
+          "name": "bounds",
+          "line": 59,
+          "declaration": "pub fn bounds(&self, cx: &mut TestAppContext, selector: &'static str) -> Option<Bounds<Pixels>>"
+        },
+        {
+          "kind": "fn",
+          "name": "center",
+          "line": 64,
+          "declaration": "pub fn center(&self, cx: &mut TestAppContext, selector: &'static str) -> Result<Point<Pixels>, HarnessError>"
+        },
+        {
+          "kind": "fn",
+          "name": "rem_size",
+          "line": 68,
+          "declaration": "pub fn rem_size(&self, cx: &mut TestAppContext) -> Pixels"
+        },
+        {
+          "kind": "fn",
+          "name": "click",
+          "line": 73,
+          "declaration": "pub fn click(&self, cx: &mut TestAppContext, selector: &'static str) -> Result<(), HarnessError>"
+        },
+        {
+          "kind": "fn",
+          "name": "double_click",
+          "line": 77,
+          "declaration": "pub fn double_click(&self, cx: &mut TestAppContext, selector: &'static str) -> Result<(), HarnessError>"
+        },
+        {
+          "kind": "fn",
+          "name": "right_click",
+          "line": 81,
+          "declaration": "pub fn right_click(&self, cx: &mut TestAppContext, selector: &'static str) -> Result<(), HarnessError>"
+        },
+        {
+          "kind": "fn",
+          "name": "hover",
+          "line": 87,
+          "declaration": "pub fn hover(&self, cx: &mut TestAppContext, selector: &'static str) -> Result<(), HarnessError>"
+        },
+        {
+          "kind": "fn",
+          "name": "drag",
+          "line": 94,
+          "declaration": "pub fn drag(&self, cx: &mut TestAppContext, selector: &'static str, to: Point<Pixels>) -> Result<(), HarnessError>"
+        },
+        {
+          "kind": "fn",
+          "name": "drag_and_hold",
+          "line": 100,
+          "declaration": "pub fn drag_and_hold( &self, cx: &mut TestAppContext, selector: &'static str, to: Point<Pixels>, ) -> Result<(), HarnessError>"
+        },
+        {
+          "kind": "fn",
+          "name": "release",
+          "line": 114,
+          "declaration": "pub fn release(&self, cx: &mut TestAppContext, at: Point<Pixels>)"
+        },
+        {
+          "kind": "fn",
+          "name": "scroll",
+          "line": 119,
+          "declaration": "pub fn scroll( &self, cx: &mut TestAppContext, selector: &'static str, delta: ScrollDelta, ) -> Result<(), HarnessError>"
+        },
+        {
+          "kind": "fn",
+          "name": "activate",
+          "line": 130,
+          "declaration": "pub fn activate(&self, cx: &mut TestAppContext)"
+        },
+        {
+          "kind": "fn",
+          "name": "focus_next",
+          "line": 135,
+          "declaration": "pub fn focus_next(&self, cx: &mut TestAppContext)"
+        },
+        {
+          "kind": "fn",
+          "name": "simulate_keystrokes",
+          "line": 140,
+          "declaration": "pub fn simulate_keystrokes(&self, cx: &mut TestAppContext, keystrokes: &str)"
+        },
+        {
+          "kind": "fn",
+          "name": "press_key",
+          "line": 145,
+          "declaration": "pub fn press_key(&self, cx: &mut TestAppContext, key: &str)"
+        },
+        {
+          "kind": "fn",
+          "name": "simulate_input",
+          "line": 155,
+          "declaration": "pub fn simulate_input(&self, cx: &mut TestAppContext, text: &str)"
+        },
+        {
+          "kind": "fn",
+          "name": "simulate_event",
+          "line": 160,
+          "declaration": "pub fn simulate_event(&self, cx: &mut TestAppContext, event: impl InputEvent)"
+        },
+        {
+          "kind": "fn",
+          "name": "dispatch_action",
+          "line": 168,
+          "declaration": "pub fn dispatch_action(&self, cx: &mut TestAppContext, action: &dyn Action)"
+        },
+        {
+          "kind": "fn",
+          "name": "resize",
+          "line": 176,
+          "declaration": "pub fn resize(&self, cx: &mut TestAppContext, width: f32, height: f32)"
+        },
+        {
+          "kind": "fn",
+          "name": "click_at",
+          "line": 181,
+          "declaration": "pub fn click_at(&self, cx: &mut TestAppContext, position: Point<Pixels>)"
+        },
+        {
+          "kind": "fn",
+          "name": "secondary_click_at",
+          "line": 185,
+          "declaration": "pub fn secondary_click_at(&self, cx: &mut TestAppContext, position: Point<Pixels>)"
+        },
+        {
+          "kind": "struct",
+          "name": "ComponentHarnessBuilder",
+          "line": 232,
+          "declaration": "pub struct ComponentHarnessBuilder"
+        },
+        {
+          "kind": "fn",
+          "name": "run",
+          "line": 245,
+          "declaration": "pub fn run( self, cx: &mut TestAppContext, render: impl Fn(&mut Window, &mut App) -> AnyElement + 'static, test: impl FnOnce(&ComponentHarness, &mut TestAppContext) -> Result<(), Box<dyn Error>>, )"
+        },
+        {
+          "kind": "fn",
+          "name": "build",
+          "line": 257,
+          "declaration": "pub fn build( self, cx: &mut TestAppContext, render: impl Fn(&mut Window, &mut App) -> AnyElement + 'static, ) -> ComponentHarness"
+        },
+        {
+          "kind": "struct",
+          "name": "ComponentHarness",
+          "line": 280,
+          "declaration": "pub struct ComponentHarness"
+        },
+        {
+          "kind": "fn",
+          "name": "renders_over",
+          "line": 286,
+          "declaration": "pub fn renders_over(&self, cx: &mut TestAppContext, duration: Duration) -> usize"
+        },
+        {
+          "kind": "struct",
+          "name": "ViewHarness",
+          "line": 305,
+          "declaration": "pub struct ViewHarness<T: 'static, U: 'static>"
+        },
+        {
+          "kind": "fn",
+          "name": "open",
+          "line": 312,
+          "declaration": "pub fn open( cx: &mut TestAppContext, window_options: WindowOptions, view: impl FnOnce(&mut Window, &mut App) -> Entity<T>, ) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "run",
+          "line": 335,
+          "declaration": "pub fn run( &self, cx: &mut TestAppContext, test: impl FnOnce(&Self, &mut TestAppContext) -> Result<(), Box<dyn Error>>, )"
+        },
+        {
+          "kind": "fn",
+          "name": "renders_over",
+          "line": 345,
+          "declaration": "pub fn renders_over(&self, cx: &mut TestAppContext, duration: Duration) -> usize"
+        },
+        {
+          "kind": "fn",
+          "name": "events",
+          "line": 352,
+          "declaration": "pub fn events(&self, cx: &TestAppContext) -> Vec<U>"
+        },
+        {
+          "kind": "fn",
+          "name": "view",
+          "line": 357,
+          "declaration": "pub const fn view(&self) -> &Entity<T>"
+        },
+        {
+          "kind": "fn",
+          "name": "read",
+          "line": 361,
+          "declaration": "pub fn read<V>(&self, cx: &TestAppContext, read: impl FnOnce(&T, &App) -> V) -> V"
+        },
+        {
+          "kind": "fn",
+          "name": "update",
+          "line": 365,
+          "declaration": "pub fn update<V>(&self, cx: &mut TestAppContext, update: impl FnOnce(&mut T, &mut Context<T>) -> V) -> V"
+        },
+        {
+          "kind": "fn",
+          "name": "run_until",
+          "line": 373,
+          "declaration": "pub fn run_until(&self, cx: &mut TestAppContext, condition: impl Fn(&T, &App) -> bool)"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/theme.rs",
+      "sha256": "920cec4c7d3233584ffd9e445a3ee16b348fb94989c6ea52cbb97480174352ec",
+      "declarations": [
+        {
+          "kind": "fn",
+          "name": "color",
+          "line": 12,
+          "declaration": "pub fn color(value: Rgba) -> Hsla"
+        },
+        {
+          "kind": "fn",
+          "name": "window_appearance",
+          "line": 18,
+          "declaration": "pub fn window_appearance(window: &Window) -> Appearance"
+        },
+        {
+          "kind": "struct",
+          "name": "ActiveTheme",
+          "line": 26,
+          "declaration": "pub struct ActiveTheme"
+        },
+        {
+          "kind": "fn",
+          "name": "install",
+          "line": 35,
+          "declaration": "pub fn install(review: ReviewTheme, window: &mut Window, cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "apply",
+          "line": 40,
+          "declaration": "pub fn apply(preference: &ThemePreference, window: &mut Window, cx: &mut App)"
+        },
+        {
+          "kind": "fn",
+          "name": "global",
+          "line": 45,
+          "declaration": "pub fn global(cx: &App) -> &Self"
+        },
+        {
+          "kind": "fn",
+          "name": "review",
+          "line": 50,
+          "declaration": "pub const fn review(&self) -> &ReviewTheme"
+        },
+        {
+          "kind": "fn",
+          "name": "ui",
+          "line": 55,
+          "declaration": "pub const fn ui(&self) -> UiTheme"
+        },
+        {
+          "kind": "fn",
+          "name": "terminal",
+          "line": 60,
+          "declaration": "pub const fn terminal(&self) -> &TerminalPalette"
+        },
+        {
+          "kind": "struct",
+          "name": "UiColors",
+          "line": 67,
+          "declaration": "pub struct UiColors"
+        },
+        {
+          "kind": "fn",
+          "name": "from_palette",
+          "line": 92,
+          "declaration": "pub fn from_palette(palette: &UiPalette) -> Self"
+        },
+        {
+          "kind": "struct",
+          "name": "UiStyle",
+          "line": 120,
+          "declaration": "pub struct UiStyle"
+        },
+        {
+          "kind": "struct",
+          "name": "UiTheme",
+          "line": 138,
+          "declaration": "pub struct UiTheme"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 146,
+          "declaration": "pub fn new(theme: &ReviewTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "control_style",
+          "line": 152,
+          "declaration": "pub fn control_style(self, variant: ButtonVariant, state: ControlState) -> UiStyle"
+        },
+        {
+          "kind": "fn",
+          "name": "selection_style",
+          "line": 157,
+          "declaration": "pub fn selection_style(self, state: SelectionState) -> UiStyle"
+        },
+        {
+          "kind": "fn",
+          "name": "notice_style",
+          "line": 162,
+          "declaration": "pub fn notice_style(self, tone: NoticeTone) -> UiStyle"
+        },
+        {
+          "kind": "fn",
+          "name": "editor_style",
+          "line": 167,
+          "declaration": "pub fn editor_style(self) -> InputEditorStyle"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/tokens.rs",
+      "sha256": "5ce0accef3e48b874acec4f4cd366e418fe9828210ce39887ed3808641d06a50",
+      "declarations": [
+        {
+          "kind": "const",
+          "name": "BASE_SIZE",
+          "line": 3,
+          "declaration": "pub const BASE_SIZE: f32 = 16.0"
+        },
+        {
+          "kind": "fn",
+          "name": "rem",
+          "line": 6,
+          "declaration": "pub const fn rem(design_px: f32) -> Rems"
+        },
+        {
+          "kind": "const",
+          "name": "ROW_HEIGHT",
+          "line": 10,
+          "declaration": "pub const ROW_HEIGHT: f32 = 28.0"
+        },
+        {
+          "kind": "const",
+          "name": "GROUP_HEIGHT",
+          "line": 11,
+          "declaration": "pub const GROUP_HEIGHT: f32 = 32.0"
+        },
+        {
+          "kind": "const",
+          "name": "BAR_HEIGHT",
+          "line": 12,
+          "declaration": "pub const BAR_HEIGHT: f32 = 40.0"
+        },
+        {
+          "kind": "const",
+          "name": "CODE_ROW_HEIGHT",
+          "line": 13,
+          "declaration": "pub const CODE_ROW_HEIGHT: f32 = 20.0"
+        },
+        {
+          "kind": "const",
+          "name": "ICON_BUTTON_SIZE",
+          "line": 14,
+          "declaration": "pub const ICON_BUTTON_SIZE: f32 = 24.0"
+        },
+        {
+          "kind": "const",
+          "name": "ICON_SIZE",
+          "line": 15,
+          "declaration": "pub const ICON_SIZE: f32 = 16.0"
+        },
+        {
+          "kind": "const",
+          "name": "ICON_SIZE_SMALL",
+          "line": 16,
+          "declaration": "pub const ICON_SIZE_SMALL: f32 = 12.0"
+        },
+        {
+          "kind": "const",
+          "name": "CHECKBOX_SIZE",
+          "line": 17,
+          "declaration": "pub const CHECKBOX_SIZE: f32 = 12.0"
+        },
+        {
+          "kind": "const",
+          "name": "TREE_INDENT",
+          "line": 18,
+          "declaration": "pub const TREE_INDENT: f32 = 12.0"
+        },
+        {
+          "kind": "const",
+          "name": "RESIZE_HANDLE_WIDTH",
+          "line": 19,
+          "declaration": "pub const RESIZE_HANDLE_WIDTH: f32 = 6.0"
+        },
+        {
+          "kind": "const",
+          "name": "SCROLLBAR_WIDTH",
+          "line": 20,
+          "declaration": "pub const SCROLLBAR_WIDTH: f32 = 12.0"
+        },
+        {
+          "kind": "const",
+          "name": "SCROLLBAR_MIN_THUMB_HEIGHT",
+          "line": 21,
+          "declaration": "pub const SCROLLBAR_MIN_THUMB_HEIGHT: f32 = 32.0"
+        },
+        {
+          "kind": "const",
+          "name": "RADIUS_INNER",
+          "line": 23,
+          "declaration": "pub const RADIUS_INNER: f32 = 4.0"
+        },
+        {
+          "kind": "const",
+          "name": "RADIUS_CONTROL",
+          "line": 24,
+          "declaration": "pub const RADIUS_CONTROL: f32 = 8.0"
+        },
+        {
+          "kind": "const",
+          "name": "RADIUS_FLOATING",
+          "line": 25,
+          "declaration": "pub const RADIUS_FLOATING: f32 = 12.0"
+        },
+        {
+          "kind": "const",
+          "name": "FLOATING_INSET",
+          "line": 26,
+          "declaration": "pub const FLOATING_INSET: f32 = RADIUS_FLOATING - RADIUS_INNER"
+        },
+        {
+          "kind": "const",
+          "name": "CONTROL_PADDING_X_SMALL",
+          "line": 28,
+          "declaration": "pub const CONTROL_PADDING_X_SMALL: f32 = 8.0"
+        },
+        {
+          "kind": "const",
+          "name": "CONTROL_PADDING_X_MEDIUM",
+          "line": 29,
+          "declaration": "pub const CONTROL_PADDING_X_MEDIUM: f32 = 12.0"
+        },
+        {
+          "kind": "const",
+          "name": "CONTROL_PADDING_Y",
+          "line": 30,
+          "declaration": "pub const CONTROL_PADDING_Y: f32 = 4.0"
+        },
+        {
+          "kind": "const",
+          "name": "MODAL_WIDTH_COMPACT",
+          "line": 32,
+          "declaration": "pub const MODAL_WIDTH_COMPACT: f32 = 440.0"
+        },
+        {
+          "kind": "const",
+          "name": "MODAL_WIDTH",
+          "line": 33,
+          "declaration": "pub const MODAL_WIDTH: f32 = 560.0"
+        },
+        {
+          "kind": "const",
+          "name": "MODAL_WIDTH_WIDE",
+          "line": 34,
+          "declaration": "pub const MODAL_WIDTH_WIDE: f32 = 680.0"
+        },
+        {
+          "kind": "const",
+          "name": "PICKER_WIDTH",
+          "line": 35,
+          "declaration": "pub const PICKER_WIDTH: f32 = 440.0"
+        },
+        {
+          "kind": "const",
+          "name": "PICKER_LIST_HEIGHT",
+          "line": 36,
+          "declaration": "pub const PICKER_LIST_HEIGHT: f32 = 360.0"
+        },
+        {
+          "kind": "const",
+          "name": "PICKER_PREVIEW_LIST_WIDTH",
+          "line": 37,
+          "declaration": "pub const PICKER_PREVIEW_LIST_WIDTH: f32 = POPOVER_WIDTH"
+        },
+        {
+          "kind": "const",
+          "name": "PICKER_PREVIEW_WIDTH",
+          "line": 38,
+          "declaration": "pub const PICKER_PREVIEW_WIDTH: f32 = POPOVER_WIDTH + PICKER_WIDTH"
+        },
+        {
+          "kind": "const",
+          "name": "PICKER_PREVIEW_HEIGHT",
+          "line": 39,
+          "declaration": "pub const PICKER_PREVIEW_HEIGHT: f32 = PICKER_PREVIEW_WIDTH / 2.0"
+        },
+        {
+          "kind": "const",
+          "name": "POPOVER_WIDTH",
+          "line": 40,
+          "declaration": "pub const POPOVER_WIDTH: f32 = 520.0"
+        },
+        {
+          "kind": "const",
+          "name": "MENU_WIDTH",
+          "line": 41,
+          "declaration": "pub const MENU_WIDTH: f32 = 224.0"
+        },
+        {
+          "kind": "const",
+          "name": "MODAL_VIEWPORT_MARGIN",
+          "line": 42,
+          "declaration": "pub const MODAL_VIEWPORT_MARGIN: f32 = 32.0"
+        },
+        {
+          "kind": "const",
+          "name": "MODAL_TOP_OFFSET",
+          "line": 43,
+          "declaration": "pub const MODAL_TOP_OFFSET: f32 = 96.0"
+        },
+        {
+          "kind": "const",
+          "name": "SCRIM_OPACITY",
+          "line": 45,
+          "declaration": "pub const SCRIM_OPACITY: f32 = clankerdiff_ui_core::SCRIM_ALPHA as f32 / 255.0"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/tree.rs",
+      "sha256": "24873149d83c39adca73bba4f21584617ffcb19b128a6d758775d53488ce7172",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "TreeRow",
+          "line": 16,
+          "declaration": "pub struct TreeRow"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 33,
+          "declaration": "pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, theme: UiTheme) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "depth",
+          "line": 51,
+          "declaration": "pub fn depth(mut self, depth: usize) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "expanded",
+          "line": 57,
+          "declaration": "pub fn expanded(mut self, expanded: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "icon",
+          "line": 63,
+          "declaration": "pub fn icon(mut self, icon: IconName, color: Option<Hsla>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "leading",
+          "line": 69,
+          "declaration": "pub fn leading(mut self, leading: impl IntoElement) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "label_color",
+          "line": 75,
+          "declaration": "pub fn label_color(mut self, color: Hsla) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "aria_label",
+          "line": 81,
+          "declaration": "pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "selected",
+          "line": 87,
+          "declaration": "pub fn selected(mut self, selected: bool) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "on_click",
+          "line": 93,
+          "declaration": "pub fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/typography.rs",
+      "sha256": "6f0a18e078c18970edda9eb337d03fde6650ffd02301dba7409c71d783c96681",
+      "declarations": [
+        {
+          "kind": "enum",
+          "name": "Typography",
+          "line": 5,
+          "declaration": "pub enum Typography"
+        },
+        {
+          "kind": "fn",
+          "name": "size",
+          "line": 20,
+          "declaration": "pub const fn size(self) -> f32"
+        },
+        {
+          "kind": "fn",
+          "name": "line_height",
+          "line": 33,
+          "declaration": "pub const fn line_height(self) -> f32"
+        },
+        {
+          "kind": "fn",
+          "name": "weight",
+          "line": 43,
+          "declaration": "pub const fn weight(self) -> FontWeight"
+        },
+        {
+          "kind": "trait",
+          "name": "TypographyExt",
+          "line": 52,
+          "declaration": "pub trait TypographyExt: Styled + Sized"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/waveform.rs",
+      "sha256": "b2a87102e203de2a82e8393ee8ff118548a03163b7277f5b6575befdd6a22fc6",
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "Waveform",
+          "line": 11,
+          "declaration": "pub struct Waveform"
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 19,
+          "declaration": "pub fn new(id: impl Into<SharedString>, color: Hsla) -> Self"
+        },
+        {
+          "kind": "fn",
+          "name": "size",
+          "line": 24,
+          "declaration": "pub const fn size(mut self, size: f32) -> Self"
+        }
+      ]
+    },
+    {
+      "file": "crates/ui/gpui/src/window_chrome.rs",
+      "sha256": "1c2482a10798ff29b71c0722ad87a1d468a571b0a5ed7be170d984264075555f",
+      "declarations": [
+        {
+          "kind": "trait",
+          "name": "WindowDragExt",
+          "line": 21,
+          "declaration": "pub trait WindowDragExt: InteractiveElement"
+        },
+        {
+          "kind": "fn",
+          "name": "decorate",
+          "line": 46,
+          "declaration": "pub fn decorate( content: AnyElement, title: impl Into<SharedString>, theme: &UiTheme, window: &mut Window, cx: &mut App, ) -> AnyElement"
+        }
+      ]
+    }
+  ]
+}

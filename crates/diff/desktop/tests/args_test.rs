@@ -1,5 +1,5 @@
 use clankerdiff_core::DiffScope;
-use clankerdiff_gpui_desktop::args::{ArgsError, CliArgs};
+use clankerdiff_desktop::args::{ArgsError, CliArgs};
 use std::{error::Error, ffi::OsString};
 
 #[test]

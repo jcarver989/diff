@@ -3,7 +3,7 @@ use std::{ffi::OsString, path::PathBuf};
 use thiserror::Error;
 
 /// Desktop command-line usage text.
-pub const USAGE: &str = "Usage: clankerdiff-gpui-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n      --connect <URL>  Connect to a remote WebSocket backend instead of a local repository\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n      --commits        Start on the branch's oldest commit\n  -h, --help           Print help";
+pub const USAGE: &str = "Usage: clankerdiff-desktop [OPTIONS] [REPOSITORY]\n\nOptions:\n      --connect <URL>  Connect to a remote WebSocket backend instead of a local repository\n  -s, --scope <SCOPE>  Initial scope: unstaged, staged, or both [default: both]\n      --unstaged       Show unstaged changes\n      --staged         Show staged changes\n      --both           Show all working-tree changes\n      --commits        Start on the branch's oldest commit\n  -h, --help           Print help";
 
 /// Arguments accepted by the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]

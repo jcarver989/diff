@@ -1,4 +1,5 @@
-import { expect, test } from "vitest";
+import { cdp, userEvent } from "vitest/browser";
+import { expect, inject, test } from "vitest";
 
 const documentFixture = {
   repo_root: "/fixture",
@@ -10,7 +11,7 @@ const changedFixture = {
   files: [],
 };
 
-test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () => {
+test("starts the review canvas in a real browser", { timeout: 60_000 }, async () => {
   const frame = document.createElement("iframe");
   frame.src = "/index.html";
   frame.style.width = "1280px";
@@ -27,13 +28,29 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
   await expect
     .poll(() => frame.contentDocument?.querySelectorAll("canvas").length, { timeout: 30_000 })
     .toBe(1);
-  expect(JSON.stringify(documentFixture)).toContain("repo_root");
-
+  const doc = frame.contentDocument!;
   const runtimeErrors: unknown[] = [];
   frame.contentWindow?.addEventListener("error", (event) => runtimeErrors.push(event.error));
   frame.contentWindow?.addEventListener("unhandledrejection", (event) =>
     runtimeErrors.push(event.reason),
   );
+  const canvas = doc.querySelector("canvas")!;
+  await expect.poll(() => canvas.width).toBe(Math.round(1280 * frame.contentWindow!.devicePixelRatio));
+  expect(canvas.getContext(inject("graphicsContext"))).not.toBeNull();
+  await expect.poll(() => presentedColors(), { timeout: 15_000 }).toBeGreaterThan(50);
+  frame.style.width = "960px";
+  await expect.poll(() => canvas.width).toBe(Math.round(960 * frame.contentWindow!.devicePixelRatio));
+  const winFrames = frame.contentWindow!;
+  const requestFrame = winFrames.requestAnimationFrame;
+  let requestedFrames = 0;
+  winFrames.requestAnimationFrame = (callback) => {
+    requestedFrames += 1;
+    return requestFrame.call(winFrames, callback);
+  };
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const settledFrames = requestedFrames;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(requestedFrames).toBe(settledFrames);
 
   const acknowledgements: { revision: number | null; changed: boolean }[] = [];
   frame.contentDocument?.addEventListener("diff-review-document-applied", (event) => {
@@ -66,10 +83,9 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
     requests.push(JSON.parse((event as CustomEvent).detail as string));
   });
   const key = async (key: string) => {
-    const input = frame.contentDocument?.querySelector("textarea");
-    expect(input).not.toBeNull();
-    input?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
-    input?.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true }));
+    const active = frame.contentDocument?.activeElement;
+    expect(["CANVAS", "TEXTAREA"]).toContain(active?.tagName);
+    await userEvent.keyboard(key);
     await new Promise((resolve) => setTimeout(resolve, 100));
   };
   const complete = async (request_id: number) => {
@@ -78,11 +94,13 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
         detail: JSON.stringify({ request_id, error: null }),
       }),
     );
-    // DOM events enqueue work on GPUI's executor; let it consume the reply
+    // DOM events enqueue work in the viewer; let it consume the reply
     // before delivering the next keyboard action.
     await new Promise((resolve) => setTimeout(resolve, 100));
   };
 
+  frame.contentDocument!.querySelector("canvas")!.focus();
+  expect(frame.contentDocument!.activeElement?.tagName).toBe("CANVAS");
   await key("h");
   await key("a");
   await expect.poll(() => requests.length).toBe(1);
@@ -168,6 +186,15 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
     { decision: "ChangesRequested" },
     { decision: "Approved" },
   ]);
+  expect((await command("markdown", { review: "begin_comment" })).handled).toBe(true);
+  await expect.poll(() => doc.activeElement?.tagName).toBe("TEXTAREA");
+  await cdp().send("Input.imeSetComposition", { text: "あ", selectionStart: 1, selectionEnd: 1 });
+  expect((await command("markdown", "approve")).handled).toBe(false);
+  await cdp().send("Input.insertText", { text: "あ" });
+  await key("{Enter}");
+  expect((await command("markdown", "request_changes")).handled).toBe(true);
+  await expect.poll(() => markdownSubmissions.length).toBe(3);
+  expect(markdownSubmissions[2]).toMatchObject({ comments: [{ body: "あ" }] });
   push({ revision: 5, document: changedFixture });
   expect((await command("diff", "refresh")).handled).toBe(true);
   await expect.poll(() => refreshes.length).toBe(2);
@@ -219,7 +246,58 @@ test("starts the GPUI canvas in a real browser", { timeout: 60_000 }, async () =
   expect((await command("diff", "toggle_source_view")).handled).toBe(true);
   expect((await command("diff", "toggle_source_view")).handled).toBe(true);
   expect(requests).toHaveLength(repositoryRequests);
+  type Bindings = {
+    start(): void;
+    stop(): void;
+    set_document_json(json: string): void;
+    set_theme(name: string): void;
+  };
+  const win = frame.contentWindow as Window & { wasmBindings: Bindings };
+  const bindings = win.wasmBindings;
+  expect(() => bindings.set_document_json("{")).toThrow();
+  bindings.stop();
+  expect(doc.querySelector("canvas, textarea")).toBeNull();
+  expect(() => bindings.stop()).toThrow();
+  const storage = Object.getOwnPropertyDescriptor(win, "localStorage")!;
+  Object.defineProperty(win, "localStorage", {
+    configurable: true,
+    get() { throw new DOMException("test storage denied", "SecurityError"); },
+  });
+  try {
+    bindings.start();
+    expect(() => bindings.start()).toThrow();
+    const before = acknowledgements.length;
+    bindings.set_document_json(JSON.stringify(documentFixture));
+    bindings.set_theme("sage");
+    await expect.poll(() => acknowledgements.length).toBe(before + 1);
+    await expect.poll(() => doc.querySelector("canvas")?.width).toBe(Math.round(960 * win.devicePixelRatio));
+    expect(doc.querySelectorAll("textarea")).toHaveLength(1);
+    bindings.stop();
+    expect(doc.querySelector("canvas, textarea")).toBeNull();
+  } finally {
+    Object.defineProperty(win, "localStorage", storage);
+  }
   expect(runtimeErrors).toEqual([]);
 
   frame.remove();
 });
+
+async function presentedColors(): Promise<number> {
+  const { data: base64 } = await cdp().send("Page.captureScreenshot", { format: "png" });
+  const bitmap = await createImageBitmap(new Blob([Uint8Array.fromBase64(base64)], { type: "image/png" }));
+  try {
+    const readback = document.createElement("canvas");
+    readback.width = bitmap.width;
+    readback.height = bitmap.height;
+    const context = readback.getContext("2d")!;
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, readback.width, readback.height);
+    const colors = new Set<number>();
+    for (let i = 0; i < data.length; i += 16) {
+      colors.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+    }
+    return colors.size;
+  } finally {
+    bitmap.close();
+  }
+}

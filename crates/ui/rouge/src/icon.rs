@@ -1,0 +1,256 @@
+use crate::tokens::{ICON_SIZE, rem};
+use rouge_core::{BuildCx, Color, ElementId, IntoProp, Keyframes, Path, Prop, Styled, View, div, icon};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IconName {
+    Archive,
+    ArchiveRestore,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    AudioLines,
+    Bell,
+    Bot,
+    Brain,
+    Check,
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight,
+    ChevronsDownUp,
+    ChevronsUpDown,
+    Circle,
+    CircleCheck,
+    CircleDot,
+    CircleSlash,
+    CircleX,
+    Cloud,
+    Columns2,
+    Copy,
+    Cpu,
+    Ellipsis,
+    Eye,
+    File,
+    FileDiff,
+    FileText,
+    Folder,
+    FolderOpen,
+    FolderPlus,
+    GitBranch,
+    GitCommit,
+    GitCompare,
+    GitPullRequest,
+    Image,
+    Info,
+    Laptop,
+    LoaderCircle,
+    MessageCircle,
+    MessageSquareText,
+    Minus,
+    MoveHorizontal,
+    Palette,
+    PanelLeft,
+    PanelRight,
+    Paperclip,
+    Pause,
+    Pencil,
+    Pin,
+    PinOff,
+    Play,
+    Plus,
+    Power,
+    RotateCw,
+    Rows2,
+    Search,
+    Settings,
+    Square,
+    SquarePen,
+    SquareTerminal,
+    Timer,
+    TriangleAlert,
+    Unplug,
+    X,
+}
+
+impl IconName {
+    pub const ALL: [Self; 67] = [
+        Self::Archive,
+        Self::ArchiveRestore,
+        Self::ArrowDown,
+        Self::ArrowLeft,
+        Self::ArrowRight,
+        Self::ArrowUp,
+        Self::AudioLines,
+        Self::Bell,
+        Self::Bot,
+        Self::Brain,
+        Self::Check,
+        Self::ChevronDown,
+        Self::ChevronLeft,
+        Self::ChevronRight,
+        Self::ChevronsDownUp,
+        Self::ChevronsUpDown,
+        Self::Circle,
+        Self::CircleCheck,
+        Self::CircleDot,
+        Self::CircleSlash,
+        Self::CircleX,
+        Self::Cloud,
+        Self::Columns2,
+        Self::Copy,
+        Self::Cpu,
+        Self::Ellipsis,
+        Self::Eye,
+        Self::File,
+        Self::FileDiff,
+        Self::FileText,
+        Self::Folder,
+        Self::FolderOpen,
+        Self::FolderPlus,
+        Self::GitBranch,
+        Self::GitCommit,
+        Self::GitCompare,
+        Self::GitPullRequest,
+        Self::Image,
+        Self::Info,
+        Self::Laptop,
+        Self::LoaderCircle,
+        Self::MessageCircle,
+        Self::MessageSquareText,
+        Self::Minus,
+        Self::MoveHorizontal,
+        Self::Palette,
+        Self::PanelLeft,
+        Self::PanelRight,
+        Self::Paperclip,
+        Self::Pause,
+        Self::Pencil,
+        Self::Pin,
+        Self::PinOff,
+        Self::Play,
+        Self::Plus,
+        Self::Power,
+        Self::RotateCw,
+        Self::Rows2,
+        Self::Search,
+        Self::Settings,
+        Self::Square,
+        Self::SquarePen,
+        Self::SquareTerminal,
+        Self::Timer,
+        Self::TriangleAlert,
+        Self::Unplug,
+        Self::X,
+    ];
+
+    fn geometry(self) -> &'static str {
+        match self {
+            Self::Archive => include_str!("../assets/icons/archive.path"),
+            Self::ArchiveRestore => include_str!("../assets/icons/archive-restore.path"),
+            Self::ArrowDown => include_str!("../assets/icons/arrow-down.path"),
+            Self::ArrowLeft => include_str!("../assets/icons/arrow-left.path"),
+            Self::ArrowRight => include_str!("../assets/icons/arrow-right.path"),
+            Self::ArrowUp => include_str!("../assets/icons/arrow-up.path"),
+            Self::AudioLines => include_str!("../assets/icons/audio-lines.path"),
+            Self::Bell => include_str!("../assets/icons/bell.path"),
+            Self::Bot => include_str!("../assets/icons/bot.path"),
+            Self::Brain => include_str!("../assets/icons/brain.path"),
+            Self::Check => include_str!("../assets/icons/check.path"),
+            Self::ChevronDown => include_str!("../assets/icons/chevron-down.path"),
+            Self::ChevronLeft => include_str!("../assets/icons/chevron-left.path"),
+            Self::ChevronRight => include_str!("../assets/icons/chevron-right.path"),
+            Self::ChevronsDownUp => include_str!("../assets/icons/chevrons-down-up.path"),
+            Self::ChevronsUpDown => include_str!("../assets/icons/chevrons-up-down.path"),
+            Self::Circle => include_str!("../assets/icons/circle.path"),
+            Self::CircleCheck => include_str!("../assets/icons/circle-check.path"),
+            Self::CircleDot => include_str!("../assets/icons/circle-dot.path"),
+            Self::CircleSlash => include_str!("../assets/icons/circle-slash.path"),
+            Self::CircleX => include_str!("../assets/icons/circle-x.path"),
+            Self::Cloud => include_str!("../assets/icons/cloud.path"),
+            Self::Columns2 => include_str!("../assets/icons/columns-2.path"),
+            Self::Copy => include_str!("../assets/icons/copy.path"),
+            Self::Cpu => include_str!("../assets/icons/cpu.path"),
+            Self::Ellipsis => include_str!("../assets/icons/ellipsis.path"),
+            Self::Eye => include_str!("../assets/icons/eye.path"),
+            Self::File => include_str!("../assets/icons/file.path"),
+            Self::FileDiff => include_str!("../assets/icons/file-diff.path"),
+            Self::FileText => include_str!("../assets/icons/file-text.path"),
+            Self::Folder => include_str!("../assets/icons/folder.path"),
+            Self::FolderOpen => include_str!("../assets/icons/folder-open.path"),
+            Self::FolderPlus => include_str!("../assets/icons/folder-plus.path"),
+            Self::GitBranch => include_str!("../assets/icons/git-branch.path"),
+            Self::GitCommit => include_str!("../assets/icons/git-commit-horizontal.path"),
+            Self::GitCompare => include_str!("../assets/icons/git-compare.path"),
+            Self::GitPullRequest => include_str!("../assets/icons/git-pull-request.path"),
+            Self::Image => include_str!("../assets/icons/image.path"),
+            Self::Info => include_str!("../assets/icons/info.path"),
+            Self::Laptop => include_str!("../assets/icons/laptop.path"),
+            Self::LoaderCircle => include_str!("../assets/icons/loader-circle.path"),
+            Self::MessageCircle => include_str!("../assets/icons/message-circle.path"),
+            Self::MessageSquareText => include_str!("../assets/icons/message-square-text.path"),
+            Self::Minus => include_str!("../assets/icons/minus.path"),
+            Self::MoveHorizontal => include_str!("../assets/icons/move-horizontal.path"),
+            Self::Palette => include_str!("../assets/icons/palette.path"),
+            Self::PanelLeft => include_str!("../assets/icons/panel-left.path"),
+            Self::PanelRight => include_str!("../assets/icons/panel-right.path"),
+            Self::Paperclip => include_str!("../assets/icons/paperclip.path"),
+            Self::Pause => include_str!("../assets/icons/pause.path"),
+            Self::Pencil => include_str!("../assets/icons/pencil.path"),
+            Self::Pin => include_str!("../assets/icons/pin.path"),
+            Self::PinOff => include_str!("../assets/icons/pin-off.path"),
+            Self::Play => include_str!("../assets/icons/play.path"),
+            Self::Plus => include_str!("../assets/icons/plus.path"),
+            Self::Power => include_str!("../assets/icons/power.path"),
+            Self::RotateCw => include_str!("../assets/icons/rotate-cw.path"),
+            Self::Rows2 => include_str!("../assets/icons/rows-2.path"),
+            Self::Search => include_str!("../assets/icons/search.path"),
+            Self::Settings => include_str!("../assets/icons/settings.path"),
+            Self::Square => include_str!("../assets/icons/square.path"),
+            Self::SquarePen => include_str!("../assets/icons/square-pen.path"),
+            Self::SquareTerminal => include_str!("../assets/icons/square-terminal.path"),
+            Self::Timer => include_str!("../assets/icons/timer.path"),
+            Self::TriangleAlert => include_str!("../assets/icons/triangle-alert.path"),
+            Self::Unplug => include_str!("../assets/icons/unplug.path"),
+            Self::X => include_str!("../assets/icons/x.path"),
+        }
+    }
+}
+
+pub struct Icon {
+    name: IconName,
+    size: f32,
+    color: Prop<Color>,
+    spin: bool,
+}
+
+impl Icon {
+    pub fn new<T>(name: IconName, color: impl IntoProp<Color, T>) -> Self {
+        Self { name, size: ICON_SIZE, color: color.into_prop(), spin: false }
+    }
+    #[must_use]
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = size;
+        self
+    }
+    #[must_use]
+    pub fn spin(mut self) -> Self {
+        self.spin = true;
+        self
+    }
+}
+
+impl View for Icon {
+    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
+        let color = self.color;
+        let glyph = icon(Path::svg(self.name.geometry())).color(move || color.get()).stroke_round(2.0).size_full();
+        let view = div().flex_none().w(rem(self.size)).h(rem(self.size)).child(glyph);
+        if self.spin {
+            view.animate(
+                Keyframes::new().at(0.0, |p| p.rotate(0.0)).at(1.0, |p| p.rotate(360.0)).duration(1.2).repeat(),
+            )
+            .build(cx)
+        } else {
+            view.build(cx)
+        }
+    }
+}

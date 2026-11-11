@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Diff Review</title>
-    <link data-trunk rel="rust" data-wasm-opt="z" />
+    <link data-trunk rel="rust" data-wasm-opt="z" data-bindgen-target="web" />
+    <script type="module">
+      addEventListener("TrunkApplicationStarted", () => window.wasmBindings.start(), { once: true });
+    </script>
     <style>
       html,
       body {

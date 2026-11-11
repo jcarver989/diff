@@ -11,12 +11,27 @@ dependencies_update = true
 semver_check = false
 
 [[package]]
-name = "clankerdiff-cli"
+name = "clankerdiff-fingerprint"
 release = true
-git_only = true
+publish = true
 
 [[package]]
-name = "clankerdiff-protocol"
+name = "clankerdiff-remote"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-lspd"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-ui-core"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-syntax"
 release = true
 publish = true
 
@@ -26,12 +41,27 @@ release = true
 publish = true
 
 [[package]]
-name = "clankerdiff-fingerprint"
+name = "clankerdiff-protocol"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-client"
 release = true
 publish = true
 
 [[package]]
 name = "clankerdiff-git"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-watch"
+release = true
+publish = true
+
+[[package]]
+name = "clankerdiff-server"
 release = true
 publish = true
 
@@ -46,56 +76,6 @@ release = true
 publish = true
 
 [[package]]
-name = "clankerdiff-lspd"
-release = true
-publish = true
-
-[[package]]
 name = "clankerdiff-ratatui"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-syntax"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-ui-core"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-client"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-server"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-watch"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-remote"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-gpui-ui"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-gpui-shell"
-release = true
-publish = true
-
-[[package]]
-name = "clankerdiff-gpui"
 release = true
 publish = true

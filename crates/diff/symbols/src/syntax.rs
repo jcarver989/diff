@@ -18,10 +18,11 @@ pub struct DocumentSyntax {
     file_hunks: Vec<u32>,
     hunk_windows: Vec<u32>,
     windows: Vec<OnceLock<HunkWindow>>,
+    prepared: Vec<OnceLock<()>>,
     symbols: OnceLock<Arc<SymbolIndex>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct HunkWindow {
     syntax: SourceSyntax,
     lines: Box<[u32]>,
@@ -44,6 +45,53 @@ impl DocumentSyntax {
         if !Arc::ptr_eq(&self.document, document) {
             self.follow(Arc::clone(document));
         }
+    }
+
+    #[must_use]
+    pub fn followed(&self, document: &Arc<DiffDocument>) -> Self {
+        let mut next = Self {
+            document: Arc::clone(&self.document),
+            sources: self
+                .sources
+                .iter()
+                .map(|source| source.get().cloned().map(OnceLock::from).unwrap_or_default())
+                .collect(),
+            ..Self::default()
+        };
+        next.follow(Arc::clone(document));
+        next
+    }
+
+    pub fn prepare(&self, file: usize) {
+        let Some(diff) = self.document.files.get(file) else {
+            return;
+        };
+        for side in [DiffSide::Old, DiffSide::New] {
+            let _ = self.source(file, side);
+            for (hunk_index, hunk) in diff.hunks.iter().enumerate() {
+                for window in 0..window_count(hunk) as usize {
+                    let _ = self.window(file, hunk_index, side, window);
+                }
+            }
+        }
+        if let Some(prepared) = self.prepared.get(file) {
+            let _ = prepared.set(());
+        }
+    }
+
+    #[must_use]
+    pub fn is_prepared(&self, file: usize) -> bool {
+        self.prepared.get(file).is_some_and(|prepared| prepared.get().is_some())
+    }
+
+    #[must_use]
+    pub fn ready_highlights(&self, row: &PresentedRow, cell: &PresentedCell) -> HighlightLine<'_> {
+        if self.is_prepared(row.file_index) { self.highlights(row, cell) } else { HighlightLine::default() }
+    }
+
+    #[must_use]
+    pub fn ready_symbols(&self) -> Option<Arc<SymbolIndex>> {
+        self.symbols.get().cloned()
     }
 
     fn follow(&mut self, document: Arc<DiffDocument>) {
@@ -75,6 +123,7 @@ impl DocumentSyntax {
             self.file_hunks.push(hunks);
         }
         self.windows = (0..windows).map(|_| OnceLock::new()).collect();
+        self.prepared = (0..self.document.files.len()).map(|_| OnceLock::new()).collect();
         self.symbols = OnceLock::new();
     }
 

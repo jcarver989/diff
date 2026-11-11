@@ -39,10 +39,10 @@ permissions:
 # If there's a prerelease-style suffix to the version, then the release(s)
 # will be marked as a prerelease.
 on:
+  pull_request:
   push:
     tags:
-      - 'clankerdiff-cli-v[0-9]+.[0-9]+.[0-9]+*'
-      - 'clankerdiff-gpui-desktop-v[0-9]+.[0-9]+.[0-9]+*'
+      - '**[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -56,10 +56,12 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -116,10 +118,12 @@ jobs:
       - name: enable windows longpaths
         run: |
           git config --global core.longpaths true
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
@@ -136,11 +140,6 @@ jobs:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
-      - name: Install Linux build dependencies
-        if: ${{ runner.os == 'Linux' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libfontconfig1-dev libxkbcommon-x11-dev
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}
@@ -180,10 +179,12 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install cached dist
         uses: actions/download-artifact@v7
         with:
@@ -230,10 +231,12 @@ jobs:
     outputs:
       val: ${{ steps.host.outputs.manifest }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh
       - name: Install cached dist
         uses: actions/download-artifact@v7
         with:
@@ -295,7 +298,9 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Check out pinned Rouge sibling
+        run: bash .github/scripts/checkout-rouge.sh

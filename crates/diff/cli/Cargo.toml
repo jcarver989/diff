@@ -20,7 +20,7 @@ workspace = true
 
 [features]
 default = ["desktop"]
-desktop = ["dep:clankerdiff-gpui-desktop"]
+desktop = ["dep:clankerdiff-desktop"]
 
 [dependencies]
 clankerdiff-client = { workspace = true, features = ["websocket"] }
@@ -33,7 +33,7 @@ clankerdiff-git.workspace = true
 clankerdiff-lspd = { workspace = true, features = ["daemon"] }
 clankerdiff-markdown = { workspace = true, features = ["review"] }
 clankerdiff-ui-core.workspace = true
-clankerdiff-gpui-desktop = { workspace = true, optional = true }
+clankerdiff-desktop = { workspace = true, optional = true }
 clankerdiff-ratatui = { workspace = true, features = ["crossterm-backend"] }
 log = { workspace = true, features = ["release_max_level_info"] }
 ratatui = { workspace = true, features = ["crossterm"] }

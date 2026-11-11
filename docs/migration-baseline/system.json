@@ -1,0 +1,28 @@
+{
+  "captured_at": "2026-11-10T13:48:59-08:00",
+  "os": "Linux-7.2.15-arch1-1-x86_64-with-glibc2.44",
+  "cpu_model": "AMD Ryzen 9 9900X 12-Core Processor",
+  "logical_cpus": 24,
+  "memory_total": "MemTotal:       31869452 kB",
+  "display_session": {
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "Failed to get path for session 'self': Caller does not belong to any known session.\n"
+  },
+  "tool_versions": {
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+    "node": "v24.12.0",
+    "npm": "11.6.2",
+    "trunk": "trunk 0.21.14",
+    "python": "Python 3.14.10"
+  },
+  "vulkan_summary": "==========\nVULKANINFO\n==========\n\nVulkan Instance Version: 1.4.363\n\n\nInstance Extensions: count = 26\n-------------------------------\nVK_EXT_acquire_drm_display             : extension revision 1\nVK_EXT_acquire_xlib_display            : extension revision 1\nVK_EXT_debug_report                    : extension revision 10\nVK_EXT_debug_utils                     : extension revision 2\nVK_EXT_direct_mode_display             : extension revision 1\nVK_EXT_display_surface_counter         : extension revision 1\nVK_EXT_headless_surface                : extension revision 1\nVK_EXT_layer_settings                  : extension revision 2\nVK_EXT_surface_maintenance1            : extension revision 1\nVK_EXT_swapchain_colorspace            : extension revision 5\nVK_KHR_device_group_creation           : extension revision 1\nVK_KHR_display                         : extension revision 23\nVK_KHR_external_fence_capabilities     : extension revision 1\nVK_KHR_external_memory_capabilities    : extension revision 1\nVK_KHR_external_semaphore_capabilities : extension revision 1\nVK_KHR_get_display_properties2         : extension revision 1\nVK_KHR_get_physical_device_properties2 : extension revision 2\nVK_KHR_get_surface_capabilities2       : extension revision 1\nVK_KHR_portability_enumeration         : extension revision 1\nVK_KHR_surface                         : extension revision 25\nVK_KHR_surface_maintenance1            : extension revision 1\nVK_KHR_surface_protected_capabilities  : extension revision 1\nVK_KHR_wayland_surface                 : extension revision 6\nVK_KHR_xcb_surface                     : extension revision 6\nVK_KHR_xlib_surface                    : extension revision 6\nVK_LUNARG_direct_driver_loading        : extension revision 1\n\nInstance Layers: count = 6\n--------------------------\nVK_LAYER_MESA_anti_lag            Open-source implementation of the VK_AMD_anti_lag extension. 1.4.303  version 1\nVK_LAYER_MESA_device_select       Linux device selection layer                                 1.4.303  version 1\nVK_LAYER_VALVE_steam_fossilize_32 Steam Pipeline Caching Layer                                 1.3.207  version 1\nVK_LAYER_VALVE_steam_fossilize_64 Steam Pipeline Caching Layer                                 1.3.207  version 1\nVK_LAYER_VALVE_steam_overlay_32   Steam Overlay Layer                                          1.3.207  version 1\nVK_LAYER_VALVE_steam_overlay_64   Steam Overlay Layer                                          1.3.207  version 1\n\nDevices:\n========\nGPU0:\n\tapiVersion         = 1.4.354\n\tdriverVersion      = 26.2.6\n\tvendorID           = 0x1002\n\tdeviceID           = 0x744c\n\tdeviceType         = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU\n\tdeviceName         = AMD Radeon RX 7900 XT (RADV NAVI31)\n\tdriverID           = DRIVER_ID_MESA_RADV\n\tdriverName         = radv\n\tdriverInfo         = Mesa 26.2.6-arch1.1\n\tconformanceVersion = 1.4.5.3\n\tdeviceUUID         = 00000000-0300-0000-0000-000000000000\n\tdriverUUID         = 414d442d-4d45-5341-2d44-525600000000\nGPU1:\n\tapiVersion         = 1.4.354\n\tdriverVersion      = 26.2.6\n\tvendorID           = 0x1002\n\tdeviceID           = 0x13c0\n\tdeviceType         = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU\n\tdeviceName         = AMD Ryzen 9 9900X 12-Core Processor (RADV RAPHAEL_MENDOCINO)\n\tdriverID           = DRIVER_ID_MESA_RADV\n\tdriverName         = radv\n\tdriverInfo         = Mesa 26.2.6-arch1.1\n\tconformanceVersion = 1.4.5.3\n\tdeviceUUID         = 00000000-7700-0000-0000-000000000000\n\tdriverUUID         = 414d442d-4d45-5341-2d44-525600000000",
+  "diff_revision": "09a11f7e7fbaa354a2df4743b4ee18ede000a30c",
+  "rouge_revision": "4918b374d1f0574670bc738f3db3e9d4d346ac84",
+  "renderer_tree_diff_from_baseline": "",
+  "notes": [
+    "Hardware identity is for reproduction; the headless browser used SwiftShader, not the physical Vulkan GPU.",
+    "These are invoked tool versions; they can differ from generated toolchain configuration."
+  ]
+}
