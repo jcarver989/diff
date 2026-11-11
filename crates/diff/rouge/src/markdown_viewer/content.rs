@@ -12,8 +12,10 @@ use clankerdiff_markdown::{
     MarkdownInline as Inline, MarkdownListItem, MarkdownTable, MarkdownTableAlignment, MarkdownTargetId,
 };
 use clankerdiff_ui_core::{MarkdownPalette, ReviewTheme, Rgba};
-use rouge_core::{Color, Corners, Div, SpanStyle, Styled, Text, TextAlign, Underline, div, rich_text, show, text};
-use rouge_reactive::Signal;
+use rouge_core::{
+    Color, Corners, Div, SpanStyle, Styled, Text, TextAlign, Underline, component, div, px, rich_text, show, text, view,
+};
+use rouge_reactive::{Callback, Signal};
 use std::{collections::HashMap, ops::Range, rc::Rc, sync::Arc};
 
 pub(super) const LIST_INDENT: f32 = 22.0;
@@ -35,7 +37,7 @@ impl Scale {
     }
 
     fn apply<T: Styled>(self, styled: T) -> T {
-        styled.text_size(rem(self.size)).line_height(self.line_height / self.size)
+        styled.text_size(self.size).line_height(self.line_height / self.size)
     }
 }
 
@@ -50,10 +52,9 @@ const fn heading_scale(level: u8) -> Scale {
 
 #[derive(Clone)]
 pub(super) struct Paint {
-    pub ui: UiTheme,
     pub palette: Signal<ReviewTheme>,
     pub capabilities: Signal<ReviewCapabilities>,
-    pub emit: Rc<dyn Fn(MarkdownOutput)>,
+    pub emit: Callback<(MarkdownOutput,)>,
 }
 
 impl Paint {
@@ -163,61 +164,58 @@ impl Row {
         match &self.kind {
             Kind::CodeHeader { .. } | Kind::CodeLine { .. } => Box::new(paint.markdown(|m| m.code_background)),
             Kind::TableRow { header: true, .. } => {
-                let ui = paint.ui;
-                Box::new(move || ui.colors().surface)
+                let surface = UiTheme::current().surface;
+                Box::new(move || surface.get())
             }
             _ => Box::new(|| Color::TRANSPARENT),
         }
     }
 
     pub fn block(&self, paint: &Paint) -> Div {
-        let prose =
-            || PROSE.apply(div().px(rem(8.0)).py(rem(BLOCK_PADDING_Y)).rounded(scaled(RADIUS_INNER)).min_w(0.0));
+        let theme = UiTheme::current();
         match &self.kind {
             Kind::Heading { level, content } => heading_scale(*level)
                 .apply(prose())
                 .font_weight(600.0)
                 .text_color(paint.markdown(|m| m.heading))
                 .child(inline_text(content, paint)),
-            Kind::Paragraph { content } => prose().child(inline_text(content, paint)),
-            Kind::ListItem { marker, content } => prose()
-                .py(rem(1.0))
-                .flex()
-                .row()
-                .gap(rem(8.0))
-                .child(
-                    div()
-                        .min_w(rem(14.0))
-                        .flex_none()
-                        .text_color(paint.ui.paint(|c| c.text_muted))
-                        .child(text(marker.clone())),
-                )
-                .child(div().flex_1().min_w(0.0).child(inline_text(content, paint))),
-            Kind::Quote { rows } => {
-                div().px(rem(8.0)).child(
-                    div()
-                        .pl(rem(8.0))
-                        .border_l(2.0)
-                        .border_color(paint.markdown(|m| m.quote))
-                        .text_color(paint.ui.paint(|c| c.text_secondary))
-                        .flex()
-                        .col()
-                        .children(rows.iter().map(|row| {
-                            div().pt(rem(row.gap)).pl(rem(row.indent())).flex().col().child(row.block(paint))
-                        })),
-                )
-            }
+            Kind::Paragraph { content } => view! { <prose>{inline_text(content, paint)}</prose> },
+            Kind::ListItem { marker, content } => view! {
+                <prose py=1.0 flex row gap=8.0>
+                    <div min_w=14.0 flex_none muted>
+                        <text>{marker.clone()}</text>
+                    </div>
+                    <div flex_1 min_w=0.0>{inline_text(content, paint)}</div>
+                </prose>
+            },
+            Kind::Quote { rows } => view! {
+                <div px=8.0>
+                    <div pl=8.0 border_l=px(2.0) border_color=paint.markdown(|m| m.quote)
+                         secondary flex col>
+                        {..rows.iter().map(|row| view! {
+                            <div pt=row.gap pl=row.indent() flex col>{row.block(paint)}</div>
+                        })}
+                    </div>
+                </div>
+            },
             Kind::CodeHeader { code } => code_header(code, paint),
             Kind::CodeLine { code, index } => code_line(code, *index, paint),
             Kind::TableRow { cells, alignments, header, first, last } => {
                 table_row(cells, alignments, *header, *first, *last, paint)
             }
-            Kind::Rule => div().py(rem(12.0)).child(div().h(1.0).w_full().bg(paint.ui.paint(|c| c.border))),
-            Kind::Html { content } => prose()
-                .text_color(paint.ui.paint(|c| c.text_muted))
-                .child(inline_text(content, paint).typography(Typography::Code)),
+            Kind::Rule => view! {
+                <div py=12.0><div h=px(1.0) w_full bg=theme.border/></div>
+            },
+            Kind::Html { content } => view! {
+                <prose muted>{inline_text(content, paint).code()}</prose>
+            },
         }
     }
+}
+
+#[component]
+fn prose() -> Div {
+    PROSE.apply(div().px(8.0).py(BLOCK_PADDING_Y).rounded(RADIUS_INNER).min_w(0.0))
 }
 
 fn corners(top: bool, bottom: bool) -> impl Fn() -> Corners + 'static {
@@ -232,42 +230,28 @@ fn corners(top: bool, bottom: bool) -> impl Fn() -> Corners + 'static {
 fn code_header(code: &Rc<MarkdownCodeBlock>, paint: &Paint) -> Div {
     let empty = code.lines().is_empty();
     let capabilities = paint.capabilities;
-    let copy = {
-        let code = code.clone();
-        let emit = paint.emit.clone();
-        let ui = paint.ui;
-        show(
-            move || capabilities.get().clipboard,
-            move || {
-                let code = code.clone();
-                let emit = emit.clone();
-                IconButton::new("markdown-copy-code", IconName::Copy, "Copy code", ui).on_click(move || {
-                    let text = if code.lines().is_empty() { String::new() } else { format!("{}\n", code.text()) };
-                    emit(MarkdownOutput::CopyCode(text));
-                })
-            },
-        )
+    let (code, emit, theme) = (code.clone(), paint.emit, UiTheme::current());
+    let header = view! {
+        <div h=CODE_HEADER_HEIGHT pl=16.0 pr=4.0 flex row items_center justify_between border_t=px(1.0)
+             border_l=px(1.0) border_r=px(1.0) border_color=theme.border rounded=corners(true, empty)>
+            <text caption muted>{code.language().unwrap_or("code").to_owned()}</text>
+            <show when={move || capabilities.get().clipboard}>
+                <icon_button id="markdown-copy-code" icon=IconName::Copy label="Copy code"
+                             on_click={
+                                 let code = code.clone();
+                                 move || {
+                                     let text = if code.lines().is_empty() {
+                                         String::new()
+                                     } else {
+                                         format!("{}\n", code.text())
+                                     };
+                                     emit.call(MarkdownOutput::CopyCode(text));
+                                 }
+                             }/>
+            </show>
+        </div>
     };
-    let header = div()
-        .h(rem(CODE_HEADER_HEIGHT))
-        .pl(rem(16.0))
-        .pr(rem(4.0))
-        .flex()
-        .row()
-        .items_center()
-        .justify_between()
-        .border_t(1.0)
-        .border_l(1.0)
-        .border_r(1.0)
-        .border_color(paint.ui.paint(|c| c.border))
-        .rounded(corners(true, empty))
-        .child(
-            text(code.language().unwrap_or("code").to_owned())
-                .typography(Typography::Caption)
-                .color(paint.ui.paint(|c| c.text_muted)),
-        )
-        .child(copy);
-    if empty { header.border_b(1.0) } else { header }
+    if empty { header.border_b(px(1.0)) } else { header }
 }
 
 fn code_line(code: &Rc<MarkdownCodeBlock>, index: usize, paint: &Paint) -> Div {
@@ -283,16 +267,13 @@ fn code_line(code: &Rc<MarkdownCodeBlock>, index: usize, paint: &Paint) -> Div {
             })
         }
     };
-    let line = div()
-        .px(rem(16.0))
-        .min_h(rem(CODE.line_height))
-        .overflow_hidden()
-        .border_l(1.0)
-        .border_r(1.0)
-        .border_color(paint.ui.paint(|c| c.border))
-        .rounded(corners(false, last))
-        .child(rich_text(source, spans).typography(Typography::Code).no_wrap().color(paint.markdown(|m| m.code)));
-    if last { line.pb(rem(8.0)).border_b(1.0) } else { line }
+    let line = view! {
+        <div px=16.0 min_h=CODE.line_height overflow_hidden border_l=px(1.0) border_r=px(1.0)
+             border_color=UiTheme::current().border rounded=corners(false, last)>
+            <rich_text spans code no_wrap color=paint.markdown(|m| m.code)>{source}</rich_text>
+        </div>
+    };
+    if last { line.pb(8.0).border_b(px(1.0)) } else { line }
 }
 
 fn table_row(
@@ -303,27 +284,26 @@ fn table_row(
     last: bool,
     paint: &Paint,
 ) -> Div {
-    let row = TABLE
-        .apply(div())
-        .flex()
-        .row()
-        .border_l(1.0)
-        .border_r(1.0)
-        .border_b(1.0)
-        .border_color(paint.ui.paint(|c| c.border))
-        .rounded(corners(first, last))
-        .children(cells.iter().enumerate().map(|(column, cell)| {
-            let align = match alignments.get(column) {
-                Some(MarkdownTableAlignment::Center) => TextAlign::Center,
-                Some(MarkdownTableAlignment::Right) => TextAlign::End,
-                _ => TextAlign::Start,
-            };
-            let cell =
-                div().flex_1().min_w(0.0).px(rem(12.0)).py(rem(6.0)).child(inline_text(cell, paint).align(align));
-            if column > 0 { cell.border_l(1.0).border_color(paint.ui.paint(|c| c.border)) } else { cell }
-        }));
+    let theme = UiTheme::current();
+    let cells = cells.iter().enumerate().map(|(column, cell)| {
+        let align = match alignments.get(column) {
+            Some(MarkdownTableAlignment::Center) => TextAlign::Center,
+            Some(MarkdownTableAlignment::Right) => TextAlign::End,
+            _ => TextAlign::Start,
+        };
+        let cell = view! {
+            <div flex_1 min_w=0.0 px=12.0 py=6.0>{inline_text(cell, paint).align(align)}</div>
+        };
+        if column > 0 { cell.border_l(px(1.0)).border_color(theme.border) } else { cell }
+    });
+    let row = TABLE.apply(view! {
+        <div flex row border_l=px(1.0) border_r=px(1.0) border_b=px(1.0) border_color=theme.border
+             rounded=corners(first, last)>
+            {..cells}
+        </div>
+    });
     let row = if header { row.font_weight(600.0) } else { row };
-    if first { row.border_t(1.0) } else { row }
+    if first { row.border_t(px(1.0)) } else { row }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -419,9 +399,9 @@ fn inline_text(content: &[Inline], paint: &Paint) -> Text {
     let mut builder = InlineBuilder::default();
     builder.children(content, Marks::NONE);
     let InlineBuilder { text, marks, links } = builder;
-    let (palette, ui) = (paint.palette, paint.ui);
+    let (palette, muted) = (paint.palette, UiTheme::current().text_muted);
     let spans = move || {
-        let muted = ui.colors().text_muted;
+        let muted = muted.get();
         palette.with(|theme| {
             marks.iter().map(|(range, mark)| (range.clone(), mark.style(&theme.markdown, muted))).collect()
         })
@@ -431,10 +411,10 @@ fn inline_text(content: &[Inline], paint: &Paint) -> Text {
     if links.is_empty() {
         return text;
     }
-    let emit = paint.emit.clone();
+    let emit = paint.emit;
     text.on_range_click(move |index| {
         if let Some((_, url)) = index.and_then(|index| links.iter().find(|(range, _)| range.contains(&index))) {
-            emit(MarkdownOutput::OpenLink(url.clone()));
+            emit.call(MarkdownOutput::OpenLink(url.clone()));
         }
     })
 }

@@ -2,7 +2,7 @@ use clankerdiff_ui_core::{
     Appearance, ButtonVariant, ControlState, NoticeTone, ReviewTheme, Rgba, SelectionState, SemanticStyle,
     TerminalPalette, ThemePreference, UiPalette,
 };
-use rouge_core::{Color, Palette, appearance, use_theme};
+use rouge_core::{Color, Palette, appearance, theme, use_theme};
 use rouge_reactive::{Memo, Signal, batch, expect_context, memo, provide_context, signal};
 
 #[must_use]
@@ -35,7 +35,8 @@ impl ActiveTheme {
     pub fn install(review: ReviewTheme) -> Self {
         let widgets = use_theme();
         widgets.set(widget_palette(&review.ui));
-        let active = Self { ui: UiTheme::new(&review), review: signal(review), widgets };
+        let ui = UiTheme::provide(UiColors::from_palette(&review.ui));
+        let active = Self { ui, review: signal(review), widgets };
         provide_context(active);
         active
     }
@@ -55,7 +56,7 @@ impl ActiveTheme {
         }
         batch(|| {
             self.widgets.set(widget_palette(&review.ui));
-            self.ui.palette.set_if_changed(review.ui);
+            self.ui.set(UiColors::from_palette(&review.ui));
             self.review.set(review);
         });
     }
@@ -92,28 +93,30 @@ fn widget_palette(palette: &UiPalette) -> Palette {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct UiColors {
-    pub canvas: Color,
-    pub surface: Color,
-    pub surface_hover: Color,
-    pub surface_selected: Color,
-    pub chrome: Color,
-    pub elevated: Color,
-    pub input: Color,
-    pub text: Color,
-    pub text_secondary: Color,
-    pub text_muted: Color,
-    pub border: Color,
-    pub border_subtle: Color,
-    pub accent: Color,
-    pub accent_foreground: Color,
-    pub info: Color,
-    pub positive: Color,
-    pub warning: Color,
-    pub destructive: Color,
-    pub destructive_foreground: Color,
-    pub scrim: Color,
+theme! {
+    pub struct UiTheme from UiColors {
+        canvas: Color,
+        surface: Color,
+        surface_hover: Color,
+        surface_selected: Color,
+        chrome: Color,
+        elevated: Color,
+        input: Color,
+        text: Color,
+        text_secondary: Color,
+        text_muted: Color,
+        border: Color,
+        border_subtle: Color,
+        accent: Color,
+        accent_foreground: Color,
+        info: Color,
+        positive: Color,
+        warning: Color,
+        destructive: Color,
+        destructive_foreground: Color,
+        scrim: Color,
+        semantic: UiPalette,
+    }
 }
 
 impl UiColors {
@@ -140,6 +143,7 @@ impl UiColors {
             destructive: color(palette.destructive),
             destructive_foreground: color(palette.destructive_foreground),
             scrim: color(palette.scrim),
+            semantic: *palette,
         }
     }
 }
@@ -161,32 +165,20 @@ impl From<SemanticStyle> for UiStyle {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct UiTheme {
-    palette: Signal<UiPalette>,
-}
-
 impl UiTheme {
-    #[must_use]
-    pub fn new(theme: &ReviewTheme) -> Self {
-        Self { palette: signal(theme.ui) }
-    }
-    pub fn colors(self) -> UiColors {
-        self.palette.with(UiColors::from_palette)
-    }
     pub fn paint(self, select: impl Fn(UiColors) -> Color + 'static) -> Memo<Color> {
-        memo(move || select(self.colors()))
+        memo(move || select(self.get()))
     }
     #[must_use]
     pub fn control_style(self, variant: ButtonVariant, state: ControlState) -> UiStyle {
-        self.palette.with(|p| p.control_style(variant, state)).into()
+        self.semantic.with(|p| p.control_style(variant, state)).into()
     }
     #[must_use]
     pub fn selection_style(self, state: SelectionState) -> UiStyle {
-        self.palette.with(|p| p.selection_style(state)).into()
+        self.semantic.with(|p| p.selection_style(state)).into()
     }
     #[must_use]
     pub fn notice_style(self, tone: NoticeTone) -> UiStyle {
-        self.palette.with(|p| p.notice_style(tone)).into()
+        self.semantic.with(|p| p.notice_style(tone)).into()
     }
 }

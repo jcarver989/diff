@@ -1,3 +1,5 @@
+#![allow(clippy::must_use_candidate, clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
+
 pub mod components;
 pub mod dialog;
 pub mod fonts;
@@ -24,27 +26,27 @@ pub use interface_size::InterfaceSize;
 pub mod prelude {
     pub use super::InterfaceSize;
     pub use super::components::{
-        ActionBar, Backdrop, Badge, Button, ButtonVariant, CheckState, Checkbox, ControlSize, ControlState, Disclosure,
-        EmptyState, IconButton, InteractionState, ListRow, Modal, ModalSize, MutedText, NoticeTone, Notification,
-        SectionHeader, Segment, SegmentedControl, SelectionState, Surface, SurfaceExt, Tooltip,
+        ButtonVariant, CheckState, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone, SelectionState,
+        SurfaceExt, action_bar, backdrop, badge, button, checkbox, disclosure, empty_state, hover_group, icon_button,
+        list_row, modal, modal_width, muted_text, notification, section_header, segment, segmented_control, surface,
     };
-    pub use super::dialog::{ConfirmDialog, ConfirmDialogEvent};
+    pub use super::dialog::{ConfirmDialogEvent, confirm_dialog};
     pub use super::fonts::{CODE_FONT, UI_FONT};
     pub use super::icon::{Icon, IconName};
     pub use super::indicator_layer::{IndicatorLayer, IndicatorMark};
-    pub use super::inline_edit::InlineEdit;
+    pub use super::inline_edit::inline_edit;
     pub use super::keymap::{binding_label, key_binding};
     pub use super::menu::{MenuItem, with_menu};
     pub use super::picker::{
-        PickerDetail, PickerItem, PickerList, PickerMarker, SearchPicker, SearchPickerEvent, ThemePicker,
-        ThemePickerEvent, ThemePickerOverlay,
+        PickerDetail, PickerItem, PickerMarker, Preview, SearchPickerEvent, SearchPickerHandle, ThemePickerEvent,
+        picker_list, search_picker, theme_picker, theme_picker_overlay, theme_picker_view,
     };
-    pub use super::resizable::{PanelSide, ResizablePanel};
-    pub use super::scrollbar::{ListScrollbar, uniform_height_hints};
+    pub use super::resizable::{PanelSide, panel_toggle, resizable_panel};
+    pub use super::scrollbar::ListScrollbar;
     pub use super::theme::{ActiveTheme, UiColors, UiStyle, UiTheme, color, window_appearance};
-    pub use super::tokens::rem;
-    pub use super::tree::TreeRow;
-    pub use super::typography::{Typography, TypographyExt};
+    pub use super::tree::tree_row;
+    pub use super::typography::{Typography, UiStyles};
     pub use super::waveform::Waveform;
     pub use super::window_chrome::WindowDragExt;
+    pub use rouge_widgets::Hint;
 }

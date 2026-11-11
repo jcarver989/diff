@@ -3,22 +3,23 @@ mod commands;
 mod navigation;
 mod overlay;
 
-use crate::syntax_job::SyntaxJob;
-use crate::{DiffViewerEvent, shortcuts::Shortcuts};
+use crate::{DiffViewerEvent, diff_view::content, shortcuts::Shortcuts, syntax_job};
 use clankerdiff_core::{
     CommandContext, DiffDocument, DiffReviewCommand, DiffSide, FileTree, FilesMode, Layout, LineAnchor, LookupReply,
     RepoPath, ReviewCapabilities, ReviewSession, ViewMode, ViewportAnchor,
 };
-use clankerdiff_rouge_ui::theme::ActiveTheme;
+use clankerdiff_rouge_ui::{picker::SearchPickerHandle, theme::ActiveTheme, tokens::BASE_SIZE};
 use clankerdiff_symbols::{DefinitionCard, DocumentSyntax, NameLookup};
 use clankerdiff_ui_core::ReviewTheme;
 use overlay::{Overlay, OverlayKind, PickerCommand};
 use rouge_core::{
     Align, BuildCx, ElementId, Key, KeyEvent, Rect, Styled, View, VirtualListHandle, div, dynamic, focus_handle,
-    root_font_size,
+    root_font_size, view,
 };
-use rouge_reactive::{ReadSignal, Signal, Task, batch, effect, signal};
-use std::{mem, rc::Rc, sync::Arc};
+use rouge_reactive::{
+    Callback, Memo, ReadSignal, Signal, Stored, Task, batch, effect, memo, signal, spawn, stored, untrack,
+};
+use std::{cell::Cell, mem, ops::Range, sync::Arc};
 
 pub use clankerdiff_core::FocusPane as ViewerPane;
 
@@ -78,17 +79,18 @@ pub struct ScrollRequest {
     pub lines: isize,
 }
 
+enum Effect {
+    Output(ReviewOutput),
+    Scroll(ScrollRequest),
+    Picker(PickerCommand),
+}
+
 pub struct ReviewController {
     session: ReviewSession,
     sidebar: FileTree,
     browse: Option<FileTree>,
     pane: ViewerPane,
     sidebar_collapsed: bool,
-    page_rows: [isize; 2],
-    root_width_rem: Option<f32>,
-    sidebar_width_rem: f32,
-    sidebar_preferred_rem: Option<f32>,
-    sidebar_revision: u64,
     capabilities: ReviewCapabilities,
     repository_pending: bool,
     repository_error: Option<String>,
@@ -98,13 +100,11 @@ pub struct ReviewController {
     overlay: Option<Overlay>,
     names: NameLookup,
     syntax: Arc<DocumentSyntax>,
-    syntax_job: Option<SyntaxJob>,
-    focus_file: Option<usize>,
+    sidebar_revision: u64,
     definition_revision: u64,
+    comments_revision: u64,
     hide_card: Option<Task>,
-    outputs: Vec<ReviewOutput>,
-    scroll: Option<ScrollRequest>,
-    picker_command: Option<PickerCommand>,
+    effects: Vec<Effect>,
 }
 
 impl ReviewController {
@@ -121,17 +121,12 @@ impl ReviewController {
         if let Some(file) = session.selected_file() {
             sidebar.reveal_file(file);
         }
-        Self {
+        let mut controller = Self {
             session,
             sidebar,
             browse: None,
             pane: ViewerPane::Diff,
             sidebar_collapsed: false,
-            page_rows: [1, 1],
-            root_width_rem: None,
-            sidebar_width_rem: 0.0,
-            sidebar_preferred_rem: None,
-            sidebar_revision: 0,
             capabilities: ReviewCapabilities::default(),
             repository_pending: false,
             repository_error: None,
@@ -141,39 +136,50 @@ impl ReviewController {
             overlay: None,
             names: NameLookup::default(),
             syntax: Arc::default(),
-            syntax_job: None,
-            focus_file: None,
+            sidebar_revision: 0,
             definition_revision: 0,
+            comments_revision: 0,
             hide_card: None,
-            outputs: Vec::new(),
-            scroll: None,
-            picker_command: None,
-        }
+            effects: Vec::new(),
+        };
+        controller.follow_syntax();
+        controller
     }
 
     #[must_use]
-    pub fn mount(self, output: impl Fn(ReviewOutput) + 'static) -> ReviewHandle {
-        ReviewHandle {
-            selection: signal(self.selection()),
-            status: signal(self.status()),
-            sidebar_width: signal(self.sidebar_width_rem),
-            sidebar_revision: signal(self.sidebar_revision),
-            projection: signal(self.session.projection_revision()),
-            annotations: signal(self.session.annotations_revision()),
-            comments: signal(0),
-            draft: signal(None),
-            viewport: signal(None),
-            reveal: signal(None),
-            theme: signal(self.theme.clone()),
-            overlay: signal(self.overlay_kind()),
-            definition: signal(self.definition_revision),
+    pub fn mount(mut self, output: impl Fn(ReviewOutput) + 'static) -> ReviewHandle {
+        let theme = signal(mem::take(&mut self.theme));
+        let options = self.options;
+        let state = signal(self);
+        let read = state.read_only();
+        let width = signal(None);
+        let preferred = signal(None);
+        let handle = ReviewHandle {
+            state,
+            theme,
+            width,
+            preferred,
+            focus_file: signal(None),
             syntax: signal(0),
-            scroll: signal(None),
-            picker: signal(None),
+            reveal: signal(None),
+            viewport: stored(None),
+            picker: stored(None),
             commit_anchor: signal(Rect::ZERO),
-            state: signal(self),
-            output: Rc::new(output),
-        }
+            selection: read.select(Self::selection),
+            status: read.select(Self::status),
+            projection: read.select(|state| state.session.projection_revision()),
+            annotations: read.select(|state| state.session.annotations_revision()),
+            comments: read.select(|state| state.comments_revision),
+            draft: read.select(|state| state.session.draft().map(|draft| (draft.anchor().clone(), draft.editing()))),
+            overlay: read.select(Self::overlay_kind),
+            definition: read.select(|state| state.definition_revision),
+            sidebar_revision: read.select(|state| state.sidebar_revision),
+            sidebar_width: memo(move || sidebar_width(width.get(), preferred.get(), options)),
+            output: output.into(),
+        };
+        handle.split_when_wide();
+        handle.prepare_syntax();
+        handle
     }
 
     #[must_use]
@@ -220,17 +226,20 @@ impl ReviewController {
         }
     }
 
-    fn update_width(&mut self) {
-        let Some(width) = self.root_width_rem else {
-            return;
-        };
-        let rem = |px| px / clankerdiff_rouge_ui::tokens::BASE_SIZE;
-        let maximum = (width - rem(320.0)).clamp(0.0, rem(960.0));
-        let preferred =
-            self.sidebar_preferred_rem.or(self.options.sidebar_width).unwrap_or_else(|| (width * 0.25).max(rem(320.0)));
-        self.sidebar_width_rem = preferred.clamp(rem(180.0).min(maximum), maximum);
-        let diff_width = if self.sidebar_collapsed { width } else { width - self.sidebar_width_rem };
-        self.session.set_split_when_auto(diff_width >= self.options.auto_split_width);
+    fn reconcile(&mut self, previous_file: Option<usize>, annotations: u64) {
+        self.follow_syntax();
+        if annotations != self.session.annotations_revision() {
+            self.comments_revision = self.comments_revision.wrapping_add(1);
+        }
+        if self.pane == ViewerPane::Files {
+            self.sidebar_collapsed = false;
+        }
+        if self.pane == ViewerPane::Diff
+            && self.session.files_mode() == FilesMode::Diff
+            && let Some(file) = self.session.selected_file().filter(|file| Some(*file) != previous_file)
+        {
+            self.sidebar.follow_file(file);
+        }
     }
 
     fn emit(&mut self, event: DiffViewerEvent) {
@@ -241,31 +250,51 @@ impl ReviewController {
             self.repository_pending = true;
             self.repository_error = None;
         }
-        self.outputs.push(ReviewOutput::Event(event));
+        self.effects.push(Effect::Output(ReviewOutput::Event(event)));
     }
 }
 
-#[derive(Clone)]
+fn sidebar_width(width: Option<f32>, preferred: Option<f32>, options: DiffViewerOptions) -> f32 {
+    let Some(width) = width else {
+        return 0.0;
+    };
+    let rem = |px| px / BASE_SIZE;
+    let maximum = (width - rem(320.0)).clamp(0.0, rem(960.0));
+    let preferred = preferred.or(options.sidebar_width).unwrap_or_else(|| (width * 0.25).max(rem(320.0)));
+    preferred.clamp(rem(180.0).min(maximum), maximum)
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Viewport {
+    pub(crate) diff: VirtualListHandle,
+    pub(crate) files: VirtualListHandle,
+    pub(crate) visible: Signal<Range<usize>>,
+    pub(crate) root_font_size: Signal<f32>,
+}
+
+#[derive(Clone, Copy)]
 pub struct ReviewHandle {
     state: Signal<ReviewController>,
-    selection: Signal<Selection>,
-    status: Signal<ReviewStatus>,
-    sidebar_width: Signal<f32>,
-    sidebar_revision: Signal<u64>,
-    projection: Signal<u64>,
-    annotations: Signal<u64>,
-    comments: Signal<u64>,
-    draft: Signal<Option<(LineAnchor, Option<u64>)>>,
-    viewport: Signal<Option<VirtualListHandle>>,
-    reveal: Signal<Option<(usize, Align)>>,
     theme: Signal<ReviewTheme>,
-    overlay: Signal<OverlayKind>,
-    definition: Signal<u64>,
+    width: Signal<Option<f32>>,
+    preferred: Signal<Option<f32>>,
+    focus_file: Signal<Option<usize>>,
     syntax: Signal<u64>,
-    scroll: Signal<Option<ScrollRequest>>,
-    picker: Signal<Option<clankerdiff_rouge_ui::picker::SearchPickerHandle>>,
+    reveal: Signal<Option<(usize, Align)>>,
+    viewport: Stored<Option<Viewport>>,
+    picker: Stored<Option<SearchPickerHandle>>,
     commit_anchor: Signal<Rect>,
-    output: Rc<dyn Fn(ReviewOutput)>,
+    selection: Memo<Selection>,
+    status: Memo<ReviewStatus>,
+    projection: Memo<u64>,
+    annotations: Memo<u64>,
+    comments: Memo<u64>,
+    draft: Memo<Option<(LineAnchor, Option<u64>)>>,
+    overlay: Memo<OverlayKind>,
+    definition: Memo<u64>,
+    sidebar_revision: Memo<u64>,
+    sidebar_width: Memo<f32>,
+    output: Callback<(ReviewOutput,)>,
 }
 
 impl ReviewHandle {
@@ -279,54 +308,55 @@ impl ReviewHandle {
     }
 
     #[must_use]
-    pub fn selection(&self) -> ReadSignal<Selection> {
-        self.selection.read_only()
-    }
-    #[must_use]
-    pub fn sidebar_revision(&self) -> ReadSignal<u64> {
-        self.sidebar_revision.read_only()
+    pub const fn selection(&self) -> Memo<Selection> {
+        self.selection
     }
 
     #[must_use]
-    pub fn sidebar_width_rem(&self) -> ReadSignal<f32> {
-        self.sidebar_width.read_only()
+    pub const fn sidebar_revision(&self) -> Memo<u64> {
+        self.sidebar_revision
     }
 
     #[must_use]
-    pub fn status(&self) -> ReadSignal<ReviewStatus> {
-        self.status.read_only()
+    pub const fn sidebar_width_rem(&self) -> Memo<f32> {
+        self.sidebar_width
     }
+
     #[must_use]
-    pub fn presentation_revision(&self) -> ReadSignal<u64> {
-        self.projection.read_only()
+    pub const fn status(&self) -> Memo<ReviewStatus> {
+        self.status
     }
+
     #[must_use]
-    pub fn annotations_revision(&self) -> ReadSignal<u64> {
-        self.annotations.read_only()
+    pub const fn presentation_revision(&self) -> Memo<u64> {
+        self.projection
     }
+
+    #[must_use]
+    pub const fn annotations_revision(&self) -> Memo<u64> {
+        self.annotations
+    }
+
     #[must_use]
     pub fn theme(&self) -> ReadSignal<ReviewTheme> {
         self.theme.read_only()
     }
+
     #[must_use]
-    pub fn definition_revision(&self) -> ReadSignal<u64> {
-        self.definition.read_only()
-    }
-    #[must_use]
-    pub fn scroll_request(&self) -> ReadSignal<Option<ScrollRequest>> {
-        self.scroll.read_only()
+    pub const fn definition_revision(&self) -> Memo<u64> {
+        self.definition
     }
 
     pub(crate) const fn commit_anchor(&self) -> Signal<Rect> {
         self.commit_anchor
     }
 
-    pub(crate) fn comments_revision(&self) -> ReadSignal<u64> {
-        self.comments.read_only()
+    pub(crate) const fn comments_revision(&self) -> Memo<u64> {
+        self.comments
     }
 
-    pub(crate) fn draft_placement(&self) -> ReadSignal<Option<(LineAnchor, Option<u64>)>> {
-        self.draft.read_only()
+    pub(crate) const fn draft_placement(&self) -> Memo<Option<(LineAnchor, Option<u64>)>> {
+        self.draft
     }
 
     pub(crate) fn syntax_revision(&self) -> ReadSignal<u64> {
@@ -338,14 +368,11 @@ impl ReviewHandle {
     }
 
     pub(crate) fn resize_sidebar(&self, width: Option<f32>) {
-        self.update(|state| {
-            state.sidebar_preferred_rem = width;
-            state.update_width();
-        });
+        self.preferred.set_if_changed(width);
     }
 
-    pub(crate) fn bind_viewport(&self, list: VirtualListHandle) {
-        self.viewport.set(Some(list));
+    pub(crate) fn bind_viewport(&self, viewport: Viewport) {
+        self.viewport.set(Some(viewport));
     }
 
     pub(crate) fn reveal_row(&self) -> ReadSignal<Option<(usize, Align)>> {
@@ -356,10 +383,27 @@ impl ReviewHandle {
         self.reveal.set(self.selection.get_untracked().row.map(|row| (row, align)));
     }
 
-    pub(crate) fn set_page_rows(&self, diff: usize, files: usize) {
-        self.state.try_update(|state| {
-            let rows = |count: usize| isize::try_from(count.max(1)).unwrap_or(isize::MAX);
-            state.page_rows = [rows(diff), rows(files)];
+    fn split_when_wide(self) {
+        let options = self.with(ReviewController::options);
+        let status = self.status;
+        let collapsed = memo(move || status.with(|status| status.sidebar_collapsed));
+        let wide = memo(move || {
+            let width = self.width.get()?;
+            let diff = if collapsed.get() { width } else { width - self.sidebar_width.get() };
+            Some(diff >= options.auto_split_width)
+        });
+        effect(move || {
+            if let Some(wide) = wide.get() {
+                self.update(|state| state.session.set_split_when_auto(wide));
+            }
+        });
+    }
+
+    fn prepare_syntax(self) {
+        let document = self.state.read_only().select(|state| SyntaxDocument(state.syntax.clone()));
+        effect(move || {
+            let SyntaxDocument(syntax) = document.get();
+            spawn(syntax_job::prepare(syntax, self.syntax, self.focus_file));
         });
     }
 
@@ -368,78 +412,72 @@ impl ReviewHandle {
             return None;
         }
         batch(|| {
-            let (result, outputs, picker_command) = self.state.try_update(|state| {
-                let previous_file = state.session.selected_file();
-                let before = state.session.annotations_revision();
+            let anchor = self.viewport_anchor();
+            let (result, moved, effects) = self.state.try_update(|state| {
                 let projection = state.session.projection_revision();
-                let viewport = self.viewport.get_untracked().and_then(|list| {
-                    rouge_reactive::untrack(|| {
-                        let scroll = list.scroll_state().try_get()?;
-                        if scroll.viewport.height == 0.0 {
-                            return None;
-                        }
-                        let top = list.top_row().get();
-                        let row = state.session.visible_range().start + top;
-                        let anchor = ViewportAnchor::capture(state.session.presentation(), row)?;
-                        Some((list, anchor, scroll.offset.y - list.row_top(top)))
-                    })
-                });
+                let previous_file = state.session.selected_file();
+                let annotations = state.session.annotations_revision();
                 let result = f(state);
-                state.follow_syntax();
-                if !state.syntax_job.as_ref().is_some_and(|job| job.targets(&state.syntax)) {
-                    let handle = self.state;
-                    state.syntax_job = Some(SyntaxJob::start(&state.syntax, self.syntax, move || {
-                        handle.is_alive().then(|| handle.with_untracked(|state| state.focus_file)).flatten()
-                    }));
-                }
-                if before != state.session.annotations_revision() {
-                    self.comments.update(|revision| *revision = revision.wrapping_add(1));
-                }
-                self.draft.set_if_changed(state.session.draft().map(|draft| (draft.anchor().clone(), draft.editing())));
-                if state.pane == ViewerPane::Files && state.sidebar_collapsed {
-                    state.sidebar_collapsed = false;
-                    state.update_width();
-                }
-                if state.pane == ViewerPane::Diff
-                    && state.session.files_mode() == FilesMode::Diff
-                    && let Some(file) = state.session.selected_file().filter(|file| Some(*file) != previous_file)
-                {
-                    state.sidebar.follow_file(file);
-                }
-                self.sidebar_revision.set_if_changed(state.sidebar_revision);
-                self.selection.set_if_changed(state.selection());
-                self.sidebar_width.set_if_changed(state.sidebar_width_rem);
-                self.status.set_if_changed(state.status());
-                self.projection.set_if_changed(state.session.projection_revision());
-                if projection != state.session.projection_revision()
-                    && let Some((list, anchor, offset)) = viewport
-                {
-                    let range = state.session.visible_range();
-                    if let Some(row) = anchor.resolve(state.session.presentation(), range.clone()) {
-                        list.scroll_to_row_offset(row - range.start, offset);
-                    }
-                }
-                self.annotations.set_if_changed(state.session.annotations_revision());
-                self.definition.set_if_changed(state.definition_revision);
-                self.overlay.set_if_changed(state.overlay_kind());
-                if self.theme.with_untracked(ReviewTheme::revision) != state.theme.revision() {
-                    self.theme.set(state.theme.clone());
-                }
-                if let Some(scroll) = state.scroll.take() {
-                    self.scroll.set(Some(scroll));
-                }
-                (result, mem::take(&mut state.outputs), state.picker_command.take())
+                state.reconcile(previous_file, annotations);
+                (result, projection != state.session.projection_revision(), mem::take(&mut state.effects))
             })?;
-            if let Some(command) = picker_command
-                && let Some(picker) = self.picker.get_untracked()
-            {
-                command.apply(&picker);
+            if moved && let Some(anchor) = anchor {
+                self.restore_viewport(anchor);
             }
-            for output in outputs {
-                (self.output)(output);
+            for effect in effects {
+                self.apply(effect);
             }
             Some(result)
         })
+    }
+
+    fn viewport_anchor(&self) -> Option<(VirtualListHandle, ViewportAnchor, f32)> {
+        let list = self.viewport.get()?.diff;
+        untrack(|| {
+            let scroll = list.scroll_state().try_get()?;
+            if scroll.viewport.height == 0.0 {
+                return None;
+            }
+            let top = list.top_row().get();
+            let anchor = self.with(|state| {
+                ViewportAnchor::capture(state.session.presentation(), state.session.visible_range().start + top)
+            })?;
+            Some((list, anchor, scroll.offset.y - list.row_top(top)))
+        })
+    }
+
+    fn restore_viewport(&self, (list, anchor, offset): (VirtualListHandle, ViewportAnchor, f32)) {
+        self.with(|state| {
+            let range = state.session.visible_range();
+            if let Some(row) = anchor.resolve(state.session.presentation(), range.clone()) {
+                list.scroll_to_row_offset(row - range.start, offset);
+            }
+        });
+    }
+
+    fn apply(&self, effect: Effect) {
+        match effect {
+            Effect::Output(output) => self.output.call(output),
+            Effect::Scroll(request) => {
+                if let Some(viewport) = self.viewport.get() {
+                    viewport.scroll(request);
+                }
+            }
+            Effect::Picker(command) => {
+                if let Some(picker) = self.picker.get() {
+                    command.apply(&picker);
+                }
+            }
+        }
+    }
+
+    fn page(&self, command: DiffReviewCommand) -> DiffReviewCommand {
+        let DiffReviewCommand::Page(delta) = command else {
+            return command;
+        };
+        let pane = self.with(|state| state.pane);
+        let rows = self.viewport.get().map_or(1, |viewport| viewport.page_rows(pane));
+        DiffReviewCommand::MoveSelection(delta.saturating_mul(rows))
     }
 
     pub fn handle_command(&self, command: impl Into<DiffReviewCommand>) -> bool {
@@ -447,7 +485,7 @@ impl ReviewHandle {
         if !self.is_alive() {
             return false;
         }
-        let command = command.into();
+        let command = self.page(command.into());
         let align = match command {
             C::SelectFile(_) => Some(Align::Top),
             C::MoveSelection(_)
@@ -481,60 +519,64 @@ impl ReviewHandle {
     pub fn set_document(&self, document: Arc<DiffDocument>) {
         self.update(|state| state.set_document(document));
     }
+
     pub fn set_repository_files(&self, paths: &[RepoPath]) {
         self.update(|state| state.set_repository_files(paths));
     }
+
     pub fn set_capabilities(&self, capabilities: ReviewCapabilities) {
         self.update(|state| state.set_capabilities(capabilities));
     }
+
     pub fn set_theme(&self, theme: ReviewTheme) {
-        self.update(|state| {
-            state.theme = theme;
-        });
+        if self.theme.try_get().is_some_and(|current| current.revision() != theme.revision()) {
+            self.theme.set(theme);
+        }
     }
+
     pub fn set_background_error(&self, error: Option<String>) {
-        self.update(|state| {
-            state.background_error = error;
-        });
+        self.update(|state| state.background_error = error);
     }
+
     pub fn clear_review(&self) {
         self.update(|state| state.session.clear_review());
     }
+
     pub fn command_finished(&self, result: Result<(), String>) {
         self.update(|state| {
             state.repository_pending = false;
             state.repository_error = result.err();
         });
     }
+
     pub fn lookup_finished(&self, reply: LookupReply) {
         self.update(|state| state.lookup_finished(reply));
     }
+
     pub fn set_draft_body(&self, body: impl Into<String>) {
         let body = body.into();
-        batch(|| {
-            self.state.try_update(|state| {
-                if state.session.draft().is_some_and(|draft| draft.body() != body)
-                    && let Some(draft) = state.session.draft_mut()
-                {
-                    draft.set_body(body);
-                    self.annotations.set_if_changed(state.session.annotations_revision());
-                }
-            });
+        self.state.try_update(|state| {
+            if state.session.draft().is_some_and(|draft| draft.body() != body)
+                && let Some(draft) = state.session.draft_mut()
+            {
+                draft.set_body(body);
+            }
         });
     }
-    pub fn set_viewport(&self, diff_width_rem: f32, diff_rows: usize, files_rows: usize) {
-        self.update(|state| {
-            let rows = |count: usize| isize::try_from(count.max(1)).unwrap_or(isize::MAX);
-            state.page_rows = [rows(diff_rows), rows(files_rows)];
-            state.session.set_split_when_auto(diff_width_rem >= state.options.auto_split_width);
-        });
+}
+
+#[derive(Clone)]
+struct SyntaxDocument(Arc<DocumentSyntax>);
+
+impl PartialEq for SyntaxDocument {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
 #[must_use]
 pub fn diff_view(handle: ReviewHandle) -> impl View {
-    let content = handle.clone();
-    diff_view_with(handle, move || crate::diff_view::content(content, ActiveTheme::current().ui()))
+    diff_view_with(handle, move || content(handle))
 }
 
 #[must_use]
@@ -552,16 +594,10 @@ impl<T: View, U: FnOnce() -> T + 'static> View for ReviewView<U> {
         let Self { handle, content } = self;
         let bounds = signal(Rect::default());
         let font_size = root_font_size();
-        effect({
-            let handle = handle.clone();
-            move || {
-                let width = bounds.get().size.width / font_size.get();
-                if width.is_finite() {
-                    handle.update(|state| {
-                        state.root_width_rem = Some(width);
-                        state.update_width();
-                    });
-                }
+        effect(move || {
+            let width = bounds.get().size.width / font_size.get();
+            if width.is_finite() {
+                handle.width.set_if_changed(Some(width));
             }
         });
         let active = ActiveTheme::install(handle.theme.get_untracked());
@@ -571,7 +607,7 @@ impl<T: View, U: FnOnce() -> T + 'static> View for ReviewView<U> {
         });
         let shortcuts = Shortcuts::new();
         let focus = focus_handle();
-        let was_draft = std::cell::Cell::new(false);
+        let was_draft = Cell::new(false);
         effect({
             let overlay = handle.overlay;
             move || {
@@ -581,31 +617,17 @@ impl<T: View, U: FnOnce() -> T + 'static> View for ReviewView<U> {
                 }
             }
         });
-        handle.update(|_| ());
-        div()
-            .test_id("diff-viewer")
-            .size_full()
-            .relative()
-            .focusable()
-            .track_focus(focus)
-            .track_bounds(bounds)
-            .autofocus()
-            .on_action({
-                let handle = handle.clone();
-                move |action: &RunCommand| {
-                    handle.handle_command(action.0.clone());
-                }
-            })
-            .on_key_down({
-                let handle = handle.clone();
-                move |event| handle.key_down(event, &shortcuts)
-            })
-            .child(content())
-            .child(dynamic(move || {
-                let kind = handle.overlay.get();
-                overlay::view(&handle, kind, active.ui())
-            }))
-            .build(cx)
+        view! {
+            <div test_id="diff-viewer" size_full relative focusable track_focus=focus track_bounds=bounds autofocus
+                 on_action={move |action: &RunCommand| {
+                     handle.handle_command(action.0.clone());
+                 }}
+                 on_key_down={move |event| handle.key_down(event, &shortcuts)}>
+                {content()}
+                <dynamic>{overlay::view(&handle, handle.overlay.get())}</dynamic>
+            </div>
+        }
+        .build(cx)
     }
 }
 

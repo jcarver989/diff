@@ -1,3 +1,5 @@
+#![allow(clippy::large_types_passed_by_value)]
+
 mod annotation;
 mod client_view;
 mod comment_editor;

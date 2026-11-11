@@ -26,7 +26,7 @@ fn mounted_markdown_uses_semantic_selection_and_single_review_session() -> Resul
             let sink = output.clone();
             let handle =
                 MarkdownController::new(doc, ReviewTheme::default()).mount(move |event| sink.borrow_mut().push(event));
-            (markdown_review_view(handle.clone()), handle)
+            (markdown_review_view(handle), handle)
         });
     ui.advance(0.0);
     ui.center_of("markdown-row-0")?;
@@ -55,7 +55,7 @@ fn outline_lists_every_heading_that_fits_the_window() -> Result<(), Box<dyn std:
     let (mut ui, _handle) = TestUiBuilder::default().size(920.0, 640.0).build_with(|| {
         let doc = Arc::new(MarkdownDocument::new("# One\n\n## Two\n\n## Three\n\n## Four\n\n## Five\n\n## Six\n"));
         let handle = MarkdownController::new(doc, ReviewTheme::default()).mount(|_| {});
-        (markdown_review_view(handle.clone()), handle)
+        (markdown_review_view(handle), handle)
     });
     ui.advance(0.0);
     ui.center_of("markdown-heading-5")?;
@@ -93,6 +93,6 @@ fn mount(source: &str) -> (TestUi, MarkdownHandle) {
     TestUiBuilder::default().size(920.0, 640.0).fonts(clankerdiff_rouge::ui::fonts::bundled_fonts()).build_with(|| {
         let handle =
             MarkdownController::new(Arc::new(MarkdownDocument::new(source)), ReviewTheme::default()).mount(|_| {});
-        (markdown_review_view(handle.clone()), handle)
+        (markdown_review_view(handle), handle)
     })
 }

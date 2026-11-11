@@ -1,18 +1,18 @@
 use crate::{DiffViewerOptions, ReviewController, ReviewHandle, ReviewOutput, diff_view};
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{DiffDocument, DiffReviewCommand, LookupReply, RepoPath};
-use clankerdiff_rouge_ui::prelude::{EmptyState, IconName, UiTheme};
+use clankerdiff_rouge_ui::prelude::{IconName, UiColors, UiTheme, empty_state};
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Styled, View, div, dynamic, show};
-use rouge_reactive::{Signal, batch, signal};
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use rouge_core::{Styled, View, div, dynamic, show, view};
+use rouge_reactive::{Signal, Stored, batch, signal, stored};
+use std::sync::Arc;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct DiffClientView {
     review: ReviewHandle,
     state: Signal<Option<(bool, String)>>,
-    snapshot: Rc<RefCell<Option<Arc<DiffDocument>>>>,
-    files: Rc<RefCell<Option<Arc<[RepoPath]>>>>,
+    snapshot: Stored<Option<Arc<DiffDocument>>>,
+    files: Stored<Option<Arc<[RepoPath]>>>,
 }
 
 impl DiffClientView {
@@ -21,8 +21,8 @@ impl DiffClientView {
         Self {
             review: ReviewController::with_options(Arc::new(DiffDocument::default()), theme, options).mount(output),
             state: signal(Some((false, String::new()))),
-            snapshot: Rc::default(),
-            files: Rc::default(),
+            snapshot: stored(None),
+            files: stored(None),
         }
     }
 
@@ -30,8 +30,8 @@ impl DiffClientView {
         if !self.review.is_alive() {
             return;
         }
-        let snapshot = state.snapshot_if_changed(&mut self.snapshot.borrow_mut());
-        let files = state.files_if_changed(&mut self.files.borrow_mut());
+        let snapshot = self.snapshot.update(|cache| state.snapshot_if_changed(cache));
+        let files = self.files.update(|cache| state.files_if_changed(cache));
         batch(|| {
             if let Some(snapshot) = snapshot {
                 self.review.set_document(snapshot.clone());
@@ -75,21 +75,19 @@ impl DiffClientView {
     #[must_use]
     pub fn view(&self) -> impl View + use<> {
         let state = self.state;
-        let handle = self.review.clone();
+        let handle = self.review;
         let theme = handle.theme();
-        div()
-            .flex()
-            .col()
-            .size_full()
-            .child(show(move || state.get().is_none(), move || diff_view(handle.clone())))
-            .child(dynamic(move || {
-                state.get().map_or_else(
-                    || div().flex().col().into_any(),
-                    |(failed, detail)| {
+        view! {
+            <div flex col size_full>
+                <show when={move || state.get().is_none()}>{diff_view(handle)}</show>
+                <dynamic>{
+                    state.get().map(|(failed, detail)| {
+                        UiTheme::provide(UiColors::from_palette(&theme.get().ui));
                         let title = if failed { "Could not load changes" } else { "Loading changes…" };
-                        EmptyState::new(IconName::FileDiff, title, detail, UiTheme::new(&theme.get())).into_any()
-                    },
-                )
-            }))
+                        view! { <empty_state icon=IconName::FileDiff title detail/> }
+                    })
+                }</dynamic>
+            </div>
+        }
     }
 }

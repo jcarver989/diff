@@ -1,4 +1,4 @@
-use rouge_core::{Div, IntoProp, PointerButton, PointerEvent, View, window_handle};
+use rouge_core::{Div, IntoProp, PointerButton, PointerEvent, View, component, window_handle};
 
 pub trait WindowDragExt: Sized {
     #[must_use]
@@ -24,6 +24,7 @@ impl WindowDragExt for Div {
     }
 }
 
-pub fn decorate<T: View, U>(title: impl IntoProp<String, U>, content: T) -> Div {
-    rouge_widgets::window_chrome(title, content)
+#[component]
+pub fn decorate<T: View, U>(title: impl IntoProp<String, U>, children: T) -> Div {
+    rouge_widgets::window_chrome(title, children)
 }

@@ -2,10 +2,16 @@ use super::{
     MarkdownHandle,
     content::{Paint, Row},
 };
-use crate::{comment_editor::composer, ui::prelude::*, ui::tokens::RADIUS_CONTROL, ui::tokens::scaled};
+use crate::{
+    comment_editor::composer,
+    ui::{prelude::*, tokens::RADIUS_CONTROL},
+};
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewComment, MarkdownTargetId};
-use rouge_core::{AnyView, Cursor, Div, RowKey, Styled, View, div, dynamic, root_font_size, show, text, virtual_list};
+use rouge_core::{
+    AnyView, Apply, Cursor, Div, RowKey, Styled, View, component, div, dynamic, px, root_font_size, show, text, view,
+    virtual_list,
+};
 use rouge_reactive::{Memo, Signal, memo, signal};
 
 const COLUMN_WIDTH: f32 = 780.0;
@@ -14,169 +20,132 @@ const ADD_BUTTON_SIZE: f32 = 18.0;
 const TOP_PADDING: f32 = 32.0;
 const BOTTOM_PADDING: f32 = 96.0;
 
+#[component]
 pub(super) fn document(handle: &MarkdownHandle, paint: Paint) -> impl View {
-    let rows = handle.rows;
-    let revision = handle.revision;
-    let theme = paint.ui;
-    let list = virtual_list(move || rows.with(|rows| rows.len()), scaled(48.0), {
-        let handle = handle.clone();
-        move |index| row(&handle, index, &paint)
-    })
-    .row_identity(move |index| RowKey::new(rows.with_untracked(|r| r.key(index)), revision.get()))
-    .measure_rows(|| u64::from(root_font_size().get().to_bits()))
-    .handle(handle.list)
-    .size_full();
-    div()
-        .test_id("markdown-document")
-        .flex_1()
-        .min_w(0.0)
-        .min_h(0.0)
-        .relative()
-        .child(list)
-        .child(div().absolute().right(0.0).top(0.0).bottom(0.0).child(ListScrollbar::list(handle.list)))
-        .child(show(
-            move || rows.with(|rows| rows.len() == 0),
-            move || {
-                div()
-                    .test_id("markdown-empty")
-                    .absolute()
-                    .inset(0.0)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(EmptyState::new(IconName::FileText, "Nothing to review", "This document is empty.", theme))
-            },
-        ))
+    let (rows, revision, list) = (handle.rows, handle.revision, handle.list);
+    let handle = *handle;
+    view! {
+        <div test_id="markdown-document" flex_1 min_w=0.0 min_h=0.0 relative>
+            <virtual_list count={move || rows.with(|rows| rows.len())} row_height=48.0
+                          row_identity={move |index| RowKey::new(rows.with_untracked(|r| r.key(index)), revision.get())}
+                          measure_rows={|| u64::from(root_font_size().get().to_bits())} handle=list size_full
+                          let:index>
+                {row(&handle, index, &paint)}
+            </virtual_list>
+            <div absolute right=0.0 top=0.0 bottom=0.0>{ListScrollbar::list(list)}</div>
+            <show when={move || rows.with(|rows| rows.len() == 0)}>
+                <div test_id="markdown-empty" absolute inset=0.0 flex items_center justify_center>
+                    <empty_state icon=IconName::FileText title="Nothing to review" detail="This document is empty."/>
+                </div>
+            </show>
+        </div>
+    }
 }
 
-fn row(handle: &MarkdownHandle, index: usize, paint: &Paint) -> AnyView {
+fn row(handle: &MarkdownHandle, index: usize, paint: &Paint) -> Option<AnyView> {
     let rows = handle.rows.get_untracked();
-    let Some(row) = rows.get(index) else {
-        return div().into_any();
-    };
-    let theme = paint.ui;
+    let row = rows.get(index)?;
+    let (handle, theme) = (*handle, UiTheme::current());
     let target = row.target;
     let active = handle.selected;
     let selected = memo(move || target.is_some() && active.get() == target);
     let hovered = signal(false);
     let block_hovered = signal(false);
     let base = row.background(paint);
-    let mut block = row
+    let block = row
         .block(paint)
         .on_hover(move |inside| {
             block_hovered.set_if_changed(inside);
         })
         .bg(move || {
             if selected.get() {
-                theme.colors().surface_selected
+                theme.surface_selected.get()
             } else if target.is_some() && block_hovered.get() {
-                theme.colors().surface_hover
+                theme.surface_hover.get()
             } else {
                 base()
             }
         });
-    let mut column = div().flex_1().min_w(0.0).pl(rem(row.indent())).flex().col();
-    if let Some(target) = target {
-        let select = handle.clone();
-        block = block.cursor(Cursor::Pointer).on_click(move |_| select.select(target, MarkdownFocusPane::Document));
-        column = column.child(block).child(thread(handle, target, theme)).child(draft(handle, target, theme));
-    } else {
-        column = column.child(block);
-    }
+    let block = block.when_some(target, |block, target| {
+        block.cursor(Cursor::Pointer).on_click(move |_| handle.select(target, MarkdownFocusPane::Document))
+    });
     let top = if index == 0 { TOP_PADDING } else { row.gap };
     let bottom = if index + 1 == rows.len() { BOTTOM_PADDING } else { 0.0 };
-    div()
-        .test_id(format!("markdown-row-{index}"))
-        .w_full()
-        .px(rem(24.0))
-        .pt(rem(top))
-        .pb(rem(bottom))
-        .flex()
-        .row()
-        .justify_center()
-        .child(
-            div()
-                .w_full()
-                .max_w(rem(COLUMN_WIDTH))
-                .flex()
-                .row()
-                .on_hover(move |inside| {
-                    hovered.set_if_changed(inside);
-                })
-                .child(gutter(handle, row, selected, hovered, theme))
-                .child(column),
-        )
-        .into_any()
-}
-
-fn gutter(handle: &MarkdownHandle, row: &Row, selected: Memo<bool>, hovered: Signal<bool>, theme: UiTheme) -> Div {
-    let gutter = div().w(rem(GUTTER_WIDTH)).flex_none().relative().child(show(
-        move || selected.get(),
-        move || div().absolute().top(0.0).bottom(0.0).right(rem(3.0)).w(2.0).rounded(1.0).bg(theme.paint(|c| c.accent)),
-    ));
-    let Some(target) = row.target else {
-        return gutter;
+    let view = view! {
+        <div test_id={format!("markdown-row-{index}")} w_full px=24.0 pt=top pb=bottom flex row justify_center>
+            <div w_full max_w=COLUMN_WIDTH flex row
+                 on_hover={move |inside| {
+                     hovered.set_if_changed(inside);
+                 }}>
+                <gutter handle={&handle} row selected hovered/>
+                <div flex_1 min_w=0.0 pl=row.indent() flex col>
+                    {block}
+                    {target.map(|target| thread(&handle, target))}
+                    {target.map(|target| draft(&handle, target))}
+                </div>
+            </div>
+        </div>
     };
-    let offset = (row.first_line_center() - ADD_BUTTON_SIZE / 2.0).max(1.0);
-    let handle = handle.clone();
-    gutter.child(show(move || hovered.get(), move || add_comment(handle.clone(), target, offset)))
+    Some(view.into_any())
 }
 
+#[component]
+fn gutter(handle: &MarkdownHandle, row: &Row, selected: Memo<bool>, hovered: Signal<bool>) -> Div {
+    let handle = *handle;
+    let add = row.target.map(|target| {
+        let offset = (row.first_line_center() - ADD_BUTTON_SIZE / 2.0).max(1.0);
+        view! {
+            <show when={move || hovered.get()}>
+                <add_comment handle target offset/>
+            </show>
+        }
+    });
+    view! {
+        <div w=GUTTER_WIDTH flex_none relative>
+            <show when={move || selected.get()}>
+                <div absolute top=0.0 bottom=0.0 right=3.0 w=px(2.0) rounded=px(1.0) bg=UiTheme::current().accent/>
+            </show>
+            {add}
+        </div>
+    }
+}
+
+#[component]
 fn add_comment(handle: MarkdownHandle, target: MarkdownTargetId, offset: f32) -> impl View {
     let palette = handle.theme;
-    div()
-        .test_id(format!("markdown-add-comment-{}", target.index()))
-        .absolute()
-        .left(rem(4.0))
-        .top(rem(offset))
-        .w(rem(ADD_BUTTON_SIZE))
-        .h(rem(ADD_BUTTON_SIZE))
-        .rounded(scaled(ADD_BUTTON_SIZE / 2.0))
-        .bg(move || palette.with(|theme| color(theme.diff.accent)))
-        .cursor(Cursor::Pointer)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(Icon::new(IconName::Plus, move || palette.with(|theme| color(theme.diff.background))).size(12.0))
-        .on_click(move |event| {
-            event.stop_propagation();
-            handle.begin_comment_on(target);
-        })
+    view! {
+        <div test_id={format!("markdown-add-comment-{}", target.index())} absolute left=4.0 top=offset
+             size=ADD_BUTTON_SIZE rounded={ADD_BUTTON_SIZE / 2.0}
+             bg={move || palette.with(|theme| color(theme.diff.accent))} cursor=Cursor::Pointer flex items_center
+             justify_center
+             on_click={move |event| {
+                 event.stop_propagation();
+                 handle.begin_comment_on(target);
+             }}>
+            {Icon::new(IconName::Plus, move || palette.with(|theme| color(theme.diff.background))).size(12.0)}
+        </div>
+    }
 }
 
-fn thread(handle: &MarkdownHandle, target: MarkdownTargetId, theme: UiTheme) -> impl View {
-    let annotations = handle.annotations;
-    let handle = handle.clone();
+fn thread(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<> {
+    let (handle, annotations) = (*handle, handle.annotations);
     dynamic(move || {
         annotations.get();
         let comments = handle.with(|session| {
             session.review().comments_for_target(session.document(), target).cloned().collect::<Vec<_>>()
         });
-        if comments.is_empty() {
-            return div().into_any();
-        }
-        let last = comments.len() - 1;
-        div()
-            .pt(rem(8.0))
-            .pb(rem(4.0))
-            .child(
-                div()
-                    .test_id(format!("markdown-comment-thread-{}", target.index()))
-                    .w_full()
-                    .flex()
-                    .col()
-                    .rounded(scaled(RADIUS_CONTROL))
-                    .border(1.0)
-                    .border_color(theme.paint(|c| c.border))
-                    .overflow_hidden()
-                    .children(
-                        comments
-                            .into_iter()
-                            .enumerate()
-                            .map(|(index, comment)| card(&handle, target, comment, index == last, theme)),
-                    ),
-            )
-            .into_any()
+        let last = comments.len().checked_sub(1)?;
+        Some(view! {
+            <div pt=8.0 pb=4.0>
+                <div test_id={format!("markdown-comment-thread-{}", target.index())} w_full flex col
+                     rounded=RADIUS_CONTROL border=px(1.0) border_color=UiTheme::current().border overflow_hidden>
+                    {..comments
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, comment)| card(&handle, target, comment, index == last))}
+                </div>
+            </div>
+        })
     })
 }
 
@@ -185,72 +154,43 @@ fn card(
     target: MarkdownTargetId,
     comment: MarkdownReviewComment,
     last: bool,
-    theme: UiTheme,
-) -> impl View {
-    let id = comment.id;
-    let edit = handle.clone();
-    let delete = handle.clone();
+) -> impl View + use<> {
+    let (handle, theme, id) = (*handle, UiTheme::current(), comment.id);
     let title = if comment.outdated { "Outdated comment" } else { "Your comment" };
-    let card = div().test_id(format!("markdown-comment-{id}")).w_full().flex().col();
-    let card = if last { card } else { card.border_b(1.0).border_color(theme.paint(|c| c.border)) };
-    card.child(
-        div()
-            .px(rem(12.0))
-            .py(rem(8.0))
-            .bg(theme.paint(|c| c.surface_selected))
-            .flex()
-            .row()
-            .items_center()
-            .gap(rem(8.0))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(0.0)
-                    .child(text(title).typography(Typography::Label).color(theme.paint(|c| c.text_muted))),
-            )
-            .child(
-                IconButton::new(format!("Edit-comment-{id}"), IconName::Pencil, "Edit comment", theme)
-                    .keyboard_focusable()
-                    .on_click(move || edit.edit_comment(target, id)),
-            )
-            .child(
-                IconButton::new(format!("Delete-comment-{id}"), IconName::X, "Delete comment", theme)
-                    .keyboard_focusable()
-                    .on_click(move || delete.delete_comment(id)),
-            ),
-    )
-    .child(
-        div()
-            .p(rem(12.0))
-            .bg(theme.paint(|c| c.surface))
-            .child(text(comment.body).typography(Typography::Body).color(theme.paint(|c| c.text))),
-    )
+    view! {
+        <div test_id={format!("markdown-comment-{id}")} w_full flex col when:border_b=(!last, px(1.0))
+             when:border_color=(!last, theme.border)>
+            <div px=12.0 py=8.0 bg=theme.surface_selected flex row items_center gap=8.0>
+                <div flex_1 min_w=0.0><text label muted>{title}</text></div>
+                <icon_button id={format!("Edit-comment-{id}")} icon=IconName::Pencil label="Edit comment"
+                             keyboard_focusable on_click={move || handle.edit_comment(target, id)}/>
+                <icon_button id={format!("Delete-comment-{id}")} icon=IconName::X label="Delete comment"
+                             keyboard_focusable on_click={move || handle.delete_comment(id)}/>
+            </div>
+            <div p=12.0 bg=theme.surface><text body primary>{comment.body}</text></div>
+        </div>
+    }
 }
 
-fn draft(handle: &MarkdownHandle, target: MarkdownTargetId, theme: UiTheme) -> impl View {
-    let draft = handle.draft;
-    let handle = handle.clone();
+fn draft(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<> {
+    let (handle, draft) = (*handle, handle.draft);
     dynamic(move || {
-        let Some((_, editing)) = draft.get().filter(|(id, _)| *id == target) else {
-            return div().into_any();
-        };
+        let (_, editing) = draft.get().filter(|(id, _)| *id == target)?;
         let body = handle.with(|session| session.draft().map(|draft| draft.body().to_owned()).unwrap_or_default());
-        let (change, submit, cancel) = (handle.clone(), handle.clone(), handle.clone());
-        div()
-            .pt(rem(8.0))
-            .pb(rem(4.0))
-            .child(composer(
-                if editing.is_some() { "Edit comment" } else { "Add a comment" }.to_owned(),
-                body,
-                editing.is_some(),
-                theme,
-                move |body| change.set_draft_body(body),
-                move |body| {
-                    submit.set_draft_body(body.to_owned());
-                    submit.run(ReviewCommand::SubmitComment);
-                },
-                move || cancel.run(ReviewCommand::Cancel),
-            ))
-            .into_any()
+        Some(view! {
+            <div pt=8.0 pb=4.0>
+                {composer(
+                    if editing.is_some() { "Edit comment" } else { "Add a comment" }.to_owned(),
+                    body,
+                    editing.is_some(),
+                    move |body| handle.set_draft_body(body),
+                    move |body| {
+                        handle.set_draft_body(body.to_owned());
+                        handle.run(ReviewCommand::SubmitComment);
+                    },
+                    move || handle.run(ReviewCommand::Cancel),
+                )}
+            </div>
+        })
     })
 }

@@ -3,7 +3,7 @@ use clankerdiff_rouge_ui::{
     testing::{TestError, TestResult, component_test},
 };
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Key, Styled, div, text};
+use rouge_core::{Key, Styled, View, div, text, view};
 use rouge_reactive::{Runtime, signal};
 
 #[test]
@@ -11,36 +11,23 @@ fn full_width_buttons_rows_and_segments_activate_only_enabled_choices() -> TestR
     let runtime = Runtime::new();
     let _guard = runtime.enter();
     let (mut ui, calls) = component_test().size(440.0, 320.0).build_with(|| {
-        let theme = ActiveTheme::install(ReviewTheme::default()).ui();
+        let _ = ActiveTheme::install(ReviewTheme::default());
         let calls = signal(Vec::new());
-        let view = Surface::new(theme)
-            .w(340.0)
-            .padded(true)
-            .raised(true)
-            .selected(true)
-            .child(
-                Button::new("primary", "Primary", theme)
-                    .variant(ButtonVariant::Primary)
-                    .full_width()
-                    .keyboard_focusable()
-                    .on_click(move || calls.update(|v| v.push(1))),
-            )
-            .child(
-                ListRow::new("row", theme)
-                    .depth(2)
-                    .selected(true)
-                    .on_click(move || calls.update(|v| v.push(2)))
-                    .child(text("A row")),
-            )
-            .child(
-                SegmentedControl::new("segments", theme).segments([
-                    Segment::new("enabled", "Enabled").selected(true).on_click(move || calls.update(|v| v.push(3))),
-                    Segment::icon("disabled", IconName::Check, "Disabled")
-                        .detail("Extra")
-                        .disabled(true)
-                        .on_click(move || calls.update(|v| v.push(4))),
-                ]),
-            );
+        let view = view! {
+            <surface padded raised selected w=340.0>
+                <button id="primary" label="Primary" variant=ButtonVariant::Primary full_width keyboard_focusable
+                        on_click={move || calls.update(|v| v.push(1))}/>
+                <list_row id="row" depth=2 state=SelectionState::Selected
+                          on_click={move || calls.update(|v| v.push(2))}>
+                    <text>"A row"</text>
+                </list_row>
+                <segmented_control id="segments">
+                    <segment id="enabled" label="Enabled" selected on_click={move || calls.update(|v| v.push(3))}/>
+                    <segment id="disabled" label="Disabled" icon=IconName::Check detail="Extra" disabled
+                             on_click={move || calls.update(|v| v.push(4))}/>
+                </segmented_control>
+            </surface>
+        };
         (view, calls)
     });
     let button = ui.bounds_of("primary").ok_or_else(|| TestError::NoTestId("primary".into()))?;
@@ -62,23 +49,21 @@ fn section_action_and_disclosure_do_not_trigger_each_other() -> TestResult {
     let runtime = Runtime::new();
     let _guard = runtime.enter();
     let (mut ui, counts) = component_test().size(440.0, 320.0).build_with(|| {
-        let theme = ActiveTheme::install(ReviewTheme::default()).ui();
+        let _ = ActiveTheme::install(ReviewTheme::default());
         let counts = signal((0, 0));
-        let header = SectionHeader::new("section", "Section", true, theme)
-            .detail("Details")
-            .badge(Badge::new("badge", "3", theme).tone(NoticeTone::Info).icon(IconName::Check))
-            .action(
-                IconButton::new("action", IconName::Plus, "Add", theme).on_click(move || counts.update(|v| v.0 += 1)),
-            )
-            .actions_always_visible(true)
-            .on_toggle(move || counts.update(|v| v.1 += 1));
-        (
-            div()
-                .child(header)
-                .child(EmptyState::new(IconName::File, "No files", "Nothing to review", theme))
-                .child(ActionBar::new(theme).child(Notification::error("Not saved", theme))),
-            counts,
-        )
+        let badge = view! { <badge id="badge" label="3" tone=NoticeTone::Info icon=IconName::Check/> };
+        let action = view! {
+            <icon_button id="action" icon=IconName::Plus label="Add" on_click={move || counts.update(|v| v.0 += 1)}/>
+        };
+        let view = view! {
+            <div>
+                <section_header id="section" title="Section" expanded=true detail="Details" badge=badge.into_any()
+                                action actions_always_visible on_toggle={move || counts.update(|v| v.1 += 1)}/>
+                <empty_state icon=IconName::File title="No files" detail="Nothing to review"/>
+                <action_bar><notification message="Not saved" tone=NoticeTone::Error/></action_bar>
+            </div>
+        };
+        (view, counts)
     });
     ui.click_on("action")?;
     assert_eq!(counts.get(), (1, 0));
@@ -105,17 +90,16 @@ fn checkboxes_keep_their_size_and_toggle_without_activating_their_row() -> TestR
     let runtime = Runtime::new();
     let _guard = runtime.enter();
     let (mut ui, counts) = component_test().size(440.0, 320.0).build_with(|| {
-        let theme = ActiveTheme::install(ReviewTheme::default()).ui();
+        let _ = ActiveTheme::install(ReviewTheme::default());
         let counts = signal((0, 0));
-        let view = ListRow::new("row", theme)
-            .on_click(move || counts.update(|v| v.1 += 1))
-            .child(text("file.rs"))
-            .child(
-                Checkbox::new("check", CheckState::Indeterminate, theme).on_toggle(move || counts.update(|v| v.0 += 1)),
-            )
-            .child(Checkbox::new("disabled", CheckState::Checked, theme).disabled(true).on_toggle(move || {
-                counts.update(|v| v.0 += 10);
-            }));
+        let view = view! {
+            <list_row id="row" on_click={move || counts.update(|v| v.1 += 1)}>
+                <text>"file.rs"</text>
+                <checkbox id="check" state=CheckState::Indeterminate on_toggle={move || counts.update(|v| v.0 += 1)}/>
+                <checkbox id="disabled" state=CheckState::Checked disabled
+                          on_toggle={move || counts.update(|v| v.0 += 10)}/>
+            </list_row>
+        };
         (view, counts)
     });
     let bounds = ui.bounds_of("check").ok_or_else(|| TestError::NoTestId("check".into()))?;

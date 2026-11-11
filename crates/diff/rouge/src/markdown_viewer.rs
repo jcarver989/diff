@@ -17,9 +17,9 @@ use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use content::Paint;
 use rouge_core::{
     Align, AnyView, Key, KeyEvent, Modifiers, Styled, View, VirtualListHandle, div, dynamic, focus_handle, overlay,
-    virtual_list_handle,
+    view, virtual_list_handle,
 };
-use rouge_reactive::{Signal, batch, effect, signal, untrack, use_context};
+use rouge_reactive::{Callback, Memo, Signal, batch, effect, signal, untrack, use_context};
 use std::{rc::Rc, sync::Arc};
 
 const DEFAULT_OUTLINE_WIDTH: f32 = 220.0 / 16.0;
@@ -39,15 +39,15 @@ enum Overlay {
     Themes,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct MarkdownHandle {
     session: Signal<MarkdownReviewSession>,
     rows: Signal<Rc<content::Rows>>,
     revision: Signal<u64>,
-    selected: Signal<Option<MarkdownTargetId>>,
+    selected: Memo<Option<MarkdownTargetId>>,
     pane: Signal<MarkdownFocusPane>,
-    draft: Signal<Option<(MarkdownTargetId, Option<u64>)>>,
-    annotations: Signal<u64>,
+    draft: Memo<Option<(MarkdownTargetId, Option<u64>)>>,
+    annotations: Memo<u64>,
     theme: Signal<ReviewTheme>,
     capabilities: Signal<ReviewCapabilities>,
     overlay: Signal<Overlay>,
@@ -56,7 +56,7 @@ pub struct MarkdownHandle {
     outline_width: Signal<f32>,
     list: VirtualListHandle,
     outline: VirtualListHandle,
-    emit: Rc<dyn Fn(MarkdownOutput)>,
+    emit: Callback<(MarkdownOutput,)>,
 }
 
 pub struct MarkdownController {
@@ -72,14 +72,17 @@ impl MarkdownController {
 
     #[must_use]
     pub fn mount(self, emit: impl Fn(MarkdownOutput) + 'static) -> MarkdownHandle {
+        let rows = signal(Rc::new(content::Rows::new(self.session.document().clone())));
+        let session = signal(self.session);
+        let read = session.read_only();
         MarkdownHandle {
-            rows: signal(Rc::new(content::Rows::new(self.session.document().clone()))),
-            selected: signal(self.session.selected_target()),
-            session: signal(self.session),
+            rows,
+            selected: read.select(MarkdownReviewSession::selected_target),
+            session,
             revision: signal(0),
             pane: signal(MarkdownFocusPane::Document),
-            draft: signal(None),
-            annotations: signal(0),
+            draft: read.select(|session| session.draft().map(|draft| (draft.target(), draft.editing()))),
+            annotations: read.select(MarkdownReviewSession::annotations_revision),
             theme: signal(self.theme),
             capabilities: signal(ReviewCapabilities::default()),
             overlay: signal(Overlay::None),
@@ -88,7 +91,7 @@ impl MarkdownController {
             outline_width: signal(DEFAULT_OUTLINE_WIDTH),
             list: virtual_list_handle(),
             outline: virtual_list_handle(),
-            emit: Rc::new(emit),
+            emit: emit.into(),
         }
     }
 }
@@ -174,15 +177,7 @@ impl MarkdownHandle {
     }
 
     fn edit<T>(&self, f: impl FnOnce(&mut MarkdownReviewSession) -> T) -> T {
-        batch(|| {
-            let result = self.session.try_update(f).expect("mounted Markdown review");
-            self.with(|session| {
-                self.selected.set_if_changed(session.selected_target());
-                self.draft.set_if_changed(session.draft().map(|d| (d.target(), d.editing())));
-                self.annotations.set_if_changed(session.annotations_revision());
-            });
-            result
-        })
+        self.session.try_update(f).expect("mounted Markdown review")
     }
 
     fn reveal(&self) {
@@ -226,7 +221,7 @@ impl MarkdownHandle {
             self.reveal();
         }
         if let Some(event) = event {
-            (self.emit)(MarkdownOutput::Event(event));
+            self.emit.call(MarkdownOutput::Event(event));
         }
         Ok(handled)
     }
@@ -244,7 +239,7 @@ impl MarkdownHandle {
                 Overlay::None if self.draft.get_untracked().is_some() => {
                     self.edit(MarkdownReviewSession::cancel_draft);
                 }
-                Overlay::None => (self.emit)(MarkdownOutput::Event(MarkdownReviewEvent::Cancel)),
+                Overlay::None => self.emit.call(MarkdownOutput::Event(MarkdownReviewEvent::Cancel)),
             },
             R::ShowHelp => self.overlay.set(Overlay::Help),
             R::OpenThemePicker => self.overlay.set(Overlay::Themes),
@@ -461,83 +456,63 @@ pub fn markdown_review_view(handle: MarkdownHandle) -> impl View {
     let active = ActiveTheme::install(handle.theme.get_untracked());
     let theme_signal = handle.theme;
     effect(move || active.set(theme_signal.get()));
-    let theme = active.ui();
     let size = use_context::<InterfaceSize>().unwrap_or_else(|| InterfaceSize::install(DEFAULT_INTERFACE_SIZE));
     let focus = focus_handle();
-    let keys = handle.clone();
-    let paint =
-        Paint { ui: theme, palette: handle.theme, capabilities: handle.capabilities, emit: handle.emit.clone() };
-    let body = div()
-        .flex()
-        .row()
-        .flex_1()
-        .min_h(0.0)
-        .child(dynamic({
-            let handle = handle.clone();
-            move || {
-                if handle.outline_visible() { chrome::outline(&handle, theme).into_any() } else { div().into_any() }
-            }
-        }))
-        .child(document::document(&handle, paint));
-    let root = div()
-        .test_id("markdown-reviewer")
-        .flex()
-        .col()
-        .size_full()
-        .min_h(0.0)
-        .font(UI_FONT)
-        .bg(move || theme_signal.with(|t| color(t.diff.background)))
-        .text_color(move || theme_signal.with(|t| color(t.diff.foreground)))
-        .track_focus(focus)
-        .autofocus()
-        .on_key_down(move |event| {
-            if matches!(&event.key, Key::Character(key) if key == "b")
-                && event.modifiers == Modifiers::NONE
-                && keys.command_context().phase == InteractionPhase::Browse
-            {
-                keys.toggle_outline();
-                event.stop_propagation();
-                return;
-            }
-            if keys.key_command(event).is_some_and(|command| keys.handle_command(command).unwrap_or(false)) {
-                event.stop_propagation();
-            }
-        })
-        .child(chrome::header(&handle, theme))
-        .child(body)
-        .child(overlay(move || dynamic(move || overlay_view(&handle, theme))));
+    let keys = handle;
+    let paint = Paint { palette: handle.theme, capabilities: handle.capabilities, emit: handle.emit };
+    let root = view! {
+        <div test_id="markdown-reviewer" flex col size_full min_h=0.0 font=UI_FONT
+             bg={move || theme_signal.with(|t| color(t.diff.background))}
+             text_color={move || theme_signal.with(|t| color(t.diff.foreground))}
+             track_focus=focus autofocus
+             on_key_down={move |event| {
+                 if matches!(&event.key, Key::Character(key) if key == "b")
+                     && event.modifiers == Modifiers::NONE
+                     && keys.command_context().phase == InteractionPhase::Browse
+                 {
+                     keys.toggle_outline();
+                     event.stop_propagation();
+                     return;
+                 }
+                 if keys.key_command(event).is_some_and(|command| keys.handle_command(command).unwrap_or(false)) {
+                     event.stop_propagation();
+                 }
+             }}>
+            <chrome::header handle={&handle}/>
+            <div flex row flex_1 min_h=0.0>
+                <dynamic>{handle.outline_visible().then(|| chrome::outline(&handle))}</dynamic>
+                <document::document handle={&handle} paint/>
+            </div>
+            <overlay>
+                <dynamic>{overlay_view(&handle)}</dynamic>
+            </overlay>
+        </div>
+    };
     size.bind(root)
 }
 
-fn overlay_view(handle: &MarkdownHandle, theme: UiTheme) -> AnyView {
+fn overlay_view(handle: &MarkdownHandle) -> Option<AnyView> {
+    let view = *handle;
     match handle.overlay.get() {
-        Overlay::None => div().into_any(),
+        Overlay::None => None,
         Overlay::Themes => {
             let current = handle.theme.get_untracked();
-            let view = handle.clone();
-            let choices = ThemeChoice::catalog();
-            let picker = ThemePickerOverlay::new(
-                ThemePicker::new("markdown-theme-picker", &current, choices, theme, move |event| match event {
-                    ThemePickerEvent::Preview(theme) => view.set_theme(theme),
-                    ThemePickerEvent::Commit(theme) => {
-                        let id = theme.id().to_string();
-                        view.set_theme(theme);
-                        view.overlay.set(Overlay::None);
-                        (view.emit)(MarkdownOutput::ThemeChanged(id));
-                    }
-                    ThemePickerEvent::Cancel(theme) => {
-                        view.set_theme(theme);
-                        view.overlay.set(Overlay::None);
-                    }
-                }),
-                theme,
-            );
-            untrack(|| handle.picker.set(Some(picker.picker())));
-            picker.into_any()
+            let picker = theme_picker(&current, ThemeChoice::catalog(), move |event| match event {
+                ThemePickerEvent::Preview(theme) => view.set_theme(theme),
+                ThemePickerEvent::Commit(theme) => {
+                    let id = theme.id().to_string();
+                    view.set_theme(theme);
+                    view.overlay.set(Overlay::None);
+                    view.emit.call(MarkdownOutput::ThemeChanged(id));
+                }
+                ThemePickerEvent::Cancel(theme) => {
+                    view.set_theme(theme);
+                    view.overlay.set(Overlay::None);
+                }
+            });
+            untrack(|| handle.picker.set(Some(picker)));
+            Some(view! { <theme_picker_overlay id="markdown-theme-picker" handle=picker/> }.into_any())
         }
-        Overlay::Help => {
-            let close = handle.clone();
-            chrome::shortcuts(theme, move || close.run(ReviewCommand::Cancel)).into_any()
-        }
+        Overlay::Help => Some(chrome::shortcuts(move || view.run(ReviewCommand::Cancel)).into_any()),
     }
 }

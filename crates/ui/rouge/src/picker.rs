@@ -1,17 +1,17 @@
 use crate::{
-    components::{Backdrop, ListRow, MutedText, SelectionState, SurfaceExt},
+    components::{SelectionState, SurfaceExt, backdrop, list_row, muted_text},
     fonts::UI_FONT,
     icon::{Icon, IconName},
     theme::UiTheme,
-    tokens::{self, rem},
-    typography::{Typography, TypographyExt},
+    tokens,
+    typography::{Typography, UiStyles},
 };
 use clankerdiff_ui_core::{Appearance, PickerOption, PickerRow, PickerState, ReviewTheme, ThemeChoice, ThemeSelection};
 use rouge_core::{
-    AnyView, BuildCx, Color, ElementId, Key, Length, ScrollState, Scrollable, Styled, View, div, dynamic, each,
-    editable, scroll, show, text,
+    AnyView, Color, Div, Key, Length, Rect, ScrollState, Scrollable, Styled, View, component, div, dynamic, each,
+    editable, pct, px, scroll, show, text, view,
 };
-use rouge_reactive::{Signal, effect, memo, signal};
+use rouge_reactive::{Callback, Memo, Signal, batch, effect, memo, signal};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -162,104 +162,59 @@ impl PickerItem {
     }
 }
 
-pub struct PickerList {
-    id: String,
-    theme: UiTheme,
+#[component]
+#[allow(clippy::needless_pass_by_value)]
+pub fn picker_list(
+    #[prop(into)] id: String,
     items: Vec<PickerItem>,
     highlighted: Option<usize>,
-    empty: String,
-    height: Length,
-    state: Option<Signal<ScrollState>>,
-    choose: Rc<dyn Fn(usize)>,
-    hover: Rc<dyn Fn(usize)>,
-}
-impl PickerList {
-    pub fn new(id: impl Into<String>, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            theme,
-            items: Vec::new(),
-            highlighted: None,
-            empty: "No results".into(),
-            height: rem(tokens::PICKER_LIST_HEIGHT),
-            state: None,
-            choose: Rc::new(|_| ()),
-            hover: Rc::new(|_| ()),
-        }
-    }
-    #[must_use]
-    pub fn items(mut self, items: impl IntoIterator<Item = PickerItem>) -> Self {
-        self.items = items.into_iter().collect();
-        self
-    }
-    #[must_use]
-    pub fn highlighted(mut self, position: Option<usize>) -> Self {
-        self.highlighted = position;
-        self
-    }
-    #[must_use]
-    pub fn empty(mut self, message: impl Into<String>) -> Self {
-        self.empty = message.into();
-        self
-    }
-    #[must_use]
-    pub fn max_height(mut self, height: Length) -> Self {
-        self.height = height;
-        self
-    }
-    #[must_use]
-    pub fn track_scroll(mut self, state: Signal<ScrollState>) -> Self {
-        self.state = Some(state);
-        self
-    }
-    #[must_use]
-    pub fn on_choose(mut self, f: impl Fn(usize) + 'static) -> Self {
-        self.choose = Rc::new(f);
-        self
-    }
-    #[must_use]
-    pub fn on_hover(mut self, f: impl Fn(usize) + 'static) -> Self {
-        self.hover = Rc::new(f);
-        self
+    #[prop(into)] empty: Option<String>,
+    max_height: Option<Length>,
+    track_scroll: Option<Signal<ScrollState>>,
+    #[prop(default, into)] on_choose: Callback<(usize,)>,
+    #[prop(default, into)] on_hover: Callback<(usize,)>,
+) -> impl View {
+    let state = track_scroll.unwrap_or_else(|| signal(ScrollState::default()));
+    let picker = PickerState::new(items.iter().map(PickerItem::option).collect()).unfiltered();
+    let columns = Columns::new(&items);
+    let list = if items.is_empty() {
+        view! { <div><muted_text>{empty.unwrap_or_else(|| "No results".into())}</muted_text></div> }
+    } else {
+        let rows = picker.rows().into_iter().map(|row| match row {
+            PickerRow::Group(label) => group(label).into_any(),
+            PickerRow::Option { position, index } => {
+                let item = items[index].clone();
+                let disabled = item.disabled;
+                let state = match (disabled, highlighted == Some(position)) {
+                    (true, _) => SelectionState::Disabled,
+                    (false, true) => SelectionState::Selected,
+                    (false, false) => SelectionState::None,
+                };
+                item_row(item, &columns, state, None, Callback::from(move || on_choose.call(position)))
+                    .on_pointer_move(move |_| {
+                        if !disabled {
+                            on_hover.call(position);
+                        }
+                    })
+                    .into_any()
+            }
+        });
+        view! { <div flex col>{..rows}</div> }
+    };
+    view! {
+        <scroll test_id=id max_h={max_height.unwrap_or_else(|| Length::design(tokens::PICKER_LIST_HEIGHT))}
+                scroll_state=state>
+            {list}
+        </scroll>
     }
 }
-impl View for PickerList {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let theme = self.theme;
-        let state = self.state.unwrap_or_else(|| signal(ScrollState::default()));
-        let picker = PickerState::new(self.items.iter().map(PickerItem::option).collect()).unfiltered();
-        let columns = Columns::new(&self.items);
-        let list = if self.items.is_empty() {
-            div().child(MutedText::new(self.empty, theme))
-        } else {
-            div().flex().col().children(picker.rows().into_iter().map(|row| match row {
-                PickerRow::Group(label) => group(label, theme).into_any(),
-                PickerRow::Option { position, index } => {
-                    let choose = self.choose.clone();
-                    let hover = self.hover.clone();
-                    let disabled = self.items[index].disabled;
-                    item_row(self.items[index].clone(), theme, &columns)
-                        .selected(self.highlighted == Some(position))
-                        .disabled(self.items[index].disabled)
-                        .on_click(move || choose(position))
-                        .on_mouse_move(move |_| {
-                            if !disabled {
-                                hover(position);
-                            }
-                        })
-                        .into_any()
-                }
-            }))
-        };
-        scroll().test_id(self.id).max_h(self.height).scroll_state(state).child(list).build(cx)
+
+fn group(label: &str) -> impl View {
+    view! {
+        <div px=8.0 pt=6.0><text caption muted>{label.to_owned()}</text></div>
     }
 }
-fn group(label: &str, theme: UiTheme) -> impl View {
-    div()
-        .px(rem(8.0))
-        .pt(rem(6.0))
-        .child(text(label.to_owned()).typography(Typography::Caption).color(theme.paint(|c| c.text_muted)))
-}
+
 #[derive(Clone, PartialEq, Eq)]
 struct Columns {
     marker: bool,
@@ -281,68 +236,67 @@ impl Columns {
     }
 }
 
-fn item_row(item: PickerItem, theme: UiTheme, columns: &Columns) -> ListRow {
-    let slot =
-        || div().flex_none().w(rem(tokens::ICON_SIZE)).h(rem(tokens::ICON_SIZE)).flex().items_center().justify_center();
-    let mut row = ListRow::new(item.id.clone(), theme);
-    if columns.marker {
-        let mut mark = slot().test_id(format!("{}-marker", item.id));
-        mark = match item.marker {
-            Some(PickerMarker::Dot(c)) => mark.child(div().w(rem(7.0)).h(rem(7.0)).rounded(tokens::scaled(4.0)).bg(c)),
-            Some(PickerMarker::Pending) => mark.child(
-                div()
-                    .w(rem(10.0))
-                    .h(rem(10.0))
-                    .rounded(tokens::scaled(5.0))
-                    .border(1.0)
-                    .border_color(theme.paint(|c| c.text_muted)),
-            ),
-            None => mark,
+fn item_row(
+    item: PickerItem,
+    columns: &Columns,
+    state: SelectionState,
+    selection: Option<Memo<SelectionState>>,
+    on_click: Callback,
+) -> Div {
+    let theme = UiTheme::current();
+    let slot = || view! { <div flex_none size=tokens::ICON_SIZE flex items_center justify_center/> };
+    let marker = columns.marker.then(|| {
+        let mark = match item.marker {
+            Some(PickerMarker::Dot(color)) => Some(view! { <div size=7.0 rounded=4.0 bg=color/> }),
+            Some(PickerMarker::Pending) => {
+                Some(view! { <div size=10.0 rounded=5.0 border=px(1.0) border_color=theme.text_muted/> })
+            }
+            None => None,
         };
-        row = row.child(mark);
-    }
-    if let Some(icon) = item.icon {
-        row = row.child(Icon::new(icon, theme.paint(|c| c.text_secondary)));
-    }
-    if let Some(widest) = &columns.prefix {
-        let code =
-            |value: String| text(value).typography(Typography::Code).color(theme.paint(|c| c.text_muted)).no_wrap();
-        let mut prefix =
-            div().relative().flex_none().child(div().opacity(0.0).pass_through().child(code(widest.clone())));
-        if let Some(value) = item.prefix {
-            prefix = prefix.child(div().absolute().left(0.0).top(0.0).child(code(value)));
+        slot().test_id(format!("{}-marker", item.id)).child(mark)
+    });
+    let prefix = columns.prefix.clone().map(|widest| {
+        let code = |value: String| view! { <text code muted no_wrap>{value}</text> };
+        view! {
+            <div relative flex_none>
+                <div opacity=0.0 pass_through>{code(widest)}</div>
+                {item.prefix.map(|value| view! { <div absolute left=0.0 top=0.0>{code(value)}</div> })}
+            </div>
         }
-        row = row.child(prefix);
-    }
-    let mut title = div().flex().col().flex_1().min_w(0.0).overflow_hidden().child(
-        div().test_id(format!("{}-label", item.id)).child(text(item.label).typography(Typography::Body).no_wrap()),
-    );
-    if let Some(subtitle) = item.subtitle {
-        title = title.py(rem(4.0)).child(
-            div()
-                .test_id(format!("{}-subtitle", item.id))
-                .child(text(subtitle).typography(Typography::Small).color(theme.paint(|c| c.text_muted)).no_wrap()),
-        );
-    }
-    row = row.child(title);
-    if !item.details.is_empty() {
-        row = row.child(div().flex().items_center().gap(rem(6.0)).children(item.details.into_iter().map(
-            move |detail| {
-                text(detail.text)
-                    .typography(if detail.code { Typography::Code } else { Typography::Caption })
-                    .color(move || detail.color.unwrap_or_else(|| theme.colors().text_muted))
-                    .no_wrap()
-            },
-        )));
-    }
-    if columns.checked {
-        let mut check = slot().test_id(format!("{}-check", item.id));
-        if item.checked {
-            check = check.child(Icon::new(IconName::Check, theme.paint(|c| c.accent)).size(12.0));
+    });
+    let subtitle = item.subtitle.map(|subtitle| {
+        view! {
+            <div test_id={format!("{}-subtitle", item.id)}><text small muted no_wrap>{subtitle}</text></div>
         }
-        row = row.child(check);
+    });
+    let details = (!item.details.is_empty()).then(|| {
+        let details = item.details.into_iter().map(move |detail| {
+            view! {
+                <text typography={if detail.code { Typography::Code } else { Typography::Caption }} no_wrap
+                      color={move || detail.color.unwrap_or_else(|| theme.text_muted.get())}>
+                    {detail.text}
+                </text>
+            }
+        });
+        view! { <div flex items_center gap=6.0>{..details}</div> }
+    });
+    let check = columns.checked.then(|| {
+        let icon = item.checked.then(|| Icon::new(IconName::Check, theme.accent).size(12.0));
+        slot().test_id(format!("{}-check", item.id)).child(icon)
+    });
+    view! {
+        <list_row id={item.id.clone()} state selection?=selection on_click>
+            {marker}
+            {item.icon.map(|icon| Icon::new(icon, theme.text_secondary))}
+            {prefix}
+            <div flex col flex_1 min_w=0.0 overflow_hidden when:py=(subtitle.is_some(), 4.0)>
+                <div test_id={format!("{}-label", item.id)}><text body no_wrap>{item.label}</text></div>
+                {subtitle}
+            </div>
+            {details}
+            {check}
+        </list_row>
     }
-    row
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,17 +307,50 @@ pub enum SearchPickerEvent {
     Dismissed,
 }
 
-type Preview = Rc<dyn Fn(usize) -> AnyView>;
 #[derive(Clone)]
+pub struct Preview(Rc<dyn Fn(usize) -> AnyView>);
+
+impl<T: Fn(usize) -> AnyView + 'static> From<T> for Preview {
+    fn from(render: T) -> Self {
+        Self(Rc::new(render))
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct SearchPickerHandle {
     items: Signal<Vec<PickerItem>>,
     model: Signal<PickerState>,
     query: Signal<String>,
-    emit: Rc<dyn Fn(SearchPickerEvent)>,
+    emit: Callback<(SearchPickerEvent,)>,
 }
 impl SearchPickerHandle {
+    pub fn new(items: Vec<PickerItem>, emit: impl Fn(SearchPickerEvent) + 'static) -> Self {
+        Self {
+            model: signal(PickerState::new(items.iter().map(PickerItem::option).collect())),
+            items: signal(items),
+            query: signal(String::new()),
+            emit: emit.into(),
+        }
+    }
+    #[must_use]
+    pub fn unfiltered(self) -> Self {
+        self.model.update(|model| *model = model.clone().unfiltered());
+        self
+    }
+    #[must_use]
+    pub fn max_matches(self, limit: usize) -> Self {
+        self.model.update(|model| *model = model.clone().limit(limit));
+        self
+    }
+    #[must_use]
+    pub fn highlighted(self, index: usize) -> Self {
+        self.model.update(|model| {
+            model.highlight(index);
+        });
+        self
+    }
     pub fn set_items(&self, items: Vec<PickerItem>) {
-        rouge_reactive::batch(|| {
+        batch(|| {
             self.model.update(|model| model.set_options(items.iter().map(PickerItem::option).collect()));
             self.items.set(items);
         });
@@ -384,344 +371,180 @@ impl SearchPickerHandle {
     }
     pub fn choose(&self) {
         if let Some(index) = self.model.with_untracked(PickerState::highlighted) {
-            (self.emit)(SearchPickerEvent::Chose(index));
+            self.emit.call(SearchPickerEvent::Chose(index));
         }
     }
     pub fn dismiss(&self) {
-        (self.emit)(SearchPickerEvent::Dismissed);
+        self.emit.call(SearchPickerEvent::Dismissed);
     }
     fn update(&self, f: impl FnOnce(&mut PickerState)) {
         let before = self.model.with_untracked(PickerState::highlighted);
         self.model.update(f);
         if let Some(after) = self.model.with_untracked(PickerState::highlighted).filter(|after| Some(*after) != before)
         {
-            (self.emit)(SearchPickerEvent::Highlighted(after));
+            self.emit.call(SearchPickerEvent::Highlighted(after));
         }
     }
 }
 
-pub struct SearchPicker {
-    id: String,
-    theme: UiTheme,
-    handle: SearchPickerHandle,
-    placeholder: Option<String>,
-    title: Option<String>,
-    footer: Option<String>,
-    empty: String,
-    width: Length,
-    height: Option<Length>,
-    list_height: Length,
-    preview: Option<Preview>,
-    status: Signal<Option<String>>,
-}
-impl SearchPicker {
-    pub fn new(
-        id: impl Into<String>,
-        items: Vec<PickerItem>,
-        theme: UiTheme,
-        emit: impl Fn(SearchPickerEvent) + 'static,
-    ) -> Self {
-        let model = signal(PickerState::new(items.iter().map(PickerItem::option).collect()));
-        Self {
-            id: id.into(),
-            theme,
-            handle: SearchPickerHandle {
-                items: signal(items),
-                model,
-                query: signal(String::new()),
-                emit: Rc::new(emit),
-            },
-            placeholder: None,
-            title: None,
-            footer: None,
-            empty: "No matching items".into(),
-            width: rem(tokens::PICKER_WIDTH),
-            height: None,
-            list_height: rem(tokens::PICKER_LIST_HEIGHT),
-            preview: None,
-            status: signal(None),
-        }
-    }
-    #[must_use]
-    pub fn handle(&self) -> SearchPickerHandle {
-        self.handle.clone()
-    }
-    #[must_use]
-    pub fn searchable(mut self, hint: impl Into<String>) -> Self {
-        self.placeholder = Some(hint.into());
-        self
-    }
-    #[must_use]
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = Some(title.into());
-        self
-    }
-    #[must_use]
-    pub fn footer(mut self, footer: impl Into<String>) -> Self {
-        self.footer = Some(footer.into());
-        self
-    }
-    #[must_use]
-    pub fn empty(mut self, empty: impl Into<String>) -> Self {
-        self.empty = empty.into();
-        self
-    }
-    #[must_use]
-    pub fn unfiltered(self) -> Self {
-        self.handle.model.update(|model| *model = model.clone().unfiltered());
-        self
-    }
-    #[must_use]
-    pub fn max_matches(self, limit: usize) -> Self {
-        self.handle.model.update(|model| *model = model.clone().limit(limit));
-        self
-    }
-    #[must_use]
-    pub fn width(mut self, width: Length) -> Self {
-        self.width = width;
-        self
-    }
-    #[must_use]
-    pub fn height(mut self, height: Length) -> Self {
-        self.height = Some(height);
-        self
-    }
-    #[must_use]
-    pub fn max_list_height(mut self, height: Length) -> Self {
-        self.list_height = height;
-        self
-    }
-    #[must_use]
-    pub fn preview(mut self, render: impl Fn(usize) -> AnyView + 'static) -> Self {
-        self.preview = Some(Rc::new(render));
-        self
-    }
-    #[must_use]
-    pub fn highlight(self, index: usize) -> Self {
-        self.handle.model.update(|model| {
-            model.highlight(index);
-        });
-        self
-    }
-    #[must_use]
-    pub fn status(&self) -> Signal<Option<String>> {
-        self.status
-    }
-}
 #[derive(Clone, PartialEq)]
 enum Row {
     Group(String),
     Item(usize, PickerItem),
 }
-impl View for SearchPicker {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let (theme, handle) = (self.theme, self.handle);
-        let (query, model, items) = (handle.query, handle.model, handle.items);
-        let querying = handle.clone();
-        effect(move || {
-            let next = query.get();
-            if !model.with_untracked(|model| model.query() == next) {
-                (querying.emit)(SearchPickerEvent::Query(next.clone()));
-                querying.update(|model| model.set_query(next));
-            }
-        });
-        let highlight = memo(move || model.with(PickerState::highlighted));
-        let entries = memo(move || {
-            model.with(|model| {
-                items.with(|items| {
-                    model
-                        .rows()
-                        .into_iter()
-                        .filter_map(|row| match row {
-                            PickerRow::Group(label) => Some(Row::Group(label.to_owned())),
-                            PickerRow::Option { index, .. } => {
-                                items.get(index).cloned().map(|item| Row::Item(index, item))
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
+
+#[component]
+pub fn search_picker(
+    #[prop(into)] id: String,
+    handle: SearchPickerHandle,
+    #[prop(into)] searchable: Option<String>,
+    #[prop(into)] title: Option<String>,
+    #[prop(into)] footer: Option<String>,
+    #[prop(into)] empty: Option<String>,
+    width: Option<Length>,
+    height: Option<Length>,
+    max_list_height: Option<Length>,
+    #[prop(into)] preview: Option<Preview>,
+    status: Option<Signal<Option<String>>>,
+) -> Div {
+    let (query, model, items) = (handle.query, handle.model, handle.items);
+    effect(move || {
+        let next = query.get();
+        if !model.with_untracked(|model| model.query() == next) {
+            handle.emit.call(SearchPickerEvent::Query(next.clone()));
+            handle.update(|model| model.set_query(next));
+        }
+    });
+    let highlight = memo(move || model.with(PickerState::highlighted));
+    let entries = memo(move || {
+        model.with(|model| {
+            items.with(|items| {
+                model
+                    .rows()
+                    .into_iter()
+                    .filter_map(|row| match row {
+                        PickerRow::Group(label) => Some(Row::Group(label.to_owned())),
+                        PickerRow::Option { index, .. } => items.get(index).cloned().map(|item| Row::Item(index, item)),
+                    })
+                    .collect::<Vec<_>>()
             })
-        });
-        let commands = handle.clone();
-        let id = self.id.clone();
-        let mut root = div()
-            .test_id(self.id)
-            .flex()
-            .col()
-            .min_h(0.0)
-            .w(self.width)
-            .max_w(rouge_core::pct(100.0))
-            .gap(rem(6.0))
-            .p(rem(8.0))
-            .floating(theme)
-            .on_key_down(move |event| {
-                match event.key {
-                    Key::ArrowUp => commands.move_highlight(-1),
-                    Key::ArrowDown => commands.move_highlight(1),
-                    Key::PageUp => commands.move_highlight(-8),
-                    Key::PageDown => commands.move_highlight(8),
-                    Key::Enter => commands.choose(),
-                    Key::Escape => commands.dismiss(),
-                    _ => return,
-                }
-                event.stop_propagation();
-            });
-        if let Some(height) = self.height {
-            root = root.h(height);
-        }
-        if let Some(title) = self.title {
-            root = root.child(text(title).typography(Typography::Title).color(theme.paint(|c| c.text)));
-        }
-        root = if let Some(hint) = self.placeholder {
-            root.child(query_input(hint, query, handle.clone(), theme))
-        } else {
-            root.autofocus().tab_index(-1)
-        };
-        let scroll_list = results(theme, handle, entries, highlight, self.empty, self.list_height);
-        if let Some(preview) = self.preview {
-            root = root.child(with_preview(&id, scroll_list, highlight, preview, theme));
-        } else {
-            root = root.child(scroll_list);
-        }
-        let status = self.status;
-        root = root.child(show(
-            move || status.with(Option::is_some),
-            move || {
-                text(move || status.get().unwrap_or_default())
-                    .typography(Typography::Caption)
-                    .color(theme.paint(|c| c.warning))
-            },
-        ));
-        if let Some(footer) = self.footer {
-            root = root.child(MutedText::new(footer, theme));
-        }
-        root.build(cx)
+        })
+    });
+    let focus_root = searchable.is_none();
+    let empty = empty.unwrap_or_else(|| "No matching items".into());
+    let list_height = max_list_height.unwrap_or_else(|| Length::design(tokens::PICKER_LIST_HEIGHT));
+    let list = results(handle, entries, highlight, empty, list_height);
+    let status = status.unwrap_or_else(|| signal(None));
+    let list = match preview {
+        Some(preview) => view! { <with_preview id={&id} highlight preview>{list}</with_preview> }.into_any(),
+        None => list.into_any(),
+    };
+    view! {
+        <div test_id=id flex col min_h=0.0 w={width.unwrap_or_else(|| Length::design(tokens::PICKER_WIDTH))}
+             max_w=pct(100.0) gap=6.0 p=8.0 floating h?=height when:autofocus=focus_root
+             when:tab_index=(focus_root, -1)
+             on_key_down={move |event| {
+                 match event.key {
+                     Key::ArrowUp => handle.move_highlight(-1),
+                     Key::ArrowDown => handle.move_highlight(1),
+                     Key::PageUp => handle.move_highlight(-8),
+                     Key::PageDown => handle.move_highlight(8),
+                     Key::Enter => handle.choose(),
+                     Key::Escape => handle.dismiss(),
+                     _ => return,
+                 }
+                 event.stop_propagation();
+             }}>
+            {title.map(|title| view! { <text title primary>{title}</text> })}
+            {searchable.map(|hint| view! { <query_input hint handle/> })}
+            {list}
+            <show when={move || status.with(Option::is_some)}>
+                <text caption color=UiTheme::current().warning>{move || status.get().unwrap_or_default()}</text>
+            </show>
+            {footer.map(|footer| view! { <muted_text>{footer}</muted_text> })}
+        </div>
     }
 }
 
-fn with_preview(
-    id: &str,
-    list: impl View,
-    highlight: rouge_reactive::Memo<Option<usize>>,
-    preview: Preview,
-    theme: UiTheme,
-) -> impl View {
-    div()
-        .flex()
-        .row()
-        .flex_1()
-        .min_h(0.0)
-        .child(
-            div()
-                .flex_none()
-                .w(rem(tokens::PICKER_PREVIEW_LIST_WIDTH))
-                .max_w(rouge_core::pct(50.0))
-                .min_h(0.0)
-                .pr(rem(6.0))
-                .border_r(1.0)
-                .border_color(theme.paint(|c| c.border_subtle))
-                .child(list),
-        )
-        .child(
-            div()
-                .test_id(format!("{id}-preview"))
-                .flex_1()
-                .min_w(0.0)
-                .min_h(0.0)
-                .flex()
-                .col()
-                .child(dynamic(move || highlight.get().map_or_else(|| div().into_any(), |index| preview(index)))),
-        )
+#[component]
+fn with_preview(id: &str, children: impl View, highlight: Memo<Option<usize>>, preview: Preview) -> impl View {
+    view! {
+        <div flex row flex_1 min_h=0.0>
+            <div flex_none w=tokens::PICKER_PREVIEW_LIST_WIDTH max_w=pct(50.0) min_h=0.0 pr=6.0 border_r=px(1.0)
+                 border_color=UiTheme::current().border_subtle>
+                {children}
+            </div>
+            <div test_id={format!("{id}-preview")} flex_1 min_w=0.0 min_h=0.0 flex col>
+                <dynamic>{highlight.get().map(|index| (preview.0)(index))}</dynamic>
+            </div>
+        </div>
+    }
 }
 
-fn query_input(hint: String, query: Signal<String>, handle: SearchPickerHandle, theme: UiTheme) -> impl View {
-    div()
-        .relative()
-        .p(rem(6.0))
-        .surface(theme)
-        .child(show(
-            move || query.with(String::is_empty),
-            move || div().absolute().inset(rem(6.0)).pass_through().child(MutedText::new(hint.clone(), theme)),
-        ))
-        .child(
-            editable(query)
-                .test_id("picker-query")
-                .autofocus()
-                .font(UI_FONT)
-                .text_size(rem(13.0))
-                .color(theme.paint(|c| c.text))
-                .w_full()
-                .on_submit(move |_| handle.choose()),
-        )
+#[component]
+fn query_input(hint: String, handle: SearchPickerHandle) -> impl View {
+    let query = handle.query;
+    view! {
+        <div relative p=6.0 surface>
+            <show when={move || query.with(String::is_empty)}>
+                <div absolute inset=6.0 pass_through><muted_text>{hint.clone()}</muted_text></div>
+            </show>
+            <editable value=query test_id="picker-query" autofocus font=UI_FONT text_size=13.0
+                      color=UiTheme::current().text w_full on_submit={move |_| handle.choose()}/>
+        </div>
+    }
 }
 
 fn results(
-    theme: UiTheme,
     handle: SearchPickerHandle,
-    entries: rouge_reactive::Memo<Vec<Row>>,
-    highlight: rouge_reactive::Memo<Option<usize>>,
+    entries: Memo<Vec<Row>>,
+    highlight: Memo<Option<usize>>,
     empty: String,
     list_height: Length,
 ) -> impl View {
     let columns = memo(move || handle.items.with(|items| Columns::new(items)));
-    let current = signal(None::<(usize, rouge_core::Rect)>);
+    let current = signal(None::<(usize, Rect)>);
     let scroll_state = signal(ScrollState::default());
-    let bounds = signal(rouge_core::Rect::ZERO);
-    let scroll_list = scroll()
-        .test_id("picker-results")
-        .track_bounds(bounds)
-        .scroll_state(scroll_state)
-        .max_h(list_height)
-        .child(show(move || entries.with(Vec::is_empty), move || MutedText::new(empty.clone(), theme)))
-        .child(each(
-            move || entries.get().into_iter().enumerate().collect(),
-            |(position, row)| match row {
-                Row::Group(_) => (*position, None),
-                Row::Item(i, item) => (*i, Some(item.id.clone())),
-            },
-            move |entry| {
-                let choosing = handle.clone();
-                dynamic(move || match entry.get().1 {
-                    Row::Group(label) => group(&label, theme).into_any(),
+    let bounds = signal(Rect::ZERO);
+    let scroll_list = view! {
+        <scroll test_id="picker-results" track_bounds=bounds scroll_state=scroll_state max_h=list_height>
+            <show when={move || entries.with(Vec::is_empty)}><muted_text>{empty.clone()}</muted_text></show>
+            <each items={move || entries.get().into_iter().enumerate().collect()}
+                  key={|(position, row)| match row {
+                      Row::Group(_) => (*position, None),
+                      Row::Item(i, item) => (*i, Some(item.id.clone())),
+                  }}
+                  let:entry>
+                <dynamic>{match entry.get().1 {
+                    Row::Group(label) => group(&label).into_any(),
                     Row::Item(index, item) => {
                         let disabled = item.disabled;
-                        let row_bounds = signal(rouge_core::Rect::ZERO);
+                        let row_bounds = signal(Rect::ZERO);
                         effect(move || {
                             if highlight.get() == Some(index) {
                                 current.set_if_changed(Some((index, row_bounds.get())));
                             }
                         });
-                        let hover = choosing.clone();
-                        let click = choosing.clone();
-                        div()
-                            .track_bounds(row_bounds)
-                            .child(
-                                item_row(item, theme, &columns.get())
-                                    .selection(move || {
-                                        if disabled {
-                                            SelectionState::Disabled
-                                        } else if highlight.get() == Some(index) {
-                                            SelectionState::Selected
-                                        } else {
-                                            SelectionState::None
-                                        }
-                                    })
-                                    .disabled(disabled)
-                                    .on_mouse_move(move |_| {
-                                        if !disabled {
-                                            hover.highlight(index);
-                                        }
-                                    })
-                                    .on_click(move || {
-                                        click.highlight(index);
-                                        click.choose();
-                                    }),
-                            )
-                            .into_any()
+                        let state = if disabled { SelectionState::Disabled } else { SelectionState::None };
+                        let selection = memo(move || {
+                            if highlight.get() == Some(index) { SelectionState::Selected } else { SelectionState::None }
+                        });
+                        let choose = Callback::from(move || {
+                            handle.highlight(index);
+                            handle.choose();
+                        });
+                        let row = item_row(item, &columns.get(), state, Some(selection), choose)
+                            .on_pointer_move(move |_| {
+                                if !disabled {
+                                    handle.highlight(index);
+                                }
+                            });
+                        view! { <div track_bounds=row_bounds>{row}</div> }.into_any()
                     }
-                })
-            },
-        ));
+                }}</dynamic>
+            </each>
+        </scroll>
+    };
     let pending = signal(true);
     effect(move || {
         highlight.get();
@@ -763,85 +586,59 @@ pub enum ThemePickerEvent {
     Commit(ReviewTheme),
     Cancel(ReviewTheme),
 }
-pub struct ThemePicker(SearchPicker);
-impl ThemePicker {
-    pub fn new(
-        id: impl Into<String>,
-        current: &ReviewTheme,
-        themes: Arc<[ThemeChoice]>,
-        theme: UiTheme,
-        emit: impl Fn(ThemePickerEvent) + 'static,
-    ) -> Self {
-        let selection = ThemeSelection::new(current, themes);
-        let items = selection
-            .iter()
-            .flat_map(ThemeSelection::themes)
-            .map(|choice| {
-                PickerItem::new(choice.theme.id().to_string(), choice.name.clone())
-                    .detail(match choice.theme.appearance() {
-                        Appearance::Light => "Light",
-                        Appearance::Dark => "Dark",
-                    })
-                    .checked(choice.theme.id() == current.id())
-            })
-            .collect();
-        let index = selection.as_ref().map_or(0, ThemeSelection::selected);
-        let selection = RefCell::new(selection);
-        Self(
-            SearchPicker::new(id, items, theme, move |event| {
-                let event = match event {
-                    SearchPickerEvent::Highlighted(index) => {
-                        selection.borrow_mut().as_mut().and_then(|s| s.select(index)).map(ThemePickerEvent::Preview)
-                    }
-                    SearchPickerEvent::Chose(index) => selection.borrow_mut().take().map(|mut s| {
-                        s.select(index);
-                        ThemePickerEvent::Commit(s.commit())
-                    }),
-                    SearchPickerEvent::Dismissed => {
-                        selection.borrow_mut().take().map(|s| ThemePickerEvent::Cancel(s.cancel()))
-                    }
-                    SearchPickerEvent::Query(_) => None,
-                };
-                if let Some(event) = event {
-                    emit(event);
-                }
-            })
-            .searchable("Search themes…")
-            .empty("No matching themes")
-            .footer("↑↓ Preview    ↵ Apply    Esc Cancel")
-            .highlight(index),
-        )
-    }
-    #[must_use]
-    pub fn handle(&self) -> SearchPickerHandle {
-        self.0.handle()
+
+pub fn theme_picker(
+    current: &ReviewTheme,
+    themes: Arc<[ThemeChoice]>,
+    emit: impl Fn(ThemePickerEvent) + 'static,
+) -> SearchPickerHandle {
+    let selection = ThemeSelection::new(current, themes);
+    let items = selection
+        .iter()
+        .flat_map(ThemeSelection::themes)
+        .map(|choice| {
+            PickerItem::new(choice.theme.id().to_string(), choice.name.clone())
+                .detail(match choice.theme.appearance() {
+                    Appearance::Light => "Light",
+                    Appearance::Dark => "Dark",
+                })
+                .checked(choice.theme.id() == current.id())
+        })
+        .collect();
+    let index = selection.as_ref().map_or(0, ThemeSelection::selected);
+    let selection = RefCell::new(selection);
+    SearchPickerHandle::new(items, move |event| {
+        let event = match event {
+            SearchPickerEvent::Highlighted(index) => {
+                selection.borrow_mut().as_mut().and_then(|s| s.select(index)).map(ThemePickerEvent::Preview)
+            }
+            SearchPickerEvent::Chose(index) => selection.borrow_mut().take().map(|mut s| {
+                s.select(index);
+                ThemePickerEvent::Commit(s.commit())
+            }),
+            SearchPickerEvent::Dismissed => selection.borrow_mut().take().map(|s| ThemePickerEvent::Cancel(s.cancel())),
+            SearchPickerEvent::Query(_) => None,
+        };
+        if let Some(event) = event {
+            emit(event);
+        }
+    })
+    .highlighted(index)
+}
+
+#[component]
+pub fn theme_picker_view(#[prop(into)] id: String, handle: SearchPickerHandle) -> Div {
+    view! {
+        <search_picker id handle searchable="Search themes…" empty="No matching themes"
+                       footer="↑↓ Preview    ↵ Apply    Esc Cancel"/>
     }
 }
-impl View for ThemePicker {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        self.0.build(cx)
-    }
-}
-pub struct ThemePickerOverlay {
-    picker: ThemePicker,
-    theme: UiTheme,
-}
-impl ThemePickerOverlay {
-    #[must_use]
-    pub fn new(picker: ThemePicker, theme: UiTheme) -> Self {
-        Self { picker, theme }
-    }
-    #[must_use]
-    pub fn picker(&self) -> SearchPickerHandle {
-        self.picker.handle()
-    }
-}
-impl View for ThemePickerOverlay {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let picker = self.picker.handle();
-        Backdrop::new("theme-picker-backdrop", self.theme)
-            .on_dismiss(move || picker.dismiss())
-            .child(self.picker)
-            .build(cx)
+
+#[component]
+pub fn theme_picker_overlay(#[prop(into)] id: String, handle: SearchPickerHandle) -> impl View {
+    view! {
+        <backdrop id="theme-picker-backdrop" on_dismiss={move || handle.dismiss()}>
+            <theme_picker_view id handle/>
+        </backdrop>
     }
 }

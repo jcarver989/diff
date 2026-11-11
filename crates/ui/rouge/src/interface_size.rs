@@ -1,5 +1,5 @@
 use crate::keymap::key_binding;
-use rouge_core::{Div, root_font_size};
+use rouge_core::{Div, root_font_size, set_design_unit};
 use rouge_reactive::{Signal, effect, expect_context, provide_context, signal};
 
 pub const DEFAULT_INTERFACE_SIZE: f32 = if cfg!(target_os = "macos") { 16.0 } else { 18.0 };
@@ -24,6 +24,7 @@ impl InterfaceSize {
     #[must_use]
     pub fn install(default: f32) -> Self {
         let default = clamp(default);
+        set_design_unit(Some(crate::tokens::BASE_SIZE));
         let size = Self { saved: signal(default), preview: signal(None), default };
         let root = root_font_size();
         effect(move || {

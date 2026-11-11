@@ -1,11 +1,8 @@
 use super::MarkdownHandle;
-use crate::ui::{
-    prelude::*,
-    tokens::{ROW_HEIGHT, scaled},
-};
+use crate::ui::{prelude::*, tokens::ROW_HEIGHT};
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewCommand};
-use rouge_core::{RowKey, Styled, View, div, dynamic, text, virtual_list};
+use rouge_core::{RowKey, Styled, View, component, div, dynamic, px, text, view, virtual_list};
 use std::path::Path;
 
 const HEADER_HEIGHT: f32 = 56.0;
@@ -34,88 +31,66 @@ const REVIEW: Shortcuts = &[
 ];
 const DRAFT: Shortcuts = &[("Enter", "save comment"), ("Shift-Enter", "insert newline"), ("Esc", "cancel comment")];
 
-pub(super) fn header(handle: &MarkdownHandle, theme: UiTheme) -> impl View {
-    let leading = dynamic({
-        let handle = handle.clone();
-        move || {
-            let mut leading = div().flex_1().min_w(0.0).flex().row().items_center().gap(rem(8.0));
-            if handle.outline_available() {
-                let open = !handle.outline_collapsed.get();
-                let toggle = handle.clone();
-                leading = leading.child(
-                    PanelSide::Left
-                        .toggle_button("markdown-outline-toggle", open, "outline", theme)
-                        .on_click(move || toggle.toggle_outline()),
-                );
+#[component]
+pub(super) fn header(handle: &MarkdownHandle) -> impl View {
+    let handle = *handle;
+    let leading = move || {
+        let toggle = handle.outline_available().then(|| {
+            let open = !handle.outline_collapsed.get();
+            view! {
+                <panel_toggle side=PanelSide::Left id="markdown-outline-toggle" open name="outline"
+                              on_click={move || handle.toggle_outline()}/>
             }
-            leading.child(title(&handle, theme))
+        });
+        view! {
+            <div flex_1 min_w=0.0 flex row items_center gap=8.0>
+                {toggle}
+                <title handle={&handle}/>
+            </div>
         }
-    });
-    let trailing = dynamic({
-        let handle = handle.clone();
-        move || {
-            handle.overlay.get();
-            handle.draft.get();
-            handle.annotations.get();
-            let caps = handle.capabilities.get();
-            let count = handle.with(|session| session.review().len());
-            let (label, command) = if count == 0 {
-                ("Approve".to_owned(), MarkdownReviewCommand::Approve)
-            } else {
-                (format!("Send feedback ({count})"), MarkdownReviewCommand::RequestChanges)
-            };
-            let run = |command: MarkdownReviewCommand| {
-                let handle = handle.clone();
-                move || handle.run(command)
-            };
-            let mut trailing = div()
-                .flex()
-                .flex_none()
-                .row()
-                .items_center()
-                .gap(rem(8.0))
-                .child(
-                    IconButton::new("markdown-shortcuts", IconName::Info, "Keyboard shortcuts", theme)
-                        .on_click(run(ReviewCommand::ShowHelp.into())),
-                )
-                .child(
-                    Button::new("markdown-theme", "Theme", theme)
-                        .size(ControlSize::Small)
-                        .disabled(!handle.command_enabled(ReviewCommand::OpenThemePicker.into()))
-                        .on_click(run(ReviewCommand::OpenThemePicker.into())),
-                );
-            if caps.clipboard && count > 0 {
-                let copy = handle.clone();
-                trailing = trailing.child(
-                    IconButton::new("markdown-copy", IconName::Copy, "Copy review", theme)
-                        .on_click(move || copy.run(MarkdownReviewCommand::CopyReview(copy.copy_decision()))),
-                );
+    };
+    let trailing = move || {
+        handle.overlay.get();
+        handle.draft.get();
+        handle.annotations.get();
+        let caps = handle.capabilities.get();
+        let count = handle.with(|session| session.review().len());
+        let (label, command) = if count == 0 {
+            ("Approve".to_owned(), MarkdownReviewCommand::Approve)
+        } else {
+            (format!("Send feedback ({count})"), MarkdownReviewCommand::RequestChanges)
+        };
+        let run = |command: MarkdownReviewCommand| move || handle.run(command);
+        let copy = (caps.clipboard && count > 0).then(|| {
+            view! {
+                <icon_button id="markdown-copy" icon=IconName::Copy label="Copy review"
+                             on_click={move || handle.run(MarkdownReviewCommand::CopyReview(handle.copy_decision()))}/>
             }
-            trailing.child(
-                Button::new("markdown-submit", label, theme)
-                    .variant(ButtonVariant::Primary)
-                    .size(ControlSize::Small)
-                    .disabled(!handle.command_enabled(command))
-                    .on_click(run(command)),
-            )
+        });
+        view! {
+            <div flex flex_none row items_center gap=8.0>
+                <icon_button id="markdown-shortcuts" icon=IconName::Info label="Keyboard shortcuts"
+                             on_click=run(ReviewCommand::ShowHelp.into())/>
+                <button id="markdown-theme" label="Theme" size=ControlSize::Small
+                        disabled={!handle.command_enabled(ReviewCommand::OpenThemePicker.into())}
+                        on_click=run(ReviewCommand::OpenThemePicker.into())/>
+                {copy}
+                <button id="markdown-submit" label variant=ButtonVariant::Primary size=ControlSize::Small
+                        disabled={!handle.command_enabled(command)} on_click=run(command)/>
+            </div>
         }
-    });
-    div()
-        .test_id("markdown-header")
-        .h(rem(HEADER_HEIGHT))
-        .flex_none()
-        .flex()
-        .row()
-        .items_center()
-        .gap(rem(8.0))
-        .px(rem(12.0))
-        .border_b(1.0)
-        .border_color(theme.paint(|c| c.border))
-        .child(leading)
-        .child(trailing)
+    };
+    view! {
+        <div test_id="markdown-header" h=HEADER_HEIGHT flex_none flex row items_center gap=8.0 px=12.0
+             border_b=px(1.0) border_color=UiTheme::current().border>
+            <dynamic children=leading/>
+            <dynamic children=trailing/>
+        </div>
+    }
 }
 
-fn title(handle: &MarkdownHandle, theme: UiTheme) -> impl View {
+#[component]
+fn title(handle: &MarkdownHandle) -> impl View {
     let (title, path) = handle.rows.with(|rows| {
         let document = &rows.document;
         let path = document.source_path().map(str::to_owned);
@@ -130,96 +105,76 @@ fn title(handle: &MarkdownHandle, theme: UiTheme) -> impl View {
             .unwrap_or_else(|| "Review".to_owned());
         (title, path)
     });
-    let column = div().flex_1().min_w(0.0).px(rem(4.0)).flex().col().overflow_hidden().child(
-        div()
-            .test_id("markdown-title")
-            .child(text(title).typography(Typography::Title).no_wrap().color(theme.paint(|c| c.text))),
-    );
-    match path {
-        Some(path) => column.child(div().test_id("markdown-path").child(
-            text(path).typography(Typography::Caption).font(CODE_FONT).no_wrap().color(theme.paint(|c| c.text_muted)),
-        )),
-        None => column,
+    let path = path.map(|path| {
+        view! {
+            <div test_id="markdown-path"><text caption font=CODE_FONT no_wrap muted>{path}</text></div>
+        }
+    });
+    view! {
+        <div flex_1 min_w=0.0 px=4.0 flex col overflow_hidden>
+            <div test_id="markdown-title"><text title no_wrap primary>{title}</text></div>
+            {path}
+        </div>
     }
 }
 
-pub(super) fn outline(handle: &MarkdownHandle, theme: UiTheme) -> impl View {
-    let rows = handle.rows;
-    let revision = handle.revision;
-    let pane = handle.pane;
-    let list = virtual_list(move || rows.with(|rows| rows.document.outline().len()), scaled(ROW_HEIGHT), {
-        let handle = handle.clone();
-        move |index| div().px(rem(4.0)).child(outline_row(&handle, index, theme))
-    })
-    .row_identity(move |index| RowKey::new(index, revision.get()))
-    .handle(handle.outline)
-    .size_full();
-    let width = handle.outline_width;
-    ResizablePanel::new("markdown-outline", PanelSide::Left, width)
-        .min_width(MIN_OUTLINE_WIDTH)
-        .max_width(MAX_OUTLINE_WIDTH)
-        .on_resize(move |value| width.set(value))
-        .on_reset(move || width.set(super::DEFAULT_OUTLINE_WIDTH))
-        .child(
-            div()
-                .size_full()
-                .flex()
-                .col()
-                .overflow_hidden()
-                .bg(theme.paint(|c| c.surface))
-                .border_r(1.0)
-                .border_color(
-                    theme.paint(move |c| if pane.get() == MarkdownFocusPane::Outline { c.accent } else { c.border }),
-                )
-                .child(
-                    div()
-                        .px(rem(12.0))
-                        .pt(rem(16.0))
-                        .pb(rem(8.0))
-                        .child(text("Contents").typography(Typography::Label).color(theme.paint(|c| c.text_muted))),
-                )
-                .child(div().flex_1().min_h(0.0).relative().pb(rem(8.0)).child(list).child(
-                    div().absolute().right(0.0).top(0.0).bottom(0.0).child(ListScrollbar::list(handle.outline)),
-                )),
-        )
+pub(super) fn outline(handle: &MarkdownHandle) -> impl View + use<> {
+    let (rows, revision, pane, list, width) =
+        (handle.rows, handle.revision, handle.pane, handle.outline, handle.outline_width);
+    let (handle, theme) = (*handle, UiTheme::current());
+    view! {
+        <resizable_panel id="markdown-outline" side=PanelSide::Left width_in_rem=width min_width=MIN_OUTLINE_WIDTH
+                         max_width=MAX_OUTLINE_WIDTH on_resize={move |value: f32| width.set(value)}
+                         on_reset={move || width.set(super::DEFAULT_OUTLINE_WIDTH)}>
+            <div size_full flex col overflow_hidden bg=theme.surface border_r=px(1.0)
+                 border_color={move || {
+                     if pane.get() == MarkdownFocusPane::Outline { theme.accent.get() } else { theme.border.get() }
+                 }}>
+                <div px=12.0 pt=16.0 pb=8.0><text label muted>"Contents"</text></div>
+                <div flex_1 min_h=0.0 relative pb=8.0>
+                    <virtual_list count={move || rows.with(|rows| rows.document.outline().len())}
+                                  row_height=ROW_HEIGHT
+                                  row_identity={move |index| RowKey::new(index, revision.get())}
+                                  handle=list size_full let:index>
+                        <div px=4.0><outline_row handle={&handle} index/></div>
+                    </virtual_list>
+                    <div absolute right=0.0 top=0.0 bottom=0.0>{ListScrollbar::list(list)}</div>
+                </div>
+            </div>
+        </resizable_panel>
+    }
 }
 
-fn outline_row(handle: &MarkdownHandle, index: usize, theme: UiTheme) -> impl View {
-    let Some(heading) = handle.with(|session| session.document().outline().get(index).cloned()) else {
-        return div().into_any();
-    };
-    let selected = handle.selected;
-    let outline = handle.clone();
-    let annotations = handle.annotations;
-    let counter = handle.clone();
-    let primary = heading.level <= 1;
+#[component]
+fn outline_row(handle: &MarkdownHandle, index: usize) -> Option<impl View> {
+    let heading = handle.with(|session| session.document().outline().get(index).cloned())?;
+    let (handle, theme) = (*handle, UiTheme::current());
+    let (selected, annotations) = (handle.selected, handle.annotations);
     let target = heading.target_id;
-    TreeRow::new(format!("markdown-heading-{index}"), heading.title, theme)
-        .depth(usize::from(heading.level.saturating_sub(1)))
-        .label_color(theme.paint(move |c| if primary { c.text } else { c.text_secondary }))
-        .selection(move || {
-            selected.get();
-            if outline.active_heading() == Some(index) { SelectionState::Selected } else { SelectionState::None }
-        })
-        .on_click({
-            let handle = handle.clone();
-            move || handle.select(target, MarkdownFocusPane::Outline)
-        })
-        .child(dynamic(move || {
-            annotations.get();
-            let count = counter.section_comment_count(index);
-            if count == 0 {
-                return div().into_any();
-            }
-            div()
-                .flex_none()
-                .px(rem(6.0))
-                .rounded(scaled(ROW_HEIGHT))
-                .bg(theme.paint(|c| c.surface_selected))
-                .child(text(count.to_string()).typography(Typography::Caption).color(theme.paint(|c| c.accent)))
-                .into_any()
-        }))
-        .into_any()
+    Some(view! {
+        <tree_row id={format!("markdown-heading-{index}")} label=heading.title
+                  depth={usize::from(heading.level.saturating_sub(1))}
+                  label_color={if heading.level <= 1 { theme.text } else { theme.text_secondary }}
+                  selection={move || {
+                      selected.get();
+                      if handle.active_heading() == Some(index) {
+                          SelectionState::Selected
+                      } else {
+                          SelectionState::None
+                      }
+                  }}
+                  on_click={move || handle.select(target, MarkdownFocusPane::Outline)}>
+            <dynamic>{
+                annotations.get();
+                let count = handle.section_comment_count(index);
+                (count > 0).then(|| view! {
+                    <div flex_none px=6.0 rounded=ROW_HEIGHT bg=theme.surface_selected>
+                        <text caption accent>{count.to_string()}</text>
+                    </div>
+                })
+            }</dynamic>
+        </tree_row>
+    })
 }
 
 impl MarkdownHandle {
@@ -243,41 +198,34 @@ impl MarkdownHandle {
     }
 }
 
-pub(super) fn shortcuts(theme: UiTheme, close: impl Fn() + 'static) -> impl View {
+pub(super) fn shortcuts(close: impl Fn() + 'static) -> impl View {
     let section = |title: &'static str, rows: Shortcuts| {
-        div()
-            .flex_1()
-            .flex()
-            .col()
-            .gap(rem(4.0))
-            .child(div().mb(rem(4.0)).child(text(title).typography(Typography::Label).color(theme.paint(|c| c.accent))))
-            .children(rows.iter().map(move |(keys, description)| {
-                div()
-                    .flex()
-                    .row()
-                    .gap(rem(12.0))
-                    .child(
-                        div()
-                            .w(rem(136.0))
-                            .flex_none()
-                            .child(text(*keys).typography(Typography::Code).no_wrap().color(theme.paint(|c| c.text))),
-                    )
-                    .child(
-                        div().flex_1().min_w(0.0).child(
-                            text(*description).typography(Typography::Body).color(theme.paint(|c| c.text_muted)),
-                        ),
-                    )
-            }))
+        view! {
+            <div flex_1 flex col gap=4.0>
+                <div mb=4.0><text label accent>{title}</text></div>
+                {..rows.iter().map(move |(keys, description)| {
+                    view! {
+                        <div flex row gap=12.0>
+                            <div w=136.0 flex_none><text code no_wrap primary>{*keys}</text></div>
+                            <div flex_1 min_w=0.0><text body muted>{*description}</text></div>
+                        </div>
+                    }
+                })}
+            </div>
+        }
     };
     let sections = [("Navigation", NAVIGATION), ("Review", REVIEW), ("Comment editor", DRAFT)];
-    sections.chunks(2).enumerate().fold(
-        Modal::new("markdown-shortcuts-help", "Review shortcuts", theme)
-            .hint("Esc to close")
-            .size(ModalSize::Wide)
-            .on_dismiss(close),
-        |modal, (index, pair)| {
-            let row = div().flex().row().gap(rem(20.0)).children(pair.iter().map(|(title, rows)| section(title, rows)));
-            modal.child(if index > 0 { row.mt(rem(16.0)) } else { row })
-        },
-    )
+    let rows = sections.chunks(2).enumerate().map(|(index, pair)| {
+        view! {
+            <div flex row gap=20.0 when:mt=(index > 0, 16.0)>
+                {..pair.iter().map(|(title, rows)| section(title, rows))}
+            </div>
+        }
+    });
+    view! {
+        <modal id="markdown-shortcuts-help" title="Review shortcuts" hint="Esc to close" size=ModalSize::Wide
+               on_dismiss=close>
+            {..rows.collect::<Vec<_>>()}
+        </modal>
+    }
 }

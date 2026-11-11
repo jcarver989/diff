@@ -221,7 +221,7 @@ mod wasm {
         ui::{InterfaceSize, fonts::bundled_fonts, interface_size::DEFAULT_INTERFACE_SIZE},
     };
     use clankerdiff_ui_core::ReviewTheme;
-    use rouge_core::{Color, Styled, View, div, dynamic};
+    use rouge_core::{Color, Styled, View, div, dynamic, view};
     use rouge_reactive::{Signal, Task, on_cleanup, signal, spawn};
     use std::{
         cell::{Cell, RefCell},
@@ -322,12 +322,16 @@ mod wasm {
             }
         });
         on_cleanup(move || task.cancel());
-        div().size_full().child(dynamic(move || {
-            markdown.with(|handle| match handle {
-                Some(handle) => markdown_review_view(handle.clone()).into_any(),
-                None => diff_view(viewer.clone()).into_any(),
-            })
-        }))
+        view! {
+            <div size_full>
+                <dynamic>
+                    {markdown.with(|handle| match handle {
+                        Some(handle) => markdown_review_view(handle.clone()).into_any(),
+                        None => diff_view(viewer.clone()).into_any(),
+                    })}
+                </dynamic>
+            </div>
+        }
     }
 
     impl Drop for WebRoot {

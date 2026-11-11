@@ -3,13 +3,13 @@ use clankerdiff_core::{CommitKind, CommitPage, DiffReviewCommand, InteractionPha
 use clankerdiff_rouge_ui::{
     fonts::CODE_FONT,
     icon::{Icon, IconName},
-    picker::{PickerItem, PickerMarker, SearchPicker, SearchPickerEvent},
+    picker::{PickerItem, PickerMarker, SearchPickerEvent, SearchPickerHandle, search_picker},
     theme::{UiColors, UiTheme, color},
-    tokens::{self, rem, scaled},
-    typography::{Typography, TypographyExt},
+    tokens,
+    typography::UiStyles,
 };
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{AnyView, Color, Div, Styled, View, div, pct, text};
+use rouge_core::{Color, Div, Length, Styled, View, div, pct, px, scroll, text, view};
 use rouge_reactive::ReadSignal;
 use std::rc::Rc;
 use web_time::{SystemTime, UNIX_EPOCH};
@@ -23,11 +23,12 @@ const CHANGE_BAR_HEIGHT: f32 = 4.0;
 const CHANGE_BAR_GAP: f32 = 2.0;
 const MARKER_SIZE: f32 = 7.0;
 
-pub(crate) fn commit_picker(handle: &ReviewHandle, theme: UiTheme) -> SearchPicker {
+pub(crate) fn commit_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) {
+    let handle = *handle;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
     let pages = Rc::new(handle.with(|state| state.session().commit_pages(now).unwrap_or_default()));
     let current = pages.iter().position(|page| page.current).unwrap_or(0);
-    let colors = theme.colors();
+    let colors = UiTheme::current().get();
     let items = pages
         .iter()
         .enumerate()
@@ -43,20 +44,21 @@ pub(crate) fn commit_picker(handle: &ReviewHandle, theme: UiTheme) -> SearchPick
         })
         .collect();
     let palette = handle.theme();
-    let handle = handle.clone();
-    SearchPicker::new("commit-picker", items, theme, move |event| match event {
+    let picker = SearchPickerHandle::new(items, move |event| match event {
         SearchPickerEvent::Chose(index) => {
             handle.handle_command(DiffReviewCommand::GoToPage(index));
         }
         SearchPickerEvent::Dismissed => handle.dismiss_picker(InteractionPhase::CommitPicker),
         _ => (),
     })
-    .searchable("Search commits…")
-    .width(rem(tokens::PICKER_PREVIEW_WIDTH))
-    .height(rem(tokens::PICKER_PREVIEW_HEIGHT))
-    .max_list_height(pct(100.0))
-    .highlight(current)
-    .preview(move |index| pages.get(index).map_or_else(|| div().into_any(), |page| preview(page, theme, palette)))
+    .highlighted(current);
+    let commits = view! {
+        <search_picker id="commit-picker" handle=picker searchable="Search commits…"
+                       width=Length::design(tokens::PICKER_PREVIEW_WIDTH)
+                       height=Length::design(tokens::PICKER_PREVIEW_HEIGHT) max_list_height=pct(100.0)
+                       preview={move |index: usize| pages.get(index).map(|page| preview(page, palette)).into_any()}/>
+    };
+    (picker, commits)
 }
 
 fn marker(page: &CommitPage, colors: &UiColors) -> PickerMarker {
@@ -81,138 +83,101 @@ const fn kind_color(kind: Option<CommitKind>, colors: &UiColors) -> Color {
     }
 }
 
-fn preview(page: &CommitPage, theme: UiTheme, palette: ReadSignal<ReviewTheme>) -> AnyView {
-    let mut message =
-        div()
-            .flex_1()
-            .min_h(0.0)
-            .px(rem(PREVIEW_PADDING_X))
-            .pt(rem(PREVIEW_PADDING_TOP))
-            .pb(rem(PREVIEW_GAP))
-            .flex()
-            .col()
-            .gap(rem(PREVIEW_GAP))
-            .child(div().flex().col().gap(rem(8.0)).child(eyebrow(page, theme)).child(
-                div().test_id("commit-preview-title").child(
-                    text(page.title.summary.clone()).typography(Typography::Heading).color(theme.paint(|c| c.text)),
-                ),
-            ));
-    if !page.body.trim().is_empty() {
-        message = message.child(rouge_core::scroll().test_id("commit-preview-body").flex_1().min_h(0.0).child(
-            text(page.body.trim().to_owned()).typography(Typography::Body).color(theme.paint(|c| c.text_secondary)),
-        ));
+fn preview(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
+    let message = page.body.trim();
+    view! {
+        <div test_id="commit-details" size_full flex col>
+            <div flex_1 min_h=0.0 px=PREVIEW_PADDING_X pt=PREVIEW_PADDING_TOP pb=PREVIEW_GAP flex col gap=PREVIEW_GAP>
+                <div flex col gap=8.0>
+                    {eyebrow(page)}
+                    <div test_id="commit-preview-title">
+                        <text heading primary>{page.title.summary.clone()}</text>
+                    </div>
+                </div>
+                {(!message.is_empty()).then(|| view! {
+                    <scroll test_id="commit-preview-body" flex_1 min_h=0.0>
+                        <text body secondary>{message.to_owned()}</text>
+                    </scroll>
+                })}
+            </div>
+            {facts(page, palette)}
+        </div>
     }
-    div()
-        .test_id("commit-details")
-        .size_full()
-        .flex()
-        .col()
-        .child(message)
-        .child(facts(page, theme, palette))
-        .into_any()
 }
 
-fn eyebrow(page: &CommitPage, theme: UiTheme) -> Div {
-    let colors = theme.colors();
+fn eyebrow(page: &CommitPage) -> Div {
+    let colors = UiTheme::current().get();
     let (label, tone) = match page.title.kind {
         _ if page.is_working_tree() => ("Uncommitted", colors.text_secondary),
         Some(kind) => (kind.label(), kind_color(Some(kind), &colors)),
         None => ("Commit", colors.text_secondary),
     };
     let dot = match marker(page, &colors) {
-        PickerMarker::Dot(dot) => div().w(rem(MARKER_SIZE)).h(rem(MARKER_SIZE)).rounded(scaled(MARKER_SIZE)).bg(dot),
-        PickerMarker::Pending => div()
-            .w(rem(MARKER_SIZE + 2.0))
-            .h(rem(MARKER_SIZE + 2.0))
-            .rounded(scaled(MARKER_SIZE))
-            .border(1.0)
-            .border_color(colors.text_muted),
+        PickerMarker::Dot(dot) => view! { <div size=MARKER_SIZE rounded=MARKER_SIZE bg=dot/> },
+        PickerMarker::Pending => view! {
+            <div size={MARKER_SIZE + 2.0} rounded=MARKER_SIZE border=px(1.0) border_color=colors.text_muted/>
+        },
     };
-    let mut row = div()
-        .test_id("commit-preview-eyebrow")
-        .flex()
-        .row()
-        .items_center()
-        .gap(rem(6.0))
-        .child(dot)
-        .child(text(label).typography(Typography::Small).weight(500.0).color(tone));
-    if let Some(scope) = page.title.scope.clone() {
-        row = row
-            .child(text("·").typography(Typography::Small).color(colors.text_muted))
-            .child(text(scope).typography(Typography::Small).color(colors.text_muted));
+    view! {
+        <div test_id="commit-preview-eyebrow" flex row items_center gap=6.0>
+            {dot}
+            <text small weight=500.0 color=tone>{label}</text>
+            {page.title.scope.clone().map(|scope| view! {
+                <text small color=colors.text_muted>"·"</text>
+                <text small color=colors.text_muted>{scope}</text>
+            })}
+        </div>
     }
-    row
 }
 
-fn facts(page: &CommitPage, theme: UiTheme, palette: ReadSignal<ReviewTheme>) -> Div {
+fn facts(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
+    let theme = UiTheme::current();
     let fact = move |icon: IconName, label: String, code: bool| {
-        let label = text(label).typography(Typography::Small).color(theme.paint(|c| c.text_secondary)).no_wrap();
-        div()
-            .flex()
-            .row()
-            .items_center()
-            .gap(rem(6.0))
-            .child(Icon::new(icon, theme.paint(|c| c.text_muted)).size(tokens::ICON_SIZE_SMALL))
-            .child(if code { label.font(CODE_FONT) } else { label })
+        view! {
+            <div flex row items_center gap=6.0>
+                {Icon::new(icon, theme.text_muted).size(tokens::ICON_SIZE_SMALL)}
+                <text small secondary no_wrap when:font=(code, CODE_FONT)>{label}</text>
+            </div>
+        }
     };
-    let mut row = div().flex().row().flex_wrap().items_center().gap(rem(12.0)).child(match &page.short_id {
+    let commit = match &page.short_id {
         Some(short_id) => fact(IconName::GitCommit, short_id.clone(), true),
         None => fact(IconName::GitCommit, "Working tree".to_owned(), false),
-    });
-    if let Some(number) = page.title.pull_request {
-        row = row.child(fact(IconName::GitPullRequest, format!("#{number}"), false));
+    };
+    view! {
+        <div test_id="commit-preview-facts" flex_none mx=PREVIEW_PADDING_X pt=PREVIEW_GAP pb=PREVIEW_PADDING_BOTTOM
+             border_t=px(1.0) border_color=theme.border_subtle flex col gap=FACTS_GAP>
+            <div flex row flex_wrap items_center gap=12.0>
+                {commit}
+                {page.title.pull_request.map(|number| fact(IconName::GitPullRequest, format!("#{number}"), false))}
+                {page.stat.map(|stat| view! {
+                    {fact(IconName::File, count(stat.files, "file"), false)}
+                    {style::stat_badges(stat, palette)}
+                })}
+                {page.age.as_ref().map(|age| fact(IconName::Timer, age.clone(), false))}
+                {fact(IconName::MessageCircle, comments_label(page.comments), false)}
+            </div>
+            {page.stat.and_then(|stat| change_bar(stat, palette))}
+        </div>
     }
-    if let Some(stat) = page.stat {
-        row =
-            row.child(fact(IconName::File, count(stat.files, "file"), false)).child(style::stat_badges(stat, palette));
-    }
-    if let Some(age) = &page.age {
-        row = row.child(fact(IconName::Timer, age.clone(), false));
-    }
-    row = row.child(fact(IconName::MessageCircle, comments_label(page.comments), false));
-    let mut facts = div()
-        .test_id("commit-preview-facts")
-        .flex_none()
-        .mx(rem(PREVIEW_PADDING_X))
-        .pt(rem(PREVIEW_GAP))
-        .pb(rem(PREVIEW_PADDING_BOTTOM))
-        .border_t(1.0)
-        .border_color(theme.paint(|c| c.border_subtle))
-        .flex()
-        .col()
-        .gap(rem(FACTS_GAP))
-        .child(row);
-    if let Some(bar) = page.stat.and_then(|stat| change_bar(stat, palette)) {
-        facts = facts.child(bar);
-    }
-    facts
 }
 
 #[expect(clippy::cast_precision_loss, reason = "Line counts only set a proportional bar width")]
 fn change_bar(stat: LineStat, palette: ReadSignal<ReviewTheme>) -> Option<Div> {
     let total = stat.added + stat.deleted;
     (total > 0).then(|| {
-        let mut bar = div()
-            .test_id("commit-preview-change-bar")
-            .h(rem(CHANGE_BAR_HEIGHT))
-            .w_full()
-            .flex()
-            .row()
-            .gap(rem(CHANGE_BAR_GAP))
-            .rounded(scaled(CHANGE_BAR_HEIGHT))
-            .overflow_hidden();
-        if stat.added > 0 {
-            bar = bar.child(
-                div()
-                    .h_full()
-                    .w(pct(100.0 * stat.added as f32 / total as f32))
-                    .bg(move || palette.with(|t| color(t.diff.addition))),
-            );
+        view! {
+            <div test_id="commit-preview-change-bar" h=CHANGE_BAR_HEIGHT w_full flex row gap=CHANGE_BAR_GAP
+                 rounded=CHANGE_BAR_HEIGHT overflow_hidden>
+                {(stat.added > 0).then(|| view! {
+                    <div h_full w=pct(100.0 * stat.added as f32 / total as f32)
+                         bg={move || palette.with(|t| color(t.diff.addition))}/>
+                })}
+                {(stat.deleted > 0).then(|| view! {
+                    <div h_full flex_1 bg={move || palette.with(|t| color(t.diff.deletion))}/>
+                })}
+            </div>
         }
-        if stat.deleted > 0 {
-            bar = bar.child(div().h_full().flex_1().bg(move || palette.with(|t| color(t.diff.deletion))));
-        }
-        bar
     })
 }
 

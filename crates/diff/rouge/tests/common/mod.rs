@@ -16,7 +16,7 @@ pub fn run<T>(
         .build_with(|| {
             let sink = outputs.clone();
             let handle = ReviewController::new(document).mount(move |event| sink.borrow_mut().push(event));
-            (diff_view(handle.clone()), handle)
+            (diff_view(handle), handle)
         });
     test(&mut ui, handle, &outputs)
 }

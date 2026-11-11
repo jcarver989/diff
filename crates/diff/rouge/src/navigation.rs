@@ -292,7 +292,7 @@ impl ReviewHandle {
             }
             state.cancel_card_timer();
             if state.names.lingering() {
-                let handle = self.clone();
+                let handle = *self;
                 let revision = state.definition_revision;
                 state.hide_card = Some(spawn(async move {
                     sleep(Duration::from_millis(200)).await;
@@ -380,11 +380,9 @@ impl ReviewHandle {
     }
 
     pub(crate) fn follow_visible_file(&self, file: usize) {
-        self.update(|state| {
-            state.focus_file = Some(file);
-            if state.pane == ViewerPane::Diff && state.session.files_mode() == FilesMode::Diff {
-                state.sidebar.follow_file(file);
-            }
-        });
+        self.focus_file.set_if_changed(Some(file));
+        if self.with(|state| state.pane == ViewerPane::Diff && state.session.files_mode() == FilesMode::Diff) {
+            self.update(|state| state.sidebar.follow_file(file));
+        }
     }
 }

@@ -3,24 +3,20 @@ use clankerdiff_core::{DiffSide, ReviewCommand};
 use clankerdiff_rouge_ui::{
     icon::{Icon, IconName},
     theme::UiTheme,
-    tokens::{rem, scaled},
 };
-use rouge_core::{Cursor, Styled, View, div};
+use rouge_core::{Cursor, Styled, View, component, div, view};
 
-pub(crate) fn add_comment(handle: ReviewHandle, row: usize, side: DiffSide, theme: UiTheme) -> impl View {
-    div()
-        .test_id(format!("add-comment-{row}-{side:?}"))
-        .w(rem(19.0))
-        .h(rem(19.0))
-        .rounded(scaled(4.0))
-        .bg(theme.paint(|c| c.accent))
-        .cursor(Cursor::Pointer)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(Icon::new(IconName::Plus, theme.paint(|c| c.accent_foreground)).size(12.0))
-        .on_click(move |event| {
-            event.stop_propagation();
-            handle.line_command(row, side, ReviewCommand::BeginComment.into());
-        })
+#[component]
+pub(crate) fn add_comment(handle: ReviewHandle, row: usize, side: DiffSide) -> impl View {
+    let theme = UiTheme::current();
+    view! {
+        <div test_id={format!("add-comment-{row}-{side:?}")} w=19.0 h=19.0 rounded=4.0 bg=theme.accent
+             cursor=Cursor::Pointer flex items_center justify_center
+             on_click={move |event| {
+                 event.stop_propagation();
+                 handle.line_command(row, side, ReviewCommand::BeginComment.into());
+             }}>
+            {Icon::new(IconName::Plus, theme.accent_foreground).size(12.0)}
+        </div>
+    }
 }

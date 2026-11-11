@@ -1,4 +1,4 @@
-use super::{Overlay, PickerCommand, ReviewController, ReviewOutput, ScrollRequest, ViewerPane};
+use super::{Effect, Overlay, PickerCommand, ReviewController, ReviewOutput, ScrollRequest, ViewerPane};
 use crate::DiffViewerEvent;
 use clankerdiff_core::{
     CommandContext, DiffDocument, DiffReviewCommand as C, FilesMode, InteractionPhase, RepositoryAction,
@@ -116,11 +116,7 @@ impl ReviewController {
             C::SelectSide(side) => {
                 self.session.set_selected_side(side);
             }
-            C::MoveSelection(delta) => return self.move_selection(delta),
-            C::Page(delta) => {
-                return self
-                    .move_selection(delta.saturating_mul(self.page_rows[usize::from(self.pane == ViewerPane::Files)]));
-            }
+            C::MoveSelection(delta) | C::Page(delta) => return self.move_selection(delta),
             C::First | C::Last => return self.select_boundary(command == C::Last),
             C::OpenSelected | C::CollapseSelected => return self.open_or_fold(command == C::OpenSelected),
             C::RevealGap(amount) => return self.session.reveal_selected_gap(amount),
@@ -144,7 +140,7 @@ impl ReviewController {
                     self.session.toggle_layout()
                 };
                 if changed {
-                    self.outputs.push(ReviewOutput::ViewModeChanged(self.session.view_mode()));
+                    self.effects.push(Effect::Output(ReviewOutput::ViewModeChanged(self.session.view_mode())));
                 }
             }
             C::ToggleStage => {
@@ -174,7 +170,6 @@ impl ReviewController {
                 if self.sidebar_collapsed {
                     self.pane = ViewerPane::Diff;
                 }
-                self.update_width();
             }
             C::ShowDefinition => return self.show_definition(),
             C::GoToDefinition => return self.activate_definition(),
@@ -193,12 +188,12 @@ impl ReviewController {
             }
             C::OpenCommitPicker => self.overlay = Some(Overlay::Commits),
             C::MoveCommitPicker(delta) | C::Review(R::MoveTheme(delta)) => {
-                self.picker_command = Some(PickerCommand::Move(delta));
+                self.effects.push(Effect::Picker(PickerCommand::Move(delta)));
             }
             C::Refresh => self.emit(DiffViewerEvent::Refresh),
             C::SubmitReview => self.emit(DiffViewerEvent::SubmitReview(self.session.submission())),
             C::CopyReview => self.emit(DiffViewerEvent::CopyFormattedReview(self.session.submission().formatted)),
-            C::Scroll { pane, lines } => self.scroll = Some(ScrollRequest { pane, lines }),
+            C::Scroll { pane, lines } => self.effects.push(Effect::Scroll(ScrollRequest { pane, lines })),
             C::Review(R::BeginComment) => return self.session.begin_draft(None),
             C::Review(R::EditComment) => return self.session.edit_comment_at_selection(),
             C::Review(R::DeleteComment) => return self.session.delete_comment_at_selection(),
@@ -217,9 +212,9 @@ impl ReviewController {
             }
             C::Review(R::ShowHelp) => self.overlay = Some(Overlay::Help),
             C::Review(R::ScrollHelp(_)) => return false,
-            C::Review(R::OpenThemePicker) => self.overlay = Some(Overlay::Themes(Box::new(self.theme.clone()))),
-            C::Review(R::SelectTheme(index)) => self.picker_command = Some(PickerCommand::Highlight(index)),
-            C::Review(R::CommitTheme) => self.picker_command = Some(PickerCommand::Choose),
+            C::Review(R::OpenThemePicker) => self.overlay = Some(Overlay::Themes),
+            C::Review(R::SelectTheme(index)) => self.effects.push(Effect::Picker(PickerCommand::Highlight(index))),
+            C::Review(R::CommitTheme) => self.effects.push(Effect::Picker(PickerCommand::Choose)),
         }
         true
     }

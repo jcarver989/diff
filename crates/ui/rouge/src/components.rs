@@ -2,276 +2,120 @@ use crate::{
     icon::{Icon, IconName},
     indicator_layer::IndicatorMark,
     theme::UiTheme,
-    tokens::{self, rem, scaled},
-    typography::{Typography, TypographyExt},
+    tokens,
+    typography::UiStyles,
 };
 pub use clankerdiff_ui_core::{
     ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone, SelectionState,
 };
 use rouge_core::{
-    AnyView, BoxShadow, BuildCx, Color, Cursor, Div, ElementId, Key, Length, PointerEvent, Rect, Styled, View, div,
-    overlay, text,
+    AnyView, Apply, BoxShadow, Color, Cursor, Div, Interactions, Key, Length, PointerEvent, Prop, Rect, Styled, Text,
+    View, component, div, overlay, pct, px, styles, text, view,
 };
-use rouge_reactive::{Signal, signal};
-use std::rc::Rc;
+use rouge_reactive::{Callback, Signal, memo, signal};
+use rouge_widgets::Hint;
 
-type Handler = Rc<dyn Fn()>;
-
-pub(crate) fn activate(root: Div, focusable: bool, enabled: bool, action: Option<Handler>) -> Div {
+pub(crate) fn pressable(root: Div, keyboard: bool, enabled: bool, action: Callback) -> Div {
     let root = root.enabled(enabled);
-    if !enabled {
+    if !enabled || !action.is_set() {
         return root;
     }
-    let Some(action) = action else {
-        return root;
-    };
-    let pointer = action.clone();
-    let root = root.cursor(Cursor::Pointer).on_click(move |event| {
-        event.stop_propagation();
-        pointer();
-    });
-    if focusable {
-        root.focusable().on_key_down(move |event| {
-            if matches!(event.key, Key::Enter | Key::Space) {
-                event.stop_propagation();
-                action();
-            }
-        })
+    if keyboard {
+        root.on_press(move || action.call())
     } else {
-        root
+        root.cursor(Cursor::Pointer).on_click(move |event| {
+            event.stop_propagation();
+            action.call();
+        })
     }
 }
 
-pub struct Button {
-    id: String,
-    label: String,
+fn hinted(root: Div, hint: Option<String>) -> AnyView {
+    match hint {
+        Some(hint) => root.tooltip(hint).into_any(),
+        None => root.into_any(),
+    }
+}
+
+#[component]
+pub fn button(
+    #[prop(into)] id: String,
+    #[prop(into)] label: String,
     icon: Option<IconName>,
-    hint: Option<String>,
-    theme: UiTheme,
-    variant: ButtonVariant,
-    state: ControlState,
-    size: ControlSize,
-    full: bool,
-    focusable: bool,
-    action: Option<Handler>,
-}
-impl Button {
-    pub fn new(id: impl Into<String>, label: impl Into<String>, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            label: label.into(),
-            icon: None,
-            hint: None,
-            theme,
-            variant: ButtonVariant::default(),
-            state: ControlState::default(),
-            size: ControlSize::default(),
-            full: false,
-            focusable: false,
-            action: None,
-        }
-    }
-    #[must_use]
-    pub fn icon(mut self, icon: IconName) -> Self {
-        self.icon = Some(icon);
-        self
-    }
-    #[must_use]
-    pub fn variant(mut self, variant: ButtonVariant) -> Self {
-        self.variant = variant;
-        self
-    }
-    #[must_use]
-    pub fn size(mut self, size: ControlSize) -> Self {
-        self.size = size;
-        self
-    }
-    #[must_use]
-    pub fn tooltip(mut self, hint: impl Into<String>) -> Self {
-        self.hint = Some(hint.into());
-        self
-    }
-    #[must_use]
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.state.interaction = if disabled { InteractionState::Disabled } else { InteractionState::Rest };
-        self
-    }
-    #[must_use]
-    pub fn selected(mut self, selected: bool) -> Self {
-        self.state.selected = selected;
-        self
-    }
-    #[must_use]
-    pub fn keyboard_focusable(mut self) -> Self {
-        self.focusable = true;
-        self
-    }
-    #[must_use]
-    pub fn full_width(mut self) -> Self {
-        self.full = true;
-        self
-    }
-    #[must_use]
-    pub fn on_click(mut self, action: impl Fn() + 'static) -> Self {
-        self.action = Some(Rc::new(action));
-        self
-    }
-}
-impl View for Button {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let (theme, variant, state) = (self.theme, self.variant, self.state);
-        let enabled = state.interaction != InteractionState::Disabled;
-        let hovered = signal(false);
-        let focused = signal(false);
-        let style = rouge_reactive::memo(move || {
-            theme.control_style(
-                variant,
-                ControlState {
-                    interaction: if enabled && hovered.get() { InteractionState::Hovered } else { state.interaction },
-                    ..state
-                },
-            )
-        });
-        let root = div()
-            .test_id(self.id)
-            .flex()
-            .items_center()
-            .justify_center()
-            .flex_none()
-            .gap(rem(6.0))
-            .rounded(scaled(tokens::RADIUS_CONTROL))
-            .on_hover(move |inside| {
-                hovered.set_if_changed(inside);
-            })
-            .on_focus(move |event| {
-                focused.set_if_changed(event.visible);
-            })
-            .on_blur(move |_| {
-                focused.set(false);
-            })
-            .border(1.0)
-            .border_color(move || if focused.get() { theme.colors().accent } else { Color::TRANSPARENT })
-            .bg(move || style.get().background.unwrap_or(Color::TRANSPARENT));
-        let mut root = root.h(rem(if self.size == ControlSize::Small { 24.0 } else { tokens::ROW_HEIGHT })).px(rem(
-            if self.size == ControlSize::Small {
-                tokens::CONTROL_PADDING_X_SMALL
-            } else {
-                tokens::CONTROL_PADDING_X_MEDIUM
-            },
-        ));
-        if self.full {
-            root = root.w_full();
-        }
-        if let Some(icon) = self.icon {
-            root = root.child(Icon::new(icon, move || style.get().foreground));
-        }
-        root = root.child(
-            text(self.label)
-                .typography(Typography::Label)
-                .weight(move || if style.get().emphasized { 600.0 } else { 500.0 })
-                .color(move || style.get().foreground)
-                .no_wrap(),
-        );
-        let root = activate(root, self.focusable, enabled, self.action);
-        if let Some(hint) = self.hint { Tooltip::new(root, hint).build(cx) } else { root.build(cx) }
-    }
+    #[prop(default)] variant: ButtonVariant,
+    #[prop(default)] size: ControlSize,
+    #[prop(into)] tooltip: Option<String>,
+    #[prop(default)] disabled: bool,
+    #[prop(default)] selected: bool,
+    #[prop(default)] keyboard_focusable: bool,
+    #[prop(default)] full_width: bool,
+    #[prop(default, into)] on_click: Callback,
+) -> AnyView {
+    let theme = UiTheme::current();
+    let state = signal(Interactions::default());
+    let style = memo(move || {
+        let state = state.get();
+        let interaction = if disabled {
+            InteractionState::Disabled
+        } else if state.hovered {
+            InteractionState::Hovered
+        } else {
+            InteractionState::Rest
+        };
+        theme.control_style(variant, ControlState { interaction, selected })
+    });
+    let small = size == ControlSize::Small;
+    let height = if small { 24.0 } else { tokens::ROW_HEIGHT };
+    let padding = if small { tokens::CONTROL_PADDING_X_SMALL } else { tokens::CONTROL_PADDING_X_MEDIUM };
+    let foreground = move || style.get().foreground;
+    let root = view! {
+        <div test_id=id flex items_center justify_center flex_none gap=6.0 rounded=tokens::RADIUS_CONTROL
+             track_interaction=state border=px(1.0) h=height px=padding when:w_full=full_width
+             border_color={move || if state.get().focus_visible() { theme.accent.get() } else { Color::TRANSPARENT }}
+             bg={move || style.get().background.unwrap_or(Color::TRANSPARENT)}>
+            {icon.map(|icon| Icon::new(icon, foreground))}
+            <text label no_wrap weight={move || if style.get().emphasized { 600.0 } else { 500.0 }} color=foreground>
+                {label}
+            </text>
+        </div>
+    };
+    hinted(pressable(root, keyboard_focusable, !disabled, on_click), tooltip)
 }
 
-pub struct IconButton {
-    id: String,
+#[component]
+pub fn icon_button(
+    #[prop(into)] id: String,
     icon: IconName,
-    label: String,
-    theme: UiTheme,
-    icon_size: f32,
-    selected: bool,
-    disabled: bool,
-    focusable: bool,
-    action: Option<Handler>,
-}
-impl IconButton {
-    pub fn new(id: impl Into<String>, icon: IconName, label: impl Into<String>, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            icon,
-            label: label.into(),
-            theme,
-            icon_size: tokens::ICON_SIZE,
-            selected: false,
-            disabled: false,
-            focusable: false,
-            action: None,
-        }
-    }
-    #[must_use]
-    pub fn on_click(mut self, action: impl Fn() + 'static) -> Self {
-        self.action = Some(Rc::new(action));
-        self
-    }
-    #[must_use]
-    pub const fn icon_size(mut self, size: f32) -> Self {
-        self.icon_size = size;
-        self
-    }
-    #[must_use]
-    pub const fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-    #[must_use]
-    pub const fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
-        self
-    }
-    #[must_use]
-    pub const fn keyboard_focusable(mut self) -> Self {
-        self.focusable = true;
-        self
-    }
-}
-impl View for IconButton {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let (theme, selected, enabled) = (self.theme, self.selected, !self.disabled);
-        let hovered = signal(false);
-        let focused = signal(false);
-        let root = div()
-            .test_id(self.id)
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .w(rem(tokens::ICON_BUTTON_SIZE))
-            .h(rem(tokens::ICON_BUTTON_SIZE))
-            .rounded(scaled(tokens::ICON_BUTTON_SIZE / 2.0))
-            .bg(move || {
-                let colors = theme.colors();
-                if selected || focused.get() {
-                    colors.surface_selected
-                } else if enabled && hovered.get() {
-                    colors.surface_hover
-                } else {
-                    Color::TRANSPARENT
-                }
-            })
-            .on_hover(move |inside| {
-                hovered.set_if_changed(inside);
-            })
-            .on_focus(move |event| {
-                focused.set_if_changed(event.visible);
-            })
-            .on_blur(move |_| {
-                focused.set(false);
-            })
-            .child(
-                Icon::new(self.icon, move || {
-                    let colors = theme.colors();
-                    if selected || (enabled && hovered.get()) { colors.text } else { colors.text_muted }
-                })
-                .size(self.icon_size),
-            );
-        let root = if enabled { root } else { root.opacity(0.4) };
-        let root = activate(root, self.focusable, enabled, self.action);
-        if enabled { Tooltip::new(root, self.label).build(cx) } else { root.build(cx) }
-    }
+    #[prop(into)] label: String,
+    icon_size: Option<f32>,
+    #[prop(default)] disabled: bool,
+    #[prop(default)] selected: bool,
+    #[prop(default)] keyboard_focusable: bool,
+    #[prop(default, into)] on_click: Callback,
+) -> AnyView {
+    let theme = UiTheme::current();
+    let enabled = !disabled;
+    let state = signal(Interactions::default());
+    let foreground = move || {
+        if selected || (enabled && state.get().hovered) { theme.text.get() } else { theme.text_muted.get() }
+    };
+    let root = view! {
+        <div test_id=id flex flex_none items_center justify_center size=tokens::ICON_BUTTON_SIZE
+             rounded={tokens::ICON_BUTTON_SIZE / 2.0} track_interaction=state when:opacity=(disabled, 0.4)
+             bg={move || {
+                 let state = state.get();
+                 if selected || state.focus_visible() {
+                     theme.surface_selected.get()
+                 } else if enabled && state.hovered {
+                     theme.surface_hover.get()
+                 } else {
+                     Color::TRANSPARENT
+                 }
+             }}>
+            {Icon::new(icon, foreground).size(icon_size.unwrap_or(tokens::ICON_SIZE))}
+        </div>
+    };
+    hinted(pressable(root, keyboard_focusable, enabled, on_click), enabled.then_some(label))
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -282,851 +126,353 @@ pub enum CheckState {
     Indeterminate,
 }
 
-pub struct Checkbox {
-    id: String,
+#[component]
+pub fn checkbox(
+    #[prop(into)] id: String,
     state: CheckState,
-    hint: Option<String>,
-    theme: UiTheme,
-    disabled: bool,
-    action: Option<Handler>,
-}
-impl Checkbox {
-    pub fn new(id: impl Into<String>, state: CheckState, theme: UiTheme) -> Self {
-        Self { id: id.into(), state, hint: None, theme, disabled: false, action: None }
-    }
-    #[must_use]
-    pub fn tooltip(mut self, hint: impl Into<String>) -> Self {
-        self.hint = Some(hint.into());
-        self
-    }
-    #[must_use]
-    pub const fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
-        self
-    }
-    #[must_use]
-    pub fn on_toggle(mut self, action: impl Fn() + 'static) -> Self {
-        self.action = Some(Rc::new(action));
-        self
-    }
-}
-impl View for Checkbox {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let (theme, state, enabled) = (self.theme, self.state, !self.disabled);
-        let hovered = signal(false);
-        let focused = signal(false);
-        let mark = rouge_core::canvas(move |painter| {
-            let size = painter.size();
-            let at = |x: f32, y: f32| (size.width * x, size.height * y);
-            let path = match state {
-                CheckState::Unchecked => return,
-                CheckState::Checked => {
-                    let ((ax, ay), (bx, by), (cx, cy)) = (at(0.22, 0.5), at(0.43, 0.72), at(0.78, 0.28));
-                    rouge_core::Path::builder().move_to(ax, ay).line_to(bx, by).line_to(cx, cy).build()
-                }
-                CheckState::Indeterminate => {
-                    let ((ax, ay), (bx, by)) = (at(0.25, 0.5), at(0.75, 0.5));
-                    rouge_core::Path::builder().move_to(ax, ay).line_to(bx, by).build()
-                }
-            };
-            painter.stroke_round(&path, size.width / 6.0, theme.colors().text);
-        })
-        .size_full();
-        let root = div()
-            .test_id(self.id)
-            .flex_none()
-            .w(rem(tokens::CHECKBOX_SIZE))
-            .h(rem(tokens::CHECKBOX_SIZE))
-            .rounded(scaled(2.0))
-            .border(1.0)
-            .border_color(move || {
-                let colors = theme.colors();
-                if enabled && (hovered.get() || focused.get()) { colors.accent } else { colors.text_muted }
-            })
-            .bg(theme.paint(|c| c.canvas))
-            .on_hover(move |inside| {
-                hovered.set_if_changed(inside);
-            })
-            .on_focus(move |event| {
-                focused.set_if_changed(event.visible);
-            })
-            .on_blur(move |_| {
-                focused.set(false);
-            })
-            .child(mark);
-        let root = if enabled { root } else { root.opacity(0.4) };
-        let root = activate(root, true, enabled, self.action);
-        match self.hint.filter(|_| enabled) {
-            Some(hint) => Tooltip::new(root, hint).build(cx),
-            None => root.build(cx),
-        }
-    }
-}
-
-pub struct Segment {
-    id: String,
-    label: String,
-    icon: Option<IconName>,
-    detail: Option<String>,
-    selected: bool,
-    disabled: bool,
-    action: Option<Handler>,
-}
-impl Segment {
-    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            label: label.into(),
-            icon: None,
-            detail: None,
-            selected: false,
-            disabled: false,
-            action: None,
-        }
-    }
-    pub fn icon(id: impl Into<String>, icon: IconName, label: impl Into<String>) -> Self {
-        let mut s = Self::new(id, label);
-        s.icon = Some(icon);
-        s
-    }
-    #[must_use]
-    pub fn detail(mut self, detail: impl Into<String>) -> Self {
-        self.detail = Some(detail.into());
-        self
-    }
-    #[must_use]
-    pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-    #[must_use]
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
-        self
-    }
-    #[must_use]
-    pub fn on_click(mut self, action: impl Fn() + 'static) -> Self {
-        self.action = Some(Rc::new(action));
-        self
-    }
-}
-pub struct SegmentedControl {
-    id: String,
-    theme: UiTheme,
-    segments: Vec<Segment>,
-}
-impl SegmentedControl {
-    pub fn new(id: impl Into<String>, theme: UiTheme) -> Self {
-        Self { id: id.into(), theme, segments: Vec::new() }
-    }
-    #[must_use]
-    pub fn segments(mut self, segments: impl IntoIterator<Item = Segment>) -> Self {
-        self.segments = segments.into_iter().collect();
-        self
-    }
-}
-impl View for SegmentedControl {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let theme = self.theme;
-        div()
-            .test_id(self.id)
-            .flex()
-            .items_center()
-            .gap(rem(2.0))
-            .p(rem(2.0))
-            .rounded(scaled(tokens::RADIUS_CONTROL))
-            .bg(theme.paint(|c| c.chrome))
-            .children(self.segments.into_iter().map(move |s| {
-                let hovered = signal(false);
-                let foreground = move || {
-                    let colors = theme.colors();
-                    if s.selected || hovered.get() { colors.text } else { colors.text_muted }
-                };
-                let detail_id = format!("{}-detail", s.id);
-                let mut segment = div()
-                    .test_id(s.id)
-                    .h(rem(24.0))
-                    .flex()
-                    .items_center()
-                    .gap(rem(4.0))
-                    .px(rem(if s.icon.is_some() {
-                        tokens::CONTROL_PADDING_X_SMALL
-                    } else {
-                        tokens::CONTROL_PADDING_X_MEDIUM
-                    }))
-                    .rounded(scaled(tokens::RADIUS_INNER))
-                    .on_hover(move |inside| {
-                        hovered.set_if_changed(inside);
-                    });
-                if s.selected {
-                    segment = segment.bg(theme.paint(|c| c.surface_selected));
-                }
-                if s.disabled {
-                    segment = segment.opacity(0.4);
-                }
-                let hint = if let Some(icon) = s.icon {
-                    segment = segment.child(Icon::new(icon, foreground));
-                    if let Some(detail) = s.detail {
-                        segment = segment.child(
-                            div()
-                                .test_id(detail_id)
-                                .child(text(detail).typography(Typography::Small).color(foreground)),
-                        );
-                    }
-                    Some(s.label)
-                } else {
-                    segment = segment.child(text(s.label).typography(Typography::Small).color(foreground));
-                    None
-                };
-                let segment = activate(segment, true, !s.disabled, s.action);
-                if let Some(hint) = hint { Tooltip::new(segment, hint).into_any() } else { segment.into_any() }
-            }))
-            .build(cx)
-    }
-}
-
-pub struct Tooltip(rouge_widgets::Tooltip);
-impl Tooltip {
-    pub fn new(target: impl View, label: impl Into<String>) -> Self {
-        Self(rouge_widgets::tooltip(target, label))
-    }
-    #[must_use]
-    pub fn delay(self, delay: std::time::Duration) -> Self {
-        Self(self.0.delay(delay))
-    }
-}
-impl View for Tooltip {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        self.0.build(cx)
-    }
-}
-
-pub struct Disclosure {
-    root: Div,
-    id: String,
-    expanded: bool,
-    theme: UiTheme,
-    action: Option<Handler>,
-}
-impl Disclosure {
-    pub fn new(id: impl Into<String>, expanded: bool, theme: UiTheme) -> Self {
-        Self { root: div(), id: id.into(), expanded, theme, action: None }
-    }
-    #[must_use]
-    pub fn child(mut self, child: impl View) -> Self {
-        self.root = self.root.child(child);
-        self
-    }
-    #[must_use]
-    pub fn on_toggle(mut self, action: impl Fn() + 'static) -> Self {
-        self.action = Some(Rc::new(action));
-        self
-    }
-}
-rouge_core::styled!(Disclosure => root);
-impl View for Disclosure {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let icon = if self.expanded { IconName::ChevronDown } else { IconName::ChevronRight };
-        let root = div()
-            .test_id(self.id)
-            .flex()
-            .items_center()
-            .gap(rem(6.0))
-            .child(Icon::new(icon, self.theme.paint(|c| c.text_muted)).size(tokens::ICON_SIZE_SMALL))
-            .child(self.root);
-        activate(root, true, true, self.action).build(cx)
-    }
-}
-
-pub struct Badge {
-    id: String,
-    label: String,
-    theme: UiTheme,
-    tone: NoticeTone,
-    icon: Option<IconName>,
-}
-impl Badge {
-    pub fn new(id: impl Into<String>, label: impl Into<String>, theme: UiTheme) -> Self {
-        Self { id: id.into(), label: label.into(), theme, tone: NoticeTone::Neutral, icon: None }
-    }
-    #[must_use]
-    pub fn tone(mut self, tone: NoticeTone) -> Self {
-        self.tone = tone;
-        self
-    }
-    #[must_use]
-    pub fn icon(mut self, icon: IconName) -> Self {
-        self.icon = Some(icon);
-        self
-    }
-}
-impl View for Badge {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let (theme, tone) = (self.theme, self.tone);
-        let fg = move || theme.notice_style(tone).foreground;
-        let mut v = div()
-            .test_id(self.id)
-            .flex()
-            .items_center()
-            .gap(rem(4.0))
-            .px(rem(6.0))
-            .rounded(scaled(tokens::RADIUS_INNER))
-            .bg(move || theme.notice_style(tone).background.unwrap_or(Color::TRANSPARENT));
-        if let Some(icon) = self.icon {
-            v = v.child(Icon::new(icon, fg).size(tokens::ICON_SIZE_SMALL));
-        }
-        v.child(text(self.label).typography(Typography::Caption).color(fg)).build(cx)
-    }
-}
-
-pub struct SectionHeader {
-    id: String,
-    title: String,
-    theme: UiTheme,
-    expanded: bool,
-    detail: Option<String>,
-    badge: Option<Badge>,
-    icon: Option<(IconName, Color)>,
-    action: Option<AnyView>,
-    always: bool,
-    toggle: Option<Handler>,
-}
-impl SectionHeader {
-    pub fn new(id: impl Into<String>, title: impl Into<String>, expanded: bool, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            title: title.into(),
-            theme,
-            expanded,
-            detail: None,
-            badge: None,
-            icon: None,
-            action: None,
-            always: false,
-            toggle: None,
-        }
-    }
-    #[must_use]
-    pub fn detail(mut self, detail: impl Into<String>) -> Self {
-        self.detail = Some(detail.into());
-        self
-    }
-    #[must_use]
-    pub fn icon(mut self, icon: IconName, color: Color) -> Self {
-        self.icon = Some((icon, color));
-        self
-    }
-    #[must_use]
-    pub fn badge(mut self, badge: Badge) -> Self {
-        self.badge = Some(badge);
-        self
-    }
-    #[must_use]
-    pub fn action(mut self, action: impl View) -> Self {
-        self.action = Some(action.into_any());
-        self
-    }
-    #[must_use]
-    pub fn actions_always_visible(mut self, always: bool) -> Self {
-        self.always = always;
-        self
-    }
-    #[must_use]
-    pub fn on_toggle(mut self, action: impl Fn() + 'static) -> Self {
-        self.toggle = Some(Rc::new(action));
-        self
-    }
-}
-impl View for SectionHeader {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let hover = signal(false);
-        let mut row = div().flex().items_center().gap(rem(6.0));
-        if let Some((icon, color)) = self.icon {
-            row = row.child(Icon::new(icon, color));
-        }
-        row = row.child(text(self.title).typography(Typography::Title).color(self.theme.paint(|c| c.text)));
-        if let Some(detail) = self.detail {
-            row = row.child(MutedText::new(detail, self.theme));
-        }
-        if let Some(badge) = self.badge {
-            row = row.child(badge);
-        }
-        let mut disclosure = Disclosure::new(format!("{}-toggle", self.id), self.expanded, self.theme).child(row);
-        disclosure.action = self.toggle;
-        let mut header = div()
-            .test_id(self.id)
-            .flex()
-            .items_center()
-            .justify_between()
-            .px(rem(8.0))
-            .h(rem(tokens::GROUP_HEIGHT))
-            .bg(self.theme.paint(|c| c.chrome))
-            .on_hover(move |v| {
-                hover.set(v);
-            })
-            .child(disclosure);
-        if let Some(action) = self.action {
-            header =
-                header.child(div().child(action).opacity(move || if self.always || hover.get() { 1.0 } else { 0.0 }));
-        }
-        header.build(cx)
-    }
-}
-
-pub trait SurfaceExt: Styled {
-    #[must_use]
-    fn surface(self, theme: UiTheme) -> Self {
-        self.bg(theme.paint(|c| c.surface))
-            .border(1.0)
-            .border_color(theme.paint(|c| c.border_subtle))
-            .rounded(scaled(tokens::RADIUS_CONTROL))
-    }
-    #[must_use]
-    fn floating(self, theme: UiTheme) -> Self {
-        self.bg(theme.paint(|c| c.elevated))
-            .border(1.0)
-            .border_color(theme.paint(|c| c.border))
-            .rounded(scaled(tokens::RADIUS_FLOATING))
-            .shadow(BoxShadow::md())
-    }
-}
-impl<T: Styled> SurfaceExt for T {}
-
-pub struct Surface {
-    root: Div,
-    theme: UiTheme,
-    padded: bool,
-    raised: bool,
-    selected: bool,
-}
-impl Surface {
-    #[must_use]
-    pub fn new(theme: UiTheme) -> Self {
-        Self { root: div().flex().col(), theme, padded: false, raised: false, selected: false }
-    }
-    #[must_use]
-    pub fn padded(mut self, padded: bool) -> Self {
-        self.padded = padded;
-        self
-    }
-    #[must_use]
-    pub fn raised(mut self, raised: bool) -> Self {
-        self.raised = raised;
-        self
-    }
-    #[must_use]
-    pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-    #[must_use]
-    pub fn child(mut self, child: impl View) -> Self {
-        self.root = self.root.child(child);
-        self
-    }
-}
-rouge_core::styled!(Surface => root);
-impl View for Surface {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let mut root = if self.raised { self.root.floating(self.theme) } else { self.root.surface(self.theme) };
-        if self.padded {
-            root = root.p(rem(12.0));
-        }
-        if self.selected {
-            root = root.bg(self.theme.paint(|c| c.surface_selected));
-        }
-        root.build(cx)
-    }
-}
-
-pub struct ListRow {
-    root: Div,
-    id: String,
-    theme: UiTheme,
-    state: SelectionState,
-    selection: Option<Rc<dyn Fn() -> SelectionState>>,
-    depth: usize,
-    action: Option<Handler>,
-}
-impl ListRow {
-    pub fn new(id: impl Into<String>, theme: UiTheme) -> Self {
-        Self {
-            root: div().flex().items_center(),
-            id: id.into(),
-            theme,
-            state: SelectionState::None,
-            selection: None,
-            depth: 0,
-            action: None,
-        }
-    }
-    #[must_use]
-    pub fn hover_group(id: &str) -> String {
-        format!("{id}-row")
-    }
-    #[must_use]
-    pub fn depth(mut self, depth: usize) -> Self {
-        self.depth = depth;
-        self
-    }
-    #[must_use]
-    pub fn state(mut self, state: SelectionState) -> Self {
-        self.state = state;
-        self
-    }
-    #[must_use]
-    pub fn selected(self, selected: bool) -> Self {
-        self.state(if selected { SelectionState::Selected } else { SelectionState::None })
-    }
-    #[must_use]
-    pub fn selection(mut self, selection: impl Fn() -> SelectionState + 'static) -> Self {
-        self.selection = Some(Rc::new(selection));
-        self
-    }
-    #[must_use]
-    pub fn disabled(self, disabled: bool) -> Self {
-        if disabled { self.state(SelectionState::Disabled) } else { self }
-    }
-    #[must_use]
-    pub fn on_click(mut self, action: impl Fn() + 'static) -> Self {
-        self.action = Some(Rc::new(action));
-        self
-    }
-    #[must_use]
-    pub fn on_mouse_move(mut self, action: impl Fn(&PointerEvent) + 'static) -> Self {
-        self.root = self.root.on_pointer_move(action);
-        self
-    }
-    #[must_use]
-    pub fn on_hover(mut self, action: impl Fn(bool) + 'static) -> Self {
-        self.root = self.root.on_hover(action);
-        self
-    }
-    #[must_use]
-    pub fn child(mut self, child: impl View) -> Self {
-        self.root = self.root.child(child);
-        self
-    }
-}
-rouge_core::styled!(ListRow => root);
-impl View for ListRow {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let (theme, state) = (self.theme, self.state);
-        let selection = rouge_reactive::memo(move || {
-            if state == SelectionState::Disabled { state } else { self.selection.as_ref().map_or(state, |f| f()) }
-        });
-        let hover = signal(false);
-        let root = self
-            .root
-            .group(Self::hover_group(&self.id))
-            .test_id(self.id)
-            .min_h(rem(tokens::ROW_HEIGHT))
-            .pl(rem(8.0 + crate::tree::indent(self.depth)))
-            .pr(rem(8.0))
-            .gap(rem(6.0))
-            .rounded(scaled(tokens::RADIUS_INNER))
-            .on_hover(move |inside| {
-                hover.set(inside);
-            })
-            .bg(move || match selection.get() {
-                SelectionState::None if hover.get() => theme.colors().surface_hover,
-                SelectionState::None | SelectionState::Disabled => Color::TRANSPARENT,
-                state => theme.selection_style(state).background.unwrap_or(Color::TRANSPARENT),
-            })
-            .text_color(move || theme.selection_style(selection.get()).foreground);
-        activate(root, true, state != SelectionState::Disabled, self.action)
-            .enabled(move || selection.get() != SelectionState::Disabled)
-            .build(cx)
-    }
-}
-
-pub struct ActionBar(Div);
-impl ActionBar {
-    #[must_use]
-    pub fn new(theme: UiTheme) -> Self {
-        Self(
-            div()
-                .flex()
-                .items_center()
-                .justify_end()
-                .gap(rem(8.0))
-                .min_h(rem(tokens::BAR_HEIGHT))
-                .px(rem(12.0))
-                .bg(theme.paint(|c| c.chrome)),
-        )
-    }
-    #[must_use]
-    pub fn child(mut self, child: impl View) -> Self {
-        self.0 = self.0.child(child);
-        self
-    }
-}
-impl View for ActionBar {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        self.0.build(cx)
-    }
-}
-
-pub struct Backdrop {
-    id: String,
-    theme: UiTheme,
-    top: bool,
-    anchor: Option<Signal<Rect>>,
-    root: Div,
-    dismiss: Option<Handler>,
-}
-impl Backdrop {
-    pub fn new(id: impl Into<String>, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            theme,
-            top: false,
-            anchor: None,
-            root: div().flex().col().min_h(0.0).max_h(rouge_core::pct(100.0)).max_w(rouge_core::pct(100.0)),
-            dismiss: None,
-        }
-    }
-    #[must_use]
-    pub fn align_top(mut self) -> Self {
-        self.top = true;
-        self
-    }
-    #[must_use]
-    pub const fn anchor_below(mut self, anchor: Signal<Rect>) -> Self {
-        self.anchor = Some(anchor);
-        self
-    }
-    #[must_use]
-    pub fn on_dismiss(mut self, action: impl Fn() + 'static) -> Self {
-        self.dismiss = Some(Rc::new(action));
-        self
-    }
-    #[must_use]
-    pub fn child(mut self, child: impl View) -> Self {
-        self.root = self.root.child(child);
-        self
-    }
-}
-impl View for Backdrop {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        overlay(move || {
-            let dismiss = self.dismiss;
-            let outside = dismiss.clone();
-            let inner = self.root.on_pointer_down(PointerEvent::stop_propagation);
-            let root = div()
-                .test_id(self.id)
-                .absolute()
-                .inset(0.0)
-                .flex()
-                .col()
-                .focus_scope()
-                .autofocus()
-                .tab_index(-1)
-                .on_pointer_down(move |_| {
-                    if let Some(f) = &outside {
-                        f();
-                    }
-                })
-                .on_key_down(move |event| {
-                    if event.key == Key::Tab {
-                        return;
-                    }
-                    if event.key == Key::Escape
-                        && let Some(f) = &dismiss
-                    {
-                        f();
-                    }
-                    event.stop_propagation();
-                });
-            let (root, inner) = if let Some(anchor) = self.anchor {
-                let window = rouge_core::window_size();
-                let measured = signal(Rect::ZERO);
-                let inner = inner
-                    .absolute()
-                    .left(0.0)
-                    .top(0.0)
-                    .track_bounds(measured)
-                    .translate_x(move || {
-                        let space = (window.get().width - measured.get().size.width).max(0.0);
-                        anchor.get().origin.x.clamp(0.0, space)
-                    })
-                    .translate_y(move || anchor.get().max().y + 4.0);
-                (root, inner)
-            } else {
-                let root = root.items_center().p(rem(16.0)).bg(self.theme.paint(|c| c.scrim));
-                let root = if self.top {
-                    root.justify_start().pt(rem(tokens::MODAL_TOP_OFFSET))
-                } else {
-                    root.justify_center()
-                };
-                (root, inner)
-            };
-            root.child(IndicatorMark::occluder("modal-occluder").absolute().inset(0.0)).child(inner)
-        })
-        .build(cx)
-    }
-}
-
-pub struct Modal {
-    id: String,
-    title: String,
-    theme: UiTheme,
-    root: Div,
-    hint: Option<String>,
-    width: Length,
-    height: Option<Length>,
-    top: bool,
-    dismiss: Option<Handler>,
-}
-impl Modal {
-    pub fn new(id: impl Into<String>, title: impl Into<String>, theme: UiTheme) -> Self {
-        Self {
-            id: id.into(),
-            title: title.into(),
-            theme,
-            root: div().flex().col().min_h(0.0),
-            hint: None,
-            width: rem(tokens::MODAL_WIDTH),
-            height: None,
-            top: false,
-            dismiss: None,
-        }
-    }
-    #[must_use]
-    pub fn hint(mut self, hint: impl Into<String>) -> Self {
-        self.hint = Some(hint.into());
-        self
-    }
-    #[must_use]
-    pub fn width(mut self, width: Length) -> Self {
-        self.width = width;
-        self
-    }
-    #[must_use]
-    pub fn height(mut self, height: Length) -> Self {
-        self.height = Some(height);
-        self
-    }
-    #[must_use]
-    pub fn size(self, size: ModalSize) -> Self {
-        self.width(rem(match size {
-            ModalSize::Compact => tokens::MODAL_WIDTH_COMPACT,
-            ModalSize::Medium => tokens::MODAL_WIDTH,
-            ModalSize::Wide => tokens::MODAL_WIDTH_WIDE,
-        }))
-    }
-    #[must_use]
-    pub fn align_top(mut self) -> Self {
-        self.top = true;
-        self
-    }
-    #[must_use]
-    pub fn on_dismiss(mut self, action: impl Fn() + 'static) -> Self {
-        self.dismiss = Some(Rc::new(action));
-        self
-    }
-    #[must_use]
-    pub fn child(mut self, child: impl View) -> Self {
-        self.root = self.root.child(child);
-        self
-    }
-}
-impl View for Modal {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let mut body = div()
-            .test_id(self.id.clone())
-            .flex()
-            .col()
-            .gap(rem(8.0))
-            .p(rem(16.0))
-            .w(self.width)
-            .max_w(rouge_core::pct(100.0))
-            .overflow_hidden()
-            .floating(self.theme)
-            .child(text(self.title).typography(Typography::Heading).color(self.theme.paint(|c| c.text)));
-        if let Some(hint) = self.hint {
-            body = body.child(MutedText::new(hint, self.theme));
-        }
-        if let Some(height) = self.height {
-            body = body.h(height);
-        }
-        let mut backdrop = Backdrop::new(format!("{}-backdrop", self.id), self.theme).child(body.child(self.root));
-        backdrop.top = self.top;
-        backdrop.dismiss = self.dismiss;
-        backdrop.build(cx)
-    }
-}
-
-pub struct MutedText(rouge_core::Text);
-impl MutedText {
-    pub fn new(label: impl Into<String>, theme: UiTheme) -> Self {
-        Self(text(label.into()).typography(Typography::Small).color(theme.paint(|c| c.text_muted)))
-    }
-}
-impl View for MutedText {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        self.0.build(cx)
-    }
-}
-
-pub struct EmptyState {
-    icon: IconName,
-    title: String,
-    detail: String,
-    theme: UiTheme,
-}
-impl EmptyState {
-    pub fn new(icon: IconName, title: impl Into<String>, detail: impl Into<String>, theme: UiTheme) -> Self {
-        Self { icon, title: title.into(), detail: detail.into(), theme }
-    }
-}
-impl View for EmptyState {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        div()
-            .flex()
-            .col()
-            .items_center()
-            .justify_center()
-            .p(rem(16.0))
-            .gap(rem(6.0))
-            .child(Icon::new(self.icon, self.theme.paint(|c| c.text_muted)))
-            .child(text(self.title).typography(Typography::Title).color(self.theme.paint(|c| c.text)))
-            .child(MutedText::new(self.detail, self.theme))
-            .build(cx)
-    }
-}
-
-pub struct Notification {
-    message: String,
-    tone: NoticeTone,
-    theme: UiTheme,
-}
-impl Notification {
-    pub fn new(message: impl Into<String>, tone: NoticeTone, theme: UiTheme) -> Self {
-        Self { message: message.into(), tone, theme }
-    }
-    pub fn error(message: impl Into<String>, theme: UiTheme) -> Self {
-        Self::new(message, NoticeTone::Error, theme)
-    }
-}
-impl View for Notification {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        let (theme, tone) = (self.theme, self.tone);
-        let fg = move || theme.notice_style(tone).foreground;
-        let icon = match tone {
-            NoticeTone::Error | NoticeTone::Warning => IconName::TriangleAlert,
-            NoticeTone::Positive => IconName::CircleCheck,
-            _ => IconName::Info,
+    #[prop(into)] tooltip: Option<String>,
+    #[prop(default)] disabled: bool,
+    #[prop(default, into)] on_toggle: Callback,
+) -> AnyView {
+    let theme = UiTheme::current();
+    let enabled = !disabled;
+    let interaction = signal(Interactions::default());
+    let mark = rouge_core::canvas(move |painter| {
+        let size = painter.size();
+        let at = |x: f32, y: f32| (size.width * x, size.height * y);
+        let path = match state {
+            CheckState::Unchecked => return,
+            CheckState::Checked => {
+                let ((ax, ay), (bx, by), (cx, cy)) = (at(0.22, 0.5), at(0.43, 0.72), at(0.78, 0.28));
+                rouge_core::Path::builder().move_to(ax, ay).line_to(bx, by).line_to(cx, cy).build()
+            }
+            CheckState::Indeterminate => {
+                let ((ax, ay), (bx, by)) = (at(0.25, 0.5), at(0.75, 0.5));
+                rouge_core::Path::builder().move_to(ax, ay).line_to(bx, by).build()
+            }
         };
-        div()
-            .flex()
-            .items_center()
-            .gap(rem(8.0))
-            .p(rem(8.0))
-            .rounded(scaled(tokens::RADIUS_CONTROL))
-            .bg(move || theme.notice_style(tone).background.unwrap_or(Color::TRANSPARENT))
-            .child(Icon::new(icon, fg))
-            .child(text(self.message).typography(Typography::Body).color(fg))
-            .build(cx)
+        painter.stroke_round(&path, size.width / 6.0, theme.text.get());
+    })
+    .size_full();
+    let root = view! {
+        <div test_id=id flex_none size=tokens::CHECKBOX_SIZE rounded=2.0 border=px(1.0) bg=theme.canvas
+             track_interaction=interaction when:opacity=(disabled, 0.4)
+             border_color={move || {
+                 let state = interaction.get();
+                 if enabled && (state.hovered || state.focus_visible()) {
+                     theme.accent.get()
+                 } else {
+                     theme.text_muted.get()
+                 }
+             }}>
+            {mark}
+        </div>
+    };
+    hinted(pressable(root, true, enabled, on_toggle), tooltip.filter(|_| enabled))
+}
+
+#[component]
+pub fn segmented_control(#[prop(into)] id: String) -> Div {
+    view! {
+        <div test_id=id flex items_center gap=2.0 p=2.0 rounded=tokens::RADIUS_CONTROL bg=UiTheme::current().chrome/>
+    }
+}
+
+#[component]
+pub fn segment(
+    #[prop(into)] id: String,
+    #[prop(into)] label: String,
+    icon: Option<IconName>,
+    #[prop(into)] detail: Option<String>,
+    #[prop(default)] selected: bool,
+    #[prop(default)] disabled: bool,
+    #[prop(default, into)] on_click: Callback,
+) -> AnyView {
+    let theme = UiTheme::current();
+    let hovered = signal(false);
+    let foreground = move || if selected || hovered.get() { theme.text.get() } else { theme.text_muted.get() };
+    let padding = if icon.is_some() { tokens::CONTROL_PADDING_X_SMALL } else { tokens::CONTROL_PADDING_X_MEDIUM };
+    let detail = detail.filter(|_| icon.is_some()).map(|detail| {
+        view! {
+            <div test_id={format!("{id}-detail")}>
+                <text small color=foreground>{detail}</text>
+            </div>
+        }
+    });
+    let (caption, hint) = if icon.is_some() { (None, Some(label)) } else { (Some(label), None) };
+    let root = view! {
+        <div test_id=id h=24.0 flex items_center gap=4.0 px=padding rounded=tokens::RADIUS_INNER
+             when:bg=(selected, theme.surface_selected) when:opacity=(disabled, 0.4)
+             on_hover={move |inside| {
+                 hovered.set_if_changed(inside);
+             }}>
+            {icon.map(|icon| Icon::new(icon, foreground))}
+            {detail}
+            {caption.map(|caption| view! { <text small color=foreground>{caption}</text> })}
+        </div>
+    };
+    hinted(pressable(root, true, !disabled, on_click), hint)
+}
+
+#[component]
+pub fn disclosure(
+    #[prop(into)] id: String,
+    expanded: bool,
+    #[prop(default, into)] on_toggle: Callback,
+    children: impl View,
+) -> Div {
+    let icon = if expanded { IconName::ChevronDown } else { IconName::ChevronRight };
+    let root = view! {
+        <div test_id=id flex items_center gap=6.0>
+            {Icon::new(icon, UiTheme::current().text_muted).size(tokens::ICON_SIZE_SMALL)}
+            <div>{children}</div>
+        </div>
+    };
+    pressable(root, true, true, on_toggle)
+}
+
+#[component]
+pub fn badge(
+    #[prop(into)] id: String,
+    #[prop(into)] label: String,
+    tone: Option<NoticeTone>,
+    icon: Option<IconName>,
+) -> Div {
+    let theme = UiTheme::current();
+    let tone = tone.unwrap_or(NoticeTone::Neutral);
+    let fg = move || theme.notice_style(tone).foreground;
+    view! {
+        <div test_id=id flex items_center gap=4.0 px=6.0 rounded=tokens::RADIUS_INNER
+             bg={move || theme.notice_style(tone).background.unwrap_or(Color::TRANSPARENT)}>
+            {icon.map(|icon| Icon::new(icon, fg).size(tokens::ICON_SIZE_SMALL))}
+            <text caption color=fg>{label}</text>
+        </div>
+    }
+}
+
+#[component]
+pub fn muted_text(#[prop(into)] children: String) -> Text {
+    text(children).small().muted()
+}
+
+#[component]
+pub fn section_header(
+    #[prop(into)] id: String,
+    #[prop(into)] title: String,
+    expanded: bool,
+    #[prop(into)] detail: Option<String>,
+    icon: Option<(IconName, Color)>,
+    badge: Option<AnyView>,
+    action: Option<AnyView>,
+    #[prop(default)] actions_always_visible: bool,
+    #[prop(default, into)] on_toggle: Callback,
+) -> Div {
+    let hover = signal(false);
+    let action = action.map(|action| {
+        view! {
+            <div opacity={move || if actions_always_visible || hover.get() { 1.0 } else { 0.0 }}>{action}</div>
+        }
+    });
+    let toggle = format!("{id}-toggle");
+    view! {
+        <div test_id=id flex items_center justify_between px=8.0 h=tokens::GROUP_HEIGHT
+             bg=UiTheme::current().chrome
+             on_hover={move |inside| {
+                 hover.set(inside);
+             }}>
+            <disclosure id=toggle expanded on_toggle>
+                <div flex items_center gap=6.0>
+                    {icon.map(|(icon, color)| Icon::new(icon, color))}
+                    <text title primary>{title}</text>
+                    {detail.map(|detail| view! { <muted_text>{detail}</muted_text> })}
+                    {badge}
+                </div>
+            </disclosure>
+            {action}
+        </div>
+    }
+}
+
+styles! {
+    pub trait SurfaceExt {
+        surface(target) => {
+            let theme = UiTheme::current();
+            target.bg(theme.surface).border(px(1.0)).border_color(theme.border_subtle).rounded(tokens::RADIUS_CONTROL)
+        };
+        floating(target) => {
+            let theme = UiTheme::current();
+            target
+                .bg(theme.elevated)
+                .border(px(1.0))
+                .border_color(theme.border)
+                .rounded(tokens::RADIUS_FLOATING)
+                .shadow(BoxShadow::md())
+        };
+    }
+}
+
+#[component]
+pub fn surface(#[prop(default)] padded: bool, #[prop(default)] raised: bool, #[prop(default)] selected: bool) -> Div {
+    let root = div().flex().col();
+    let root = if raised { root.floating() } else { root.surface() };
+    root.when(padded, |root| root.p(12.0)).when(selected, |root| root.bg(UiTheme::current().surface_selected))
+}
+
+#[must_use]
+pub fn hover_group(id: &str) -> String {
+    format!("{id}-row")
+}
+
+#[component]
+pub fn list_row(
+    #[prop(into)] id: String,
+    #[prop(default)] depth: usize,
+    #[prop(default)] state: SelectionState,
+    #[prop(reactive)] selection: Option<Prop<SelectionState>>,
+    #[prop(default, into)] on_click: Callback,
+) -> Div {
+    let theme = UiTheme::current();
+    let selection =
+        memo(
+            move || {
+                if state == SelectionState::Disabled { state } else { selection.as_ref().map_or(state, Prop::get) }
+            },
+        );
+    let hover = signal(false);
+    let root = view! {
+        <div flex items_center group=hover_group(&id) test_id=id min_h=tokens::ROW_HEIGHT
+             pl={8.0 + crate::tree::indent(depth)} pr=8.0 gap=6.0 rounded=tokens::RADIUS_INNER
+             on_hover={move |inside| {
+                 hover.set(inside);
+             }}
+             bg={move || match selection.get() {
+                 SelectionState::None if hover.get() => theme.surface_hover.get(),
+                 SelectionState::None | SelectionState::Disabled => Color::TRANSPARENT,
+                 state => theme.selection_style(state).background.unwrap_or(Color::TRANSPARENT),
+             }}
+             text_color={move || theme.selection_style(selection.get()).foreground}/>
+    };
+    pressable(root, true, state != SelectionState::Disabled, on_click)
+        .enabled(move || selection.get() != SelectionState::Disabled)
+}
+
+#[component]
+pub fn action_bar() -> Div {
+    view! {
+        <div flex items_center justify_end gap=8.0 min_h=tokens::BAR_HEIGHT px=12.0 bg=UiTheme::current().chrome/>
+    }
+}
+
+#[component]
+pub fn backdrop(
+    #[prop(into)] id: String,
+    #[prop(default)] align_top: bool,
+    anchor_below: Option<Signal<Rect>>,
+    #[prop(default, into)] on_dismiss: Callback,
+    children: impl View,
+) -> impl View {
+    let theme = UiTheme::current();
+    overlay(move || {
+        let inner = view! {
+            <div flex col min_h=0.0 max_h=pct(100.0) max_w=pct(100.0) on_pointer_down=PointerEvent::stop_propagation>
+                {children}
+            </div>
+        };
+        let root = view! {
+            <div test_id=id absolute inset=0.0 flex col focus_scope autofocus tab_index=-1
+                 on_pointer_down={move |_| on_dismiss.call()}
+                 on_key_down={move |event| {
+                     if event.key == Key::Tab {
+                         return;
+                     }
+                     if event.key == Key::Escape {
+                         on_dismiss.call();
+                     }
+                     event.stop_propagation();
+                 }}/>
+        };
+        let (root, inner) = if let Some(anchor) = anchor_below {
+            let window = rouge_core::window_size();
+            let measured = signal(Rect::ZERO);
+            let inner = inner
+                .absolute()
+                .left(0.0)
+                .top(0.0)
+                .track_bounds(measured)
+                .translate_x(move || {
+                    let space = (window.get().width - measured.get().size.width).max(0.0);
+                    anchor.get().origin.x.clamp(0.0, space)
+                })
+                .translate_y(move || anchor.get().max().y + 4.0);
+            (root, inner)
+        } else {
+            let root = root.items_center().p(16.0).bg(theme.scrim);
+            let root =
+                if align_top { root.justify_start().pt(tokens::MODAL_TOP_OFFSET) } else { root.justify_center() };
+            (root, inner)
+        };
+        root.child(IndicatorMark::occluder("modal-occluder").absolute().inset(0.0)).child(inner)
+    })
+}
+
+#[must_use]
+pub fn modal_width(size: ModalSize) -> Length {
+    Length::design(match size {
+        ModalSize::Compact => tokens::MODAL_WIDTH_COMPACT,
+        ModalSize::Medium => tokens::MODAL_WIDTH,
+        ModalSize::Wide => tokens::MODAL_WIDTH_WIDE,
+    })
+}
+
+#[component]
+pub fn modal(
+    #[prop(into)] id: String,
+    #[prop(into)] title: String,
+    #[prop(into)] hint: Option<String>,
+    #[prop(default)] size: ModalSize,
+    width: Option<Length>,
+    height: Option<Length>,
+    #[prop(default)] align_top: bool,
+    #[prop(default, into)] on_dismiss: Callback,
+    children: impl View,
+) -> impl View {
+    view! {
+        <backdrop id={format!("{id}-backdrop")} align_top=align_top on_dismiss>
+            <div test_id=id flex col gap=8.0 p=16.0 w={width.unwrap_or_else(|| modal_width(size))} max_w=pct(100.0)
+                 h?=height overflow_hidden floating>
+                <text heading primary>{title}</text>
+                {hint.map(|hint| view! { <muted_text>{hint}</muted_text> })}
+                <div flex col min_h=0.0>{children}</div>
+            </div>
+        </backdrop>
+    }
+}
+
+#[component]
+pub fn empty_state(icon: IconName, #[prop(into)] title: String, #[prop(into)] detail: String) -> Div {
+    view! {
+        <div flex col items_center justify_center p=16.0 gap=6.0>
+            {Icon::new(icon, UiTheme::current().text_muted)}
+            <text title primary>{title}</text>
+            <muted_text>{detail}</muted_text>
+        </div>
+    }
+}
+
+#[component]
+pub fn notification(#[prop(into)] message: String, tone: NoticeTone) -> Div {
+    let theme = UiTheme::current();
+    let fg = move || theme.notice_style(tone).foreground;
+    let icon = match tone {
+        NoticeTone::Error | NoticeTone::Warning => IconName::TriangleAlert,
+        NoticeTone::Positive => IconName::CircleCheck,
+        _ => IconName::Info,
+    };
+    view! {
+        <div flex items_center gap=8.0 p=8.0 rounded=tokens::RADIUS_CONTROL
+             bg={move || theme.notice_style(tone).background.unwrap_or(Color::TRANSPARENT)}>
+            {Icon::new(icon, fg)}
+            <text body color=fg>{message}</text>
+        </div>
     }
 }

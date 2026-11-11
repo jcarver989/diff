@@ -1,15 +1,15 @@
 use crate::{
     ReviewHandle,
     ui::{
-        components::{Button, ButtonVariant, ControlSize, SurfaceExt},
+        components::{ButtonVariant, ControlSize, SurfaceExt, button},
         fonts::UI_FONT,
         theme::UiTheme,
-        tokens::{RADIUS_CONTROL, rem, scaled},
-        typography::{Typography, TypographyExt},
+        tokens::RADIUS_CONTROL,
+        typography::UiStyles,
     },
 };
-use rouge_core::{Cursor, FocusHandle, Styled, View, div, dynamic, editable, focus_handle, text};
-use rouge_reactive::{Memo, memo, provide_context, signal, use_context};
+use rouge_core::{Cursor, FocusHandle, Styled, View, div, dynamic, editable, focus_handle, px, text, view};
+use rouge_reactive::{Callback, Memo, effect, memo, provide_context, signal, use_context};
 use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, PartialEq)]
@@ -31,83 +31,37 @@ pub(crate) fn composer(
     title: String,
     body: String,
     editing: bool,
-    theme: UiTheme,
     on_change: impl Fn(String) + 'static,
     on_submit: impl Fn(&str) + 'static,
     on_cancel: impl Fn() + 'static,
 ) -> impl View {
+    let theme = UiTheme::current();
     let value = signal(body);
-    let submit = Rc::new(on_submit);
-    rouge_reactive::effect(move || on_change(value.get()));
-    let mut input = editable(value).test_id("comment-editor");
-    let focus = if let Some(draft) = use_context::<Memo<Option<DraftFocus>>>().and_then(|focus| focus.get_untracked()) {
-        if !draft.opened.replace(true) {
-            input = input.autofocus();
-        }
-        draft.handle
-    } else {
-        input = input.autofocus();
-        focus_handle()
-    };
-    let input = input.track_focus(focus);
+    let submit: Callback<(String,)> = (move |body: String| on_submit(&body)).into();
+    effect(move || on_change(value.get()));
+    let draft = use_context::<Memo<Option<DraftFocus>>>().and_then(|focus| focus.get_untracked());
+    let autofocus = draft.as_ref().is_none_or(|draft| !draft.opened.replace(true));
+    let focus = draft.map_or_else(focus_handle, |draft| draft.handle);
     let empty = memo(move || value.with(|body| body.trim().is_empty()));
-    div()
-        .test_id("comment-composer")
-        .flex()
-        .col()
-        .gap(rem(12.0))
-        .p(rem(12.0))
-        .surface(theme)
-        .bg(theme.paint(|c| c.surface_selected))
-        .child(text(title).typography(Typography::BodyStrong).color(theme.paint(|c| c.text)))
-        .child(
-            div()
-                .min_h(rem(96.0))
-                .w_full()
-                .p(rem(12.0))
-                .rounded(scaled(RADIUS_CONTROL))
-                .border(1.0)
-                .border_color(theme.paint(move |c| if focus.is_focused() { c.accent } else { c.border }))
-                .bg(theme.paint(|c| c.canvas))
-                .cursor(Cursor::Text)
-                .child(
-                    input
-                        .multiline()
-                        .min_rows(3)
-                        .max_rows(12)
-                        .font(UI_FONT)
-                        .text_size(rem(13.0))
-                        .line_height(1.5)
-                        .color(theme.paint(|c| c.text))
-                        .w_full()
-                        .submit_on_enter(true)
-                        .on_submit({
-                            let submit = submit.clone();
-                            move |body| submit(body)
-                        }),
-                ),
-        )
-        .child(
-            div()
-                .w_full()
-                .flex()
-                .row()
-                .justify_end()
-                .items_center()
-                .gap(rem(8.0))
-                .child(
-                    Button::new("cancel-comment", "Cancel", theme)
-                        .variant(ButtonVariant::Ghost)
-                        .size(ControlSize::Small)
-                        .on_click(on_cancel),
-                )
-                .child(dynamic(move || {
-                    let submit = submit.clone();
-                    Button::new("save-comment", if editing { "Save" } else { "Comment" }, theme)
-                        .size(ControlSize::Small)
-                        .variant(ButtonVariant::Primary)
-                        .disabled(empty.get())
-                        .on_click(move || value.with_untracked(|body| submit(body)))
-                })),
-        )
+    view! {
+        <div test_id="comment-composer" flex col gap=12.0 p=12.0 surface bg=theme.surface_selected>
+            <text body_strong primary>{title}</text>
+            <div min_h=96.0 w_full p=12.0 rounded=RADIUS_CONTROL border=px(1.0)
+                 border_color=theme.paint(move |c| if focus.is_focused() { c.accent } else { c.border })
+                 bg=theme.canvas cursor=Cursor::Text>
+                <editable value test_id="comment-editor" when:autofocus=autofocus track_focus=focus multiline
+                          min_rows=3 max_rows=12 font=UI_FONT text_size=13.0 line_height=1.5 color=theme.text w_full
+                          submit_on_enter=true on_submit={move |body| submit.call(body.to_owned())}/>
+            </div>
+            <div w_full flex row justify_end items_center gap=8.0>
+                <button id="cancel-comment" label="Cancel" variant=ButtonVariant::Ghost size=ControlSize::Small
+                        on_click=on_cancel/>
+                <dynamic>
+                    <button id="save-comment" label={if editing { "Save" } else { "Comment" }}
+                            size=ControlSize::Small variant=ButtonVariant::Primary disabled={empty.get()}
+                            on_click={move || submit.call(value.get_untracked())}/>
+                </dynamic>
+            </div>
+        </div>
+    }
 }

@@ -4,7 +4,8 @@ use clankerdiff_core::{
     DiffDocument, DiffReviewCommand as C, DiffSide, RowKind, ViewMode, parse_detached_git_diff,
     testing::{DocumentBuilder, location},
 };
-use clankerdiff_rouge::{ReviewOutput, ViewerPane};
+use clankerdiff_rouge::{ReviewController, ReviewOutput, ViewerPane};
+use clankerdiff_ui_core::ReviewTheme;
 use rouge_core::{Key, Point, Size, testing::TestResult};
 use std::{fmt::Write, io, sync::Arc};
 
@@ -180,7 +181,8 @@ fn scrolling_a_large_diff_only_does_work_for_rows_that_mount() -> TestResult {
         }
     }
     let doc = Arc::new(DiffDocument { files: parse_detached_git_diff(patch.as_bytes())?, ..DiffDocument::default() });
-    common::run(doc, |ui, _, _| {
+    common::run(doc, |ui, handle, _| {
+        assert!(ui.wait_until(|_| handle.with(ReviewController::symbols_ready)), "symbols never became ready");
         let pane = ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
         ui.pointer_moved(Point::new(pane.max().x - 30.0, pane.center().y));
         let (step, frames) = (60_u16, 120_u16);
@@ -211,6 +213,55 @@ fn scrolling_a_large_diff_only_does_work_for_rows_that_mount() -> TestResult {
         assert!(total.reactive.nodes_created <= 20 * rows, "{} reactive nodes", total.reactive.nodes_created);
         Ok(())
     })
+}
+
+#[test]
+fn moving_the_selection_only_repaints_the_rows_it_touches() -> TestResult {
+    common::run(large_document()?, |ui, handle, _| {
+        assert!(ui.wait_until(|_| handle.with(ReviewController::symbols_ready)), "symbols never became ready");
+        assert!(handle.handle_command(C::SelectRow(first_code(&handle)?)));
+        ui.advance(0.016);
+        for _ in 0..5 {
+            let before = ui.stats();
+            assert!(handle.handle_command(C::MoveSelection(1)));
+            ui.advance(0.016);
+            let frame = ui.stats() - before;
+            assert_eq!((frame.layouts, frame.elements_created, frame.elements_removed), (0, 0, 0), "{frame:?}");
+            assert!(frame.layer_paints <= 4, "{frame:?}");
+            assert!(frame.reactive.effects_run <= 16, "{frame:?}");
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn switching_the_theme_repaints_without_layout_or_rebuilding() -> TestResult {
+    common::run(large_document()?, |ui, handle, _| {
+        assert!(ui.wait_until(|_| handle.with(ReviewController::symbols_ready)), "symbols never became ready");
+        let theme = ReviewTheme::builtin("github-light")?;
+        let before = ui.stats();
+        handle.set_theme(theme);
+        ui.advance(0.016);
+        let frame = ui.stats() - before;
+        assert_eq!((frame.layouts, frame.elements_created, frame.elements_removed), (0, 0, 0), "{frame:?}");
+        assert!(frame.layer_paints > 0, "{frame:?}");
+        Ok(())
+    })
+}
+
+fn large_document() -> Result<Arc<DiffDocument>, Box<dyn std::error::Error>> {
+    let mut patch = String::new();
+    for file in 0..3 {
+        let name = format!("src/file_{file}.rs");
+        writeln!(
+            patch,
+            "diff --git a/{name} b/{name}\nnew file mode 100644\n--- /dev/null\n+++ b/{name}\n@@ -0,0 +1,300 @@"
+        )?;
+        for n in 0..300 {
+            writeln!(patch, "+    let value_{n} = compute({n});")?;
+        }
+    }
+    Ok(Arc::new(DiffDocument { files: parse_detached_git_diff(patch.as_bytes())?, ..DiffDocument::default() }))
 }
 
 fn first_code(handle: &clankerdiff_rouge::ReviewHandle) -> Result<usize, io::Error> {

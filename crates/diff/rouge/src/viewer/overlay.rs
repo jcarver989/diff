@@ -2,13 +2,13 @@ use super::{ReviewController, ReviewHandle, ReviewOutput};
 use crate::{commits::commit_picker, palette::help_picker};
 use clankerdiff_core::{DiffReviewCommand, FileStatus, InteractionPhase, RepoPath, RepositoryAction, ReviewCommand};
 use clankerdiff_rouge_ui::{
-    components::{ActionBar, Backdrop, Button, ButtonVariant, Modal},
-    picker::{SearchPickerHandle, ThemePicker, ThemePickerEvent, ThemePickerOverlay},
-    theme::UiTheme,
+    components::{ButtonVariant, action_bar, backdrop, button, modal},
+    picker::{SearchPickerHandle, ThemePickerEvent, theme_picker, theme_picker_overlay},
 };
-use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
-use rouge_core::{AnyView, Key, Modifiers, View, div, editable, text};
-use rouge_reactive::signal;
+use clankerdiff_ui_core::ThemeChoice;
+use rouge_core::{AnyView, Key, Modifiers, View, div, editable, text, view};
+use rouge_reactive::{batch, on_cleanup, signal};
+use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum OverlayKind {
@@ -24,7 +24,7 @@ pub(super) enum OverlayKind {
 pub(super) enum Overlay {
     Help,
     Commits,
-    Themes(Box<ReviewTheme>),
+    Themes,
     Commit,
     Discard { path: RepoPath, status: FileStatus },
 }
@@ -34,7 +34,7 @@ impl Overlay {
         match self {
             Self::Help => InteractionPhase::Help,
             Self::Commits => InteractionPhase::CommitPicker,
-            Self::Themes(_) => InteractionPhase::ThemePicker,
+            Self::Themes => InteractionPhase::ThemePicker,
             Self::Commit | Self::Discard { .. } => InteractionPhase::RepositoryPrompt,
         }
     }
@@ -64,7 +64,7 @@ impl ReviewController {
         match &self.overlay {
             Some(Overlay::Help) => OverlayKind::Help,
             Some(Overlay::Commits) => OverlayKind::Commits,
-            Some(Overlay::Themes(_)) => OverlayKind::Themes,
+            Some(Overlay::Themes) => OverlayKind::Themes,
             Some(Overlay::Commit) => OverlayKind::Commit,
             Some(Overlay::Discard { .. }) => OverlayKind::Discard,
             None if self.session.draft().is_some() => OverlayKind::Draft,
@@ -73,14 +73,7 @@ impl ReviewController {
     }
 
     pub(super) fn cancel_overlay(&mut self) -> bool {
-        match self.overlay.take() {
-            Some(Overlay::Themes(original)) => {
-                self.theme = *original;
-                true
-            }
-            Some(_) => true,
-            None => false,
-        }
+        self.overlay.take().is_some()
     }
 }
 
@@ -92,7 +85,7 @@ impl ReviewHandle {
     }
 
     pub(crate) fn choose_palette_command(&self, command: DiffReviewCommand) {
-        rouge_reactive::batch(|| {
+        batch(|| {
             let closed = self.update(|state| {
                 if matches!(state.overlay, Some(Overlay::Help)) {
                     state.overlay = None;
@@ -130,136 +123,114 @@ impl ReviewHandle {
     }
 }
 
-#[expect(clippy::too_many_lines, reason = "Keep the overlay view dispatch exhaustive")]
-pub(super) fn view(handle: &ReviewHandle, kind: OverlayKind, theme: UiTheme) -> AnyView {
-    let cancel = {
-        let handle = handle.clone();
-        move || {
-            handle.handle_command(ReviewCommand::Cancel);
-        }
+pub(super) fn view(handle: &ReviewHandle, kind: OverlayKind) -> AnyView {
+    let handle = *handle;
+    let cancel = move || {
+        handle.handle_command(ReviewCommand::Cancel);
     };
     match kind {
-        OverlayKind::None | OverlayKind::Draft => div().into_any(),
-        OverlayKind::Help | OverlayKind::Commits => {
-            let picker =
-                if kind == OverlayKind::Help { help_picker(handle, theme) } else { commit_picker(handle, theme) };
-            handle.picker.set(Some(picker.handle()));
-            let backdrop = if kind == OverlayKind::Help {
-                Backdrop::new("command-palette-backdrop", theme).align_top()
-            } else {
-                Backdrop::new("commit-picker-backdrop", theme).anchor_below(handle.commit_anchor())
-            };
-            backdrop.on_dismiss(cancel).child(picker).into_any()
+        OverlayKind::None | OverlayKind::Draft => ().into_any(),
+        OverlayKind::Help => {
+            let (picker, palette) = help_picker(&handle);
+            handle.picker.set(Some(picker));
+            view! { <backdrop id="command-palette-backdrop" align_top on_dismiss=cancel>{palette}</backdrop> }
+                .into_any()
+        }
+        OverlayKind::Commits => {
+            let (picker, commits) = commit_picker(&handle);
+            handle.picker.set(Some(picker));
+            view! {
+                <backdrop id="commit-picker-backdrop" anchor_below=handle.commit_anchor() on_dismiss=cancel>
+                    {commits}
+                </backdrop>
+            }
+            .into_any()
         }
         OverlayKind::Themes => {
-            let current = handle.theme.get_untracked();
-            let picker = ThemePicker::new("theme-picker", &current, ThemeChoice::catalog(), theme, {
-                let handle = handle.clone();
-                move |event| {
-                    handle.update(|state| {
-                        if !matches!(state.overlay, Some(Overlay::Themes(_))) {
-                            return;
-                        }
-                        match event {
-                            ThemePickerEvent::Preview(theme) => state.theme = theme,
-                            ThemePickerEvent::Commit(theme) => {
-                                state.overlay = None;
-                                state.outputs.push(ReviewOutput::ThemeChanged(theme.id().to_string()));
-                                state.theme = theme;
-                            }
-                            ThemePickerEvent::Cancel(_) => {
-                                state.cancel_overlay();
-                            }
-                        }
-                    });
+            let original = handle.theme.get_untracked();
+            let committed = Rc::new(Cell::new(false));
+            on_cleanup({
+                let (committed, original) = (committed.clone(), original.clone());
+                move || {
+                    if !committed.get() {
+                        handle.set_theme(original);
+                    }
                 }
             });
-            handle.picker.set(Some(picker.handle()));
-            ThemePickerOverlay::new(picker, theme).into_any()
+            let picker = theme_picker(&original, ThemeChoice::catalog(), move |event| match event {
+                ThemePickerEvent::Preview(theme) => handle.set_theme(theme),
+                ThemePickerEvent::Commit(theme) => {
+                    committed.set(true);
+                    handle.output.call(ReviewOutput::ThemeChanged(theme.id().to_string()));
+                    handle.set_theme(theme);
+                    handle.dismiss_picker(InteractionPhase::ThemePicker);
+                }
+                ThemePickerEvent::Cancel(_) => handle.dismiss_picker(InteractionPhase::ThemePicker),
+            });
+            handle.picker.set(Some(picker));
+            view! { <theme_picker_overlay id="theme-picker" handle=picker/> }.into_any()
         }
         OverlayKind::Commit => {
             let value = signal(String::new());
             let status = handle.status();
-            Modal::new("commit-prompt", "Commit staged changes", theme)
-                .on_dismiss(cancel)
-                .child(
-                    editable(value)
-                        .test_id("commit-message")
-                        .autofocus()
-                        .multiline()
-                        .min_rows(3)
-                        .max_rows(12)
-                        .submit_on_enter(true)
-                        .on_submit({
-                            let handle = handle.clone();
-                            move |body| {
-                                handle.confirm_repository(Some(body));
-                            }
-                        }),
-                )
-                .child(text(move || status.get().repository_error.unwrap_or_default()))
-                .child(Button::new("commit-confirm", "Commit", theme).on_click({
-                    let handle = handle.clone();
-                    move || {
-                        handle.confirm_repository(Some(&value.get_untracked()));
-                    }
-                }))
-                .into_any()
+            view! {
+                <modal id="commit-prompt" title="Commit staged changes" on_dismiss=cancel>
+                    <editable value test_id="commit-message" autofocus multiline min_rows=3 max_rows=12
+                              submit_on_enter=true
+                              on_submit={move |body| {
+                                  handle.confirm_repository(Some(body));
+                              }}/>
+                    <text>{move || status.get().repository_error.unwrap_or_default()}</text>
+                    <button id="commit-confirm" label="Commit"
+                            on_click={move || {
+                                handle.confirm_repository(Some(&value.get_untracked()));
+                            }}/>
+                </modal>
+            }
+            .into_any()
         }
-        OverlayKind::Discard => {
-            let path = handle.with(|state| match &state.overlay {
-                Some(Overlay::Discard { path, .. }) => path.to_string(),
-                _ => String::new(),
-            });
-            Modal::new("discard-prompt", "Discard changes?", theme)
-                .on_dismiss(cancel.clone())
-                .child(
-                    div()
-                        .focusable()
-                        .autofocus()
-                        .tab_index(-1)
-                        .on_key_down({
-                            let handle = handle.clone();
-                            let cancel = cancel.clone();
-                            move |event| {
-                                if event.modifiers != Modifiers::NONE {
-                                    return;
-                                }
-                                match &event.key {
-                                    Key::Character(key) if key == "y" => {
-                                        event.stop_propagation();
-                                        handle.confirm_repository(None);
-                                    }
-                                    Key::Character(key) if key == "n" => {
-                                        event.stop_propagation();
-                                        cancel();
-                                    }
-                                    _ => (),
-                                }
-                            }
-                        })
-                        .child(text(format!("Discard changes to {path}?")))
-                        .child(
-                            ActionBar::new(theme)
-                                .child(
-                                    Button::new("discard-cancel", "Cancel", theme)
-                                        .keyboard_focusable()
-                                        .on_click(cancel),
-                                )
-                                .child(
-                                    Button::new("discard-confirm", "Discard", theme)
-                                        .variant(ButtonVariant::Destructive)
-                                        .keyboard_focusable()
-                                        .on_click({
-                                            let handle = handle.clone();
-                                            move || {
-                                                handle.confirm_repository(None);
-                                            }
-                                        }),
-                                ),
-                        ),
-                )
-                .into_any()
-        }
+        OverlayKind::Discard => discard_prompt(&handle).into_any(),
+    }
+}
+
+fn discard_prompt(handle: &ReviewHandle) -> impl View + use<> {
+    let handle = *handle;
+    let cancel = move || {
+        handle.handle_command(ReviewCommand::Cancel);
+    };
+    let path = handle.with(|state| match &state.overlay {
+        Some(Overlay::Discard { path, .. }) => path.to_string(),
+        _ => String::new(),
+    });
+    let confirm = move || {
+        handle.confirm_repository(None);
+    };
+    view! {
+        <modal id="discard-prompt" title="Discard changes?" on_dismiss=cancel>
+            <div focusable autofocus tab_index=-1
+                 on_key_down={move |event| {
+                     if event.modifiers != Modifiers::NONE {
+                         return;
+                     }
+                     match &event.key {
+                         Key::Character(key) if key == "y" => {
+                             event.stop_propagation();
+                             confirm();
+                         }
+                         Key::Character(key) if key == "n" => {
+                             event.stop_propagation();
+                             cancel();
+                         }
+                         _ => (),
+                     }
+                 }}>
+                <text>{format!("Discard changes to {path}?")}</text>
+                <action_bar>
+                    <button id="discard-cancel" label="Cancel" keyboard_focusable on_click=cancel/>
+                    <button id="discard-confirm" label="Discard" variant=ButtonVariant::Destructive
+                            keyboard_focusable on_click=confirm/>
+                </action_bar>
+            </div>
+        </modal>
     }
 }

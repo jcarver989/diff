@@ -1,11 +1,10 @@
 use crate::{ReviewHandle, shortcut_label};
 use clankerdiff_core::{CommandContext, InteractionPhase, palette_commands};
-use clankerdiff_rouge_ui::{
-    picker::{PickerItem, SearchPicker, SearchPickerEvent},
-    theme::UiTheme,
-};
+use clankerdiff_rouge_ui::picker::{PickerItem, SearchPickerEvent, SearchPickerHandle, search_picker};
+use rouge_core::{Div, view};
 
-pub(crate) fn help_picker(handle: &ReviewHandle, theme: UiTheme) -> SearchPicker {
+pub(crate) fn help_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) {
+    let handle = *handle;
     let entries: Vec<_> = handle.with(|state| {
         let context = CommandContext { phase: InteractionPhase::Browse, ..state.command_context() };
         palette_commands(&context, state.session()).collect()
@@ -21,8 +20,7 @@ pub(crate) fn help_picker(handle: &ReviewHandle, theme: UiTheme) -> SearchPicker
             }
         })
         .collect();
-    let handle = handle.clone();
-    SearchPicker::new("command-palette", items, theme, move |event| match event {
+    let picker = SearchPickerHandle::new(items, move |event| match event {
         SearchPickerEvent::Chose(index) => {
             if let Some(entry) = entries.get(index) {
                 handle.choose_palette_command(entry.command.clone());
@@ -32,7 +30,9 @@ pub(crate) fn help_picker(handle: &ReviewHandle, theme: UiTheme) -> SearchPicker
             handle.dismiss_picker(InteractionPhase::Help);
         }
         _ => (),
-    })
-    .title("Commands")
-    .searchable("Search commands…")
+    });
+    let palette = view! {
+        <search_picker id="command-palette" handle=picker title="Commands" searchable="Search commands…"/>
+    };
+    (picker, palette)
 }

@@ -115,7 +115,7 @@ fn disposed_review_rejects_late_callbacks() {
     let _runtime = Runtime::new().enter();
     let (ui, handle) = TestUiBuilder::default().build_with(|| {
         let handle = ReviewController::new(common::document()).mount(|_| panic!("unexpected output"));
-        (diff_view(handle.clone()), handle)
+        (diff_view(handle), handle)
     });
     assert!(handle.is_alive());
     drop(ui);

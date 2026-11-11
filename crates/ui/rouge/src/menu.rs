@@ -1,13 +1,13 @@
 use crate::{
-    components::ListRow,
+    components::list_row,
     icon::{Icon, IconName},
     theme::UiTheme,
-    tokens::{MENU_WIDTH, rem},
-    typography::{Typography, TypographyExt},
+    tokens::MENU_WIDTH,
+    typography::UiStyles,
 };
-use rouge_core::{Chord, Key, Styled, View, div, focus_handle, text};
-use rouge_reactive::signal;
-use std::rc::Rc;
+use rouge_core::{Chord, Key, Styled, View, component, div, pct, px, text, view};
+use rouge_reactive::{Callback, signal};
+use rouge_widgets::RovingFocus;
 
 #[derive(Clone)]
 pub struct MenuItem(Option<Entry>);
@@ -17,17 +17,11 @@ struct Entry {
     icon: Option<IconName>,
     shortcut: Option<Chord>,
     destructive: bool,
-    action: Rc<dyn Fn()>,
+    action: Callback,
 }
 impl MenuItem {
     pub fn new(label: impl Into<String>, action: impl Fn() + 'static) -> Self {
-        Self(Some(Entry {
-            label: label.into(),
-            icon: None,
-            shortcut: None,
-            destructive: false,
-            action: Rc::new(action),
-        }))
+        Self(Some(Entry { label: label.into(), icon: None, shortcut: None, destructive: false, action: action.into() }))
     }
     #[must_use]
     pub const fn separator() -> Self {
@@ -56,71 +50,61 @@ impl MenuItem {
     }
 }
 
-pub fn with_menu(trigger: impl View, items: impl IntoIterator<Item = MenuItem>, theme: UiTheme) -> impl View {
+#[component]
+pub fn with_menu(children: impl View, items: impl IntoIterator<Item = MenuItem>) -> impl View {
+    let theme = UiTheme::current();
     let open = signal(false);
     let items = items.into_iter().collect::<Vec<_>>();
-    let trigger = div()
-        .focusable()
-        .child(trigger)
-        .on_click(move |event| {
-            event.stop_propagation();
-            open.set(true);
-        })
-        .on_key_down(move |event| {
-            if matches!(event.key, Key::Enter | Key::Space | Key::ArrowDown) {
-                event.stop_propagation();
-                open.set(true);
-            }
-        });
+    let trigger = view! {
+        <div focusable
+             on_click={move |event| {
+                 event.stop_propagation();
+                 open.set(true);
+             }}
+             on_key_down={move |event| {
+                 if matches!(event.key, Key::Enter | Key::Space | Key::ArrowDown) {
+                     event.stop_propagation();
+                     open.set(true);
+                 }
+             }}>
+            {children}
+        </div>
+    };
     rouge_widgets::popover(open, trigger, move || {
-        let focus: Rc<[_]> = items.iter().filter(|item| item.0.is_some()).map(|_| focus_handle()).collect();
+        let focus = RovingFocus::new(items.iter().filter(|item| item.0.is_some()).count());
         let mut index = 0;
-        div().w(rem(MENU_WIDTH)).max_w(rouge_core::pct(100.0)).flex().col().p(rem(4.0)).children(
-            items.iter().cloned().map(|item| {
-                let Some(entry) = item.0 else {
-                    return div().h(1.0).my(rem(4.0)).bg(theme.paint(|c| c.border));
-                };
-                let current = index;
-                index += 1;
-                let handles = focus.clone();
-                let action = entry.action.clone();
-                let run = move || {
-                    open.set(false);
-                    action();
-                };
-                let fg = theme.paint(move |c| if entry.destructive { c.destructive } else { c.text });
-                let mut row = ListRow::new(format!("menu-item-{}", entry.label), theme).on_click(run.clone());
-                if let Some(icon) = entry.icon {
-                    row = row.child(Icon::new(icon, fg));
-                }
-                row = row.child(text(entry.label).typography(Typography::Label).color(fg));
-                if let Some(chord) = entry.shortcut {
-                    row = row.child(
-                        text(chord.display()).typography(Typography::Caption).color(theme.paint(|c| c.text_muted)),
-                    );
-                }
-                let wrapper = div()
-                    .track_focus(focus[current])
-                    .focusable()
-                    .on_key_down(move |event| {
-                        let count = handles.len();
-                        match event.key {
-                            Key::ArrowDown => handles[(current + 1) % count].focus(),
-                            Key::ArrowUp => handles[(current + count - 1) % count].focus(),
-                            Key::Home => handles[0].focus(),
-                            Key::End => handles[count - 1].focus(),
-                            Key::Enter | Key::Space => run(),
-                            Key::Escape | Key::Tab => return,
-                            _ => {
-                                event.stop_propagation();
-                                return;
-                            }
-                        }
-                        event.stop_propagation();
-                    })
-                    .child(row);
-                if current == 0 { wrapper.autofocus() } else { wrapper }
-            }),
-        )
+        let entries = items.iter().cloned().map(|item| {
+            let Some(entry) = item.0 else {
+                return view! { <div h=px(1.0) my=4.0 bg=theme.border/> };
+            };
+            let current = index;
+            index += 1;
+            let run = move || {
+                open.set(false);
+                entry.action.call();
+            };
+            let fg = if entry.destructive { theme.destructive } else { theme.text };
+            let wrapper = view! {
+                <div focusable
+                     on_key_down={move |event| {
+                         match event.key {
+                             Key::Enter | Key::Space => run(),
+                             Key::Escape | Key::Tab | Key::ArrowDown | Key::ArrowUp | Key::Home | Key::End => return,
+                             _ => {}
+                         }
+                         event.stop_propagation();
+                     }}>
+                    <list_row id={format!("menu-item-{}", entry.label)} on_click=run>
+                        {entry.icon.map(|icon| Icon::new(icon, fg))}
+                        <text label color=fg>{entry.label}</text>
+                        {entry.shortcut.map(|chord| view! { <text caption muted>{chord.display()}</text> })}
+                    </list_row>
+                </div>
+            };
+            focus.item(current, wrapper)
+        });
+        view! {
+            <div w=MENU_WIDTH max_w=pct(100.0) flex col p=4.0>{..entries}</div>
+        }
     })
 }

@@ -1,53 +1,18 @@
 use clankerdiff_symbols::DocumentSyntax;
-use rouge_reactive::{Scope, Signal, Task, spawn};
+use rouge_reactive::{Signal, untrack};
 use std::sync::Arc;
 
-pub(crate) struct SyntaxJob {
-    target: *const DocumentSyntax,
-    scope: Scope,
-    task: Task,
-}
-
-impl SyntaxJob {
-    pub(crate) fn start(
-        syntax: &Arc<DocumentSyntax>,
-        revision: Signal<u64>,
-        focus: impl Fn() -> Option<usize> + 'static,
-    ) -> Self {
-        let target = Arc::as_ptr(syntax);
-        let syntax = Arc::clone(syntax);
-        let scope = Scope::root();
-        let task = scope.run(|| {
-            spawn(async move {
-                let count = syntax.document().files.len();
-                let mut done = vec![false; count];
-                while let Some(file) = next(&done, focus()) {
-                    done[file] = true;
-                    prepare(&syntax, file).await;
-                    if !revision.is_alive() {
-                        return;
-                    }
-                    revision.update(|revision| *revision = revision.wrapping_add(1));
-                }
-                index(&syntax).await;
-                if revision.is_alive() {
-                    revision.update(|revision| *revision = revision.wrapping_add(1));
-                }
-            })
-        });
-        Self { target, scope, task }
+pub(crate) async fn prepare(syntax: Arc<DocumentSyntax>, progress: Signal<u64>, focus: Signal<Option<usize>>) {
+    let mut done = vec![false; syntax.document().files.len()];
+    while let Some(file) = next(&done, untrack(|| focus.try_get().flatten())) {
+        done[file] = true;
+        prepare_file(&syntax, file).await;
+        if progress.try_update(|revision| *revision = revision.wrapping_add(1)).is_none() {
+            return;
+        }
     }
-
-    pub(crate) fn targets(&self, syntax: &Arc<DocumentSyntax>) -> bool {
-        std::ptr::eq(self.target, Arc::as_ptr(syntax))
-    }
-}
-
-impl Drop for SyntaxJob {
-    fn drop(&mut self) {
-        self.task.cancel();
-        self.scope.dispose();
-    }
+    index(&syntax).await;
+    progress.try_update(|revision| *revision = revision.wrapping_add(1));
 }
 
 fn next(done: &[bool], focus: Option<usize>) -> Option<usize> {
@@ -56,7 +21,7 @@ fn next(done: &[bool], focus: Option<usize>) -> Option<usize> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn prepare(syntax: &Arc<DocumentSyntax>, file: usize) {
+async fn prepare_file(syntax: &Arc<DocumentSyntax>, file: usize) {
     let syntax = Arc::clone(syntax);
     rouge_reactive::background(async move { syntax.prepare(file) }).await;
 }
@@ -68,7 +33,7 @@ async fn index(syntax: &Arc<DocumentSyntax>) {
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn prepare(syntax: &Arc<DocumentSyntax>, file: usize) {
+async fn prepare_file(syntax: &Arc<DocumentSyntax>, file: usize) {
     syntax.prepare(file);
     rouge_reactive::sleep(std::time::Duration::ZERO).await;
 }

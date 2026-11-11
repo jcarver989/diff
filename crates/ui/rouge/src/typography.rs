@@ -1,8 +1,8 @@
 use crate::{
     fonts::{CODE_FONT, UI_FONT},
-    tokens::rem,
+    theme::UiTheme,
 };
-use rouge_core::{Styled, TextStyle};
+use rouge_core::{TextStyle, Typography as Preset, styles};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Typography {
@@ -64,15 +64,32 @@ impl Typography {
     }
 }
 
-pub trait TypographyExt: Styled + Sized {
-    #[must_use]
-    fn typography(self, typography: Typography) -> Self {
-        let styled = self
-            .text_size(rem(typography.size()))
-            .line_height(typography.line_height() / typography.size())
-            .font_weight(typography.weight());
-        styled.font(if typography == Typography::Code { CODE_FONT } else { UI_FONT })
+impl From<Typography> for Preset {
+    fn from(typography: Typography) -> Self {
+        Preset {
+            font: Some(if typography == Typography::Code { CODE_FONT } else { UI_FONT }),
+            size: typography.size(),
+            line_height: typography.line_height() / typography.size(),
+            weight: typography.weight(),
+        }
     }
 }
 
-impl<T: Styled> TypographyExt for T {}
+styles! {
+    pub trait UiStyles {
+        caption(target) => target.typography(Typography::Caption);
+        small(target) => target.typography(Typography::Small);
+        label(target) => target.typography(Typography::Label);
+        body(target) => target.typography(Typography::Body);
+        body_strong(target) => target.typography(Typography::BodyStrong);
+        title(target) => target.typography(Typography::Title);
+        heading(target) => target.typography(Typography::Heading);
+        display(target) => target.typography(Typography::Display);
+        code(target) => target.typography(Typography::Code);
+        reading(target) => target.typography(Typography::Reading);
+        primary(target) => target.text_color(UiTheme::current().text);
+        secondary(target) => target.text_color(UiTheme::current().text_secondary);
+        muted(target) => target.text_color(UiTheme::current().text_muted);
+        accent(target) => target.text_color(UiTheme::current().accent);
+    }
+}

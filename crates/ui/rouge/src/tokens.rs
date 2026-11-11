@@ -1,11 +1,4 @@
-use rouge_core::Length;
-
 pub const BASE_SIZE: f32 = 16.0;
-
-#[must_use]
-pub const fn rem(design_px: f32) -> Length {
-    Length::Rem(design_px / BASE_SIZE)
-}
 
 pub const ROW_HEIGHT: f32 = 28.0;
 pub const GROUP_HEIGHT: f32 = 32.0;

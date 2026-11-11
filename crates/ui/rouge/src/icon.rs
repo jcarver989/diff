@@ -1,5 +1,5 @@
-use crate::tokens::{ICON_SIZE, rem};
-use rouge_core::{BuildCx, Color, ElementId, IntoProp, Keyframes, Path, Prop, Styled, View, div, icon};
+use crate::tokens::ICON_SIZE;
+use rouge_core::{BuildCx, Color, ElementId, IntoProp, Keyframes, Path, Prop, Styled, View, div, icon, view};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IconName {
@@ -242,15 +242,18 @@ impl Icon {
 impl View for Icon {
     fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
         let color = self.color;
-        let glyph = icon(Path::svg(self.name.geometry())).color(move || color.get()).stroke_round(2.0).size_full();
-        let view = div().flex_none().w(rem(self.size)).h(rem(self.size)).child(glyph);
+        let root = view! {
+            <div flex_none w=self.size h=self.size>
+                <icon path=Path::svg(self.name.geometry()) color={move || color.get()} stroke_round=2.0 size_full/>
+            </div>
+        };
         if self.spin {
-            view.animate(
+            root.animate(
                 Keyframes::new().at(0.0, |p| p.rotate(0.0)).at(1.0, |p| p.rotate(360.0)).duration(1.2).repeat(),
             )
             .build(cx)
         } else {
-            view.build(cx)
+            root.build(cx)
         }
     }
 }

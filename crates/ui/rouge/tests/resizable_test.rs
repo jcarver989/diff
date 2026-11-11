@@ -2,7 +2,7 @@ use clankerdiff_rouge_ui::{
     prelude::*,
     testing::{TestResult, component_test},
 };
-use rouge_core::{Point, Styled, div};
+use rouge_core::{Point, Styled, div, view};
 use rouge_reactive::signal;
 
 #[test]
@@ -12,15 +12,16 @@ fn resizes_both_edges_in_rem_clamps_and_resets() -> TestResult {
     for side in [PanelSide::Left, PanelSide::Right] {
         let (mut ui, (width, size, resets, reported)) = component_test().size(640.0, 200.0).build_with(move || {
             let size = InterfaceSize::install(16.0);
-            let width = signal(10.0);
+            let width = signal(10.0_f32);
             let resets = signal(0);
-            let reported = signal(0.0);
-            let panel = ResizablePanel::new("panel", side, width)
-                .min_width(6.0)
-                .max_width(14.0)
-                .on_resize(move |value| reported.set(value))
-                .on_reset(move || resets.update(|n| *n += 1))
-                .child(div().h(160.0));
+            let reported = signal(0.0_f32);
+            let panel = view! {
+                <resizable_panel id="panel" side width_in_rem=width min_width=6.0 max_width=14.0
+                                 on_resize={move |value: f32| reported.set(value)}
+                                 on_reset={move || resets.update(|n| *n += 1)}>
+                    <div h=160.0/>
+                </resizable_panel>
+            };
             let root = div().size_full().flex();
             let root = if side == PanelSide::Right { root.justify_end() } else { root };
             (root.child(panel), (width, size, resets, reported))

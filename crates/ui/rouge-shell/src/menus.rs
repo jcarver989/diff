@@ -7,7 +7,7 @@ pub fn build(name: &str, app_items: Vec<MenuItem>, menus: Vec<Menu>) -> Vec<Menu
         items.push(MenuItem::Separator);
     }
     items.push(
-        MenuItem::callback(format!("Quit {name}"), crate::run_loop::stop)
+        MenuItem::callback(format!("Quit {name}"), rouge::App::quit)
             .shortcut(Chord::new(Key::character("q"), Modifiers::COMMAND)),
     );
     let mut all = vec![Menu::new(name, items), Menu::edit()];

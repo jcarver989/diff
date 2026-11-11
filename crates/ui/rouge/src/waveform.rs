@@ -1,8 +1,5 @@
-use crate::{
-    indicator_layer::IndicatorMark,
-    tokens::{ICON_SIZE, rem, scaled},
-};
-use rouge_core::{BuildCx, Color, ElementId, IntoProp, Keyframes, Prop, Styled, View, div};
+use crate::{indicator_layer::IndicatorMark, tokens::ICON_SIZE};
+use rouge_core::{BuildCx, Color, ElementId, IntoProp, Keyframes, Prop, Styled, View, div, view};
 use std::rc::Rc;
 
 pub struct Waveform {
@@ -36,12 +33,12 @@ impl View for Waveform {
             let levels = levels.clone();
             let bars = [0.0, 0.16, 0.32, 0.48, 0.64].into_iter().enumerate().map(move |(i, phase)| {
                 let color = color.clone();
-                let bar = div().w(rem(size / 9.0)).rounded(scaled(1.0)).bg(move || color.get());
+                let bar = div().w(size / 9.0).rounded(1.0).bg(move || color.get());
                 if let Some(levels) = &levels {
                     let levels = levels.clone();
-                    bar.h(move || rem(size * (0.15 + 0.75 * levels.get()[i].clamp(0.0, 1.0))))
+                    bar.h(move || size * (0.15 + 0.75 * levels.get()[i].clamp(0.0, 1.0)))
                 } else {
-                    bar.h(rem(size * 0.83)).animate(
+                    bar.h(size * 0.83).animate(
                         Keyframes::new()
                             .at(0.0, |p| p.scale(0.25 + phase))
                             .at(0.5, |p| p.scale(1.0 - phase))
@@ -51,10 +48,12 @@ impl View for Waveform {
                     )
                 }
             });
-            div().size_full().flex().items_center().justify_center().gap(rem(size / 12.0)).children(bars)
+            view! {
+                <div size_full flex items_center justify_center gap={size / 12.0}>{..bars}</div>
+            }
         })
-        .w(rem(size))
-        .h(rem(size))
+        .w(size)
+        .h(size)
         .flex_none()
         .build(cx)
     }

@@ -17,7 +17,7 @@ fn gpu_renders_diff_layout_theme_and_interface_size_changes() -> TestResult {
         TestUiBuilder::default().fonts(bundled_fonts()).size(1024.0, 768.0).build_with(|| {
             let size = InterfaceSize::install(16.0);
             let handle = ReviewController::new(document).mount(|_| {});
-            (diff_view(handle.clone()), (handle, size))
+            (diff_view(handle), (handle, size))
         });
     assert!(handle.handle_command(DiffReviewCommand::SetViewMode(ViewMode::Unified)));
     ui.advance(0.0);

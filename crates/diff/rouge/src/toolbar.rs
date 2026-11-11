@@ -3,16 +3,22 @@ use clankerdiff_core::{
     ControlKind, DiffReviewCommand as C, FilesMode, PageLabel, ReviewCommand, Toolbar, ToolbarControl, ViewMode,
 };
 use clankerdiff_rouge_ui::{
-    components::{Button, ButtonVariant, ControlSize, IconButton, MutedText, Notification, Segment, SegmentedControl},
+    components::{
+        ButtonVariant, ControlSize, NoticeTone, button, icon_button, muted_text, notification, segment,
+        segmented_control,
+    },
     fonts::CODE_FONT,
     icon::{Icon, IconName},
     interface_size::{InterfaceSize, SizeAction},
     theme::UiTheme,
-    tokens::{self, rem, scaled},
-    typography::{Typography, TypographyExt},
+    tokens,
+    typography::UiStyles,
 };
-use rouge_core::{AnyView, Cursor, Div, Length, Rect, Styled, View, div, dynamic, root_font_size, text};
+use rouge_core::{
+    AnyView, Color, Cursor, Div, Length, Rect, Styled, View, div, dynamic, px, root_font_size, text, view,
+};
 use rouge_reactive::{memo, signal, use_context};
+use rouge_widgets::{Hint, popover};
 
 const COMPACT_TOOLBAR_WIDTH: f32 = 900.0;
 const MIN_SPLIT_TOOLBAR_WIDTH: f32 = 640.0;
@@ -44,7 +50,9 @@ impl Model {
     }
 }
 
-pub(crate) fn toolbar(handle: &ReviewHandle, theme: UiTheme) -> impl View {
+pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
+    let theme = UiTheme::current();
+    let handle = *handle;
     let status = handle.status();
     let revision = handle.presentation_revision();
     let selection = handle.selection();
@@ -52,15 +60,14 @@ pub(crate) fn toolbar(handle: &ReviewHandle, theme: UiTheme) -> impl View {
     let bounds = signal(Rect::ZERO);
     let font = root_font_size();
     let model = memo({
-        let handle = handle.clone();
         move || {
             let status = status.get();
             revision.get();
             let pane = selection.get().pane;
             let width = bounds.get().size.width / font.get();
-            let px = |design: f32| design / tokens::BASE_SIZE;
+            let rems = |design: f32| design / tokens::BASE_SIZE;
             let beside = width - sidebar.get();
-            let split = !status.sidebar_collapsed && beside >= px(MIN_SPLIT_TOOLBAR_WIDTH);
+            let split = !status.sidebar_collapsed && beside >= rems(MIN_SPLIT_TOOLBAR_WIDTH);
             let room = if split { beside } else { width };
             handle.with(|state| {
                 let session = state.session();
@@ -82,7 +89,7 @@ pub(crate) fn toolbar(handle: &ReviewHandle, theme: UiTheme) -> impl View {
                     files_mode: status.files_mode,
                     changes: session.document().files.len(),
                     split,
-                    compact: room < px(COMPACT_TOOLBAR_WIDTH),
+                    compact: room < rems(COMPACT_TOOLBAR_WIDTH),
                     flags: Flags {
                         browsable: status.context.browsable,
                         files_focused: pane == ViewerPane::Files,
@@ -93,383 +100,279 @@ pub(crate) fn toolbar(handle: &ReviewHandle, theme: UiTheme) -> impl View {
             })
         }
     });
-    let bar = dynamic({
-        let handle = handle.clone();
-        move || bar(&handle, &model.get(), theme)
-    });
-    div()
-        .test_id("diff-toolbar")
-        .flex()
-        .col()
-        .flex_none()
-        .track_bounds(bounds)
-        .bg(theme.paint(|c| c.chrome))
-        .border_b(1.0)
-        .border_color(theme.paint(|c| c.border))
-        .child(bar)
+    view! {
+        <div test_id="diff-toolbar" flex col flex_none track_bounds=bounds bg=theme.chrome border_b=px(1.0)
+             border_color=theme.border>
+            <dynamic>{bar(&handle, &model.get())}</dynamic>
+        </div>
+    }
 }
 
-fn bar(handle: &ReviewHandle, model: &Model, theme: UiTheme) -> Div {
+fn bar(handle: &ReviewHandle, model: &Model) -> Div {
+    let theme = UiTheme::current();
     let sidebar = handle.sidebar_width_rem();
-    let mut row = div().h(rem(tokens::BAR_HEIGHT)).flex_none().flex().row();
-    if model.split {
-        row = row.child(
-            div()
-                .test_id("toolbar-files")
-                .flex_none()
-                .w(move || Length::Rem(sidebar.get()))
-                .h_full()
-                .px(rem(8.0))
-                .flex()
-                .row()
-                .items_center()
-                .gap(rem(4.0))
-                .bg(theme.paint(|c| c.surface))
-                .border_r(1.0)
-                .border_color({
-                    let focused = model.flags.files_focused;
-                    theme.paint(move |c| if focused { c.accent } else { c.border })
-                })
-                .children(files_controls(handle, model, theme)),
-        );
+    let focused = model.flags.files_focused;
+    let files = model.split.then(|| {
+        view! {
+            <div test_id="toolbar-files" flex_none w={move || Length::Rem(sidebar.get())} h_full px=8.0 flex row
+                 items_center gap=4.0 bg=theme.surface border_r=px(1.0)
+                 border_color=theme.paint(move |c| if focused { c.accent } else { c.border })>
+                {..files_controls(handle, model)}
+            </div>
+        }
+    });
+    view! {
+        <div flex col>
+            <div h=tokens::BAR_HEIGHT flex_none flex row>
+                {files}
+                <div flex_1 min_w=0.0 h_full px=8.0 flex row items_center gap=12.0>
+                    {leading(handle, model)}
+                    {trailing(handle, model)}
+                </div>
+            </div>
+            {model.error.clone().map(|error| view! {
+                <div px=8.0 pb=6.0><notification message=error tone=NoticeTone::Error/></div>
+            })}
+            {model.flags.pending.then(|| view! {
+                <div px=12.0 pb=6.0><muted_text>"Updating repository…"</muted_text></div>
+            })}
+        </div>
     }
-    row = row.child(
-        div()
-            .flex_1()
-            .min_w(0.0)
-            .h_full()
-            .px(rem(8.0))
-            .flex()
-            .row()
-            .items_center()
-            .gap(rem(12.0))
-            .child(leading(handle, model, theme))
-            .child(trailing(handle, model, theme)),
-    );
-    let mut bar = div().flex().col().child(row);
-    if let Some(error) = model.error.clone() {
-        bar = bar.child(div().px(rem(8.0)).pb(rem(6.0)).child(Notification::error(error, theme)));
-    }
-    if model.flags.pending {
-        bar = bar.child(div().px(rem(12.0)).pb(rem(6.0)).child(MutedText::new("Updating repository…", theme)));
-    }
-    bar
 }
 
-fn files_controls(handle: &ReviewHandle, model: &Model, theme: UiTheme) -> Vec<AnyView> {
-    let mut controls = Vec::new();
-    if let Some(toggle) = model.toolbar.files.iter().find(|control| matches!(control.kind, ControlKind::Sidebar { .. }))
-    {
-        controls.push(control(handle, model, toggle, theme));
-    }
-    if model.flags.browsable {
-        controls.push(
-            SegmentedControl::new("files-mode", theme)
-                .segments([FilesMode::Diff, FilesMode::Browse].map(|mode| {
-                    let command = C::SetFilesMode(mode);
-                    let id = format!("files-mode-{}", mode.title().to_lowercase());
-                    let segment = match mode {
-                        FilesMode::Diff if model.changes > 0 => {
-                            Segment::icon(id, IconName::FileDiff, "Changed files").detail(model.changes.to_string())
-                        }
-                        FilesMode::Diff => Segment::icon(id, IconName::FileDiff, "Changed files"),
-                        FilesMode::Browse => Segment::icon(id, IconName::Folder, "All files"),
-                    };
-                    segment.selected(model.files_mode == mode).disabled(!model.enabled(&command)).on_click({
-                        let handle = handle.clone();
-                        move || {
-                            handle.handle_command(command.clone());
-                        }
-                    })
-                }))
-                .into_any(),
-        );
-    }
-    controls
+fn files_controls(handle: &ReviewHandle, model: &Model) -> Vec<AnyView> {
+    let toggle = model
+        .toolbar
+        .files
+        .iter()
+        .find(|control| matches!(control.kind, ControlKind::Sidebar { .. }))
+        .map(|toggle| control(handle, model, toggle, None));
+    let switcher = model.flags.browsable.then(|| {
+        let segments = [FilesMode::Diff, FilesMode::Browse].map(|mode| {
+            let command = C::SetFilesMode(mode);
+            let id = format!("files-mode-{}", mode.title().to_lowercase());
+            let (icon, label) = match mode {
+                FilesMode::Diff => (IconName::FileDiff, "Changed files"),
+                FilesMode::Browse => (IconName::Folder, "All files"),
+            };
+            let detail = (mode == FilesMode::Diff && model.changes > 0).then(|| model.changes.to_string());
+            let handle = *handle;
+            view! {
+                <segment id label icon detail?=detail selected={model.files_mode == mode}
+                         disabled={!model.enabled(&command)}
+                         on_click={move || {
+                             handle.handle_command(command.clone());
+                         }}/>
+            }
+        });
+        view! { <segmented_control id="files-mode">{..segments}</segmented_control> }.into_any()
+    });
+    toggle.into_iter().chain(switcher).collect()
 }
 
-fn leading(handle: &ReviewHandle, model: &Model, theme: UiTheme) -> Div {
-    let files = if model.split { Vec::new() } else { files_controls(handle, model, theme) };
+fn leading(handle: &ReviewHandle, model: &Model) -> Div {
+    let files = if model.split { Vec::new() } else { files_controls(handle, model) };
     let history: Vec<_> = if model.compact {
         Vec::new()
     } else {
-        model.toolbar.history.iter().map(|item| control(handle, model, item, theme)).collect()
+        model.toolbar.history.iter().map(|item| control(handle, model, item, None)).collect()
     };
-    let target = review_target(handle, model, theme);
-    let mut leading = div().flex_1().min_w(0.0).overflow_hidden().flex().row().items_center().gap(rem(2.0));
-    let has_files = !files.is_empty();
-    let has_history = !history.is_empty();
-    leading = leading.children(files);
-    if has_files && has_history {
-        leading = leading.child(divider(theme));
+    let target = review_target(handle, model);
+    let (has_files, has_history) = (!files.is_empty(), !history.is_empty());
+    view! {
+        <div flex_1 min_w=0.0 overflow_hidden flex row items_center gap=2.0>
+            {..files}
+            {(has_files && has_history).then(divider)}
+            {..history}
+            {(target.is_some() && (has_files || has_history)).then(divider)}
+            {target}
+        </div>
     }
-    leading = leading.children(history);
-    if let Some(target) = target {
-        if has_files || has_history {
-            leading = leading.child(divider(theme));
-        }
-        leading = leading.child(target);
-    }
-    leading
 }
 
-fn review_target(handle: &ReviewHandle, model: &Model, theme: UiTheme) -> Option<Div> {
-    let stepper = stepper(handle, model, theme);
+fn review_target(handle: &ReviewHandle, model: &Model) -> Option<Div> {
+    let stepper = stepper(handle, model);
     let scopes = (!model.toolbar.scopes.is_empty()).then(|| {
-        SegmentedControl::new("scopes", theme).segments(model.toolbar.scopes.iter().filter_map(|item| {
+        let segments = model.toolbar.scopes.iter().filter_map(|item| {
             let ControlKind::Scope(scope) = item.kind else {
                 return None;
             };
-            Some(
-                Segment::new(format!("scope-{scope:?}"), scope.title())
-                    .selected(item.selected)
-                    .disabled(!model.enabled(&item.command))
-                    .on_click(run(handle, item)),
-            )
-        }))
+            Some(view! {
+                <segment id={format!("scope-{scope:?}")} label=scope.title() selected=item.selected
+                         disabled={!model.enabled(&item.command)} on_click=run(handle, item)/>
+            })
+        });
+        view! { <segmented_control id="scopes">{..segments}</segmented_control> }
     });
     if stepper.is_none() && scopes.is_none() {
         return None;
     }
-    let mut target = div()
-        .test_id("review-target")
-        .flex_grow(0.0)
-        .flex_shrink(1.0)
-        .min_w(0.0)
-        .overflow_hidden()
-        .h(rem(tokens::ROW_HEIGHT))
-        .flex()
-        .row()
-        .items_center()
-        .gap(rem(2.0));
     let both = stepper.is_some() && scopes.is_some();
-    if let Some(stepper) = stepper {
-        target = target.child(stepper);
-    }
-    if both {
-        target = target.child(divider(theme));
-    }
-    if let Some(scopes) = scopes {
-        target = target.child(scopes);
-    }
-    Some(target)
+    Some(view! {
+        <div test_id="review-target" flex_grow=0.0 flex_shrink=1.0 min_w=0.0 overflow_hidden h=tokens::ROW_HEIGHT flex
+             row items_center gap=2.0>
+            {stepper}
+            {both.then(divider)}
+            {scopes}
+        </div>
+    })
 }
 
-fn stepper(handle: &ReviewHandle, model: &Model, theme: UiTheme) -> Option<Div> {
+fn stepper(handle: &ReviewHandle, model: &Model) -> Option<Div> {
     let (Some(label), [previous, next, choose]) = (&model.toolbar.page, model.toolbar.stepper.as_slice()) else {
         return None;
     };
-    let trigger = commit_trigger(handle, model, label, choose, theme);
-    Some(
-        div()
-            .test_id("commit-stepper")
-            .flex_grow(0.0)
-            .flex_shrink(1.0)
-            .w(rem(MAX_STEPPER_WIDTH))
-            .min_w(rem(MIN_STEPPER_WIDTH))
-            .h_full()
-            .px(rem(2.0))
-            .flex()
-            .row()
-            .items_center()
-            .gap(rem(2.0))
-            .rounded(scaled(tokens::RADIUS_CONTROL))
-            .bg(theme.paint(|c| c.surface))
-            .track_bounds(handle.commit_anchor())
-            .child(icon_control(handle, model, previous, theme).icon_size(tokens::ICON_SIZE_SMALL))
-            .child(trigger)
-            .child(icon_control(handle, model, next, theme).icon_size(tokens::ICON_SIZE_SMALL)),
-    )
+    Some(view! {
+        <div test_id="commit-stepper" flex_grow=0.0 flex_shrink=1.0 w=MAX_STEPPER_WIDTH min_w=MIN_STEPPER_WIDTH h_full
+             px=2.0 flex row items_center gap=2.0 rounded=tokens::RADIUS_CONTROL bg=UiTheme::current().surface
+             track_bounds=handle.commit_anchor()>
+            {control(handle, model, previous, Some(tokens::ICON_SIZE_SMALL))}
+            {commit_trigger(handle, model, label, choose)}
+            {control(handle, model, next, Some(tokens::ICON_SIZE_SMALL))}
+        </div>
+    })
 }
 
-fn commit_trigger(
-    handle: &ReviewHandle,
-    model: &Model,
-    label: &PageLabel,
-    choose: &ToolbarControl,
-    theme: UiTheme,
-) -> AnyView {
+fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choose: &ToolbarControl) -> AnyView {
+    let theme = UiTheme::current();
     let hovered = signal(false);
     let has_subject = label.subject().is_some();
-    let mut trigger = div()
-        .test_id("choose-commit")
-        .w_full()
-        .min_w(0.0)
-        .h(rem(tokens::ICON_BUTTON_SIZE))
-        .px(rem(8.0))
-        .flex()
-        .row()
-        .items_center()
-        .gap(rem(8.0))
-        .rounded(scaled(tokens::RADIUS_INNER))
-        .cursor(Cursor::Pointer)
-        .bg(theme.paint(move |c| if hovered.get() { c.surface_hover } else { rouge_core::Color::TRANSPARENT }))
-        .on_hover(move |inside| {
-            hovered.set_if_changed(inside);
-        })
-        .on_click({
-            let run = run(handle, choose);
-            move |event| {
-                event.stop_propagation();
-                run();
-            }
-        });
-    if let Some(short_id) = label.short_id() {
-        trigger = trigger.child(
-            div().test_id("commit-short-id").flex_none().child(
-                text(short_id.to_owned())
-                    .typography(Typography::Small)
-                    .font(CODE_FONT)
-                    .no_wrap()
-                    .color(theme.paint(move |c| if has_subject { c.text_muted } else { c.text })),
-            ),
-        );
-    }
-    if let Some(subject) = label.subject() {
-        trigger =
-            trigger.child(
-                div().test_id("commit-subject").flex_grow(0.0).flex_shrink(1.0).min_w(0.0).overflow_hidden().child(
-                    text(subject.to_owned()).typography(Typography::Body).no_wrap().color(theme.paint(|c| c.text)),
-                ),
-            );
-    }
-    let mut end = div().flex_none().flex().row().items_center().gap(rem(8.0));
-    if let Some(position) = label.position_label().filter(|_| !model.compact) {
-        end = end.child(
-            div()
-                .test_id("commit-position")
-                .child(text(position).typography(Typography::Small).no_wrap().color(theme.paint(|c| c.text_muted))),
-        );
-    }
-    trigger = trigger.child(div().flex_1()).child(
-        end.child(Icon::new(IconName::ChevronDown, theme.paint(|c| c.text_muted)).size(tokens::ICON_SIZE_SMALL)),
-    );
-    rouge_widgets::tooltip(trigger, choose.tooltip.clone()).flex_1().min_w(0.0).into_any()
+    let run = run(handle, choose);
+    let short_id = label.short_id().map(|short_id| {
+        view! {
+            <div test_id="commit-short-id" flex_none>
+                <text small font=CODE_FONT no_wrap
+                      color=theme.paint(move |c| if has_subject { c.text_muted } else { c.text })>
+                    {short_id.to_owned()}
+                </text>
+            </div>
+        }
+    });
+    let subject = label.subject().map(|subject| {
+        view! {
+            <div test_id="commit-subject" flex_grow=0.0 flex_shrink=1.0 min_w=0.0 overflow_hidden>
+                <text body no_wrap primary>{subject.to_owned()}</text>
+            </div>
+        }
+    });
+    let position = label.position_label().filter(|_| !model.compact).map(|position| {
+        view! { <div test_id="commit-position"><text small no_wrap muted>{position}</text></div> }
+    });
+    let trigger = view! {
+        <div test_id="choose-commit" w_full min_w=0.0 h=tokens::ICON_BUTTON_SIZE px=8.0 flex row items_center gap=8.0
+             rounded=tokens::RADIUS_INNER cursor=Cursor::Pointer
+             bg={move || if hovered.get() { theme.surface_hover.get() } else { Color::TRANSPARENT }}
+             on_hover={move |inside| {
+                 hovered.set_if_changed(inside);
+             }}
+             on_click={move |event| {
+                 event.stop_propagation();
+                 run();
+             }}>
+            {short_id}
+            {subject}
+            <div flex_1/>
+            <div flex_none flex row items_center gap=8.0>
+                {position}
+                {Icon::new(IconName::ChevronDown, theme.text_muted).size(tokens::ICON_SIZE_SMALL)}
+            </div>
+        </div>
+    };
+    trigger.tooltip(choose.tooltip.clone()).flex_1().min_w(0.0).into_any()
 }
 
-fn trailing(handle: &ReviewHandle, model: &Model, theme: UiTheme) -> Div {
+fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
     let toolbar = &model.toolbar;
     let stat = toolbar.stat.filter(|_| !model.compact).map(|stat| {
-        div().test_id("diff-summary").flex_none().px(rem(4.0)).child(style::stat_badges(stat, handle.theme()))
+        view! { <div test_id="diff-summary" flex_none px=4.0>{style::stat_badges(stat, handle.theme())}</div> }
     });
     let collapse = toolbar
         .files
         .iter()
         .find(|item| matches!(item.kind, ControlKind::AllFiles { .. }))
-        .map(|item| control(handle, model, item, theme));
+        .map(|item| control(handle, model, item, None));
     let layouts = (!toolbar.layouts.is_empty()).then(|| {
-        SegmentedControl::new("view-mode-toggle", theme).segments(toolbar.layouts.iter().map(|item| {
+        let segments = toolbar.layouts.iter().map(|item| {
             let (id, icon) = control_icon(item.kind);
-            Segment::icon(id, icon, item.tooltip.clone())
-                .selected(item.selected)
-                .disabled(!model.enabled(&item.command))
-                .on_click(run(handle, item))
-        }))
+            view! {
+                <segment id label={item.tooltip.clone()} icon selected=item.selected
+                         disabled={!model.enabled(&item.command)} on_click=run(handle, item)/>
+            }
+        });
+        view! { <segmented_control id="view-mode-toggle">{..segments}</segmented_control> }
     });
-    let size = toolbar.stat.and_then(|_| size_menu(theme));
-    let mut trailing = div().flex_none().flex().row().items_center().justify_end().gap(rem(2.0));
+    let size = toolbar.stat.and_then(|_| size_menu());
     let after_stat = stat.is_some() && (collapse.is_some() || layouts.is_some() || size.is_some());
-    if let Some(stat) = stat {
-        trailing = trailing.child(stat);
+    let handle = *handle;
+    view! {
+        <div flex_none flex row items_center justify_end gap=2.0>
+            {stat}
+            {after_stat.then(divider)}
+            {collapse}
+            {layouts}
+            {size}
+            <icon_button id="command-palette-button" icon=IconName::Search label="Commands"
+                         on_click={move || {
+                             handle.handle_command(ReviewCommand::ShowHelp);
+                         }}/>
+        </div>
     }
-    if after_stat {
-        trailing = trailing.child(divider(theme));
-    }
-    if let Some(collapse) = collapse {
-        trailing = trailing.child(collapse);
-    }
-    if let Some(layouts) = layouts {
-        trailing = trailing.child(layouts);
-    }
-    if let Some(size) = size {
-        trailing = trailing.child(size);
-    }
-    trailing.child(IconButton::new("command-palette-button", IconName::Search, "Commands", theme).on_click({
-        let handle = handle.clone();
-        move || {
-            handle.handle_command(ReviewCommand::ShowHelp);
-        }
-    }))
 }
 
-fn size_menu(theme: UiTheme) -> Option<AnyView> {
+fn size_menu() -> Option<AnyView> {
+    let theme = UiTheme::current();
     let size = use_context::<InterfaceSize>()?;
     let open = signal(false);
-    let trigger = Button::new("interface-size", "Aa", theme)
-        .variant(ButtonVariant::Ghost)
-        .size(ControlSize::Small)
-        .tooltip("Text size")
-        .on_click(move || open.set(true));
+    let trigger = view! {
+        <button id="interface-size" label="Aa" variant=ButtonVariant::Ghost size=ControlSize::Small tooltip="Text size"
+                on_click={move || open.set(true)}/>
+    };
     let menu = move || {
         let step = |id: &str, icon, label: &str, action| {
-            IconButton::new(id, icon, label, theme).on_click(move || size.apply(action))
+            view! { <icon_button id icon label on_click={move || size.apply(action)}/> }
         };
         let hovered = signal(false);
-        div()
-            .test_id("interface-size-menu")
-            .p(rem(tokens::FLOATING_INSET))
-            .flex()
-            .row()
-            .items_center()
-            .gap(rem(2.0))
-            .child(
-                div()
-                    .px(rem(4.0))
-                    .mr(rem(4.0))
-                    .child(text("Text size").typography(Typography::Small).color(theme.paint(|c| c.text_secondary))),
-            )
-            .child(step("decrease-interface-size", IconName::Minus, "Decrease text size", SizeAction::Decrease))
-            .child(
-                div()
-                    .test_id("reset-interface-size")
-                    .h(rem(tokens::ICON_BUTTON_SIZE))
-                    .px(rem(tokens::CONTROL_PADDING_X_SMALL))
-                    .flex()
-                    .items_center()
-                    .rounded(scaled(tokens::RADIUS_INNER))
-                    .cursor(Cursor::Pointer)
-                    .bg(theme
-                        .paint(move |c| if hovered.get() { c.surface_hover } else { rouge_core::Color::TRANSPARENT }))
-                    .on_hover(move |inside| {
-                        hovered.set_if_changed(inside);
-                    })
-                    .on_click(move |event| {
-                        event.stop_propagation();
-                        size.apply(SizeAction::Reset);
-                    })
-                    .child(
-                        text(move || format!("{:.0}", size.get()))
-                            .typography(Typography::Label)
-                            .color(theme.paint(|c| c.text)),
-                    ),
-            )
-            .child(step("increase-interface-size", IconName::Plus, "Increase text size", SizeAction::Increase))
+        view! {
+            <div test_id="interface-size-menu" p=tokens::FLOATING_INSET flex row items_center gap=2.0>
+                <div px=4.0 mr=4.0><text small secondary>"Text size"</text></div>
+                {step("decrease-interface-size", IconName::Minus, "Decrease text size", SizeAction::Decrease)}
+                <div test_id="reset-interface-size" h=tokens::ICON_BUTTON_SIZE px=tokens::CONTROL_PADDING_X_SMALL flex
+                     items_center rounded=tokens::RADIUS_INNER cursor=Cursor::Pointer
+                     bg={move || if hovered.get() { theme.surface_hover.get() } else { Color::TRANSPARENT }}
+                     on_hover={move |inside| {
+                         hovered.set_if_changed(inside);
+                     }}
+                     on_click={move |event| {
+                         event.stop_propagation();
+                         size.apply(SizeAction::Reset);
+                     }}>
+                    <text label primary>{move || format!("{:.0}", size.get())}</text>
+                </div>
+                {step("increase-interface-size", IconName::Plus, "Increase text size", SizeAction::Increase)}
+            </div>
+        }
     };
-    Some(rouge_widgets::popover(open, trigger, menu).into_any())
+    Some(popover(open, trigger, menu).into_any())
 }
 
-fn divider(theme: UiTheme) -> Div {
-    div().flex_none().w(1.0).h(rem(tokens::ICON_SIZE)).mx(rem(4.0)).bg(theme.paint(|c| c.border_subtle))
+fn divider() -> Div {
+    view! { <div flex_none w=px(1.0) h=tokens::ICON_SIZE mx=4.0 bg=UiTheme::current().border_subtle/> }
 }
 
 fn run(handle: &ReviewHandle, item: &ToolbarControl) -> impl Fn() + Clone + 'static {
-    let handle = handle.clone();
+    let handle = *handle;
     let command = item.command.clone();
     move || {
         handle.handle_command(command.clone());
     }
 }
 
-fn icon_control(handle: &ReviewHandle, model: &Model, item: &ToolbarControl, theme: UiTheme) -> IconButton {
+fn control(handle: &ReviewHandle, model: &Model, item: &ToolbarControl, icon_size: Option<f32>) -> AnyView {
     let (id, icon) = control_icon(item.kind);
-    IconButton::new(id, icon, item.tooltip.clone(), theme)
-        .selected(item.selected)
-        .disabled(!model.enabled(&item.command))
-        .on_click(run(handle, item))
-}
-
-fn control(handle: &ReviewHandle, model: &Model, item: &ToolbarControl, theme: UiTheme) -> AnyView {
-    icon_control(handle, model, item, theme).into_any()
+    view! {
+        <icon_button id icon label={item.tooltip.clone()} icon_size?=icon_size selected=item.selected
+                     disabled={!model.enabled(&item.command)} on_click=run(handle, item)/>
+    }
 }
 
 const fn control_icon(kind: ControlKind) -> (&'static str, IconName) {

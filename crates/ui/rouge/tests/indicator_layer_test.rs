@@ -1,6 +1,6 @@
 use clankerdiff_rouge_ui::{prelude::*, testing::component_test};
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Color, Rect, Styled, div, show};
+use rouge_core::{Color, Rect, Styled, div, show, view};
 use rouge_reactive::{Runtime, signal};
 
 #[test]
@@ -9,16 +9,19 @@ fn backdrop_suppresses_underlying_animation_without_hiding_its_own_indicators() 
     let _guard = runtime.enter();
     let (mut ui, (shown, overlay, inside)) = component_test().size(440.0, 300.0).build_with(|| {
         let layer = IndicatorLayer::install();
-        let theme = ActiveTheme::install(ReviewTheme::default()).ui();
+        let _ = ActiveTheme::install(ReviewTheme::default());
         let overlay = signal(false);
         let inside = signal(false);
-        let root = div().size_full().child(Waveform::new("base", Color::WHITE)).child(show(
-            move || overlay.get(),
-            move || {
-                Backdrop::new("backdrop", theme)
-                    .child(show(move || inside.get(), || Waveform::new("inside", Color::WHITE)))
-            },
-        ));
+        let root = view! {
+            <div size_full>
+                {Waveform::new("base", Color::WHITE)}
+                <show when={move || overlay.get()}>
+                    <backdrop id="backdrop">
+                        <show when={move || inside.get()}>{Waveform::new("inside", Color::WHITE)}</show>
+                    </backdrop>
+                </show>
+            </div>
+        };
         (root, (layer.shown(), overlay, inside))
     });
     let base = shown.get();

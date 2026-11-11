@@ -11,7 +11,7 @@ fn mounted_rem_layout_follows_shortcuts_and_preview_transactions() -> TestResult
     let _guard = runtime.enter();
     let (mut ui, size) = component_test().build_with(|| {
         let size = InterfaceSize::install(18.0);
-        (size.bind(div().autofocus().child(div().test_id("ruler").w(rem(32.0)).h(rem(16.0)))), size)
+        (size.bind(div().autofocus().child(div().test_id("ruler").w(32.0).h(16.0))), size)
     });
     let width = |ui: &mut clankerdiff_rouge_ui::testing::TestUi| {
         ui.advance(0.0);

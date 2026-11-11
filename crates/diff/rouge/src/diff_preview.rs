@@ -1,19 +1,20 @@
 use crate::{
     style,
     ui::{
-        components::{Button, ControlSize},
-        theme::{UiTheme, color},
-        tokens::{RADIUS_CONTROL, rem, scaled},
-        typography::{Typography, TypographyExt},
+        components::{ControlSize, button},
+        theme::{UiColors, UiTheme, color},
+        tokens::RADIUS_CONTROL,
+        typography::{Typography, UiStyles},
     },
 };
 use clankerdiff_core::{
-    DiffDocument, DiffError, DiffPresentation, DiffTone, PresentationOptions, RowKind, ViewMode,
-    parse_detached_git_diff,
+    DiffDocument, DiffError, DiffPresentation, DiffTone, PresentationOptions, PresentedCell, PresentedRow, RowKind,
+    ViewMode, parse_detached_git_diff,
 };
 use clankerdiff_symbols::DocumentSyntax;
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Styled, View, div, text};
+use rouge_core::{AnyView, Div, Styled, View, div, text, view};
+use rouge_reactive::use_context;
 use std::sync::Arc;
 
 const MAX_PREVIEW_ROWS: usize = 120;
@@ -39,71 +40,65 @@ impl PatchPreview {
         on_open: U,
     ) -> impl View + use<T, U> {
         let id = id.into();
-        let view = div()
-            .test_id(id.clone())
-            .flex()
-            .col()
-            .min_w(0.0)
-            .overflow_hidden()
-            .rounded(scaled(RADIUS_CONTROL))
-            .border(rem(1.0))
-            .border_color(color(theme.ui.border_subtle))
-            .bg(color(theme.diff.background));
-        let Ok((presentation, syntax)) = &self.0 else {
-            return if let Err((error, head)) = &self.0 {
-                view.child(text(format!("Could not display patch: {error}")).color(color(theme.diff.muted)))
-                    .child(text(head.clone()).typography(Typography::Code).color(color(theme.diff.foreground)))
-            } else {
-                view
-            };
-        };
-        let mut rows = presentation
-            .rows(0..presentation.row_count())
-            .iter()
-            .filter(|row| row.kind != RowKind::ExpandGap)
-            .filter_map(|row| Some((row, row.primary_cell()?)));
-        let mut view = view.children(rows.by_ref().take(MAX_PREVIEW_ROWS).map(|(row, cell)| {
-            if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
-                let typography =
-                    if row.kind == RowKind::FileHeader { Typography::BodyStrong } else { Typography::Caption };
-                return div()
-                    .px(rem(8.0))
-                    .child(text(cell.text.to_string()).typography(typography).color(color(theme.diff.muted)));
+        let body: Vec<AnyView> = match &self.0 {
+            Err((error, head)) => view! {
+                <text color=color(theme.diff.muted)>{format!("Could not display patch: {error}")}</text>
+                <text code color=color(theme.diff.foreground)>{head.clone()}</text>
+            },
+            Ok((presentation, syntax)) => {
+                let mut rows = presentation
+                    .rows(0..presentation.row_count())
+                    .iter()
+                    .filter(|row| row.kind != RowKind::ExpandGap)
+                    .filter_map(|row| Some((row, row.primary_cell()?)));
+                let mut body: Vec<AnyView> = rows
+                    .by_ref()
+                    .take(MAX_PREVIEW_ROWS)
+                    .map(|(row, cell)| preview_row(row, cell, syntax, theme).into_any())
+                    .collect();
+                let hidden = rows.count();
+                if hidden > 0 {
+                    let document = Arc::clone(presentation.document());
+                    if use_context::<UiTheme>().is_none() {
+                        UiTheme::provide(UiColors::from_palette(&theme.ui));
+                    }
+                    body.push(view! {
+                        <button id={format!("{id}-more")} label={format!("… {hidden} more rows · Open full diff")}
+                                size=ControlSize::Small full_width on_click={move || on_open(&document)}/>
+                    });
+                }
+                body
             }
-            let tone = theme.diff.tone(cell.tone);
-            let marker = match cell.tone {
-                DiffTone::Added => "+",
-                DiffTone::Removed => "−",
-                _ => " ",
-            };
-            div()
-                .px(rem(6.0))
-                .flex()
-                .row()
-                .gap(rem(4.0))
-                .bg(color(tone.background))
-                .overflow_hidden()
-                .child(text(marker).typography(Typography::Code).color(color(tone.foreground)))
-                .child(
-                    style::code(&cell.text, syntax.highlights(row, cell), &theme.syntax)
-                        .color(color(theme.diff.foreground)),
-                )
-        }));
-        let hidden = rows.count();
-        if hidden > 0 {
-            let document = Arc::clone(presentation.document());
-            view = view.child(
-                Button::new(
-                    format!("{id}-more"),
-                    format!("… {hidden} more rows · Open full diff"),
-                    UiTheme::new(theme),
-                )
-                .size(ControlSize::Small)
-                .full_width()
-                .on_click(move || on_open(&document)),
-            );
+        };
+        view! {
+            <div test_id={id.clone()} flex col min_w=0.0 overflow_hidden rounded=RADIUS_CONTROL border=1.0
+                 border_color=color(theme.ui.border_subtle) bg=color(theme.diff.background)>
+                {..body}
+            </div>
         }
-        view
+    }
+}
+
+fn preview_row(row: &PresentedRow, cell: &PresentedCell, syntax: &DocumentSyntax, theme: &ReviewTheme) -> Div {
+    if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
+        let typography = if row.kind == RowKind::FileHeader { Typography::BodyStrong } else { Typography::Caption };
+        return view! {
+            <div px=8.0>
+                <text typography=typography color=color(theme.diff.muted)>{cell.text.to_string()}</text>
+            </div>
+        };
+    }
+    let tone = theme.diff.tone(cell.tone);
+    let marker = match cell.tone {
+        DiffTone::Added => "+",
+        DiffTone::Removed => "−",
+        _ => " ",
+    };
+    view! {
+        <div px=6.0 flex row gap=4.0 bg=color(tone.background) overflow_hidden>
+            <text code color=color(tone.foreground)>{marker}</text>
+            {style::code(&cell.text, syntax.highlights(row, cell), &theme.syntax).color(color(theme.diff.foreground))}
+        </div>
     }
 }
 

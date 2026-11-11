@@ -1,67 +1,49 @@
-use crate::{components::IconButton, icon::IconName, theme::UiTheme};
-use rouge_core::{BuildCx, ElementId, View, root_font_size};
-use rouge_reactive::Signal;
-use rouge_widgets::{Side, resizable_panel};
+use crate::{components::icon_button, icon::IconName};
+use rouge_core::{AnyView, Styled, component, div, root_font_size};
+use rouge_reactive::{Callback, Signal};
+use rouge_widgets::{ResizablePanel, Side, resizable_panel as panel};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PanelSide {
     Left,
     Right,
 }
-impl PanelSide {
-    pub fn toggle_button(self, id: impl Into<String>, open: bool, name: &str, theme: UiTheme) -> IconButton {
-        IconButton::new(
-            id,
-            match self {
-                Self::Left => IconName::PanelLeft,
-                Self::Right => IconName::PanelRight,
-            },
-            format!("{} {name}", if open { "Hide" } else { "Show" }),
-            theme,
-        )
-        .selected(open)
-        .keyboard_focusable()
-    }
+
+#[component]
+pub fn panel_toggle(
+    side: PanelSide,
+    #[prop(into)] id: String,
+    open: bool,
+    name: &str,
+    #[prop(default, into)] on_click: Callback,
+) -> AnyView {
+    let icon = match side {
+        PanelSide::Left => IconName::PanelLeft,
+        PanelSide::Right => IconName::PanelRight,
+    };
+    let label = format!("{} {name}", if open { "Hide" } else { "Show" });
+    icon_button(id, icon, label, None, false, open, true, on_click)
 }
-pub struct ResizablePanel(rouge_widgets::ResizablePanel);
-impl ResizablePanel {
-    pub fn new(id: impl Into<String>, side: PanelSide, width_in_rem: Signal<f32>) -> Self {
-        use rouge_core::{Styled, div};
-        Self(
-            resizable_panel(
-                match side {
-                    PanelSide::Left => Side::Left,
-                    PanelSide::Right => Side::Right,
-                },
-                width_in_rem,
-            )
-            .unit(root_font_size())
-            .child(div().test_id(id).absolute().inset(0.0).pass_through()),
-        )
-    }
-    #[must_use]
-    pub fn min_width(self, width: f32) -> Self {
-        Self(self.0.min_size(width))
-    }
-    #[must_use]
-    pub fn max_width(self, width: f32) -> Self {
-        Self(self.0.max_size(width))
-    }
-    #[must_use]
-    pub fn on_resize(self, f: impl Fn(f32) + 'static) -> Self {
-        Self(self.0.on_resize(f))
-    }
-    #[must_use]
-    pub fn on_reset(self, f: impl Fn() + 'static) -> Self {
-        Self(self.0.on_reset(f))
-    }
-    #[must_use]
-    pub fn child(self, child: impl View) -> Self {
-        Self(self.0.child(child))
-    }
-}
-impl View for ResizablePanel {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
-        self.0.build(cx)
-    }
+
+#[component]
+pub fn resizable_panel(
+    #[prop(into)] id: String,
+    side: PanelSide,
+    width_in_rem: Signal<f32>,
+    min_width: Option<f32>,
+    max_width: Option<f32>,
+    #[prop(default, into)] on_resize: Callback<(f32,)>,
+    #[prop(default, into)] on_reset: Callback,
+) -> ResizablePanel {
+    let side = match side {
+        PanelSide::Left => Side::Left,
+        PanelSide::Right => Side::Right,
+    };
+    panel(side, width_in_rem)
+        .unit(root_font_size())
+        .min_size(min_width.unwrap_or(0.0))
+        .max_size(max_width.unwrap_or(f32::MAX))
+        .on_resize(move |width| on_resize.call(width))
+        .on_reset(move || on_reset.call())
+        .child(div().test_id(id).absolute().inset(0.0).pass_through())
 }

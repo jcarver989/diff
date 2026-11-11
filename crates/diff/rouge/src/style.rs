@@ -1,11 +1,8 @@
 use clankerdiff_core::{FileStatus, LineStat};
-use clankerdiff_rouge_ui::{
-    theme::color,
-    typography::{Typography, TypographyExt},
-};
+use clankerdiff_rouge_ui::{theme::color, typography::UiStyles};
 use clankerdiff_syntax::{HighlightLine, SyntaxTheme};
 use clankerdiff_ui_core::{DiffPalette, ReviewTheme, Rgba};
-use rouge_core::{Div, SpanStyle, Styled, Text, Underline, div, rich_text, text};
+use rouge_core::{Div, SpanStyle, Styled, Text, Underline, component, div, rich_text, text, view};
 use rouge_reactive::ReadSignal;
 use std::ops::Range;
 
@@ -31,7 +28,7 @@ pub(crate) fn highlights(line: &str, spans: HighlightLine<'_>, theme: &SyntaxThe
 }
 
 pub(crate) fn code(line: &str, spans: HighlightLine<'_>, theme: &SyntaxTheme) -> Text {
-    rich_text(line.to_owned(), highlights(line, spans, theme)).typography(Typography::Code).no_wrap()
+    rich_text(line.to_owned(), highlights(line, spans, theme)).code().no_wrap()
 }
 
 pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette) -> Rgba {
@@ -42,22 +39,12 @@ pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette)
     }
 }
 
+#[component]
 pub(crate) fn stat_badges(stat: LineStat, palette: ReadSignal<ReviewTheme>) -> Div {
-    div()
-        .flex()
-        .row()
-        .flex_none()
-        .gap(clankerdiff_rouge_ui::tokens::rem(8.0))
-        .child(
-            text(format!("+{}", stat.added))
-                .typography(Typography::Code)
-                .no_wrap()
-                .color(move || palette.with(|t| color(t.diff.addition))),
-        )
-        .child(
-            text(format!("−{}", stat.deleted))
-                .typography(Typography::Code)
-                .no_wrap()
-                .color(move || palette.with(|t| color(t.diff.deletion))),
-        )
+    view! {
+        <div flex row flex_none gap=8.0>
+            <text code no_wrap color={move || palette.with(|t| color(t.diff.addition))}>{format!("+{}", stat.added)}</text>
+            <text code no_wrap color={move || palette.with(|t| color(t.diff.deletion))}>{format!("−{}", stat.deleted)}</text>
+        </div>
+    }
 }

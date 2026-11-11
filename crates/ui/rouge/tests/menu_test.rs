@@ -3,7 +3,7 @@ use clankerdiff_rouge_ui::{
     testing::{TestError, TestResult, component_test},
 };
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Key, Styled, div};
+use rouge_core::{Key, Styled, div, view};
 use rouge_reactive::signal;
 
 #[test]
@@ -11,19 +11,19 @@ fn menu_flips_and_clamps_at_window_edges_and_activates_by_keyboard() -> TestResu
     let runtime = rouge_reactive::Runtime::new();
     let _guard = runtime.enter();
     let (mut ui, chosen) = component_test().size(320.0, 220.0).build_with(|| {
-        let theme = ActiveTheme::install(ReviewTheme::default()).ui();
+        let _ = ActiveTheme::install(ReviewTheme::default());
         let chosen = signal(0);
-        let trigger = Button::new("trigger", "Menu", theme);
-        let menu = with_menu(
-            trigger,
-            [
-                MenuItem::new("Edit", move || chosen.set(1)),
-                MenuItem::separator(),
-                MenuItem::new("Delete", move || chosen.set(2)).destructive(),
-            ],
-            theme,
-        );
-        (div().size_full().flex().col().items_end().justify_end().child(menu), chosen)
+        let items = [
+            MenuItem::new("Edit", move || chosen.set(1)),
+            MenuItem::separator(),
+            MenuItem::new("Delete", move || chosen.set(2)).destructive(),
+        ];
+        let root = view! {
+            <div size_full flex col items_end justify_end>
+                <with_menu items><button id="trigger" label="Menu"/></with_menu>
+            </div>
+        };
+        (root, chosen)
     });
     assert!(ui.bounds_of("menu-item-Edit").is_none());
     ui.click_on("trigger")?;

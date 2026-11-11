@@ -2,7 +2,7 @@ use clankerdiff_rouge_ui::{
     prelude::*,
     testing::{TestResult, component_test},
 };
-use rouge_core::{Point, ScrollState, Scrollable, Styled, div, scroll};
+use rouge_core::{Point, ScrollState, Scrollable, Styled, div, px, scroll};
 use rouge_reactive::signal;
 
 #[test]
@@ -16,9 +16,9 @@ fn overflow_shows_a_scaled_thumb_that_tracks_only_its_own_list() -> TestResult {
         let panel = |state, height| {
             div()
                 .relative()
-                .w(160.0)
-                .h(160.0)
-                .child(scroll().size_full().scroll_state(state).child(div().h(height)))
+                .w(px(160.0))
+                .h(px(160.0))
+                .child(scroll().size_full().scroll_state(state).child(div().h(px(height))))
                 .child(ListScrollbar::new(state))
         };
         (div().flex().child(panel(state, 900.0)).child(panel(other, 60.0)), (state, other, size))
