@@ -351,7 +351,8 @@ impl ReviewHandle {
         self.commit_anchor
     }
 
-    pub(crate) const fn comments_revision(&self) -> Memo<u64> {
+    #[must_use]
+    pub const fn comments_revision(&self) -> Memo<u64> {
         self.comments
     }
 

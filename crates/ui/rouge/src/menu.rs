@@ -13,6 +13,7 @@ use rouge_widgets::RovingFocus;
 pub struct MenuItem(Option<Entry>);
 #[derive(Clone)]
 struct Entry {
+    id: Option<String>,
     label: String,
     icon: Option<IconName>,
     shortcut: Option<Chord>,
@@ -21,11 +22,25 @@ struct Entry {
 }
 impl MenuItem {
     pub fn new(label: impl Into<String>, action: impl Fn() + 'static) -> Self {
-        Self(Some(Entry { label: label.into(), icon: None, shortcut: None, destructive: false, action: action.into() }))
+        Self(Some(Entry {
+            id: None,
+            label: label.into(),
+            icon: None,
+            shortcut: None,
+            destructive: false,
+            action: action.into(),
+        }))
     }
     #[must_use]
     pub const fn separator() -> Self {
         Self(None)
+    }
+    #[must_use]
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        if let Some(entry) = &mut self.0 {
+            entry.id = Some(id.into());
+        }
+        self
     }
     #[must_use]
     pub fn icon(mut self, icon: IconName) -> Self {
@@ -94,7 +109,7 @@ pub fn with_menu(children: impl View, items: impl IntoIterator<Item = MenuItem>)
                          }
                          event.stop_propagation();
                      }}>
-                    <list_row id={format!("menu-item-{}", entry.label)} on_click=run>
+                    <list_row id={entry.id.clone().unwrap_or_else(|| format!("menu-item-{}", entry.label))} on_click=run>
                         {entry.icon.map(|icon| Icon::new(icon, fg))}
                         <text label color=fg>{entry.label}</text>
                         {entry.shortcut.map(|chord| view! { <text caption muted>{chord.display()}</text> })}

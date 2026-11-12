@@ -3,13 +3,13 @@ use clankerdiff_markdown::{
     MarkdownDocument, MarkdownFocusPane, MarkdownReviewCommand, MarkdownReviewEvent, MarkdownReviewSession,
     MarkdownTargetId,
 };
-use clankerdiff_rouge::{MarkdownController, MarkdownHandle, MarkdownOutput, markdown_review_view};
+use clankerdiff_rouge::{MarkdownController, MarkdownHandle, MarkdownOutput, markdown_blocks, markdown_review_view};
 use clankerdiff_ui_core::ReviewTheme;
 use rouge_core::{
     ImeEvent, Key,
     testing::{TestUi, TestUiBuilder},
 };
-use rouge_reactive::Runtime;
+use rouge_reactive::{Callback, Runtime, signal};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 #[test]
@@ -95,4 +95,22 @@ fn mount(source: &str) -> (TestUi, MarkdownHandle) {
             MarkdownController::new(Arc::new(MarkdownDocument::new(source)), ReviewTheme::default()).mount(|_| {});
         (markdown_review_view(handle), handle)
     })
+}
+
+#[test]
+fn standalone_markdown_blocks_render_without_a_review_and_copy_code() -> Result<(), Box<dyn std::error::Error>> {
+    let _runtime = Runtime::new().enter();
+    let output = Rc::new(RefCell::new(Vec::new()));
+    let mut ui =
+        TestUiBuilder::default().size(600.0, 400.0).fonts(clankerdiff_rouge::ui::fonts::bundled_fonts()).build(|| {
+            let _ = clankerdiff_rouge::ui::theme::ActiveTheme::install(ReviewTheme::default());
+            let doc = MarkdownDocument::new("Some **prose**.\n\n```sh\necho hi\n```");
+            let sink = output.clone();
+            let emit = Callback::from(move |output: MarkdownOutput| sink.borrow_mut().push(output));
+            markdown_blocks(doc.blocks(), signal(ReviewTheme::default()).read_only(), true, emit)
+        });
+    ui.advance(0.0);
+    ui.click_on("markdown-copy-code")?;
+    assert_eq!(output.borrow().as_slice(), [MarkdownOutput::CopyCode("echo hi\n".into())]);
+    Ok(())
 }

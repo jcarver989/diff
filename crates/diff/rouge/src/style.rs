@@ -6,7 +6,8 @@ use rouge_core::{Div, SpanStyle, Styled, Text, Underline, component, div, rich_t
 use rouge_reactive::ReadSignal;
 use std::ops::Range;
 
-pub(crate) fn highlights(line: &str, spans: HighlightLine<'_>, theme: &SyntaxTheme) -> Vec<(Range<usize>, SpanStyle)> {
+#[must_use]
+pub fn highlights(line: &str, spans: HighlightLine<'_>, theme: &SyntaxTheme) -> Vec<(Range<usize>, SpanStyle)> {
     spans
         .iter()
         .filter_map(|span| {
@@ -39,8 +40,9 @@ pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette)
     }
 }
 
+#[must_use]
 #[component]
-pub(crate) fn stat_badges(stat: LineStat, palette: ReadSignal<ReviewTheme>) -> Div {
+pub fn stat_badges(stat: LineStat, palette: ReadSignal<ReviewTheme>) -> Div {
     view! {
         <div flex row flex_none gap=8.0>
             <text code no_wrap color={move || palette.with(|t| color(t.diff.addition))}>{format!("+{}", stat.added)}</text>

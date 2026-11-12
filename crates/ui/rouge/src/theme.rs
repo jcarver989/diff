@@ -3,7 +3,7 @@ use clankerdiff_ui_core::{
     TerminalPalette, ThemePreference, UiPalette,
 };
 use rouge_core::{Color, Palette, appearance, theme, use_theme};
-use rouge_reactive::{Memo, Signal, batch, expect_context, memo, provide_context, signal};
+use rouge_reactive::{Memo, ReadSignal, Signal, batch, expect_context, memo, provide_context, signal};
 
 #[must_use]
 pub fn color(value: Rgba) -> Color {
@@ -64,6 +64,10 @@ impl ActiveTheme {
     #[must_use]
     pub fn review(self) -> ReviewTheme {
         self.review.get()
+    }
+    #[must_use]
+    pub fn review_signal(self) -> ReadSignal<ReviewTheme> {
+        self.review.read_only()
     }
     #[must_use]
     pub const fn ui(self) -> UiTheme {

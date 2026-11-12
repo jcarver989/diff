@@ -10,8 +10,8 @@ use crate::ui::{
 };
 use clankerdiff_core::{CommandContext, InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
-    MarkdownDocument, MarkdownFocusPane, MarkdownReviewCommand as Command, MarkdownReviewDecision, MarkdownReviewError,
-    MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
+    MarkdownBlock, MarkdownDocument, MarkdownFocusPane, MarkdownReviewCommand as Command, MarkdownReviewDecision,
+    MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
 };
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use content::Paint;
@@ -19,7 +19,7 @@ use rouge_core::{
     Align, AnyView, Key, KeyEvent, Modifiers, Styled, View, VirtualListHandle, div, dynamic, focus_handle, overlay,
     view, virtual_list_handle,
 };
-use rouge_reactive::{Callback, Memo, Signal, batch, effect, signal, untrack, use_context};
+use rouge_reactive::{Callback, Memo, ReadSignal, Signal, batch, effect, memo, signal, untrack, use_context};
 use std::{rc::Rc, sync::Arc};
 
 const DEFAULT_OUTLINE_WIDTH: f32 = 220.0 / 16.0;
@@ -452,6 +452,24 @@ impl MarkdownHandle {
 }
 
 #[must_use]
+pub fn markdown_blocks(
+    blocks: &[MarkdownBlock],
+    palette: ReadSignal<ReviewTheme>,
+    clipboard: bool,
+    emit: Callback<(MarkdownOutput,)>,
+) -> impl View + use<> {
+    let paint = Paint { palette, clipboard: memo(move || clipboard), emit };
+    let rows = content::document_rows(blocks);
+    let rows = rows.iter().enumerate().map(|(index, row)| {
+        let top = if index == 0 { 0.0 } else { row.gap };
+        view! {
+            <div pt=top pl=row.indent() flex col>{row.block(&paint).bg(row.background(&paint))}</div>
+        }
+    });
+    view! { <div flex col min_w=0.0>{..rows}</div> }
+}
+
+#[must_use]
 pub fn markdown_review_view(handle: MarkdownHandle) -> impl View {
     let active = ActiveTheme::install(handle.theme.get_untracked());
     let theme_signal = handle.theme;
@@ -459,7 +477,12 @@ pub fn markdown_review_view(handle: MarkdownHandle) -> impl View {
     let size = use_context::<InterfaceSize>().unwrap_or_else(|| InterfaceSize::install(DEFAULT_INTERFACE_SIZE));
     let focus = focus_handle();
     let keys = handle;
-    let paint = Paint { palette: handle.theme, capabilities: handle.capabilities, emit: handle.emit };
+    let capabilities = handle.capabilities;
+    let paint = Paint {
+        palette: handle.theme.read_only(),
+        clipboard: memo(move || capabilities.get().clipboard),
+        emit: handle.emit,
+    };
     let root = view! {
         <div test_id="markdown-reviewer" flex col size_full min_h=0.0 font=UI_FONT
              bg={move || theme_signal.with(|t| color(t.diff.background))}

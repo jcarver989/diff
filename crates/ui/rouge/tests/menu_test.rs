@@ -48,3 +48,24 @@ fn menu_flips_and_clamps_at_window_edges_and_activates_by_keyboard() -> TestResu
     assert!(ui.bounds_of("menu-item-Edit").is_none());
     Ok(())
 }
+
+#[test]
+fn menu_items_can_be_given_their_own_test_id() -> TestResult {
+    let runtime = rouge_reactive::Runtime::new();
+    let _guard = runtime.enter();
+    let (mut ui, chosen) = component_test().size(320.0, 220.0).build_with(|| {
+        let _ = ActiveTheme::install(ReviewTheme::default());
+        let chosen = signal(false);
+        let items = [MenuItem::new("Archive inactive threads", move || chosen.set(true)).id("archive")];
+        let root = view! {
+            <div size_full><with_menu items><button id="trigger" label="Menu"/></with_menu></div>
+        };
+        (root, chosen)
+    });
+    ui.click_on("trigger")?;
+    ui.run(0.2);
+    assert!(ui.bounds_of("menu-item-Archive inactive threads").is_none());
+    ui.click_on("archive")?;
+    assert!(chosen.get());
+    Ok(())
+}

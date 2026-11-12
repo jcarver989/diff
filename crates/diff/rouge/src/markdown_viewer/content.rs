@@ -6,7 +6,6 @@ use crate::{
         tokens::{RADIUS_CONTROL, RADIUS_INNER, scaled},
     },
 };
-use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_markdown::{
     MarkdownAnchor, MarkdownBlock, MarkdownBlockKind as Block, MarkdownCodeBlock, MarkdownDocument,
     MarkdownInline as Inline, MarkdownListItem, MarkdownTable, MarkdownTableAlignment, MarkdownTargetId,
@@ -15,7 +14,7 @@ use clankerdiff_ui_core::{MarkdownPalette, ReviewTheme, Rgba};
 use rouge_core::{
     Color, Corners, Div, SpanStyle, Styled, Text, TextAlign, Underline, component, div, px, rich_text, show, text, view,
 };
-use rouge_reactive::{Callback, Signal};
+use rouge_reactive::{Callback, Memo, ReadSignal};
 use std::{collections::HashMap, ops::Range, rc::Rc, sync::Arc};
 
 pub(super) const LIST_INDENT: f32 = 22.0;
@@ -52,8 +51,8 @@ const fn heading_scale(level: u8) -> Scale {
 
 #[derive(Clone)]
 pub(super) struct Paint {
-    pub palette: Signal<ReviewTheme>,
-    pub capabilities: Signal<ReviewCapabilities>,
+    pub palette: ReadSignal<ReviewTheme>,
+    pub clipboard: Memo<bool>,
     pub emit: Callback<(MarkdownOutput,)>,
 }
 
@@ -229,13 +228,13 @@ fn corners(top: bool, bottom: bool) -> impl Fn() -> Corners + 'static {
 
 fn code_header(code: &Rc<MarkdownCodeBlock>, paint: &Paint) -> Div {
     let empty = code.lines().is_empty();
-    let capabilities = paint.capabilities;
+    let clipboard = paint.clipboard;
     let (code, emit, theme) = (code.clone(), paint.emit, UiTheme::current());
     let header = view! {
         <div h=CODE_HEADER_HEIGHT pl=16.0 pr=4.0 flex row items_center justify_between border_t=px(1.0)
              border_l=px(1.0) border_r=px(1.0) border_color=theme.border rounded=corners(true, empty)>
             <text caption muted>{code.language().unwrap_or("code").to_owned()}</text>
-            <show when={move || capabilities.get().clipboard}>
+            <show when={move || clipboard.get()}>
                 <icon_button id="markdown-copy-code" icon=IconName::Copy label="Copy code"
                              on_click={
                                  let code = code.clone();
@@ -423,7 +422,7 @@ fn openable(url: &str) -> bool {
     ["https://", "http://", "mailto:"].iter().any(|scheme| url.starts_with(scheme))
 }
 
-fn document_rows(blocks: &[MarkdownBlock]) -> Vec<Row> {
+pub(super) fn document_rows(blocks: &[MarkdownBlock]) -> Vec<Row> {
     let mut rows = Vec::new();
     for block in blocks {
         push_block(block, 0, &mut rows);
