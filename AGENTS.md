@@ -1,13 +1,15 @@
 # Diff
 
-This repository holds reusable Rouge app building blocks and Diff, a performant diff tool with comment support built on them. Diff's CLI runs in a TUI (ratatui) or Desktop (Rouge), while the standalone Web frontend (Rouge) supports hosted use cases. Other apps (j-terminal, aether) consume the `util/` and `ui/` crates directly.
+This repository holds Diff, a performant diff tool with comment support, and the reusable crates it is built from. Diff's CLI runs in a TUI (ratatui) or Desktop (Rouge), while the standalone Web frontend (Rouge) supports hosted use cases. Other apps (j-terminal, aether) consume the `util/` and `ui/` crates directly.
+
+The Rouge design system (`rouge-widgets`) and its renderer-neutral theme types (`rouge-theme`) live in the sibling Rouge repository, not here. Code that any Rouge app could use without diff concepts belongs there.
 
 ## Layout
 
 Crates are grouped by domain under `crates/`:
 
 - `crates/util/`: general-purpose crates with no UI and no diff concepts (`fingerprint`, `remote`).
-- `crates/ui/`: renderer-neutral UI behavior and themes, syntax highlighting, and the Rouge design system and app shell (`core`, `syntax`, `rouge`, `rouge-shell`).
+- `crates/ui/`: review themes (diff, markdown and syntax palettes built on `rouge-theme`) and syntax highlighting (`core`, `syntax`).
 - `crates/diff/`: the diff and markdown review domain (`core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `rouge`, `ratatui`, `cli`, `desktop`, `web`).
 
 A crate may depend only on crates in its own domain or a lower one: `util` < `ui` < `diff`. `just layer-check` enforces this. Put new code in the lowest domain it fits; anything another app could use without diff concepts belongs in `ui/` or `util/`.
@@ -18,7 +20,7 @@ Internal crates are declared once in the root `[workspace.dependencies]`; refere
 
 [framer](https://github.com/jcarver989/framer) generates the repository's configuration from `.framer/src/main.rs`: the toolchain pin, rustfmt, clippy and nextest config, `.tool-versions`, the workspace members, package settings, lints, profiles, Rouge paths and pinned checkout script and internal crate paths in `Cargo.toml`, the CI and release-plz workflows, `dist-workspace.toml`, and the marked blocks in `justfile` and `.gitignore`. Files and blocks it owns say so in a header. Change `.framer/src/main.rs` and run `just framer` rather than editing them; `just framer-check` fails when they drift. `.framer/` depends on the `framer` and `framer-presets` crates from crates.io; CI runs `just framer-check`.
 
-`.framer/src/lib.rs` holds the `RougeApp` preset, which owns the Rouge paths and pinned checkout script and the internal crate paths (`CRATES`). It's a library so sibling apps such as j-terminal and aether can apply it later; when a crate moves, update `CRATES` and run `just framer`.
+`.framer/src/lib.rs` holds the `RougeApp` preset, which owns the Rouge crate paths (`ROUGE_CRATES`), the pinned checkout script and the internal crate paths (`CRATES`). It's a library so sibling apps such as j-terminal and aether can apply it later; when a crate moves, update `CRATES` and run `just framer`.
 
 ## Coding conventions
 

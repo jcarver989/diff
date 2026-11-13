@@ -1,23 +1,16 @@
 use crate::{ReviewHandle, ViewerPane, shortcut_label, style};
 use clankerdiff_core::{
     ControlKind, DiffReviewCommand as C, FilesMode, PageLabel, ReviewCommand, Toolbar, ToolbarControl, ViewMode,
-};
-use clankerdiff_rouge_ui::{
-    components::{
-        ButtonVariant, ControlSize, NoticeTone, button, icon_button, muted_text, notification, segment,
-        segmented_control,
-    },
-    fonts::CODE_FONT,
-    icon::{Icon, IconName},
-    interface_size::{InterfaceSize, SizeAction},
-    theme::UiTheme,
-    tokens,
-    typography::UiStyles,
+    tooltip,
 };
 use rouge_core::{
-    AnyView, Color, Cursor, Div, Length, Rect, Styled, View, div, dynamic, px, root_font_size, text, view,
+    AnyView, Color, Cursor, Div, Length, Rect, Styled, Theme, View, div, dynamic, px, root_font_size, text, view,
 };
 use rouge_reactive::{memo, signal, use_context};
+use rouge_widgets::{
+    ButtonVariant, CODE_FONT, ControlSize, Icon, IconName, InterfaceSize, NoticeTone, SizeAction, UiStyles, button,
+    icon_button, muted_text, notification, segment, segmented_control, tokens,
+};
 use rouge_widgets::{Hint, popover};
 
 const COMPACT_TOOLBAR_WIDTH: f32 = 900.0;
@@ -51,7 +44,7 @@ impl Model {
 }
 
 pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let handle = *handle;
     let status = handle.status();
     let revision = handle.presentation_revision();
@@ -109,14 +102,14 @@ pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
 }
 
 fn bar(handle: &ReviewHandle, model: &Model) -> Div {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let sidebar = handle.sidebar_width_rem();
     let focused = model.flags.files_focused;
     let files = model.split.then(|| {
         view! {
             <div test_id="toolbar-files" flex_none w={move || Length::Rem(sidebar.get())} h_full px=8.0 flex row
                  items_center gap=4.0 bg=theme.surface border_r=px(1.0)
-                 border_color=theme.paint(move |c| if focused { c.accent } else { c.border })>
+                 border_color={move || { let c = theme.get(); if focused { c.accent } else { c.border } }}>
                 {..files_controls(handle, model)}
             </div>
         }
@@ -224,7 +217,7 @@ fn stepper(handle: &ReviewHandle, model: &Model) -> Option<Div> {
     };
     Some(view! {
         <div test_id="commit-stepper" flex_grow=0.0 flex_shrink=1.0 w=MAX_STEPPER_WIDTH min_w=MIN_STEPPER_WIDTH h_full
-             px=2.0 flex row items_center gap=2.0 rounded=tokens::RADIUS_CONTROL bg=UiTheme::current().surface
+             px=2.0 flex row items_center gap=2.0 rounded=tokens::RADIUS_CONTROL bg=Theme::current().surface
              track_bounds=handle.commit_anchor()>
             {control(handle, model, previous, Some(tokens::ICON_SIZE_SMALL))}
             {commit_trigger(handle, model, label, choose)}
@@ -234,7 +227,7 @@ fn stepper(handle: &ReviewHandle, model: &Model) -> Option<Div> {
 }
 
 fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choose: &ToolbarControl) -> AnyView {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let hovered = signal(false);
     let has_subject = label.subject().is_some();
     let run = run(handle, choose);
@@ -242,7 +235,7 @@ fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choos
         view! {
             <div test_id="commit-short-id" flex_none>
                 <text small font=CODE_FONT no_wrap
-                      color=theme.paint(move |c| if has_subject { c.text_muted } else { c.text })>
+                      color={move || { let c = theme.get(); if has_subject { c.text_muted } else { c.text } }}>
                     {short_id.to_owned()}
                 </text>
             </div>
@@ -301,9 +294,9 @@ fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
         });
         view! { <segmented_control id="view-mode-toggle">{..segments}</segmented_control> }
     });
+    let handle = *handle;
     let size = toolbar.stat.and_then(|_| size_menu());
     let after_stat = stat.is_some() && (collapse.is_some() || layouts.is_some() || size.is_some());
-    let handle = *handle;
     view! {
         <div flex_none flex row items_center justify_end gap=2.0>
             {stat}
@@ -320,7 +313,7 @@ fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
 }
 
 fn size_menu() -> Option<AnyView> {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let size = use_context::<InterfaceSize>()?;
     let open = signal(false);
     let trigger = view! {
@@ -356,7 +349,7 @@ fn size_menu() -> Option<AnyView> {
 }
 
 fn divider() -> Div {
-    view! { <div flex_none w=px(1.0) h=tokens::ICON_SIZE mx=4.0 bg=UiTheme::current().border_subtle/> }
+    view! { <div flex_none w=px(1.0) h=tokens::ICON_SIZE mx=4.0 bg=Theme::current().border_subtle/> }
 }
 
 fn run(handle: &ReviewHandle, item: &ToolbarControl) -> impl Fn() + Clone + 'static {

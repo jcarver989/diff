@@ -5,7 +5,7 @@ use clankerdiff_core::{
     testing::{DocumentBuilder, commit_id},
 };
 use clankerdiff_rouge::ReviewOutput;
-use rouge_core::{Key, testing::TestResult};
+use rouge_core::testing::TestResult;
 
 #[test]
 fn commit_picker_survives_compatible_refresh_and_chooses_with_the_keyboard() -> TestResult {
@@ -22,8 +22,8 @@ fn commit_picker_survives_compatible_refresh_and_chooses_with_the_keyboard() -> 
         ui.center_of("commit-details")?;
         handle.set_document(page().build());
         ui.center_of("commit-picker")?;
-        ui.press(Key::ArrowDown);
-        ui.press(Key::Enter);
+        ui.press("down");
+        ui.press("enter");
         assert_eq!(handle.status().get().context.phase, InteractionPhase::Browse);
         assert!(ui.bounds_of("commit-picker").is_none());
         assert!(outputs.borrow().contains(&ReviewOutput::Event(DiffReviewEvent::SetTarget(DiffScope::Both.into()))));

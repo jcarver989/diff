@@ -1,8 +1,12 @@
 use super::MarkdownHandle;
-use crate::ui::{prelude::*, tokens::ROW_HEIGHT};
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewCommand};
-use rouge_core::{RowKey, Styled, View, component, div, dynamic, px, text, view, virtual_list};
+use rouge_core::{RowKey, Styled, Theme, View, component, div, dynamic, px, text, view, virtual_list};
+use rouge_widgets::tokens::ROW_HEIGHT;
+use rouge_widgets::{
+    ButtonVariant, CODE_FONT, ControlSize, IconName, ModalSize, SelectionState, Side, UiStyles, button, icon_button,
+    modal, panel_toggle, resizable_panel, tree_row, vertical_scrollbar,
+};
 use std::path::Path;
 
 const HEADER_HEIGHT: f32 = 56.0;
@@ -38,7 +42,7 @@ pub(super) fn header(handle: &MarkdownHandle) -> impl View {
         let toggle = handle.outline_available().then(|| {
             let open = !handle.outline_collapsed.get();
             view! {
-                <panel_toggle side=PanelSide::Left id="markdown-outline-toggle" open name="outline"
+                <panel_toggle side=Side::Left id="markdown-outline-toggle" open name="outline"
                               on_click={move || handle.toggle_outline()}/>
             }
         });
@@ -82,7 +86,7 @@ pub(super) fn header(handle: &MarkdownHandle) -> impl View {
     };
     view! {
         <div test_id="markdown-header" h=HEADER_HEIGHT flex_none flex row items_center gap=8.0 px=12.0
-             border_b=px(1.0) border_color=UiTheme::current().border>
+             border_b=px(1.0) border_color=Theme::current().border>
             <dynamic children=leading/>
             <dynamic children=trailing/>
         </div>
@@ -121,10 +125,10 @@ fn title(handle: &MarkdownHandle) -> impl View {
 pub(super) fn outline(handle: &MarkdownHandle) -> impl View + use<> {
     let (rows, revision, pane, list, width) =
         (handle.rows, handle.revision, handle.pane, handle.outline, handle.outline_width);
-    let (handle, theme) = (*handle, UiTheme::current());
+    let (handle, theme) = (*handle, Theme::current());
     view! {
-        <resizable_panel id="markdown-outline" side=PanelSide::Left width_in_rem=width min_width=MIN_OUTLINE_WIDTH
-                         max_width=MAX_OUTLINE_WIDTH on_resize={move |value: f32| width.set(value)}
+        <resizable_panel test_id="markdown-outline" edge=Side::Left size=width min_size=MIN_OUTLINE_WIDTH
+                         max_size=MAX_OUTLINE_WIDTH on_resize={move |value: f32| width.set(value)}
                          on_reset={move || width.set(super::DEFAULT_OUTLINE_WIDTH)}>
             <div size_full flex col overflow_hidden bg=theme.surface border_r=px(1.0)
                  border_color={move || {
@@ -138,7 +142,7 @@ pub(super) fn outline(handle: &MarkdownHandle) -> impl View + use<> {
                                   handle=list size_full let:index>
                         <div px=4.0><outline_row handle={&handle} index/></div>
                     </virtual_list>
-                    <div absolute right=0.0 top=0.0 bottom=0.0>{ListScrollbar::list(list)}</div>
+                    <div absolute right=0.0 top=0.0 bottom=0.0>{vertical_scrollbar(list.scroll_state())}</div>
                 </div>
             </div>
         </resizable_panel>
@@ -148,7 +152,7 @@ pub(super) fn outline(handle: &MarkdownHandle) -> impl View + use<> {
 #[component]
 fn outline_row(handle: &MarkdownHandle, index: usize) -> Option<impl View> {
     let heading = handle.with(|session| session.document().outline().get(index).cloned())?;
-    let (handle, theme) = (*handle, UiTheme::current());
+    let (handle, theme) = (*handle, Theme::current());
     let (selected, annotations) = (handle.selected, handle.annotations);
     let target = heading.target_id;
     Some(view! {

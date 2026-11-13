@@ -53,11 +53,11 @@ layer-check:
 
 feature-check: consumer-check layer-check
     tree="$(cargo tree -p clankerdiff-desktop -e normal,build,dev --prefix none && cargo tree -p clankerdiff-web --target wasm32-unknown-unknown -e normal,build,dev --prefix none)"; if printf '%s\n' "$tree" | grep -Ei '^(gpui[^ ]*|clankerdiff-gpui[^ ]*) v'; then echo "legacy renderer present in graphical graph" >&2; exit 1; fi
-    tree="$(cargo tree -p clankerdiff-git -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge[^ ]*|wgpu[^ ]*|winit|notify|ratatui[^ ]*|crossterm|clankerdiff-(watch|ratatui|syntax|markdown|rouge[^ ]*)) v'; then echo "unexpected UI or watcher dependency in Git graph" >&2; exit 1; fi
-    tree="$(cargo tree -p clankerdiff-watch -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge[^ ]*|wgpu[^ ]*|winit|ratatui[^ ]*|crossterm|clankerdiff-(ratatui|syntax|markdown|rouge[^ ]*)) v'; then echo "unexpected renderer dependency in watcher graph" >&2; exit 1; fi
-    tree="$(cargo tree -p clankerdiff-cli --no-default-features -e normal,build --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge[^ ]*|wgpu[^ ]*|winit|clankerdiff-(rouge[^ ]*|desktop|web)) v'; then echo "unexpected renderer dependency in headless CLI graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-git -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge|rouge-(core|reactive|render|text|widgets|web|kit|shell|macros)|wgpu[^ ]*|winit|notify|ratatui[^ ]*|crossterm|clankerdiff-(watch|ratatui|syntax|markdown|rouge[^ ]*)) v'; then echo "unexpected UI or watcher dependency in Git graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-watch -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge|rouge-(core|reactive|render|text|widgets|web|kit|shell|macros)|wgpu[^ ]*|winit|ratatui[^ ]*|crossterm|clankerdiff-(ratatui|syntax|markdown|rouge[^ ]*)) v'; then echo "unexpected renderer dependency in watcher graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-cli --no-default-features -e normal,build --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge|rouge-(core|reactive|render|text|widgets|web|kit|shell|macros)|wgpu[^ ]*|winit|clankerdiff-(rouge[^ ]*|desktop|web)) v'; then echo "unexpected renderer dependency in headless CLI graph" >&2; exit 1; fi
     cargo check -p clankerdiff-ratatui --all-features --all-targets
-    tree="$(cargo tree -p clankerdiff-ratatui --no-default-features --features test-support -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge[^ ]*|wgpu[^ ]*|winit|crossterm|ratatui-crossterm|syntect|two-face|clankerdiff-(git|watch|rouge[^ ]*)) v'; then echo "unexpected dependency in portable ratatui graph" >&2; exit 1; fi
+    tree="$(cargo tree -p clankerdiff-ratatui --no-default-features --features test-support -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(rouge|rouge-(core|reactive|render|text|widgets|web|kit|shell|macros)|wgpu[^ ]*|winit|crossterm|ratatui-crossterm|syntect|two-face|clankerdiff-(git|watch|rouge[^ ]*)) v'; then echo "unexpected dependency in portable ratatui graph" >&2; exit 1; fi
     tree="$(cargo tree -p clankerdiff-server --no-default-features -e normal --prefix none)"; if printf '%s\n' "$tree" | grep -E '^(axum|tower[^ ]*|matchit|tokio-tungstenite|tungstenite) v'; then echo "unexpected WebSocket dependency in embedded server graph" >&2; exit 1; fi
     cargo clippy -p clankerdiff-server --no-default-features --all-targets -- -D warnings
 
@@ -71,7 +71,7 @@ consumer-check:
     cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
 
 wasm-check:
-    cargo check -p clankerdiff-core -p clankerdiff-ui-core -p clankerdiff-syntax -p clankerdiff-markdown -p clankerdiff-rouge-ui -p clankerdiff-rouge -p clankerdiff-web --target wasm32-unknown-unknown
+    cargo check -p clankerdiff-core -p clankerdiff-ui-core -p clankerdiff-syntax -p clankerdiff-markdown -p rouge-theme -p rouge-widgets -p clankerdiff-rouge -p clankerdiff-web --target wasm32-unknown-unknown
     cargo check -p clankerdiff-ratatui --no-default-features --target wasm32-unknown-unknown
 
 # Build the release WASM and execute its smoke test in Chromium.

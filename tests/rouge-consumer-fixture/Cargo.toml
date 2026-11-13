@@ -9,7 +9,7 @@ publish = false
 [dev-dependencies]
 clankerdiff-core = { path = "../../crates/diff/core", features = ["test-support"] }
 clankerdiff-rouge = { path = "../../crates/diff/rouge" }
-clankerdiff-rouge-ui = { path = "../../crates/ui/rouge" }
 clankerdiff-ui-core = { path = "../../crates/ui/core" }
 rouge-core = { path = "../../../rouge/crates/rouge-core" }
+rouge-widgets = { path = "../../../rouge/crates/rouge-widgets" }
 rouge-reactive = { path = "../../../rouge/crates/rouge-reactive" }

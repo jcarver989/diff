@@ -1,21 +1,16 @@
 use crate::{ReviewHandle, ViewerPane, style};
 use clankerdiff_core::{FilesMode, StageState};
-use clankerdiff_rouge_ui::{
-    components::{CheckState, SelectionState, checkbox, muted_text},
-    fonts::CODE_FONT,
-    icon::IconName,
-    resizable::{PanelSide, resizable_panel},
-    scrollbar::ListScrollbar,
-    theme::{UiTheme, color},
-    tokens::ROW_HEIGHT,
-    tree::tree_row,
-    typography::UiStyles,
+use rouge_core::{
+    Align, Color, Div, RowKey, Styled, Theme, View, VirtualListHandle, div, dynamic, text, view, virtual_list,
 };
-use rouge_core::{Align, Div, RowKey, Styled, View, VirtualListHandle, div, dynamic, text, view, virtual_list};
 use rouge_reactive::{effect, memo, signal};
+use rouge_widgets::{
+    CODE_FONT, CheckState, IconName, SelectionState, Side, UiStyles, checkbox, muted_text, resizable_panel,
+    tokens::ROW_HEIGHT, tree_row, vertical_scrollbar,
+};
 
 pub(crate) fn sidebar(handle: ReviewHandle, list: VirtualListHandle) -> impl View {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let revision = handle.sidebar_revision();
     let status = handle.status();
     let mode = memo(move || status.get().files_mode);
@@ -37,20 +32,18 @@ pub(crate) fn sidebar(handle: ReviewHandle, list: VirtualListHandle) -> impl Vie
         width.set_if_changed(preferred.get());
     });
     view! {
-        <resizable_panel id="files-panel" side=PanelSide::Left width_in_rem=width min_width=0.0 max_width=60.0
+        <resizable_panel test_id="files-panel" edge=Side::Left size=width min_size=0.0 max_size=60.0
                          on_resize={move |width: f32| handle.resize_sidebar(Some(width))}
                          on_reset={move || handle.resize_sidebar(None)}>
             <div relative size_full flex col overflow_hidden bg=theme.surface border_r=1.0
-                 border_color=theme.paint(move |c| {
-                     if selection.get().pane == ViewerPane::Files { c.accent } else { c.border }
-                 })>
+                 border_color={move || { let c = theme.get(); if selection.get().pane == ViewerPane::Files { c.accent } else { c.border } }}>
                 <div flex_1 min_h=0.0 relative>
                     <virtual_list count={move || count.get()} row_height=ROW_HEIGHT
                                   row_identity={move |index| RowKey::new((index, (revision.get(), mode.get())), 0)}
                                   handle=list size_full let:index>
                         <div px=4.0>{row(handle, index)}</div>
                     </virtual_list>
-                    <div absolute right=0.0 top=0.0 bottom=0.0>{ListScrollbar::list(list)}</div>
+                    <div absolute right=0.0 top=0.0 bottom=0.0>{vertical_scrollbar(list.scroll_state())}</div>
                     <dynamic>{
                         let empty = if mode.get() == FilesMode::Browse { "No repository files" } else { "No changed files" };
                         view! {
@@ -64,7 +57,7 @@ pub(crate) fn sidebar(handle: ReviewHandle, list: VirtualListHandle) -> impl Vie
 }
 
 fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let entry = handle.with(|s| s.tree()?.entries().get(index).cloned())?;
     let status = handle.status();
     let browsing = status.get_untracked().files_mode == FilesMode::Browse;
@@ -81,9 +74,9 @@ fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
         (false, _) => IconName::File,
     };
     let icon_color = move || {
-        let status_color = |status| palette.with(|t| color(style::file_status_color(status, &t.diff)));
+        let status_color = |status| palette.with(|t| Color::from(style::file_status_color(status, &t.diff)));
         match (directory, file_status) {
-            (true, _) if accent => palette.with(|t| color(t.diff.accent)),
+            (true, _) if accent => palette.with(|t| Color::from(t.diff.accent)),
             (false, Some(status)) => status_color(status),
             _ => theme.text_muted.get(),
         }
@@ -92,10 +85,10 @@ fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
         let stat = entry.stat;
         view! {
             <div flex flex_none gap=4.0>
-                <text caption font=CODE_FONT color={move || palette.with(|t| color(t.diff.addition))}>
+                <text caption font=CODE_FONT color={move || palette.with(|t| Color::from(t.diff.addition))}>
                     {format!("+{}", stat.added)}
                 </text>
-                <text caption font=CODE_FONT color={move || palette.with(|t| color(t.diff.deletion))}>
+                <text caption font=CODE_FONT color={move || palette.with(|t| Color::from(t.diff.deletion))}>
                     {format!("−{}", stat.deleted)}
                 </text>
             </div>
@@ -105,7 +98,7 @@ fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
         view! {
             <div w=12.0 flex_none flex justify_center>
                 <text caption font=CODE_FONT
-                      color={move || palette.with(|t| color(style::file_status_color(file_status, &t.diff)))}>
+                      color={move || palette.with(|t| Color::from(style::file_status_color(file_status, &t.diff)))}>
                     {file_status.code().to_string()}
                 </text>
             </div>

@@ -1,13 +1,11 @@
 use super::{ReviewController, ReviewHandle, ReviewOutput};
+use crate::theme::{ThemePickerEvent, theme_picker, theme_picker_overlay};
 use crate::{commits::commit_picker, palette::help_picker};
 use clankerdiff_core::{DiffReviewCommand, FileStatus, InteractionPhase, RepoPath, RepositoryAction, ReviewCommand};
-use clankerdiff_rouge_ui::{
-    components::{ButtonVariant, action_bar, backdrop, button, modal},
-    picker::{SearchPickerHandle, ThemePickerEvent, theme_picker, theme_picker_overlay},
-};
 use clankerdiff_ui_core::ThemeChoice;
 use rouge_core::{AnyView, Key, Modifiers, View, div, editable, text, view};
 use rouge_reactive::{batch, on_cleanup, signal};
+use rouge_widgets::{ButtonVariant, SearchPickerHandle, action_bar, backdrop, button, modal};
 use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, Copy, PartialEq, Eq)]

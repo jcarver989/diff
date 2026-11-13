@@ -14,7 +14,6 @@ workspace = true
 [dependencies]
 clankerdiff-client.workspace = true
 clankerdiff-core.workspace = true
-clankerdiff-rouge-ui.workspace = true
 clankerdiff-markdown = { workspace = true, features = ["review"] }
 clankerdiff-symbols.workspace = true
 clankerdiff-syntax.workspace = true

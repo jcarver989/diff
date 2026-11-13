@@ -1,7 +1,8 @@
 use clankerdiff_core::{DiffDocument, testing::DocumentBuilder};
 use clankerdiff_rouge::{ReviewController, ReviewHandle, ReviewOutput, diff_view};
-use rouge_core::testing::{TestUi, TestUiBuilder};
+use rouge_core::testing::TestUi;
 use rouge_reactive::Runtime;
+use rouge_widgets::testing::component_test;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 pub fn run<T>(
@@ -10,14 +11,11 @@ pub fn run<T>(
 ) -> T {
     let _runtime = Runtime::new().enter();
     let outputs = Rc::new(RefCell::new(Vec::new()));
-    let (mut ui, handle) = TestUiBuilder::default()
-        .fonts(clankerdiff_rouge::ui::fonts::bundled_fonts())
-        .size(1000.0, 800.0)
-        .build_with(|| {
-            let sink = outputs.clone();
-            let handle = ReviewController::new(document).mount(move |event| sink.borrow_mut().push(event));
-            (diff_view(handle), handle)
-        });
+    let (mut ui, handle) = component_test().size(1000.0, 800.0).build_with(|| {
+        let sink = outputs.clone();
+        let handle = ReviewController::new(document).mount(move |event| sink.borrow_mut().push(event));
+        (diff_view(handle), handle)
+    });
     test(&mut ui, handle, &outputs)
 }
 

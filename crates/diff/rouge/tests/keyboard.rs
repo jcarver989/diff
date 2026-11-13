@@ -2,21 +2,21 @@ mod common;
 
 use clankerdiff_core::{DiffReviewEvent, InteractionPhase, RepositoryAction, ViewMode};
 use clankerdiff_rouge::{ReviewOutput, ViewerPane};
-use rouge_core::{ImeEvent, Key, Modifiers};
+use rouge_core::ImeEvent;
 
 #[test]
 fn keyboard_navigation_resolves_the_active_pane_and_layout() {
     common::run(common::document(), |ui, handle, _| {
         assert_eq!(handle.selection().get().pane, ViewerPane::Diff);
         let initial = handle.selection().get();
-        ui.press(Key::End);
+        ui.press("end");
         assert_ne!(handle.selection().get().row, initial.row);
-        ui.press(Key::Tab);
+        ui.press("tab");
         assert_eq!(handle.selection().get().pane, ViewerPane::Files);
-        ui.press(Key::Home);
-        ui.press(Key::Enter);
-        ui.press(Key::ArrowDown);
-        ui.press(Key::Enter);
+        ui.press("home");
+        ui.press("enter");
+        ui.press("down");
+        ui.press("enter");
         ui.type_text("v");
         assert_eq!(handle.selection().get().pane, ViewerPane::Diff);
         assert_ne!(handle.status().get().view_mode, ViewMode::Auto);
@@ -29,12 +29,12 @@ fn draft_consumes_typing_and_escape_and_handles_composition() {
         ui.type_text("c");
         assert_eq!(handle.status().get().context.phase, InteractionPhase::Draft);
         ui.type_text("ov");
-        ui.press_with(Key::Enter, Modifiers::SHIFT);
+        ui.press("shift-enter");
         ui.ime(ImeEvent::Preedit { text: "漢".to_owned(), cursor: None });
-        ui.press(Key::Enter);
+        ui.press("enter");
         assert_eq!(handle.status().get().context.phase, InteractionPhase::Draft);
         ui.ime(ImeEvent::Commit("漢".to_owned()));
-        ui.press(Key::Enter);
+        ui.press("enter");
         assert_eq!(handle.status().get().context.phase, InteractionPhase::Browse);
         assert_eq!(
             handle.with(|state| state.session().review().comments().next().map(|c| c.body.clone())).as_deref(),
@@ -42,9 +42,9 @@ fn draft_consumes_typing_and_escape_and_handles_composition() {
         );
         assert_eq!(handle.status().get().view_mode, ViewMode::Auto);
         ui.type_text("e");
-        ui.press(Key::Escape);
+        ui.press("escape");
         assert!(outputs.borrow().is_empty());
-        ui.press(Key::Escape);
+        ui.press("escape");
         assert_eq!(outputs.borrow().as_slice(), &[ReviewOutput::Event(DiffReviewEvent::Cancel)]);
     });
 }
@@ -73,14 +73,14 @@ fn theme_preview_cancels_locally_and_commit_notifies_the_host() {
     common::run(common::document(), |ui, handle, outputs| {
         let original = handle.theme().get().revision();
         ui.type_text("t");
-        ui.press(Key::ArrowDown);
+        ui.press("down");
         assert_ne!(handle.theme().get().revision(), original);
-        ui.press(Key::Escape);
+        ui.press("escape");
         assert_eq!(handle.theme().get().revision(), original);
         assert!(outputs.borrow().is_empty());
         ui.type_text("t");
-        ui.press(Key::ArrowDown);
-        ui.press(Key::Enter);
+        ui.press("down");
+        ui.press("enter");
         assert!(matches!(outputs.borrow().as_slice(), [ReviewOutput::ThemeChanged(_)]));
         assert_eq!(handle.status().get().context.phase, InteractionPhase::Browse);
     });
@@ -90,9 +90,9 @@ fn theme_preview_cancels_locally_and_commit_notifies_the_host() {
 fn native_shift_slash_opens_help_and_resize_updates_automatic_layout() {
     common::run(common::document(), |ui, handle, outputs| {
         assert!(!handle.status().get().layout.is_split());
-        ui.press_with(Key::character("/"), Modifiers::SHIFT);
+        ui.press("shift-/");
         assert_eq!(handle.status().get().context.phase, InteractionPhase::Help);
-        ui.press(Key::Escape);
+        ui.press("escape");
         ui.set_size(rouge_core::Size::new(1600.0, 900.0));
         ui.advance(0.0);
         assert!(handle.status().get().layout.is_split());
@@ -111,9 +111,9 @@ fn enter_expands_context_but_o_switches_to_source() {
         .changed_with_hunk_window("a.rs", "one\ntwo\nthree\nfour\nfive\n", "one\ntwo\nTHREE\nfour\nfive\n", 2..=4)
         .build();
     common::run(document, |ui, handle, _| {
-        ui.press(Key::Home);
-        ui.press(Key::ArrowDown);
-        ui.press(Key::Enter);
+        ui.press("home");
+        ui.press("down");
+        ui.press("enter");
         assert!(handle.with(|state| {
             let session = state.session();
             let presentation = session.presentation();

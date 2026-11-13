@@ -2,7 +2,7 @@ mod common;
 
 use clankerdiff_core::{DiffReviewEvent, InteractionPhase, ReviewCommand, testing::DocumentBuilder};
 use clankerdiff_rouge::ReviewOutput;
-use rouge_core::{Key, Modifiers, Point, testing::TestResult};
+use rouge_core::{Point, testing::TestResult};
 use std::io;
 
 #[test]
@@ -18,26 +18,26 @@ fn inline_editor_grows_and_publishes_edit_delete_and_export() -> TestResult {
         assert!(short.origin.y > code.y);
         for _ in 0..8 {
             ui.type_text("comment");
-            ui.press_with(Key::Enter, Modifiers::SHIFT);
+            ui.press("shift-enter");
         }
         let tall = ui.bounds_of("comment-composer").ok_or_else(|| io::Error::other("editor disappeared"))?;
         assert!(tall.size.height > short.size.height);
-        ui.press(Key::Enter);
+        ui.press("enter");
         let id =
             handle.with(|s| s.session().last_comment_id()).ok_or_else(|| io::Error::other("no submitted comment"))?;
         assert!(ui.bounds_of(&format!("comment-{id}")).is_some());
         ui.click_on(&format!("Edit-comment-{id}"))?;
         assert_eq!(handle.status().get().context.phase, InteractionPhase::Draft);
-        ui.press_with(Key::character("a"), Modifiers::COMMAND);
+        ui.press("cmd-a");
         ui.type_text("replacement");
-        ui.press(Key::Enter);
+        ui.press("enter");
         ui.click_on("copy-review")?;
         assert!(outputs.borrow().iter().any(|event| matches!(event, ReviewOutput::Event(DiffReviewEvent::CopyFormattedReview(text)) if text.contains("replacement"))));
         ui.click_on(&format!("Delete-comment-{id}"))?;
         assert!(handle.with(|s| s.session().review().is_empty()));
         assert!(handle.handle_command(ReviewCommand::BeginComment));
         ui.type_text("   ");
-        ui.press(Key::Enter);
+        ui.press("enter");
         assert!(handle.with(|s| s.session().review().is_empty()));
         Ok(())
     })
@@ -48,21 +48,21 @@ fn compatible_refresh_preserves_focused_draft_selection_and_undo() -> TestResult
     common::run(common::document(), |ui, handle, _| {
         assert!(handle.handle_command(ReviewCommand::BeginComment));
         ui.type_text("x");
-        ui.press_with(Key::ArrowLeft, Modifiers::SHIFT);
+        ui.press("shift-left");
         handle.set_document(common::document());
         ui.advance(0.0);
         ui.type_text("y");
         let body = || handle.with(|s| s.session().draft().map(|draft| draft.body().to_owned()));
         assert_eq!(body().as_deref(), Some("y"));
         for expected in ["x", ""] {
-            ui.press_with(Key::character("z"), Modifiers::COMMAND);
+            ui.press("cmd-z");
             assert_eq!(body().as_deref(), Some(expected));
         }
         for expected in ["x", "y"] {
-            ui.press_with(Key::character("z"), Modifiers { shift: true, ..Modifiers::COMMAND });
+            ui.press("cmd-shift-z");
             assert_eq!(body().as_deref(), Some(expected));
         }
-        ui.press(Key::Enter);
+        ui.press("enter");
         assert!(handle.with(|s| s.session().review().comments().any(|c| c.body == "y")));
         Ok(())
     })
@@ -89,7 +89,7 @@ fn scrolling_a_draft_offscreen_preserves_the_anchor_and_body() -> TestResult {
         ui.scroll(Point::new(0.0, 5000.0));
         ui.advance(0.0);
         ui.click_on("comment-editor")?;
-        ui.press(Key::Enter);
+        ui.press("enter");
         assert!(handle.with(|s| s.session().review().comments().any(|c| c.body == "draft")));
         Ok(())
     })

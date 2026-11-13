@@ -2,12 +2,7 @@ mod chrome;
 mod content;
 mod document;
 
-use crate::ui::{
-    InterfaceSize,
-    interface_size::DEFAULT_INTERFACE_SIZE,
-    picker::{SearchPickerHandle, ThemePickerEvent},
-    prelude::*,
-};
+use crate::theme::{ActiveReviewTheme, ThemePickerEvent, theme_picker, theme_picker_overlay};
 use clankerdiff_core::{CommandContext, InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
     MarkdownBlock, MarkdownDocument, MarkdownFocusPane, MarkdownReviewCommand as Command, MarkdownReviewDecision,
@@ -16,10 +11,12 @@ use clankerdiff_markdown::{
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
 use content::Paint;
 use rouge_core::{
-    Align, AnyView, Key, KeyEvent, Modifiers, Styled, View, VirtualListHandle, div, dynamic, focus_handle, overlay,
-    view, virtual_list_handle,
+    Align, AnyView, Color, Key, KeyEvent, Modifiers, Styled, View, VirtualListHandle, div, dynamic, focus_handle,
+    overlay, view, virtual_list_handle,
 };
 use rouge_reactive::{Callback, Memo, ReadSignal, Signal, batch, effect, memo, signal, untrack, use_context};
+use rouge_widgets::UI_FONT;
+use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, SearchPickerHandle};
 use std::{rc::Rc, sync::Arc};
 
 const DEFAULT_OUTLINE_WIDTH: f32 = 220.0 / 16.0;
@@ -471,7 +468,7 @@ pub fn markdown_blocks(
 
 #[must_use]
 pub fn markdown_review_view(handle: MarkdownHandle) -> impl View {
-    let active = ActiveTheme::install(handle.theme.get_untracked());
+    let active = ActiveReviewTheme::install(handle.theme.get_untracked());
     let theme_signal = handle.theme;
     effect(move || active.set(theme_signal.get()));
     let size = use_context::<InterfaceSize>().unwrap_or_else(|| InterfaceSize::install(DEFAULT_INTERFACE_SIZE));
@@ -485,8 +482,8 @@ pub fn markdown_review_view(handle: MarkdownHandle) -> impl View {
     };
     let root = view! {
         <div test_id="markdown-reviewer" flex col size_full min_h=0.0 font=UI_FONT
-             bg={move || theme_signal.with(|t| color(t.diff.background))}
-             text_color={move || theme_signal.with(|t| color(t.diff.foreground))}
+             bg={move || theme_signal.with(|t| Color::from(t.diff.background))}
+             text_color={move || theme_signal.with(|t| Color::from(t.diff.foreground))}
              track_focus=focus autofocus
              on_key_down={move |event| {
                  if matches!(&event.key, Key::Character(key) if key == "b")

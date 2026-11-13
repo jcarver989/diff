@@ -5,7 +5,6 @@ use clankerdiff_core::{
     ReviewCommand as R, ViewMode, testing::DocumentBuilder,
 };
 use clankerdiff_rouge::{ReviewOutput, RunCommand, shortcut_label};
-use rouge_core::Key;
 
 #[test]
 fn direct_and_typed_commands_share_phase_and_capability_gates() {
@@ -24,7 +23,7 @@ fn direct_and_typed_commands_share_phase_and_capability_gates() {
         ui.advance(0.0);
         ui.type_text("ov");
         assert!(handle.with(|state| state.session().shows_source()));
-        ui.press(Key::Escape);
+        ui.press("escape");
         assert!(outputs.borrow().is_empty());
         assert!(handle.handle_command(C::ToggleSourceView));
         assert!(handle.handle_command(R::BeginComment));

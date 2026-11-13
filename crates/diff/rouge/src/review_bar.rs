@@ -1,11 +1,8 @@
 use crate::ReviewHandle;
 use clankerdiff_core::{DRAFT_HINT, DiffReviewCommand, InteractionPhase, KeyState, ReviewCommand, browse_hint};
-use clankerdiff_rouge_ui::{
-    components::{ButtonVariant, ControlSize, action_bar, button},
-    typography::UiStyles,
-};
 use rouge_core::{Styled, View, div, dynamic, text, view};
 use rouge_reactive::memo;
+use rouge_widgets::{ButtonVariant, ControlSize, UiStyles, action_bar, button};
 
 pub(crate) fn review_bar(handle: ReviewHandle) -> impl View {
     let status = handle.status();

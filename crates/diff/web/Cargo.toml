@@ -26,6 +26,7 @@ thiserror.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rouge-web.workspace = true
 rouge-core.workspace = true
+rouge-widgets.workspace = true
 rouge-reactive.workspace = true
 clankerdiff-client = { workspace = true, features = ["websocket"] }
 wasm-bindgen-futures = "0.4.70"

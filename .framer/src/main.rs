@@ -46,7 +46,7 @@ fn lints() -> Lints {
 fn disallowed_radii() -> Array {
     let mut entry = InlineTable::new();
     entry.insert("path", "rouge_render::Corners::all".into());
-    entry.insert("reason", "use a shared radius token from clankerdiff_rouge_ui::tokens".into());
+    entry.insert("reason", "use a shared radius token from rouge_widgets::tokens".into());
     entry.insert("allow-invalid", true.into());
     [Value::InlineTable(entry)].into_iter().collect()
 }

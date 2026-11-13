@@ -1,10 +1,10 @@
 use crate::{DiffViewerOptions, ReviewController, ReviewHandle, ReviewOutput, diff_view};
 use clankerdiff_client::{ClientState, ConnectionState};
 use clankerdiff_core::{DiffDocument, DiffReviewCommand, LookupReply, RepoPath};
-use clankerdiff_rouge_ui::prelude::{IconName, UiColors, UiTheme, empty_state};
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Styled, View, div, dynamic, show, view};
+use rouge_core::{Styled, Theme, View, div, dynamic, show, view};
 use rouge_reactive::{Signal, Stored, batch, signal, stored};
+use rouge_widgets::{IconName, empty_state};
 use std::sync::Arc;
 
 #[derive(Clone, Copy)]
@@ -82,7 +82,7 @@ impl DiffClientView {
                 <show when={move || state.get().is_none()}>{diff_view(handle)}</show>
                 <dynamic>{
                     state.get().map(|(failed, detail)| {
-                        UiTheme::provide(UiColors::from_palette(&theme.get().ui));
+                        Theme::provide(theme.get().ui);
                         let title = if failed { "Could not load changes" } else { "Loading changes…" };
                         view! { <empty_state icon=IconName::FileDiff title detail/> }
                     })

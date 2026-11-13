@@ -1,9 +1,9 @@
 use clankerdiff_core::{FileStatus, LineStat};
-use clankerdiff_rouge_ui::{theme::color, typography::UiStyles};
 use clankerdiff_syntax::{HighlightLine, SyntaxTheme};
 use clankerdiff_ui_core::{DiffPalette, ReviewTheme, Rgba};
-use rouge_core::{Div, SpanStyle, Styled, Text, Underline, component, div, rich_text, text, view};
+use rouge_core::{Color, Div, SpanStyle, Styled, Text, Underline, component, div, rich_text, text, view};
 use rouge_reactive::ReadSignal;
+use rouge_widgets::UiStyles;
 use std::ops::Range;
 
 #[must_use]
@@ -13,7 +13,7 @@ pub fn highlights(line: &str, spans: HighlightLine<'_>, theme: &SyntaxTheme) -> 
         .filter_map(|span| {
             let style = theme.highlight(span.highlight)?;
             let range = span.range.start..span.range.end.min(line.len());
-            let foreground = color(style.foreground);
+            let foreground = Color::from(style.foreground);
             (!range.is_empty() && line.get(range.clone()).is_some()).then_some((
                 range,
                 SpanStyle {
@@ -45,8 +45,8 @@ pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette)
 pub fn stat_badges(stat: LineStat, palette: ReadSignal<ReviewTheme>) -> Div {
     view! {
         <div flex row flex_none gap=8.0>
-            <text code no_wrap color={move || palette.with(|t| color(t.diff.addition))}>{format!("+{}", stat.added)}</text>
-            <text code no_wrap color={move || palette.with(|t| color(t.diff.deletion))}>{format!("−{}", stat.deleted)}</text>
+            <text code no_wrap color={move || palette.with(|t| Color::from(t.diff.addition))}>{format!("+{}", stat.added)}</text>
+            <text code no_wrap color={move || palette.with(|t| Color::from(t.diff.deletion))}>{format!("−{}", stat.deleted)}</text>
         </div>
     }
 }

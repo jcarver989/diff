@@ -6,7 +6,7 @@ use clankerdiff_markdown::{
 use clankerdiff_rouge::{MarkdownController, MarkdownHandle, MarkdownOutput, markdown_blocks, markdown_review_view};
 use clankerdiff_ui_core::ReviewTheme;
 use rouge_core::{
-    ImeEvent, Key,
+    ImeEvent,
     testing::{TestUi, TestUiBuilder},
 };
 use rouge_reactive::{Callback, Runtime, signal};
@@ -16,10 +16,8 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 fn mounted_markdown_uses_semantic_selection_and_single_review_session() -> Result<(), Box<dyn std::error::Error>> {
     let _runtime = Runtime::new().enter();
     let output = Rc::new(RefCell::new(Vec::new()));
-    let (mut ui, handle) = TestUiBuilder::default()
-        .size(920.0, 640.0)
-        .fonts(clankerdiff_rouge::ui::fonts::bundled_fonts())
-        .build_with(|| {
+    let (mut ui, handle) =
+        TestUiBuilder::default().size(920.0, 640.0).fonts(rouge_widgets::bundled_fonts()).build_with(|| {
             let doc = Arc::new(MarkdownDocument::new(
                 "# Title\n\nA **paragraph** with `code`.\n\n```rust\nfn main() {}\n```",
             ));
@@ -34,10 +32,10 @@ fn mounted_markdown_uses_semantic_selection_and_single_review_session() -> Resul
     ui.advance(0.0);
     ui.center_of("comment-editor")?;
     ui.ime(ImeEvent::Preedit { text: "あ".into(), cursor: Some((3, 3)) });
-    ui.press(Key::Enter);
+    ui.press("enter");
     assert!(handle.with(|s| s.draft().is_some()));
     ui.ime(ImeEvent::Commit("あ".into()));
-    ui.press(Key::Enter);
+    ui.press("enter");
     assert_eq!(handle.with(|s| s.review().comments()[0].body.clone()), "あ");
     handle.set_document(Arc::new(MarkdownDocument::new(
         "\n# Title\n\nA **paragraph** with `code`.\n\n```rust\nfn main() {}\n```",
@@ -90,7 +88,7 @@ fn outline_focus_moves_the_selection_between_headings() -> Result<(), Box<dyn st
 }
 
 fn mount(source: &str) -> (TestUi, MarkdownHandle) {
-    TestUiBuilder::default().size(920.0, 640.0).fonts(clankerdiff_rouge::ui::fonts::bundled_fonts()).build_with(|| {
+    TestUiBuilder::default().size(920.0, 640.0).fonts(rouge_widgets::bundled_fonts()).build_with(|| {
         let handle =
             MarkdownController::new(Arc::new(MarkdownDocument::new(source)), ReviewTheme::default()).mount(|_| {});
         (markdown_review_view(handle), handle)
@@ -101,14 +99,13 @@ fn mount(source: &str) -> (TestUi, MarkdownHandle) {
 fn standalone_markdown_blocks_render_without_a_review_and_copy_code() -> Result<(), Box<dyn std::error::Error>> {
     let _runtime = Runtime::new().enter();
     let output = Rc::new(RefCell::new(Vec::new()));
-    let mut ui =
-        TestUiBuilder::default().size(600.0, 400.0).fonts(clankerdiff_rouge::ui::fonts::bundled_fonts()).build(|| {
-            let _ = clankerdiff_rouge::ui::theme::ActiveTheme::install(ReviewTheme::default());
-            let doc = MarkdownDocument::new("Some **prose**.\n\n```sh\necho hi\n```");
-            let sink = output.clone();
-            let emit = Callback::from(move |output: MarkdownOutput| sink.borrow_mut().push(output));
-            markdown_blocks(doc.blocks(), signal(ReviewTheme::default()).read_only(), true, emit)
-        });
+    let mut ui = TestUiBuilder::default().size(600.0, 400.0).fonts(rouge_widgets::bundled_fonts()).build(|| {
+        let _ = clankerdiff_rouge::theme::ActiveReviewTheme::install(ReviewTheme::default());
+        let doc = MarkdownDocument::new("Some **prose**.\n\n```sh\necho hi\n```");
+        let sink = output.clone();
+        let emit = Callback::from(move |output: MarkdownOutput| sink.borrow_mut().push(output));
+        markdown_blocks(doc.blocks(), signal(ReviewTheme::default()).read_only(), true, emit)
+    });
     ui.advance(0.0);
     ui.click_on("markdown-copy-code")?;
     assert_eq!(output.borrow().as_slice(), [MarkdownOutput::CopyCode("echo hi\n".into())]);

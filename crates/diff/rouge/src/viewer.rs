@@ -3,12 +3,12 @@ mod commands;
 mod navigation;
 mod overlay;
 
+use crate::theme::ActiveReviewTheme;
 use crate::{DiffViewerEvent, diff_view::content, shortcuts::Shortcuts, syntax_job};
 use clankerdiff_core::{
     CommandContext, DiffDocument, DiffReviewCommand, DiffSide, FileTree, FilesMode, Layout, LineAnchor, LookupReply,
     RepoPath, ReviewCapabilities, ReviewSession, ViewMode, ViewportAnchor,
 };
-use clankerdiff_rouge_ui::{picker::SearchPickerHandle, theme::ActiveTheme, tokens::BASE_SIZE};
 use clankerdiff_symbols::{DefinitionCard, DocumentSyntax, NameLookup};
 use clankerdiff_ui_core::ReviewTheme;
 use overlay::{Overlay, OverlayKind, PickerCommand};
@@ -19,6 +19,7 @@ use rouge_core::{
 use rouge_reactive::{
     Callback, Memo, ReadSignal, Signal, Stored, Task, batch, effect, memo, signal, spawn, stored, untrack,
 };
+use rouge_widgets::{SearchPickerHandle, tokens::BASE_SIZE};
 use std::{cell::Cell, mem, ops::Range, sync::Arc};
 
 pub use clankerdiff_core::FocusPane as ViewerPane;
@@ -601,7 +602,7 @@ impl<T: View, U: FnOnce() -> T + 'static> View for ReviewView<U> {
                 handle.width.set_if_changed(Some(width));
             }
         });
-        let active = ActiveTheme::install(handle.theme.get_untracked());
+        let active = ActiveReviewTheme::install(handle.theme.get_untracked());
         effect({
             let theme = handle.theme();
             move || active.set(theme.get())

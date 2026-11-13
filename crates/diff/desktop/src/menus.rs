@@ -1,12 +1,11 @@
 use clankerdiff_core::{DiffReviewCommand, DiffScope};
 use clankerdiff_rouge::RunCommand;
-use clankerdiff_rouge_shell::rouge::{Menu, MenuItem};
+use rouge::{Menu, MenuItem};
 
 pub(crate) fn all() -> Vec<Menu> {
-    clankerdiff_rouge_shell::menus::build(
-        "ClankerDiff",
-        Vec::new(),
-        vec![Menu::new(
+    vec![
+        Menu::app("ClankerDiff", Vec::new()),
+        Menu::new(
             "View",
             vec![
                 MenuItem::action("Unstaged", RunCommand(DiffReviewCommand::SetScope(DiffScope::Unstaged))),
@@ -16,6 +15,6 @@ pub(crate) fn all() -> Vec<Menu> {
                 MenuItem::action("Older Commit", RunCommand(DiffReviewCommand::StepTarget(-1))),
                 MenuItem::action("Newer Commit", RunCommand(DiffReviewCommand::StepTarget(1))),
             ],
-        )],
-    )
+        ),
+    ]
 }

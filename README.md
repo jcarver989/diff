@@ -19,7 +19,7 @@ This repository also holds the Rouge building blocks ClankerDiff is made of, whi
 | Domain | Crates | What's there |
 | --- | --- | --- |
 | `util/` | `fingerprint`, `remote` | General-purpose crates with no UI and no diff concepts. |
-| `ui/` | `core`, `syntax`, `rouge`, `rouge-shell` | Themes, syntax highlighting, and the Rouge design system and app shell. |
+| `ui/` | `core`, `syntax` | Themes and syntax highlighting. |
 | `diff/` | `core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `rouge`, `ratatui`, `cli`, `desktop`, `web` | The diff and markdown review domain, its renderers and the ClankerDiff apps. |
 
 A crate may depend only on its own domain or a lower one (`util` < `ui` < `diff`), which `just layer-check` enforces. See [AGENTS.md](AGENTS.md) for conventions.
@@ -32,10 +32,10 @@ All workspace commands require Rust 1.99.1 and a sibling `../rouge` checkout. Fr
 
 Graphical crates use local Rouge dependencies and cannot be published to crates.io during the migration. Local binary packaging still uses cargo-dist, but graphical releases must wait for the port and acceptance checks. Downstream consumers must adopt the renamed crates and Rouge APIs; the rename alone does not port their UI code.
 
-Run the shared component gallery from the Diff root with a graphical session and a sibling Rouge checkout containing the Phase 5 toolkit changes:
+The shared design system (`rouge-widgets`) and its renderer-neutral theme types (`rouge-theme`) live in the Rouge repository. Run the component gallery from the Diff root with a graphical session:
 
 ```sh
-cargo run -p clankerdiff-rouge-ui --example component_gallery
+cargo run --manifest-path ../rouge/Cargo.toml -p rouge-widgets --example component_gallery
 ```
 
 For a native presentation smoke test, set `ROUGE_EXIT_AFTER_FRAMES=4` before the command. The gallery is the only shared-crate target that uses the native Rouge application facade; the library can be checked for `wasm32-unknown-unknown` independently.

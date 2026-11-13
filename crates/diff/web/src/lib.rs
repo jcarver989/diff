@@ -218,10 +218,10 @@ mod wasm {
     use clankerdiff_rouge::{
         DiffViewerOptions, MarkdownController, MarkdownHandle, MarkdownOutput, ReviewController, ReviewHandle,
         ReviewOutput, diff_view, markdown_review_view,
-        ui::{InterfaceSize, fonts::bundled_fonts, interface_size::DEFAULT_INTERFACE_SIZE},
     };
     use clankerdiff_ui_core::ReviewTheme;
     use rouge_core::{Color, Styled, View, div, dynamic, view};
+    use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, bundled_fonts};
     use rouge_reactive::{Signal, Task, on_cleanup, signal, spawn};
     use std::{
         cell::{Cell, RefCell},

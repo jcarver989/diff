@@ -5,7 +5,7 @@ use clankerdiff_core::{
     testing::DocumentBuilder,
 };
 use clankerdiff_rouge::{ReviewOutput, ViewerPane};
-use rouge_core::{Key, testing::TestResult};
+use rouge_core::testing::TestResult;
 use std::io;
 
 #[test]
@@ -27,7 +27,7 @@ fn file_tree_navigation_reveals_the_last_file_without_mounting_the_whole_tree() 
         assert_eq!(handle.selection().get().file, Some(FILES - 1));
         assert!(row.origin.y >= panel.origin.y && row.origin.y + row.size.height <= panel.origin.y + panel.size.height);
         assert!(ui.bounds_of("diff-file-0").is_none());
-        ui.press(Key::ArrowUp);
+        ui.press("up");
         assert_eq!(handle.selection().get().file, Some(FILES - 2));
         Ok(())
     })

@@ -1,6 +1,6 @@
 use clankerdiff_core::ViewMode;
-use clankerdiff_rouge_shell::persist::{self, config_dir};
 use clankerdiff_ui_core::{Appearance, ReviewTheme, ThemePair};
+use rouge::{appearance, persist::{self, config_dir}};
 use std::{io, path::PathBuf};
 
 pub struct ThemeStore {
@@ -85,12 +85,12 @@ impl Preferences {
     }
 
     pub(crate) fn theme(&self) -> ReviewTheme {
-        let appearance = clankerdiff_rouge::ui::theme::window_appearance();
+        let appearance = appearance().get();
         ReviewTheme::builtin(self.themes.state().id(appearance)).unwrap_or_default()
     }
 
     pub(crate) fn remember_theme(&self, id: &str) {
-        let appearance = clankerdiff_rouge::ui::theme::window_appearance();
+        let appearance = appearance().get();
         self.themes.update(|pair| {
             if pair.id(appearance) == id {
                 return false;
@@ -114,14 +114,14 @@ impl Preferences {
         });
     }
 
-    pub(crate) fn interface_size(&self) -> clankerdiff_rouge::ui::InterfaceSize {
-        use clankerdiff_rouge::ui::{InterfaceSize, interface_size::DEFAULT_INTERFACE_SIZE};
+    pub(crate) fn interface_size(&self) -> rouge_widgets::InterfaceSize {
+        use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize};
         let size = InterfaceSize::install(DEFAULT_INTERFACE_SIZE);
         if let Some(saved) = self.sizes.state() {
             size.set(saved);
         }
         let store = self.sizes.clone();
-        clankerdiff_rouge_shell::rouge::reactive::effect(move || {
+        rouge::reactive::effect(move || {
             let committed = size.committed();
             store.update(|saved| {
                 if *saved == Some(committed) {

@@ -1,4 +1,6 @@
 use clankerdiff_symbols::DocumentSyntax;
+#[cfg(not(target_arch = "wasm32"))]
+use rouge_reactive::spawn_blocking;
 use rouge_reactive::{Signal, untrack};
 use std::sync::Arc;
 
@@ -23,13 +25,13 @@ fn next(done: &[bool], focus: Option<usize>) -> Option<usize> {
 #[cfg(not(target_arch = "wasm32"))]
 async fn prepare_file(syntax: &Arc<DocumentSyntax>, file: usize) {
     let syntax = Arc::clone(syntax);
-    rouge_reactive::background(async move { syntax.prepare(file) }).await;
+    let _ = spawn_blocking(move || syntax.prepare(file)).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn index(syntax: &Arc<DocumentSyntax>) {
     let syntax = Arc::clone(syntax);
-    rouge_reactive::background(async move { drop(syntax.symbols()) }).await;
+    let _ = spawn_blocking(move || drop(syntax.symbols())).await;
 }
 
 #[cfg(target_arch = "wasm32")]

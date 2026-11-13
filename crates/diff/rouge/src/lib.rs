@@ -15,11 +15,11 @@ mod shortcuts;
 mod sidebar;
 pub mod style;
 mod syntax_job;
+pub mod theme;
 mod toolbar;
 mod viewer;
 
 pub use clankerdiff_core::DiffReviewEvent as DiffViewerEvent;
-pub use clankerdiff_rouge_ui as ui;
 pub use client_view::DiffClientView;
 pub use markdown_viewer::{MarkdownController, MarkdownHandle, MarkdownOutput, markdown_blocks, markdown_review_view};
 pub use shortcuts::shortcut_label;

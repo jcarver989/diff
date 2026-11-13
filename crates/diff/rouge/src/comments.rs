@@ -1,17 +1,11 @@
 use crate::{ReviewHandle, comment_editor::composer};
 use clankerdiff_core::{DiffSide, LineAnchor, ReviewCommand, ReviewComment};
-use clankerdiff_rouge_ui::{
-    components::icon_button,
-    icon::IconName,
-    theme::{UiTheme, color},
-    tokens::RADIUS_CONTROL,
-    typography::UiStyles,
-};
-use rouge_core::{Styled, View, div, dynamic, px, text, view};
+use rouge_core::{Color, Styled, Theme, View, div, dynamic, px, text, view};
 use rouge_reactive::memo;
+use rouge_widgets::{IconName, UiStyles, icon_button, tokens::RADIUS_CONTROL};
 
 pub(crate) fn thread(handle: ReviewHandle, row: usize, side: DiffSide, anchor: LineAnchor) -> impl View {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let comments = memo({
         let anchor = anchor.clone();
         move || {
@@ -32,7 +26,7 @@ pub(crate) fn thread(handle: ReviewHandle, row: usize, side: DiffSide, anchor: L
     let draft = memo(move || handle.draft_placement().get().filter(|(location, _)| *location == anchor));
     let palette = handle.theme();
     view! {
-        <div min_w=0.0 flex col gap=8.0 px=12.0 pt=4.0 pb=12.0 bg={move || palette.with(|t| color(t.diff.background))}>
+        <div min_w=0.0 flex col gap=8.0 px=12.0 pt=4.0 pb=12.0 bg={move || palette.with(|t| Color::from(t.diff.background))}>
             <dynamic>{
                 let comments = comments.get();
                 let last = comments.len().checked_sub(1)?;
@@ -71,7 +65,7 @@ pub(crate) fn thread(handle: ReviewHandle, row: usize, side: DiffSide, anchor: L
 }
 
 fn card(handle: &ReviewHandle, row: usize, side: DiffSide, comment: ReviewComment, last: bool) -> impl View {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let (handle, id) = (*handle, comment.id);
     let act = move |edit| {
         move || {

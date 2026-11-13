@@ -1,20 +1,17 @@
 use super::MarkdownOutput;
-use crate::{
-    style,
-    ui::{
-        prelude::*,
-        tokens::{RADIUS_CONTROL, RADIUS_INNER, scaled},
-    },
-};
+use crate::style;
 use clankerdiff_markdown::{
     MarkdownAnchor, MarkdownBlock, MarkdownBlockKind as Block, MarkdownCodeBlock, MarkdownDocument,
     MarkdownInline as Inline, MarkdownListItem, MarkdownTable, MarkdownTableAlignment, MarkdownTargetId,
 };
 use clankerdiff_ui_core::{MarkdownPalette, ReviewTheme, Rgba};
 use rouge_core::{
-    Color, Corners, Div, SpanStyle, Styled, Text, TextAlign, Underline, component, div, px, rich_text, show, text, view,
+    Color, Corners, Div, SpanStyle, Styled, Text, TextAlign, Theme, Underline, component, div, px, rich_text, show,
+    text, view,
 };
 use rouge_reactive::{Callback, Memo, ReadSignal};
+use rouge_widgets::{CODE_FONT, IconName, UiStyles, icon_button};
+use rouge_widgets::{tokens::RADIUS_CONTROL, tokens::RADIUS_INNER, tokens::scaled};
 use std::{collections::HashMap, ops::Range, rc::Rc, sync::Arc};
 
 pub(super) const LIST_INDENT: f32 = 22.0;
@@ -59,7 +56,7 @@ pub(super) struct Paint {
 impl Paint {
     fn markdown(&self, pick: fn(&MarkdownPalette) -> Rgba) -> impl Fn() -> Color + 'static {
         let palette = self.palette;
-        move || palette.with(|theme| color(pick(&theme.markdown)))
+        move || palette.with(|theme| Color::from(pick(&theme.markdown)))
     }
 }
 
@@ -163,7 +160,7 @@ impl Row {
         match &self.kind {
             Kind::CodeHeader { .. } | Kind::CodeLine { .. } => Box::new(paint.markdown(|m| m.code_background)),
             Kind::TableRow { header: true, .. } => {
-                let surface = UiTheme::current().surface;
+                let surface = Theme::current().surface;
                 Box::new(move || surface.get())
             }
             _ => Box::new(|| Color::TRANSPARENT),
@@ -171,7 +168,7 @@ impl Row {
     }
 
     pub fn block(&self, paint: &Paint) -> Div {
-        let theme = UiTheme::current();
+        let theme = Theme::current();
         match &self.kind {
             Kind::Heading { level, content } => heading_scale(*level)
                 .apply(prose())
@@ -229,7 +226,7 @@ fn corners(top: bool, bottom: bool) -> impl Fn() -> Corners + 'static {
 fn code_header(code: &Rc<MarkdownCodeBlock>, paint: &Paint) -> Div {
     let empty = code.lines().is_empty();
     let clipboard = paint.clipboard;
-    let (code, emit, theme) = (code.clone(), paint.emit, UiTheme::current());
+    let (code, emit, theme) = (code.clone(), paint.emit, Theme::current());
     let header = view! {
         <div h=CODE_HEADER_HEIGHT pl=16.0 pr=4.0 flex row items_center justify_between border_t=px(1.0)
              border_l=px(1.0) border_r=px(1.0) border_color=theme.border rounded=corners(true, empty)>
@@ -268,7 +265,7 @@ fn code_line(code: &Rc<MarkdownCodeBlock>, index: usize, paint: &Paint) -> Div {
     };
     let line = view! {
         <div px=16.0 min_h=CODE.line_height overflow_hidden border_l=px(1.0) border_r=px(1.0)
-             border_color=UiTheme::current().border rounded=corners(false, last)>
+             border_color=Theme::current().border rounded=corners(false, last)>
             <rich_text spans code no_wrap color=paint.markdown(|m| m.code)>{source}</rich_text>
         </div>
     };
@@ -283,7 +280,7 @@ fn table_row(
     last: bool,
     paint: &Paint,
 ) -> Div {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let cells = cells.iter().enumerate().map(|(column, cell)| {
         let align = match alignments.get(column) {
             Some(MarkdownTableAlignment::Center) => TextAlign::Center,
@@ -326,11 +323,11 @@ impl Marks {
     }
 
     fn style(self, markdown: &MarkdownPalette, muted: Color) -> SpanStyle {
-        let link = color(markdown.link);
+        let link = Color::from(markdown.link);
         let foreground = if self.has(Self::LINK) {
             Some(link)
         } else if self.has(Self::CODE) {
-            Some(color(markdown.inline_code))
+            Some(Color::from(markdown.inline_code))
         } else if self.has(Self::IMAGE) {
             Some(muted)
         } else {
@@ -338,7 +335,7 @@ impl Marks {
         };
         SpanStyle {
             color: foreground,
-            background: self.has(Self::CODE).then(|| color(markdown.inline_code_background)),
+            background: self.has(Self::CODE).then(|| Color::from(markdown.inline_code_background)),
             weight: self.has(Self::STRONG).then_some(600.0),
             italic: (self.has(Self::EMPHASIS) || self.has(Self::IMAGE)).then_some(true),
             underline: self.has(Self::LINK).then_some(Underline { color: link, thickness: 1.0 }),
@@ -398,7 +395,7 @@ fn inline_text(content: &[Inline], paint: &Paint) -> Text {
     let mut builder = InlineBuilder::default();
     builder.children(content, Marks::NONE);
     let InlineBuilder { text, marks, links } = builder;
-    let (palette, muted) = (paint.palette, UiTheme::current().text_muted);
+    let (palette, muted) = (paint.palette, Theme::current().text_muted);
     let spans = move || {
         let muted = muted.get();
         palette.with(|theme| {

@@ -1,11 +1,9 @@
 use clankerdiff_core::{DiffReviewCommand, ViewMode, testing::DocumentBuilder};
-use clankerdiff_rouge::{
-    ReviewController, diff_view,
-    ui::{fonts::bundled_fonts, interface_size::InterfaceSize},
-};
+use clankerdiff_rouge::{ReviewController, diff_view};
 use clankerdiff_ui_core::ThemeChoice;
 use rouge_core::testing::{TestResult, TestUiBuilder};
 use rouge_reactive::Runtime;
+use rouge_widgets::{InterfaceSize, bundled_fonts};
 use std::io;
 
 #[test]

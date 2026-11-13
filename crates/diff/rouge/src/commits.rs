@@ -1,16 +1,12 @@
 use crate::{ReviewHandle, style};
 use clankerdiff_core::{CommitKind, CommitPage, DiffReviewCommand, InteractionPhase, LineStat};
-use clankerdiff_rouge_ui::{
-    fonts::CODE_FONT,
-    icon::{Icon, IconName},
-    picker::{PickerItem, PickerMarker, SearchPickerEvent, SearchPickerHandle, search_picker},
-    theme::{UiColors, UiTheme, color},
-    tokens,
-    typography::UiStyles,
-};
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Color, Div, Length, Styled, View, div, pct, px, scroll, text, view};
+use rouge_core::{Color, Div, Length, Palette, Styled, Theme, View, div, pct, px, scroll, text, view};
 use rouge_reactive::ReadSignal;
+use rouge_widgets::{
+    CODE_FONT, Icon, IconName, PickerItem, PickerMarker, SearchPickerEvent, SearchPickerHandle, UiStyles,
+    search_picker, tokens,
+};
 use std::rc::Rc;
 use web_time::{SystemTime, UNIX_EPOCH};
 
@@ -21,14 +17,13 @@ const PREVIEW_GAP: f32 = 14.0;
 const FACTS_GAP: f32 = 10.0;
 const CHANGE_BAR_HEIGHT: f32 = 4.0;
 const CHANGE_BAR_GAP: f32 = 2.0;
-const MARKER_SIZE: f32 = 7.0;
 
 pub(crate) fn commit_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) {
     let handle = *handle;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
     let pages = Rc::new(handle.with(|state| state.session().commit_pages(now).unwrap_or_default()));
     let current = pages.iter().position(|page| page.current).unwrap_or(0);
-    let colors = UiTheme::current().get();
+    let colors = Theme::current().get();
     let items = pages
         .iter()
         .enumerate()
@@ -61,11 +56,11 @@ pub(crate) fn commit_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) 
     (picker, commits)
 }
 
-fn marker(page: &CommitPage, colors: &UiColors) -> PickerMarker {
+fn marker(page: &CommitPage, colors: &Palette) -> PickerMarker {
     if page.is_working_tree() { PickerMarker::Pending } else { PickerMarker::Dot(kind_color(page.title.kind, colors)) }
 }
 
-const fn kind_color(kind: Option<CommitKind>, colors: &UiColors) -> Color {
+const fn kind_color(kind: Option<CommitKind>, colors: &Palette) -> Color {
     match kind {
         Some(CommitKind::Feature) => colors.accent,
         Some(CommitKind::Fix) => colors.destructive,
@@ -106,21 +101,15 @@ fn preview(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
 }
 
 fn eyebrow(page: &CommitPage) -> Div {
-    let colors = UiTheme::current().get();
+    let colors = Theme::current().get();
     let (label, tone) = match page.title.kind {
         _ if page.is_working_tree() => ("Uncommitted", colors.text_secondary),
         Some(kind) => (kind.label(), kind_color(Some(kind), &colors)),
         None => ("Commit", colors.text_secondary),
     };
-    let dot = match marker(page, &colors) {
-        PickerMarker::Dot(dot) => view! { <div size=MARKER_SIZE rounded=MARKER_SIZE bg=dot/> },
-        PickerMarker::Pending => view! {
-            <div size={MARKER_SIZE + 2.0} rounded=MARKER_SIZE border=px(1.0) border_color=colors.text_muted/>
-        },
-    };
     view! {
         <div test_id="commit-preview-eyebrow" flex row items_center gap=6.0>
-            {dot}
+            {marker(page, &colors)}
             <text small weight=500.0 color=tone>{label}</text>
             {page.title.scope.clone().map(|scope| view! {
                 <text small color=colors.text_muted>"·"</text>
@@ -131,7 +120,7 @@ fn eyebrow(page: &CommitPage) -> Div {
 }
 
 fn facts(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let fact = move |icon: IconName, label: String, code: bool| {
         view! {
             <div flex row items_center gap=6.0>
@@ -171,10 +160,10 @@ fn change_bar(stat: LineStat, palette: ReadSignal<ReviewTheme>) -> Option<Div> {
                  rounded=CHANGE_BAR_HEIGHT overflow_hidden>
                 {(stat.added > 0).then(|| view! {
                     <div h_full w=pct(100.0 * stat.added as f32 / total as f32)
-                         bg={move || palette.with(|t| color(t.diff.addition))}/>
+                         bg={move || palette.with(|t| Color::from(t.diff.addition))}/>
                 })}
                 {(stat.deleted > 0).then(|| view! {
-                    <div h_full flex_1 bg={move || palette.with(|t| color(t.diff.deletion))}/>
+                    <div h_full flex_1 bg={move || palette.with(|t| Color::from(t.diff.deletion))}/>
                 })}
             </div>
         }

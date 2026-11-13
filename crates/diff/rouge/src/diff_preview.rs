@@ -1,20 +1,17 @@
-use crate::{
-    style,
-    ui::{
-        components::{ControlSize, button},
-        theme::{UiColors, UiTheme, color},
-        tokens::RADIUS_CONTROL,
-        typography::{Typography, UiStyles},
-    },
-};
+use crate::style;
 use clankerdiff_core::{
     DiffDocument, DiffError, DiffPresentation, DiffTone, PresentationOptions, PresentedCell, PresentedRow, RowKind,
     ViewMode, parse_detached_git_diff,
 };
 use clankerdiff_symbols::DocumentSyntax;
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{AnyView, Div, Styled, View, div, text, view};
+use rouge_core::{AnyView, Color, Div, Styled, Theme, View, div, text, view};
 use rouge_reactive::use_context;
+use rouge_widgets::{
+    ControlSize, UiStyles, button,
+    tokens::RADIUS_CONTROL,
+    typography::{BODY_STRONG, CAPTION},
+};
 use std::sync::Arc;
 
 const MAX_PREVIEW_ROWS: usize = 120;
@@ -42,8 +39,8 @@ impl PatchPreview {
         let id = id.into();
         let body: Vec<AnyView> = match &self.0 {
             Err((error, head)) => view! {
-                <text color=color(theme.diff.muted)>{format!("Could not display patch: {error}")}</text>
-                <text code color=color(theme.diff.foreground)>{head.clone()}</text>
+                <text color=Color::from(theme.diff.muted)>{format!("Could not display patch: {error}")}</text>
+                <text code color=Color::from(theme.diff.foreground)>{head.clone()}</text>
             },
             Ok((presentation, syntax)) => {
                 let mut rows = presentation
@@ -59,8 +56,8 @@ impl PatchPreview {
                 let hidden = rows.count();
                 if hidden > 0 {
                     let document = Arc::clone(presentation.document());
-                    if use_context::<UiTheme>().is_none() {
-                        UiTheme::provide(UiColors::from_palette(&theme.ui));
+                    if use_context::<Theme>().is_none() {
+                        Theme::provide(theme.ui);
                     }
                     body.push(view! {
                         <button id={format!("{id}-more")} label={format!("… {hidden} more rows · Open full diff")}
@@ -72,7 +69,7 @@ impl PatchPreview {
         };
         view! {
             <div test_id={id.clone()} flex col min_w=0.0 overflow_hidden rounded=RADIUS_CONTROL border=1.0
-                 border_color=color(theme.ui.border_subtle) bg=color(theme.diff.background)>
+                 border_color=Color::from(theme.ui.border_subtle) bg=Color::from(theme.diff.background)>
                 {..body}
             </div>
         }
@@ -81,10 +78,10 @@ impl PatchPreview {
 
 fn preview_row(row: &PresentedRow, cell: &PresentedCell, syntax: &DocumentSyntax, theme: &ReviewTheme) -> Div {
     if !matches!(row.kind, RowKind::Code | RowKind::ExpandedContext) {
-        let typography = if row.kind == RowKind::FileHeader { Typography::BodyStrong } else { Typography::Caption };
+        let typography = if row.kind == RowKind::FileHeader { BODY_STRONG } else { CAPTION };
         return view! {
             <div px=8.0>
-                <text typography=typography color=color(theme.diff.muted)>{cell.text.to_string()}</text>
+                <text typography=typography color=Color::from(theme.diff.muted)>{cell.text.to_string()}</text>
             </div>
         };
     }
@@ -95,9 +92,9 @@ fn preview_row(row: &PresentedRow, cell: &PresentedCell, syntax: &DocumentSyntax
         _ => " ",
     };
     view! {
-        <div px=6.0 flex row gap=4.0 bg=color(tone.background) overflow_hidden>
-            <text code color=color(tone.foreground)>{marker}</text>
-            {style::code(&cell.text, syntax.highlights(row, cell), &theme.syntax).color(color(theme.diff.foreground))}
+        <div px=6.0 flex row gap=4.0 bg=Color::from(tone.background) overflow_hidden>
+            <text code color=Color::from(tone.foreground)>{marker}</text>
+            {style::code(&cell.text, syntax.highlights(row, cell), &theme.syntax).color(Color::from(theme.diff.foreground))}
         </div>
     }
 }

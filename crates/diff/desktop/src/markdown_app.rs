@@ -2,7 +2,7 @@ use crate::preferences::Preferences;
 use clankerdiff_core::ReviewCapabilities;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewEvent, MarkdownReviewSubmission};
 use clankerdiff_rouge::{MarkdownController, MarkdownOutput, markdown_review_view};
-use clankerdiff_rouge_shell::rouge::{
+use rouge::{
     core::{Styled, View, div, window_handle},
     reactive::effect,
 };
@@ -34,7 +34,7 @@ pub(crate) fn root(
         }
         MarkdownOutput::ThemeChanged(id) => prefs.remember_theme(&id),
         MarkdownOutput::OpenLink(url) => {
-            let _ = clankerdiff_rouge_shell::rouge::platform::open_url(&url);
+            let _ = rouge::platform::open_url(&url);
         }
     });
     review.set_capabilities(ReviewCapabilities { submit: true, clipboard: true, ..ReviewCapabilities::NONE });

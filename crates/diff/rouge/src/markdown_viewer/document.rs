@@ -2,17 +2,16 @@ use super::{
     MarkdownHandle,
     content::{Paint, Row},
 };
-use crate::{
-    comment_editor::composer,
-    ui::{prelude::*, tokens::RADIUS_CONTROL},
-};
+use crate::comment_editor::composer;
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewComment, MarkdownTargetId};
 use rouge_core::{
-    AnyView, Apply, Cursor, Div, RowKey, Styled, View, component, div, dynamic, px, root_font_size, show, text, view,
-    virtual_list,
+    AnyView, Apply, Color, Cursor, Div, RowKey, Styled, Theme, View, component, div, dynamic, px, root_font_size, show,
+    text, view, virtual_list,
 };
 use rouge_reactive::{Memo, Signal, memo, signal};
+use rouge_widgets::tokens::RADIUS_CONTROL;
+use rouge_widgets::{Icon, IconName, UiStyles, empty_state, icon_button, vertical_scrollbar};
 
 const COLUMN_WIDTH: f32 = 780.0;
 const GUTTER_WIDTH: f32 = 28.0;
@@ -32,7 +31,7 @@ pub(super) fn document(handle: &MarkdownHandle, paint: Paint) -> impl View {
                           let:index>
                 {row(&handle, index, &paint)}
             </virtual_list>
-            <div absolute right=0.0 top=0.0 bottom=0.0>{ListScrollbar::list(list)}</div>
+            <div absolute right=0.0 top=0.0 bottom=0.0>{vertical_scrollbar(list.scroll_state())}</div>
             <show when={move || rows.with(|rows| rows.len() == 0)}>
                 <div test_id="markdown-empty" absolute inset=0.0 flex items_center justify_center>
                     <empty_state icon=IconName::FileText title="Nothing to review" detail="This document is empty."/>
@@ -45,7 +44,7 @@ pub(super) fn document(handle: &MarkdownHandle, paint: Paint) -> impl View {
 fn row(handle: &MarkdownHandle, index: usize, paint: &Paint) -> Option<AnyView> {
     let rows = handle.rows.get_untracked();
     let row = rows.get(index)?;
-    let (handle, theme) = (*handle, UiTheme::current());
+    let (handle, theme) = (*handle, Theme::current());
     let target = row.target;
     let active = handle.selected;
     let selected = memo(move || target.is_some() && active.get() == target);
@@ -103,7 +102,7 @@ fn gutter(handle: &MarkdownHandle, row: &Row, selected: Memo<bool>, hovered: Sig
     view! {
         <div w=GUTTER_WIDTH flex_none relative>
             <show when={move || selected.get()}>
-                <div absolute top=0.0 bottom=0.0 right=3.0 w=px(2.0) rounded=px(1.0) bg=UiTheme::current().accent/>
+                <div absolute top=0.0 bottom=0.0 right=3.0 w=px(2.0) rounded=px(1.0) bg=Theme::current().accent/>
             </show>
             {add}
         </div>
@@ -116,13 +115,13 @@ fn add_comment(handle: MarkdownHandle, target: MarkdownTargetId, offset: f32) ->
     view! {
         <div test_id={format!("markdown-add-comment-{}", target.index())} absolute left=4.0 top=offset
              size=ADD_BUTTON_SIZE rounded={ADD_BUTTON_SIZE / 2.0}
-             bg={move || palette.with(|theme| color(theme.diff.accent))} cursor=Cursor::Pointer flex items_center
+             bg={move || palette.with(|theme| Color::from(theme.diff.accent))} cursor=Cursor::Pointer flex items_center
              justify_center
              on_click={move |event| {
                  event.stop_propagation();
                  handle.begin_comment_on(target);
              }}>
-            {Icon::new(IconName::Plus, move || palette.with(|theme| color(theme.diff.background))).size(12.0)}
+            {Icon::new(IconName::Plus, move || palette.with(|theme| Color::from(theme.diff.background))).size(12.0)}
         </div>
     }
 }
@@ -138,7 +137,7 @@ fn thread(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<
         Some(view! {
             <div pt=8.0 pb=4.0>
                 <div test_id={format!("markdown-comment-thread-{}", target.index())} w_full flex col
-                     rounded=RADIUS_CONTROL border=px(1.0) border_color=UiTheme::current().border overflow_hidden>
+                     rounded=RADIUS_CONTROL border=px(1.0) border_color=Theme::current().border overflow_hidden>
                     {..comments
                         .into_iter()
                         .enumerate()
@@ -155,7 +154,7 @@ fn card(
     comment: MarkdownReviewComment,
     last: bool,
 ) -> impl View + use<> {
-    let (handle, theme, id) = (*handle, UiTheme::current(), comment.id);
+    let (handle, theme, id) = (*handle, Theme::current(), comment.id);
     let title = if comment.outdated { "Outdated comment" } else { "Your comment" };
     view! {
         <div test_id={format!("markdown-comment-{id}")} w_full flex col when:border_b=(!last, px(1.0))

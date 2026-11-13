@@ -1,13 +1,9 @@
 use crate::{ReviewHandle, style};
 use clankerdiff_core::{DiffReviewCommand as C, SourceLocation};
-use clankerdiff_rouge_ui::{
-    components::{ControlSize, button},
-    theme::UiTheme,
-    typography::UiStyles,
-};
 use clankerdiff_symbols::SymbolReference;
-use rouge_core::{Modifiers, Styled, View, div, dynamic, scroll, text, view};
+use rouge_core::{Modifiers, Styled, Theme, View, div, dynamic, scroll, text, view};
 use rouge_reactive::{Signal, memo};
+use rouge_widgets::{ControlSize, UiStyles, button};
 use std::ops::Range;
 
 pub(crate) fn links(modifiers: Modifiers) -> bool {
@@ -60,7 +56,7 @@ fn reference(handle: &ReviewHandle, origin: &SourceLocation, byte: usize) -> Opt
 }
 
 pub(crate) fn at_line(handle: ReviewHandle, location: SourceLocation) -> impl View {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let card = memo(move || {
         handle.definition_revision().get();
         handle.with(|s| s.definition_card().filter(|card| card.origin == location).cloned())

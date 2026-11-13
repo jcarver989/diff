@@ -1,7 +1,7 @@
 use crate::{ReviewHandle, shortcut_label};
 use clankerdiff_core::{CommandContext, InteractionPhase, palette_commands};
-use clankerdiff_rouge_ui::picker::{PickerItem, SearchPickerEvent, SearchPickerHandle, search_picker};
 use rouge_core::{Div, view};
+use rouge_widgets::{PickerItem, SearchPickerEvent, SearchPickerHandle, search_picker};
 
 pub(crate) fn help_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) {
     let handle = *handle;

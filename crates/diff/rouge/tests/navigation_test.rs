@@ -5,7 +5,7 @@ use clankerdiff_core::{
     testing::{DocumentBuilder, location, repo, source},
 };
 use clankerdiff_rouge::ReviewOutput;
-use rouge_core::{Key, Modifiers, testing::TestResult};
+use rouge_core::testing::TestResult;
 
 #[test]
 fn definition_card_keys_take_precedence_over_navigation_and_cancel() -> TestResult {
@@ -17,15 +17,15 @@ fn definition_card_keys_take_precedence_over_navigation_and_cancel() -> TestResu
         .build();
     common::run(document, |ui, handle, outputs| {
         assert!(handle.handle_command(C::JumpTo(origin.clone().into())));
-        ui.press_with(Key::character("D"), Modifiers::SHIFT);
+        ui.press("shift-D");
         assert!(handle.with(|state| state.definition_card().is_some()));
-        ui.press(Key::Escape);
+        ui.press("escape");
         assert!(handle.with(|state| state.definition_card().is_none()));
         assert!(outputs.borrow().is_empty());
-        ui.press_with(Key::character("D"), Modifiers::SHIFT);
-        ui.press(Key::Enter);
+        ui.press("shift-D");
+        ui.press("enter");
         assert_eq!(handle.with(|state| state.session().selected_source_line()), Some(target.clone()));
-        ui.press_with(Key::character("o"), Modifiers::CTRL);
+        ui.press("ctrl-o");
         assert_eq!(handle.with(|state| state.session().selected_source_line()), Some(origin.clone()));
         assert!(handle.handle_command(C::NavigateForward));
         assert_eq!(handle.with(|state| state.session().selected_source_line()), Some(target));

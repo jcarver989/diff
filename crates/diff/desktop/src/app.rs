@@ -2,14 +2,11 @@ use crate::{args::CliArgs, preferences::Preferences};
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, Lookup, LookupReply, ReviewSubmission};
 use clankerdiff_rouge::{DiffClientView, DiffViewerOptions, ReviewOutput, RunCommand};
-use clankerdiff_rouge_shell::{
-    rouge::{
-        core::{Chord, Div, Key, Modifiers, Styled, View, WindowHandle, appearance, div, window_handle},
-        reactive::{Stored, Task, effect, spawn, stored},
-    },
-    runtime,
-};
 use clankerdiff_server::{DiffServer, ServerOptions};
+use rouge::{
+    core::{Chord, Div, Key, Modifiers, Styled, View, WindowHandle, appearance, div, window_handle},
+    reactive::{Stored, Task, effect, spawn, spawn_tokio, stored},
+};
 use std::sync::mpsc::Sender;
 
 pub(crate) fn root(
@@ -106,7 +103,7 @@ impl Host {
         };
         let task = spawn(async move {
             let fallback = request.clone();
-            let reply = runtime::spawn(async move { client.lookup(request).await })
+            let reply = spawn_tokio(async move { client.lookup(request).await })
                 .await
                 .unwrap_or_else(|error| LookupReply::new(fallback, Err(error.to_string())));
             view.lookup_finished(reply);
@@ -121,7 +118,7 @@ impl Host {
             return;
         };
         spawn(async move {
-            let result = runtime::spawn(async move { client.handle(event).await.map_err(|error| error.to_string()) })
+            let result = spawn_tokio(async move { client.handle(event).await.map_err(|error| error.to_string()) })
                 .await
                 .unwrap_or_else(|error| Err(error.to_string()));
             view.command_finished(result);
@@ -151,7 +148,7 @@ async fn open_client(args: CliArgs, client: Option<DiffClient>) -> Result<(Optio
     if let Some(client) = client {
         return Ok((None, client));
     }
-    runtime::spawn(async move {
+    spawn_tokio(async move {
         let server =
             DiffServer::open(args.repository, ServerOptions::default()).await.map_err(|error| error.to_string())?;
         let transport = server.connect().map_err(|error| error.to_string())?;

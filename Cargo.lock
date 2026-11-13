@@ -1378,10 +1378,11 @@ dependencies = [
  "clankerdiff-lspd",
  "clankerdiff-markdown",
  "clankerdiff-rouge",
- "clankerdiff-rouge-shell",
  "clankerdiff-server",
  "clankerdiff-ui-core",
  "log",
+ "rouge",
+ "rouge-widgets",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -1504,7 +1505,6 @@ dependencies = [
  "clankerdiff-client",
  "clankerdiff-core",
  "clankerdiff-markdown",
- "clankerdiff-rouge-ui",
  "clankerdiff-symbols",
  "clankerdiff-syntax",
  "clankerdiff-ui-core",
@@ -1512,29 +1512,6 @@ dependencies = [
  "rouge-reactive",
  "rouge-widgets",
  "web-time",
-]
-
-[[package]]
-name = "clankerdiff-rouge-shell"
-version = "0.10.0"
-dependencies = [
- "clankerdiff-rouge-ui",
- "rouge",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "clankerdiff-rouge-ui"
-version = "0.10.0"
-dependencies = [
- "clankerdiff-ui-core",
- "rouge",
- "rouge-core",
- "rouge-reactive",
- "rouge-widgets",
 ]
 
 [[package]]
@@ -1645,7 +1622,7 @@ version = "0.10.0"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
- "nucleo-matcher",
+ "rouge-theme",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1679,6 +1656,7 @@ dependencies = [
  "rouge-core",
  "rouge-reactive",
  "rouge-web",
+ "rouge-widgets",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4638,6 +4616,7 @@ name = "rouge"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "image",
  "muda",
  "open",
  "pollster",
@@ -4645,6 +4624,8 @@ dependencies = [
  "rouge-reactive",
  "rouge-render",
  "rouge-widgets",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -4663,6 +4644,7 @@ dependencies = [
  "rouge-reactive",
  "rouge-render",
  "rouge-text",
+ "rouge-theme",
  "slotmap",
  "taffy",
  "thiserror 2.0.21",
@@ -4688,7 +4670,6 @@ version = "0.1.0"
 dependencies = [
  "gloo-timers",
  "indexmap",
- "rouge-macros",
  "slotmap",
  "thiserror 2.0.21",
  "tokio",
@@ -4702,6 +4683,7 @@ dependencies = [
  "bytemuck",
  "image",
  "pollster",
+ "rouge-theme",
  "thiserror 2.0.21",
  "tokio",
  "wgpu",
@@ -4714,6 +4696,14 @@ dependencies = [
  "parley",
  "rouge-render",
  "swash",
+]
+
+[[package]]
+name = "rouge-theme"
+version = "0.1.0"
+dependencies = [
+ "nucleo-matcher",
+ "serde",
 ]
 
 [[package]]
@@ -4737,6 +4727,7 @@ version = "0.1.0"
 dependencies = [
  "rouge-core",
  "rouge-reactive",
+ "rouge-theme",
 ]
 
 [[package]]
