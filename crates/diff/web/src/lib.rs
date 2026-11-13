@@ -221,8 +221,8 @@ mod wasm {
     };
     use clankerdiff_ui_core::ReviewTheme;
     use rouge_core::{Color, Styled, View, div, dynamic, view};
-    use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, bundled_fonts};
     use rouge_reactive::{Signal, Task, on_cleanup, signal, spawn};
+    use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, bundled_fonts};
     use std::{
         cell::{Cell, RefCell},
         sync::Arc,

@@ -1,6 +1,9 @@
 use clankerdiff_core::ViewMode;
 use clankerdiff_ui_core::{Appearance, ReviewTheme, ThemePair};
-use rouge::{appearance, persist::{self, config_dir}};
+use rouge::{
+    appearance,
+    persist::{self, config_dir},
+};
 use std::{io, path::PathBuf};
 
 pub struct ThemeStore {
