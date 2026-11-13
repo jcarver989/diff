@@ -1,11 +1,12 @@
 mod appearance;
-mod fuzzy;
-mod picker;
 mod selection;
 mod terminal;
 mod ui;
-pub use appearance::{Appearance, AppearanceMode, ThemePair, ThemePreference};
-pub use picker::{PickerOption, PickerRow, PickerState};
+pub use appearance::{ThemePair, ThemePreference};
+pub use rouge_theme::{
+    Appearance, AppearanceMode, ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone,
+    PickerOption, PickerRow, PickerState, Rgba, SCRIM_ALPHA, SelectionState, SemanticStyle, UiPalette,
+};
 pub use selection::{ThemeChoice, ThemeSelection};
 pub use terminal::TerminalPalette;
 
@@ -20,56 +21,6 @@ use std::{
 
 const THEME_VERSION: u32 = 3;
 
-/// An sRGB color with an explicit alpha channel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Rgba {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-impl Rgba {
-    #[must_use]
-    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self { r, g, b, a }
-    }
-
-    /// Composites this color over an opaque background.
-    #[must_use]
-    pub const fn over(self, background: Self) -> Self {
-        #[expect(clippy::cast_possible_truncation, reason = "weighted u8 average fits in u8")]
-        const fn channel(foreground: u8, background: u8, alpha: u8) -> u8 {
-            let foreground = foreground as u32 * alpha as u32;
-            let background = background as u32 * (u8::MAX - alpha) as u32;
-            ((foreground + background + 127) / 255) as u8
-        }
-        Self::new(
-            channel(self.r, background.r, self.a),
-            channel(self.g, background.g, self.a),
-            channel(self.b, background.b, self.a),
-            u8::MAX,
-        )
-    }
-
-    #[must_use]
-    pub const fn mix(self, background: Self, amount: u8) -> Self {
-        Self::new(self.r, self.g, self.b, amount).over(background)
-    }
-
-    #[must_use]
-    pub const fn to_bytes(self) -> [u8; 4] {
-        [self.r, self.g, self.b, self.a]
-    }
-}
-
-impl Default for Rgba {
-    fn default() -> Self {
-        Self::new(212, 221, 214, 255)
-    }
-}
-
-/// Text modifiers returned by the syntax engine.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FontStyle {
     #[serde(default)]
@@ -203,261 +154,6 @@ impl DiffPalette {
         ]
     }
 }
-
-/// Alpha applied to the canvas color when it backs a modal scrim.
-pub const SCRIM_ALPHA: u8 = 184;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(from = "UiPaletteDocument")]
-pub struct UiPalette {
-    pub canvas: Rgba,
-    pub surface: Rgba,
-    pub surface_hover: Rgba,
-    pub surface_selected: Rgba,
-    pub chrome: Rgba,
-    pub elevated: Rgba,
-    pub input: Rgba,
-    pub text: Rgba,
-    pub text_secondary: Rgba,
-    pub text_muted: Rgba,
-    pub border: Rgba,
-    pub border_subtle: Rgba,
-    pub accent: Rgba,
-    pub accent_foreground: Rgba,
-    pub info: Rgba,
-    pub positive: Rgba,
-    pub warning: Rgba,
-    pub destructive: Rgba,
-    pub destructive_foreground: Rgba,
-    pub scrim: Rgba,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct UiPaletteDocument {
-    canvas: Rgba,
-    surface: Rgba,
-    surface_hover: Rgba,
-    surface_selected: Rgba,
-    chrome: Option<Rgba>,
-    elevated: Option<Rgba>,
-    input: Option<Rgba>,
-    text: Rgba,
-    text_secondary: Rgba,
-    text_muted: Rgba,
-    border: Rgba,
-    border_subtle: Option<Rgba>,
-    accent: Rgba,
-    accent_foreground: Rgba,
-    info: Rgba,
-    positive: Rgba,
-    warning: Rgba,
-    destructive: Rgba,
-    destructive_foreground: Rgba,
-    scrim: Rgba,
-}
-
-impl From<UiPaletteDocument> for UiPalette {
-    fn from(document: UiPaletteDocument) -> Self {
-        Self {
-            chrome: document.chrome.unwrap_or(document.surface),
-            elevated: document.elevated.unwrap_or(document.surface_hover),
-            input: document.input.unwrap_or(document.canvas),
-            border_subtle: document.border_subtle.unwrap_or_else(|| document.border.mix(document.canvas, 128)),
-            canvas: document.canvas,
-            surface: document.surface,
-            surface_hover: document.surface_hover,
-            surface_selected: document.surface_selected,
-            text: document.text,
-            text_secondary: document.text_secondary,
-            text_muted: document.text_muted,
-            border: document.border,
-            accent: document.accent,
-            accent_foreground: document.accent_foreground,
-            info: document.info,
-            positive: document.positive,
-            warning: document.warning,
-            destructive: document.destructive,
-            destructive_foreground: document.destructive_foreground,
-            scrim: document.scrim,
-        }
-    }
-}
-
-/// Semantic intent shared by renderer-native action controls.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ButtonVariant {
-    Primary,
-    Secondary,
-    Destructive,
-    #[default]
-    Ghost,
-}
-
-/// Interaction state shared by renderer-native controls.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum InteractionState {
-    #[default]
-    Rest,
-    Hovered,
-    Disabled,
-}
-
-/// Complete semantic state for an action control.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ControlState {
-    pub interaction: InteractionState,
-    pub selected: bool,
-}
-
-impl ControlState {
-    #[must_use]
-    pub const fn new(interaction: InteractionState) -> Self {
-        Self { interaction, selected: false }
-    }
-
-    #[must_use]
-    pub const fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-}
-
-/// Semantic size shared by renderer-native controls.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ControlSize {
-    Small,
-    #[default]
-    Medium,
-}
-
-/// Semantic state for selectable content.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum SelectionState {
-    #[default]
-    None,
-    Selected,
-    Focused,
-    Disabled,
-}
-
-/// Semantic tone for notices and status messages.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum NoticeTone {
-    Neutral,
-    #[default]
-    Info,
-    Positive,
-    Warning,
-    Error,
-}
-
-/// Cross-renderer modal size category.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ModalSize {
-    Compact,
-    #[default]
-    Medium,
-    Wide,
-}
-
-/// Renderer-neutral visual result for one semantic component state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SemanticStyle {
-    pub foreground: Rgba,
-    pub background: Option<Rgba>,
-    pub emphasized: bool,
-}
-
-impl UiPalette {
-    /// Resolves an action control without renderer-specific state ordering.
-    #[must_use]
-    pub const fn control_style(self, variant: ButtonVariant, state: ControlState) -> SemanticStyle {
-        if matches!(state.interaction, InteractionState::Disabled) {
-            return SemanticStyle {
-                foreground: self.text_muted,
-                background: Some(self.surface_selected),
-                emphasized: false,
-            };
-        }
-        let (foreground, background) = match (variant, state.interaction, state.selected) {
-            (ButtonVariant::Primary, _, _) => (self.accent_foreground, Some(self.accent)),
-            (ButtonVariant::Destructive, _, _) => (self.destructive_foreground, Some(self.destructive)),
-            (ButtonVariant::Ghost, _, true) => (self.accent, Some(self.surface_selected)),
-            (ButtonVariant::Secondary | ButtonVariant::Ghost, InteractionState::Hovered, _) => {
-                (self.text, Some(self.surface_hover))
-            }
-            (ButtonVariant::Secondary, _, _) => (self.text, Some(self.surface)),
-            (ButtonVariant::Ghost, _, false) => (self.text_muted, None),
-        };
-        SemanticStyle { foreground, background, emphasized: state.selected }
-    }
-
-    /// Resolves selectable content consistently across renderers.
-    #[must_use]
-    pub const fn selection_style(self, state: SelectionState) -> SemanticStyle {
-        match state {
-            SelectionState::None => {
-                SemanticStyle { foreground: self.text, background: Some(self.surface), emphasized: false }
-            }
-            SelectionState::Selected => {
-                SemanticStyle { foreground: self.accent, background: Some(self.surface_selected), emphasized: false }
-            }
-            SelectionState::Focused => {
-                SemanticStyle { foreground: self.accent_foreground, background: Some(self.accent), emphasized: true }
-            }
-            SelectionState::Disabled => {
-                SemanticStyle { foreground: self.text_muted, background: Some(self.surface), emphasized: false }
-            }
-        }
-    }
-
-    /// Resolves the foreground used to communicate a notice tone.
-    #[must_use]
-    pub const fn notice_style(self, tone: NoticeTone) -> SemanticStyle {
-        let foreground = match tone {
-            NoticeTone::Neutral => self.text_secondary,
-            NoticeTone::Info => self.info,
-            NoticeTone::Positive => self.positive,
-            NoticeTone::Warning => self.warning,
-            NoticeTone::Error => self.destructive,
-        };
-        SemanticStyle {
-            foreground,
-            background: None,
-            emphasized: matches!(tone, NoticeTone::Warning | NoticeTone::Error),
-        }
-    }
-}
-
-impl UiPalette {
-    #[must_use]
-    pub const fn colors(&self) -> [Rgba; 20] {
-        [
-            self.canvas,
-            self.surface,
-            self.surface_hover,
-            self.surface_selected,
-            self.chrome,
-            self.elevated,
-            self.input,
-            self.text,
-            self.text_secondary,
-            self.text_muted,
-            self.border,
-            self.border_subtle,
-            self.accent,
-            self.accent_foreground,
-            self.info,
-            self.positive,
-            self.warning,
-            self.destructive,
-            self.destructive_foreground,
-            self.scrim,
-        ]
-    }
-}
-
 impl Default for DiffPalette {
     fn default() -> Self {
         let background = Rgba::new(21, 29, 31, 255);
@@ -465,7 +161,7 @@ impl Default for DiffPalette {
         let deletion = Rgba::new(223, 120, 122, 255);
         Self {
             background,
-            foreground: Rgba::default(),
+            foreground: Rgba::new(212, 221, 214, 255),
             gutter: Rgba::new(80, 96, 91, 255),
             addition,
             deletion,
@@ -513,6 +209,7 @@ pub struct ThemeDescriptor {
 struct ThemeDocument {
     version: u32,
     palette: DiffPalette,
+    #[serde(deserialize_with = "ui::palette")]
     ui: UiPalette,
     syntax: BTreeMap<String, SyntaxStyle>,
     markdown: MarkdownPalette,
@@ -579,9 +276,9 @@ impl ReviewTheme {
 
     #[must_use]
     pub fn revision(&self) -> Fingerprint {
-        let diff = self.diff.colors().map(Rgba::to_bytes);
-        let markdown = self.markdown.colors().map(Rgba::to_bytes);
-        let ui = self.ui.colors().map(Rgba::to_bytes);
+        let diff = self.diff.colors().map(ui::bytes);
+        let markdown = self.markdown.colors().map(ui::bytes);
+        let ui = ui::colors(&self.ui).map(ui::bytes);
         Fingerprint::of(
             std::iter::once(self.syntax.revision().as_bytes().as_slice())
                 .chain(diff.iter().map(<[u8; 4]>::as_slice))
@@ -747,12 +444,6 @@ impl Default for ReviewTheme {
     }
 }
 
-impl Default for UiPalette {
-    fn default() -> Self {
-        DEFAULT_THEME.ui
-    }
-}
-
 pub struct ReviewThemeBuilder {
     id: ThemeId,
     diff: DiffPalette,
@@ -807,7 +498,7 @@ impl SyntaxTheme {
         let mut fields = Vec::with_capacity(captures.len() * 3);
         for (capture, style) in &captures {
             fields.push(capture.as_bytes().to_vec());
-            fields.push(style.foreground.to_bytes().to_vec());
+            fields.push(ui::bytes(style.foreground).to_vec());
             fields.push(vec![
                 u8::from(style.font_style.bold),
                 u8::from(style.font_style.italic),

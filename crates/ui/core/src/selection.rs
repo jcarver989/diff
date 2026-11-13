@@ -66,8 +66,8 @@ impl ThemeSelection {
     }
 
     #[must_use]
-    pub const fn selected(&self) -> usize {
-        self.picker.highlighted_position()
+    pub fn selected(&self) -> usize {
+        self.picker.highlighted().unwrap_or_default()
     }
 
     #[must_use]

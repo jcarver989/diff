@@ -65,8 +65,8 @@ impl CommitPicker {
     }
 
     #[must_use]
-    pub const fn highlighted(&self) -> usize {
-        self.picker.highlighted_position()
+    pub fn highlighted(&self) -> usize {
+        self.picker.highlighted().unwrap_or_default()
     }
 
     pub fn move_by(&mut self, delta: isize) {

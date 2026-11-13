@@ -256,25 +256,25 @@ pub(crate) fn render_picker<'l>(
     }
     let lines = lines(usize::from(list.width).saturating_sub(HIGHLIGHT.width()));
     let rows = picker.rows();
-    let highlighted = picker.highlighted_position();
-    let current =
-        rows.iter().position(|row| matches!(row, PickerRow::Option { position, .. } if *position == highlighted));
+    let highlighted = picker.highlighted().map(PickerRow::Option);
+    let current = rows.iter().position(|row| Some(*row) == highlighted);
     let offset = current.map_or(0, |row| (row + 1).saturating_sub(usize::from(list.height)));
     let mut hits = Vec::new();
     for (y, row) in (list.top()..list.bottom()).zip(rows.into_iter().skip(offset)) {
         let area = Rect { y, height: 1, ..list };
         let (index, style, marker) = match row {
-            PickerRow::Group(title) => {
+            PickerRow::Group(index) => {
+                let title = picker.options()[index].group.as_deref().unwrap_or_default();
                 Paragraph::new(format!(" {title}")).style(base.fg(theme.ui.accent)).render(area, buffer);
                 continue;
             }
-            PickerRow::Option { position, index } if position == highlighted => {
+            PickerRow::Option(index) if Some(row) == highlighted => {
                 (index, theme.ui.selection_style(SelectionState::Selected), HIGHLIGHT)
             }
-            PickerRow::Option { index, .. } if pointer.is_some_and(|pointer| area.contains(pointer)) => {
+            PickerRow::Option(index) if pointer.is_some_and(|pointer| area.contains(pointer)) => {
                 (index, base.bg(theme.ui.surface_hover), "  ")
             }
-            PickerRow::Option { index, .. } => (index, base, "  "),
+            PickerRow::Option(index) => (index, base, "  "),
         };
         let line = lines.get(index).cloned().unwrap_or_default();
         Paragraph::new(Line::from([vec![Span::raw(marker)], line.spans].concat())).style(style).render(area, buffer);

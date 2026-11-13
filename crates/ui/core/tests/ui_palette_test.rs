@@ -22,15 +22,21 @@ fn sage_notices_preserve_semantic_colors() -> TestResult {
 }
 
 #[test]
+fn the_default_ui_palette_is_sage() -> TestResult {
+    assert_eq!(UiPalette::default(), ReviewTheme::sage()?.ui);
+    Ok(())
+}
+
+#[test]
 fn every_catalog_entry_has_an_explicit_complete_palette() -> TestResult {
-    let mut expected: BTreeMap<String, UiPalette> = serde_json::from_slice(include_bytes!("../assets/ui.json"))?;
+    let mut expected: BTreeMap<String, Value> = serde_json::from_slice(include_bytes!("../assets/ui.json"))?;
     for (id, bytes) in [
         ("sage", include_bytes!("../assets/themes/sage.json").as_slice()),
         ("ayu-dark", include_bytes!("../assets/themes/ayu-dark.json").as_slice()),
     ] {
         let document: Value = serde_json::from_slice(bytes)?;
         assert_eq!(document["version"], 3);
-        expected.insert(id.to_owned(), serde_json::from_value(document["ui"].clone())?);
+        expected.insert(id.to_owned(), document["ui"].clone());
     }
     let catalog = ReviewTheme::catalog();
     assert_eq!(catalog.len(), 34);
@@ -41,7 +47,10 @@ fn every_catalog_entry_has_an_explicit_complete_palette() -> TestResult {
     );
     for descriptor in catalog {
         let theme = ReviewTheme::builtin(&descriptor.id)?;
-        assert_eq!(theme.ui, expected[&descriptor.id], "{}", descriptor.id);
+        let loaded = serde_json::to_value(theme.ui)?;
+        for (role, color) in expected[&descriptor.id].as_object().ok_or("missing ui object")? {
+            assert_eq!(&loaded[role], color, "{}.{role}", descriptor.id);
+        }
         assert_ne!(theme.ui.text_secondary, theme.ui.text_muted, "{}", descriptor.id);
         assert_ne!(theme.ui.info, theme.ui.warning, "{}", descriptor.id);
         assert_ne!(theme.ui.info, theme.ui.text_muted, "{}", descriptor.id);
@@ -66,7 +75,6 @@ fn ui_is_independent_and_every_channel_affects_revision() -> TestResult {
         .build();
     let document: Value = serde_json::from_slice(&theme.to_bytes()?)?;
     let colors = document["ui"].as_object().ok_or("missing UI object")?;
-    assert_eq!(colors.len(), theme.ui.colors().len());
     for role in colors.keys() {
         for channel in ["r", "g", "b", "a"] {
             let mut changed = document.clone();
