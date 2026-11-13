@@ -1,6 +1,6 @@
 use clankerdiff_core::{DiffSide, RepoPath, SourceLocation, testing::DocumentBuilder};
 use clankerdiff_symbols::{DocumentSyntax, SymbolChange, SymbolIndex, SymbolKind};
-use clankerdiff_syntax::thread_work;
+use rouge_syntax::thread_work;
 use std::{error::Error, sync::Arc};
 
 #[test]

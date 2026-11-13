@@ -2,14 +2,14 @@
 
 This repository holds Diff, a performant diff tool with comment support, and the reusable crates it is built from. Diff's CLI runs in a TUI (ratatui) or Desktop (Rouge), while the standalone Web frontend (Rouge) supports hosted use cases. Other apps (j-terminal, aether) consume the `util/` and `ui/` crates directly.
 
-The Rouge design system (`rouge-widgets`) and its renderer-neutral theme types (`rouge-theme`) live in the sibling Rouge repository, not here. Code that any Rouge app could use without diff concepts belongs there.
+The Rouge design system (`rouge-widgets`), its renderer-neutral theme types (`rouge-theme`), Tree-sitter syntax highlighting (`rouge-syntax`) and Markdown parsing (`rouge-markdown`) live in the sibling Rouge repository, not here. Code that any Rouge app could use without diff concepts belongs there.
 
 ## Layout
 
 Crates are grouped by domain under `crates/`:
 
 - `crates/util/`: general-purpose crates with no UI and no diff concepts (`fingerprint`, `remote`).
-- `crates/ui/`: review themes (diff, markdown and syntax palettes built on `rouge-theme`) and syntax highlighting (`core`, `syntax`).
+- `crates/ui/`: review themes (diff, markdown and syntax palettes built on `rouge-theme` and `rouge-syntax`) (`core`).
 - `crates/diff/`: the diff and markdown review domain (`core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `rouge`, `ratatui`, `cli`, `desktop`, `web`).
 
 A crate may depend only on crates in its own domain or a lower one: `util` < `ui` < `diff`. `just layer-check` enforces this. Put new code in the lowest domain it fits; anything another app could use without diff concepts belongs in `ui/` or `util/`.

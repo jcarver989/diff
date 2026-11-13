@@ -43,21 +43,30 @@ pub struct MarkdownCodeLineAnchor {
     pub snapshot: String,
 }
 
-impl MarkdownDocument {
+/// Durable-anchor queries over a parsed [`MarkdownDocument`].
+pub trait MarkdownAnchors {
     /// Creates a durable anchor for a document-local target.
-    #[must_use]
-    pub fn anchor_for_target(&self, id: MarkdownTargetId) -> Option<MarkdownAnchor> {
+    fn anchor_for_target(&self, id: MarkdownTargetId) -> Option<MarkdownAnchor>;
+
+    /// Resolves a durable anchor to a target in this document.
+    fn resolve_anchor(&self, anchor: &MarkdownAnchor) -> Option<MarkdownTargetId>;
+
+    fn exact_target(&self, anchor: &MarkdownAnchor) -> Option<MarkdownTargetId>;
+
+    /// Returns the style-free rendered text for a target.
+    fn rendered_target_text(&self, id: MarkdownTargetId) -> Option<String>;
+}
+
+impl MarkdownAnchors for MarkdownDocument {
+    fn anchor_for_target(&self, id: MarkdownTargetId) -> Option<MarkdownAnchor> {
         anchor_for_target(self, id)
     }
 
-    /// Resolves a durable anchor to a target in this document.
-    #[must_use]
-    pub fn resolve_anchor(&self, anchor: &MarkdownAnchor) -> Option<MarkdownTargetId> {
+    fn resolve_anchor(&self, anchor: &MarkdownAnchor) -> Option<MarkdownTargetId> {
         resolve_anchor(self, anchor)
     }
 
-    #[must_use]
-    pub fn exact_target(&self, anchor: &MarkdownAnchor) -> Option<MarkdownTargetId> {
+    fn exact_target(&self, anchor: &MarkdownAnchor) -> Option<MarkdownTargetId> {
         let block = match anchor {
             MarkdownAnchor::Block(block) => block,
             MarkdownAnchor::CodeLine(line) => &line.block,
@@ -73,16 +82,14 @@ impl MarkdownDocument {
                 let id = match anchor {
                     MarkdownAnchor::Block(_) => target.id,
                     MarkdownAnchor::CodeLine(line) => {
-                        code_block(self, target.id)?.lines.get(line.code_line_index)?.target_id?
+                        code_block(self, target.id)?.lines().get(line.code_line_index)?.target_id?
                     }
                 };
                 (self.anchor_for_target(id).as_ref() == Some(anchor)).then_some(id)
             })
     }
 
-    /// Returns the style-free rendered text for a target.
-    #[must_use]
-    pub fn rendered_target_text(&self, id: MarkdownTargetId) -> Option<String> {
+    fn rendered_target_text(&self, id: MarkdownTargetId) -> Option<String> {
         target_text(self, id)
     }
 }
@@ -115,7 +122,7 @@ pub fn resolve_anchor(document: &MarkdownDocument, anchor: &MarkdownAnchor) -> O
             let block_id = resolve_block(document, &anchor.block)?;
             let code = code_block(document, block_id)?;
             let matching_index = if code
-                .lines
+                .lines()
                 .get(anchor.code_line_index)
                 .is_some_and(|line| line_content_fingerprint(code.line_text(line)) == anchor.content_fingerprint)
             {
@@ -123,7 +130,7 @@ pub fn resolve_anchor(document: &MarkdownDocument, anchor: &MarkdownAnchor) -> O
             } else {
                 nearest_line_index(code, anchor)
             }?;
-            code.lines.get(matching_index).and_then(|line| line.target_id)
+            code.lines().get(matching_index).and_then(|line| line.target_id)
         }
     }
 }
@@ -214,7 +221,7 @@ fn nearest_line_index(code: &crate::MarkdownCodeBlock, anchor: &MarkdownCodeLine
     let mut nearest = None;
     let mut distance = usize::MAX;
     let mut tied = false;
-    for line in &code.lines {
+    for line in code.lines() {
         if line_content_fingerprint(code.line_text(line)) != anchor.content_fingerprint {
             continue;
         }
@@ -322,7 +329,7 @@ fn find_in_block(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<String> 
         | MarkdownBlockKind::HtmlFallback { .. }
         | MarkdownBlockKind::Rule => None,
         MarkdownBlockKind::CodeBlock(code) => {
-            code.lines.iter().find_map(|line| (line.target_id == Some(id)).then(|| code.line_text(line).to_owned()))
+            code.lines().iter().find_map(|line| (line.target_id == Some(id)).then(|| code.line_text(line).to_owned()))
         }
         MarkdownBlockKind::Table(table) => {
             table.rows.iter().find_map(|row| (row.target_id == Some(id)).then(|| row_text(row)))
@@ -343,7 +350,7 @@ fn block_text(block: &MarkdownBlock) -> String {
             items.iter().map(|item| rendered_text(&item.content)).collect::<Vec<_>>().join(" ")
         }
         MarkdownBlockKind::BlockQuote { blocks } => blocks.iter().map(block_text).collect::<Vec<_>>().join(" "),
-        MarkdownBlockKind::CodeBlock(code) => code.text.clone(),
+        MarkdownBlockKind::CodeBlock(code) => code.text().to_owned(),
         MarkdownBlockKind::Table(table) => table.rows.iter().map(row_text).collect::<Vec<_>>().join(" "),
         MarkdownBlockKind::Rule => String::new(),
     }
@@ -376,7 +383,7 @@ fn code_line_parent(document: &MarkdownDocument, id: MarkdownTargetId) -> Option
 fn code_line_parent_in(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<CodeLineParent<'_>> {
     match &block.kind {
         MarkdownBlockKind::CodeBlock(code) => {
-            let line = code.lines.iter().find(|line| line.target_id == Some(id))?;
+            let line = code.lines().iter().find(|line| line.target_id == Some(id))?;
             Some((code.target_id?, code, line))
         }
         MarkdownBlockKind::List { items, .. } => {

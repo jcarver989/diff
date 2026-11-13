@@ -1,5 +1,3 @@
-#![cfg(feature = "review")]
-
 use clankerdiff_core::{CommandContext, InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewCommand, MarkdownReviewDecision};
 

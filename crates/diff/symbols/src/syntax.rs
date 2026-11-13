@@ -1,6 +1,6 @@
 use crate::SymbolIndex;
 use clankerdiff_core::{DiffDocument, DiffSide, FileDiff, Hunk, PresentedCell, PresentedRow, RepoPath, join_lines};
-use clankerdiff_syntax::{HighlightLine, LanguageHint, SourceSyntax, SymbolTags, analyze, has_symbols};
+use rouge_syntax::{HighlightLine, LanguageHint, SourceSyntax, SymbolTags, analyze, has_symbols};
 use std::{
     collections::HashMap,
     mem,

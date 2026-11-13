@@ -16,7 +16,7 @@ workspace = true
 
 [dependencies]
 clankerdiff-core.workspace = true
-clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-markdown.workspace = true
 clankerdiff-ui-core.workspace = true
 clankerdiff-client = { workspace = true, features = ["websocket"] }
 clankerdiff-lspd = { workspace = true, features = ["daemon"] }

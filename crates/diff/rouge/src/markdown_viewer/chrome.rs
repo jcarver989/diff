@@ -1,6 +1,6 @@
 use super::MarkdownHandle;
 use clankerdiff_core::ReviewCommand;
-use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewCommand};
+use clankerdiff_markdown::{MarkdownAnchors, MarkdownFocusPane, MarkdownReviewCommand};
 use rouge_core::{RowKey, Styled, Theme, View, component, div, dynamic, px, text, view, virtual_list};
 use rouge_widgets::tokens::ROW_HEIGHT;
 use rouge_widgets::{

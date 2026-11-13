@@ -20,12 +20,12 @@ pub use clankerdiff_markdown::{
     MarkdownTargetId, MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review,
     parse_markdown, rendered_text, resolve_anchor,
 };
-use clankerdiff_syntax::{HighlightLine, SyntaxTheme, thread_work};
 use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
+use rouge_syntax::{HighlightLine, SyntaxTheme, thread_work};
 use similar::{ChangeTag, TextDiff};
 use std::{collections::HashMap, ops::Range, sync::Arc};
 use thiserror::Error;

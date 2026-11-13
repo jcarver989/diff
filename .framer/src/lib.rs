@@ -3,16 +3,16 @@ use framer::toml_edit::{InlineTable, Value};
 use framer::{KeyPath, Preset, Project, TomlKeys};
 
 const ROUGE_REPOSITORY: &str = "https://github.com/jcarver989/rouge.git";
-const ROUGE_REVISION: &str = "96c14f83e4f13ebdb2df356722c002b02df708ac";
+const ROUGE_REVISION: &str = "df25bbf3375f2609cbc33cdff445b633fbc300db";
 pub const ROUGE_LINUX_PACKAGES: [&str; 3] = ["libfontconfig1-dev", "libxkbcommon-dev", "libwayland-dev"];
-const ROUGE_CRATES: [&str; 5] = ["rouge", "rouge-core", "rouge-reactive", "rouge-widgets", "rouge-theme"];
+const ROUGE_CRATES: [&str; 7] =
+    ["rouge", "rouge-core", "rouge-reactive", "rouge-widgets", "rouge-theme", "rouge-syntax", "rouge-markdown"];
 
-pub const CRATES: [(&str, &str); 17] = [
+pub const CRATES: [(&str, &str); 16] = [
     ("clankerdiff-fingerprint", "crates/util/fingerprint"),
     ("clankerdiff-remote", "crates/util/remote"),
     ("clankerdiff-lspd", "crates/util/lspd"),
     ("clankerdiff-ui-core", "crates/ui/core"),
-    ("clankerdiff-syntax", "crates/ui/syntax"),
     ("clankerdiff-core", "crates/diff/core"),
     ("clankerdiff-protocol", "crates/diff/protocol"),
     ("clankerdiff-client", "crates/diff/client"),

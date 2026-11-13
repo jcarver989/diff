@@ -1,22 +1,21 @@
 mod chrome;
-mod content;
 mod document;
+mod rows;
 
 use crate::theme::{ActiveReviewTheme, ThemePickerEvent, theme_picker, theme_picker_overlay};
 use clankerdiff_core::{CommandContext, InteractionPhase, ReviewCapabilities, ReviewCommand};
 use clankerdiff_markdown::{
-    MarkdownBlock, MarkdownDocument, MarkdownFocusPane, MarkdownReviewCommand as Command, MarkdownReviewDecision,
-    MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
+    MarkdownDocument, MarkdownFocusPane, MarkdownReviewCommand as Command, MarkdownReviewDecision, MarkdownReviewError,
+    MarkdownReviewEvent, MarkdownReviewSession, MarkdownTargetId,
 };
 use clankerdiff_ui_core::{ReviewTheme, ThemeChoice};
-use content::Paint;
 use rouge_core::{
     Align, AnyView, Color, Key, KeyEvent, Modifiers, Styled, View, VirtualListHandle, div, dynamic, focus_handle,
     overlay, view, virtual_list_handle,
 };
-use rouge_reactive::{Callback, Memo, ReadSignal, Signal, batch, effect, memo, signal, untrack, use_context};
+use rouge_reactive::{Callback, Memo, Signal, batch, effect, memo, signal, untrack, use_context};
 use rouge_widgets::UI_FONT;
-use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, SearchPickerHandle};
+use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, MarkdownAction, MarkdownPaint, SearchPickerHandle};
 use std::{rc::Rc, sync::Arc};
 
 const DEFAULT_OUTLINE_WIDTH: f32 = 220.0 / 16.0;
@@ -39,7 +38,7 @@ enum Overlay {
 #[derive(Clone, Copy)]
 pub struct MarkdownHandle {
     session: Signal<MarkdownReviewSession>,
-    rows: Signal<Rc<content::Rows>>,
+    rows: Signal<Rc<rows::Rows>>,
     revision: Signal<u64>,
     selected: Memo<Option<MarkdownTargetId>>,
     pane: Signal<MarkdownFocusPane>,
@@ -69,7 +68,7 @@ impl MarkdownController {
 
     #[must_use]
     pub fn mount(self, emit: impl Fn(MarkdownOutput) + 'static) -> MarkdownHandle {
-        let rows = signal(Rc::new(content::Rows::new(self.session.document().clone())));
+        let rows = signal(Rc::new(rows::Rows::new(self.session.document().clone())));
         let session = signal(self.session);
         let read = session.read_only();
         MarkdownHandle {
@@ -108,7 +107,7 @@ impl MarkdownHandle {
             return;
         }
         batch(|| {
-            self.rows.set(Rc::new(content::Rows::new(document.clone())));
+            self.rows.set(Rc::new(rows::Rows::new(document.clone())));
             self.revision.update(|revision| *revision = revision.wrapping_add(1));
             self.edit(|session| session.replace_document(document));
         });
@@ -449,24 +448,6 @@ impl MarkdownHandle {
 }
 
 #[must_use]
-pub fn markdown_blocks(
-    blocks: &[MarkdownBlock],
-    palette: ReadSignal<ReviewTheme>,
-    clipboard: bool,
-    emit: Callback<(MarkdownOutput,)>,
-) -> impl View + use<> {
-    let paint = Paint { palette, clipboard: memo(move || clipboard), emit };
-    let rows = content::document_rows(blocks);
-    let rows = rows.iter().enumerate().map(|(index, row)| {
-        let top = if index == 0 { 0.0 } else { row.gap };
-        view! {
-            <div pt=top pl=row.indent() flex col>{row.block(&paint).bg(row.background(&paint))}</div>
-        }
-    });
-    view! { <div flex col min_w=0.0>{..rows}</div> }
-}
-
-#[must_use]
 pub fn markdown_review_view(handle: MarkdownHandle) -> impl View {
     let active = ActiveReviewTheme::install(handle.theme.get_untracked());
     let theme_signal = handle.theme;
@@ -475,11 +456,15 @@ pub fn markdown_review_view(handle: MarkdownHandle) -> impl View {
     let focus = focus_handle();
     let keys = handle;
     let capabilities = handle.capabilities;
-    let paint = Paint {
-        palette: handle.theme.read_only(),
-        clipboard: memo(move || capabilities.get().clipboard),
-        emit: handle.emit,
-    };
+    let theme = handle.theme.read_only();
+    let emit = handle.emit;
+    let paint = MarkdownPaint::new(theme.select(|t| t.markdown), theme.select(|t| t.syntax.clone()), move |action| {
+        emit.call(match action {
+            MarkdownAction::OpenLink(url) => MarkdownOutput::OpenLink(url),
+            MarkdownAction::CopyCode(code) => MarkdownOutput::CopyCode(code),
+        });
+    })
+    .clipboard(memo(move || capabilities.get().clipboard));
     let root = view! {
         <div test_id="markdown-reviewer" flex col size_full min_h=0.0 font=UI_FONT
              bg={move || theme_signal.with(|t| Color::from(t.diff.background))}

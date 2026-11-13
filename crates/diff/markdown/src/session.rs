@@ -1,7 +1,7 @@
 //! Selection, draft editing, and decisions for a Markdown review.
 
 use crate::{
-    MarkdownAnchor, MarkdownCommentContext, MarkdownDocument, MarkdownReview, MarkdownReviewDecision,
+    MarkdownAnchor, MarkdownAnchors, MarkdownCommentContext, MarkdownDocument, MarkdownReview, MarkdownReviewDecision,
     MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSubmission, MarkdownTarget, MarkdownTargetId,
 };
 use std::sync::Arc;

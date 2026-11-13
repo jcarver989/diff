@@ -1,7 +1,4 @@
-use super::{
-    MarkdownHandle,
-    content::{Paint, Row},
-};
+use super::MarkdownHandle;
 use crate::comment_editor::composer;
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewComment, MarkdownTargetId};
@@ -11,7 +8,9 @@ use rouge_core::{
 };
 use rouge_reactive::{Memo, Signal, memo, signal};
 use rouge_widgets::tokens::RADIUS_CONTROL;
-use rouge_widgets::{Icon, IconName, UiStyles, empty_state, icon_button, vertical_scrollbar};
+use rouge_widgets::{
+    Icon, IconName, MarkdownPaint, MarkdownRow, UiStyles, empty_state, icon_button, vertical_scrollbar,
+};
 
 const COLUMN_WIDTH: f32 = 780.0;
 const GUTTER_WIDTH: f32 = 28.0;
@@ -20,7 +19,7 @@ const TOP_PADDING: f32 = 32.0;
 const BOTTOM_PADDING: f32 = 96.0;
 
 #[component]
-pub(super) fn document(handle: &MarkdownHandle, paint: Paint) -> impl View {
+pub(super) fn document(handle: &MarkdownHandle, paint: MarkdownPaint) -> impl View {
     let (rows, revision, list) = (handle.rows, handle.revision, handle.list);
     let handle = *handle;
     view! {
@@ -41,7 +40,7 @@ pub(super) fn document(handle: &MarkdownHandle, paint: Paint) -> impl View {
     }
 }
 
-fn row(handle: &MarkdownHandle, index: usize, paint: &Paint) -> Option<AnyView> {
+fn row(handle: &MarkdownHandle, index: usize, paint: &MarkdownPaint) -> Option<AnyView> {
     let rows = handle.rows.get_untracked();
     let row = rows.get(index)?;
     let (handle, theme) = (*handle, Theme::current());
@@ -89,7 +88,7 @@ fn row(handle: &MarkdownHandle, index: usize, paint: &Paint) -> Option<AnyView> 
 }
 
 #[component]
-fn gutter(handle: &MarkdownHandle, row: &Row, selected: Memo<bool>, hovered: Signal<bool>) -> Div {
+fn gutter(handle: &MarkdownHandle, row: &MarkdownRow, selected: Memo<bool>, hovered: Signal<bool>) -> Div {
     let handle = *handle;
     let add = row.target.map(|target| {
         let offset = (row.first_line_center() - ADD_BUTTON_SIZE / 2.0).max(1.0);

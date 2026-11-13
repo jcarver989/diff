@@ -14,13 +14,13 @@ workspace = true
 [dependencies]
 clankerdiff-client.workspace = true
 clankerdiff-core.workspace = true
-clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-markdown.workspace = true
 clankerdiff-symbols.workspace = true
-clankerdiff-syntax.workspace = true
+rouge-syntax.workspace = true
 clankerdiff-ui-core.workspace = true
 rouge-core.workspace = true
 rouge-reactive.workspace = true
-rouge-widgets.workspace = true
+rouge-widgets = { workspace = true, features = ["markdown"] }
 web-time.workspace = true
 
 [dev-dependencies]

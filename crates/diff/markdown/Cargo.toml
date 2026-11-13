@@ -1,24 +1,19 @@
 [package]
 name = "clankerdiff-markdown"
-description = "Portable semantic Markdown parsing and review state"
+description = "Durable anchors, comments and review sessions for rouge-markdown documents"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[features]
-default = []
-review = ["dep:clankerdiff-core"]
-
 [lints]
 workspace = true
 
 [dependencies]
-clankerdiff-core = { workspace = true, optional = true }
+clankerdiff-core.workspace = true
 clankerdiff-fingerprint.workspace = true
-clankerdiff-syntax.workspace = true
-pulldown-cmark.workspace = true
+rouge-markdown.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

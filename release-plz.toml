@@ -31,11 +31,6 @@ release = true
 publish = true
 
 [[package]]
-name = "clankerdiff-syntax"
-release = true
-publish = true
-
-[[package]]
 name = "clankerdiff-core"
 release = true
 publish = true

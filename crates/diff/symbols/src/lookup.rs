@@ -3,7 +3,7 @@ use clankerdiff_core::{
     DefinitionRequest, DefinitionTarget, DiffSide, Lookup, LookupReply, LookupRequest, LookupStatus, LookupUnavailable,
     RepoPath, Resolution, ReviewSession, SourceLocation, TargetLocation,
 };
-use clankerdiff_syntax::{HighlightLine, LanguageHint, analyze};
+use rouge_syntax::{HighlightLine, LanguageHint, analyze};
 use std::{collections::HashMap, mem, ops::Range};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

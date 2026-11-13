@@ -1,6 +1,6 @@
 use crate::DocumentSyntax;
 use clankerdiff_core::{DiffSide, FileDiff, RepoPath, SourceLocation};
-use clankerdiff_syntax::{SymbolDefinition, SymbolKind, SymbolReference, SymbolTags};
+use rouge_syntax::{SymbolDefinition, SymbolKind, SymbolReference, SymbolTags};
 use std::{
     cmp::Reverse,
     collections::{BTreeSet, HashMap, HashSet},

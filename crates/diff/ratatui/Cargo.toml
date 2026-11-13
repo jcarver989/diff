@@ -23,9 +23,9 @@ similar.workspace = true
 thiserror.workspace = true
 clankerdiff-client.workspace = true
 clankerdiff-core.workspace = true
-clankerdiff-markdown = { workspace = true, features = ["review"] }
+clankerdiff-markdown.workspace = true
 clankerdiff-symbols.workspace = true
-clankerdiff-syntax.workspace = true
+rouge-syntax.workspace = true
 clankerdiff-ui-core.workspace = true
 ratatui.workspace = true
 unicode-width.workspace = true

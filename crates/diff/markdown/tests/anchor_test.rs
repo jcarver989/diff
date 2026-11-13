@@ -1,6 +1,4 @@
-#![cfg(feature = "review")]
-
-use clankerdiff_markdown::MarkdownDocument;
+use clankerdiff_markdown::{MarkdownAnchors, MarkdownDocument};
 use std::error::Error;
 
 const SOURCE: &str = "# Title\n\nIntro\n\n- one\n- two\n\n```rust\nfn a() {}\nfn b() {}\n```\n";

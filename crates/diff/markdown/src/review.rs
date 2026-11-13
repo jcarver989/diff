@@ -1,8 +1,8 @@
 //! Review comments, submissions, and agent-facing feedback for Markdown documents.
 
 use crate::{
-    MarkdownAnchor, MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownLineRange, MarkdownTargetId,
-    MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT,
+    MarkdownAnchor, MarkdownAnchors, MarkdownBlock, MarkdownBlockKind, MarkdownDocument, MarkdownLineRange,
+    MarkdownTargetId, MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT,
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, fmt::Write};
@@ -298,9 +298,9 @@ fn code_language(document: &MarkdownDocument, target: MarkdownTargetId) -> Optio
 fn code_language_in(block: &MarkdownBlock, target: MarkdownTargetId) -> Option<String> {
     match &block.kind {
         MarkdownBlockKind::CodeBlock(code)
-            if code.target_id == Some(target) || code.lines.iter().any(|line| line.target_id == Some(target)) =>
+            if code.target_id == Some(target) || code.lines().iter().any(|line| line.target_id == Some(target)) =>
         {
-            code.language.clone()
+            code.language().map(str::to_owned)
         }
         MarkdownBlockKind::List { items, .. } => {
             items.iter().find_map(|item| item.blocks.iter().find_map(|block| code_language_in(block, target)))

@@ -3,7 +3,7 @@ use clankerdiff_core::{
     testing::DocumentBuilder,
 };
 use clankerdiff_symbols::{DocumentSyntax, HUNK_WINDOW_LINES};
-use clankerdiff_syntax::{LanguageHint, analyze, thread_work};
+use rouge_syntax::{LanguageHint, analyze, thread_work};
 use std::{error::Error, sync::Arc};
 
 #[test]

@@ -14,8 +14,8 @@ use rouge_core::{
 };
 use rouge_reactive::{Memo, Signal, effect, memo, signal, untrack};
 use rouge_widgets::{
-    IconName, UiStyles, empty_state, icon_button, tokens::BASE_SIZE, tokens::RADIUS_CONTROL, tokens::scaled,
-    typography::CODE, vertical_scrollbar,
+    CODE_WRAP, IconName, UiStyles, empty_state, icon_button, syntax_spans, tokens::BASE_SIZE, tokens::RADIUS_CONTROL,
+    tokens::scaled, typography::CODE, vertical_scrollbar,
 };
 use std::{cell::Cell, ops::Range, rc::Rc};
 
@@ -432,7 +432,7 @@ impl Geometry {
         let mut style = CODE.text_style(root);
         let (content, spans) = displayed(cell.text.as_ref(), spans, ink.number);
         style.spans = spans;
-        style.wrap_indent = style::CODE_WRAP;
+        style.wrap_indent = CODE_WRAP;
         let top = TEXT_TOP * self.scale;
         let run = if self.wrap {
             let available = column.max().x - left - CODE_PADDING_RIGHT * self.scale;
@@ -520,11 +520,7 @@ fn painted(
                     .map(|column| {
                         column.cell.as_ref().map_or_else(Vec::new, |cell| {
                             handle.with_syntax(|_, syntax| {
-                                style::highlights(
-                                    cell.source_text(),
-                                    syntax.ready_highlights(&row, cell),
-                                    &review.syntax,
-                                )
+                                syntax_spans(cell.source_text(), syntax.ready_highlights(&row, cell), &review.syntax)
                             })
                         })
                     })

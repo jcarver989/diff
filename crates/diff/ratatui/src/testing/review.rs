@@ -5,13 +5,13 @@ use crate::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, InputOutcome, KeyCode, MouseButton, MouseEventKind, ReviewInput,
 };
 use clankerdiff_core::{DiffDocument, Lookup, LookupAnswer, LookupReply, ReviewCapabilities, testing::DocumentBuilder};
-use clankerdiff_syntax::{SyntaxWorkStats, thread_work};
 use ratatui::{
     Terminal,
     backend::TestBackend,
     buffer::Buffer,
     layout::{Position, Rect},
 };
+use rouge_syntax::{SyntaxWorkStats, thread_work};
 use std::sync::Arc;
 
 /// Deterministic work performed while drawing one frame.

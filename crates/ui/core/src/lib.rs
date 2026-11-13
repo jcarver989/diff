@@ -3,84 +3,20 @@ mod selection;
 mod terminal;
 mod ui;
 pub use appearance::{ThemePair, ThemePreference};
+pub use rouge_syntax::{FontStyle, HighlightId, HighlightSpan, SyntaxStyle, SyntaxTheme};
 pub use rouge_theme::{
-    Appearance, AppearanceMode, ButtonVariant, ControlSize, ControlState, InteractionState, ModalSize, NoticeTone,
-    PickerOption, PickerRow, PickerState, Rgba, SCRIM_ALPHA, SelectionState, SemanticStyle, UiPalette,
+    Appearance, AppearanceMode, ButtonVariant, ControlSize, ControlState, InteractionState, MarkdownPalette, ModalSize,
+    NoticeTone, PickerOption, PickerRow, PickerState, Rgba, SCRIM_ALPHA, SelectionState, SemanticStyle, UiPalette,
 };
 pub use selection::{ThemeChoice, ThemeSelection};
 pub use terminal::TerminalPalette;
 
-use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index, tag_to_name};
+use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeMap,
-    fmt,
-    sync::{Arc, LazyLock},
-};
+use std::{collections::BTreeMap, fmt, sync::LazyLock};
 
 const THEME_VERSION: u32 = 3;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct FontStyle {
-    #[serde(default)]
-    pub bold: bool,
-    #[serde(default)]
-    pub italic: bool,
-    #[serde(default)]
-    pub underline: bool,
-}
-
-impl FontStyle {
-    #[must_use]
-    pub const fn none() -> Self {
-        Self { bold: false, italic: false, underline: false }
-    }
-
-    #[must_use]
-    pub const fn is_plain(self) -> bool {
-        !self.bold && !self.italic && !self.underline
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HighlightId(u8);
-
-impl HighlightId {
-    #[must_use]
-    pub fn from_tag(tag: &str) -> Option<Self> {
-        tag_to_name(tag)?;
-        let index = HIGHLIGHTS.iter().position(|highlight| highlight.tag == tag)?;
-        u8::try_from(index).ok().map(Self)
-    }
-}
-
-fn capture_for_name(name: &'static str) -> &'static str {
-    match name {
-        "title" => "markup.heading",
-        "strong" => "markup.bold",
-        "emphasis" => "markup.italic",
-        "link" => "markup.link",
-        "literal" => "markup.raw",
-        "strikethrough" => "markup.strikethrough",
-        name => name,
-    }
-}
-
-/// A highlighted, UTF-8-safe byte range into the supplied source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HighlightSpan {
-    pub range: std::ops::Range<usize>,
-    pub highlight: HighlightId,
-}
-
-/// Style assigned to a Tree-sitter capture name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SyntaxStyle {
-    pub foreground: Rgba,
-    #[serde(default)]
-    pub font_style: FontStyle,
-}
 
 /// Semantic tint for a diff cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -280,7 +216,7 @@ impl ReviewTheme {
         let markdown = self.markdown.colors().map(ui::bytes);
         let ui = ui::colors(&self.ui).map(ui::bytes);
         Fingerprint::of(
-            std::iter::once(self.syntax.revision().as_bytes().as_slice())
+            std::iter::once(syntax_revision(&self.syntax).as_bytes().as_slice())
                 .chain(diff.iter().map(<[u8; 4]>::as_slice))
                 .chain(markdown.iter().map(<[u8; 4]>::as_slice))
                 .chain(ui.iter().map(<[u8; 4]>::as_slice)),
@@ -292,8 +228,8 @@ impl ReviewTheme {
             version: THEME_VERSION,
             palette: self.diff.clone(),
             ui: self.ui,
-            syntax: self.syntax.captures.clone(),
-            markdown: self.markdown.clone(),
+            syntax: self.syntax.captures().clone(),
+            markdown: self.markdown,
         })
         .map_err(|error| ThemeError::Parse { message: error.to_string() })
     }
@@ -358,7 +294,7 @@ impl ReviewTheme {
             })
             .collect::<BTreeMap<_, _>>();
         let syntax = SyntaxTheme::new(syntax);
-        let markdown = MarkdownPalette::from_syntax(&syntax, &palette);
+        let markdown = markdown_palette(&syntax, &palette);
         Self { id, diff: palette, ui, syntax, markdown }
     }
 
@@ -480,115 +416,35 @@ impl ReviewThemeBuilder {
     #[must_use]
     pub fn build(self) -> ReviewTheme {
         let syntax = SyntaxTheme::new(self.syntax);
-        let markdown = self.markdown.unwrap_or_else(|| MarkdownPalette::from_syntax(&syntax, &self.diff));
+        let markdown = self.markdown.unwrap_or_else(|| markdown_palette(&syntax, &self.diff));
         ReviewTheme { id: self.id, ui: self.ui, diff: self.diff, syntax, markdown }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyntaxTheme {
-    captures: BTreeMap<String, SyntaxStyle>,
-    highlights: Arc<[Option<SyntaxStyle>]>,
-    revision: Fingerprint,
+fn syntax_revision(syntax: &SyntaxTheme) -> Fingerprint {
+    let mut fields = Vec::with_capacity(syntax.captures().len() * 3);
+    for (capture, style) in syntax.captures() {
+        fields.push(capture.as_bytes().to_vec());
+        fields.push(ui::bytes(style.foreground).to_vec());
+        fields.push(vec![
+            u8::from(style.font_style.bold),
+            u8::from(style.font_style.italic),
+            u8::from(style.font_style.underline),
+        ]);
+    }
+    Fingerprint::of(fields)
 }
 
-impl SyntaxTheme {
-    #[must_use]
-    pub fn new(captures: BTreeMap<String, SyntaxStyle>) -> Self {
-        let mut fields = Vec::with_capacity(captures.len() * 3);
-        for (capture, style) in &captures {
-            fields.push(capture.as_bytes().to_vec());
-            fields.push(ui::bytes(style.foreground).to_vec());
-            fields.push(vec![
-                u8::from(style.font_style.bold),
-                u8::from(style.font_style.italic),
-                u8::from(style.font_style.underline),
-            ]);
-        }
-        let highlights = HIGHLIGHTS
-            .iter()
-            .map(|highlight| tag_to_name(highlight.tag).and_then(|name| lookup(&captures, capture_for_name(name))))
-            .collect();
-        Self { captures, highlights, revision: Fingerprint::of(fields) }
-    }
-
-    #[must_use]
-    pub const fn revision(&self) -> Fingerprint {
-        self.revision
-    }
-
-    #[must_use]
-    pub fn style(&self, capture: &str) -> Option<SyntaxStyle> {
-        lookup(&self.captures, capture)
-    }
-
-    #[must_use]
-    pub fn highlight(&self, id: HighlightId) -> Option<SyntaxStyle> {
-        self.highlights.get(usize::from(id.0)).copied().flatten()
-    }
-}
-
-fn lookup(captures: &BTreeMap<String, SyntaxStyle>, capture: &str) -> Option<SyntaxStyle> {
-    let mut candidate = capture;
-    loop {
-        if let Some(style) = captures.get(candidate) {
-            return Some(*style);
-        }
-        let (parent, _) = candidate.rsplit_once('.')?;
-        candidate = parent;
-    }
-}
-
-impl Default for SyntaxTheme {
-    fn default() -> Self {
-        DEFAULT_THEME.syntax.clone()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MarkdownPalette {
-    pub heading: Rgba,
-    pub link: Rgba,
-    pub quote: Rgba,
-    pub inline_code: Rgba,
-    pub inline_code_background: Rgba,
-    pub code: Rgba,
-    pub code_background: Rgba,
-}
-
-impl MarkdownPalette {
-    #[must_use]
-    pub fn from_syntax(syntax: &SyntaxTheme, palette: &DiffPalette) -> Self {
-        let capture = |name, fallback| syntax.style(name).map_or(fallback, |style| style.foreground);
-        Self {
-            heading: capture("markup.heading", palette.accent),
-            link: capture("markup.link", palette.accent),
-            quote: capture("markup.quote", palette.muted),
-            inline_code: capture("markup.raw.inline", palette.foreground),
-            inline_code_background: palette.border,
-            code: capture("markup.raw.block", palette.foreground),
-            code_background: palette.background,
-        }
-    }
-
-    #[must_use]
-    pub const fn colors(&self) -> [Rgba; 7] {
-        [
-            self.heading,
-            self.link,
-            self.quote,
-            self.inline_code,
-            self.inline_code_background,
-            self.code,
-            self.code_background,
-        ]
-    }
-}
-
-impl Default for MarkdownPalette {
-    fn default() -> Self {
-        DEFAULT_THEME.markdown.clone()
+fn markdown_palette(syntax: &SyntaxTheme, palette: &DiffPalette) -> MarkdownPalette {
+    let capture = |name, fallback| syntax.style(name).map_or(fallback, |style| style.foreground);
+    MarkdownPalette {
+        heading: capture("markup.heading", palette.accent),
+        link: capture("markup.link", palette.accent),
+        quote: capture("markup.quote", palette.muted),
+        inline_code: capture("markup.raw.inline", palette.foreground),
+        inline_code_background: palette.border,
+        code: capture("markup.raw.block", palette.foreground),
+        code_background: palette.background,
     }
 }
 

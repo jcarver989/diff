@@ -24,7 +24,6 @@ clankerdiff-fingerprint = { version = "0.10.0", path = "crates/util/fingerprint"
 clankerdiff-remote = { version = "0.10.0", path = "crates/util/remote" }
 clankerdiff-lspd = { version = "0.10.0", path = "crates/util/lspd" }
 clankerdiff-ui-core = { version = "0.10.0", path = "crates/ui/core" }
-clankerdiff-syntax = { version = "0.10.0", path = "crates/ui/syntax" }
 clankerdiff-core = { version = "0.10.0", path = "crates/diff/core" }
 clankerdiff-protocol = { version = "0.10.0", path = "crates/diff/protocol" }
 clankerdiff-client = { version = "0.10.0", path = "crates/diff/client", default-features = false }
@@ -82,6 +81,8 @@ rouge-reactive = { path = "../rouge/crates/rouge-reactive" }
 rouge-widgets = { path = "../rouge/crates/rouge-widgets" }
 rouge-web = { path = "../rouge/crates/rouge-web" }
 rouge-theme = { path = "../rouge/crates/rouge-theme" }
+rouge-syntax = { path = "../rouge/crates/rouge-syntax" }
+rouge-markdown = { path = "../rouge/crates/rouge-markdown" }
 
 [workspace.dependencies.clankerdiff-rouge]
 path = "crates/diff/rouge"

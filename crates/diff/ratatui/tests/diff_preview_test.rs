@@ -1,6 +1,5 @@
 use clankerdiff_core::{FileDiff, ViewMode};
 use clankerdiff_ratatui::{DiffPreviewOptions, DiffPreviewState, page_color, render_diff_preview};
-use clankerdiff_syntax::thread_work;
 use clankerdiff_ui_core::{DiffTone, ReviewTheme};
 use ratatui::{
     buffer::Buffer,
@@ -9,6 +8,7 @@ use ratatui::{
     text::Line,
     widgets::{Paragraph, Widget},
 };
+use rouge_syntax::thread_work;
 use std::{error::Error, sync::Arc};
 
 #[test]

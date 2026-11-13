@@ -934,18 +934,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ast-grep-core"
-version = "0.51.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cfef0f598a68a0d572d3917e0c20fab452ec33ee9a5eae3ebc12495ad2e2c9c"
-dependencies = [
- "bit-set 0.11.1",
- "regex",
- "thiserror 2.0.21",
- "tree-sitter",
-]
-
-[[package]]
 name = "async-channel"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1036,16 +1024,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2f926cc3060f09db9ebc5b52823d85268d24bb917e472c0c4bea35780a7d"
 dependencies = [
- "bit-vec 0.9.1",
-]
-
-[[package]]
-name = "bit-set"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56d87354e4229f54a44f7bf2435906a4656dba36026ab6eaca629a2c436a691c"
-dependencies = [
- "bit-vec 0.10.1",
+ "bit-vec",
 ]
 
 [[package]]
@@ -1053,16 +1032,6 @@ name = "bit-vec"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51"
-
-[[package]]
-name = "bit-vec"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5727b15fa97d4f4fee0a3b7c3d550ed0269f54329207b86388de918604e31269"
-dependencies = [
- "borsh",
- "serde",
-]
 
 [[package]]
 name = "bitflags"
@@ -1126,30 +1095,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
 dependencies = [
  "objc2 0.6.5",
-]
-
-[[package]]
-name = "borsh"
-version = "1.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "553c5d846a6ba5150c65e3b1b8ec073bcf1abc20f9b7220de384a4443ea4e20a"
-dependencies = [
- "borsh-derive",
- "bytes",
- "cfg_aliases",
-]
-
-[[package]]
-name = "borsh-derive"
-version = "1.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12cdfe656708a01f89b451a7d36466e6fe6c414de0aa18fc54f864f6f9ca9f56"
-dependencies = [
- "once_cell",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 3.0.9",
 ]
 
 [[package]]
@@ -1442,8 +1387,7 @@ version = "0.10.0"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
- "clankerdiff-syntax",
- "pulldown-cmark",
+ "rouge-markdown",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1472,12 +1416,12 @@ dependencies = [
  "clankerdiff-git",
  "clankerdiff-markdown",
  "clankerdiff-symbols",
- "clankerdiff-syntax",
  "clankerdiff-ui-core",
  "criterion",
  "crossterm",
  "imbl",
  "ratatui",
+ "rouge-syntax",
  "serde_json",
  "similar",
  "thiserror 2.0.21",
@@ -1506,10 +1450,10 @@ dependencies = [
  "clankerdiff-core",
  "clankerdiff-markdown",
  "clankerdiff-symbols",
- "clankerdiff-syntax",
  "clankerdiff-ui-core",
  "rouge-core",
  "rouge-reactive",
+ "rouge-syntax",
  "rouge-widgets",
  "web-time",
 ]
@@ -1539,81 +1483,7 @@ name = "clankerdiff-symbols"
 version = "0.10.0"
 dependencies = [
  "clankerdiff-core",
- "clankerdiff-syntax",
-]
-
-[[package]]
-name = "clankerdiff-syntax"
-version = "0.10.0"
-dependencies = [
- "arborium-asm",
- "arborium-bash",
- "arborium-batch",
- "arborium-c",
- "arborium-c-sharp",
- "arborium-clojure",
- "arborium-cmake",
- "arborium-commonlisp",
- "arborium-cpp",
- "arborium-css",
- "arborium-dart",
- "arborium-diff",
- "arborium-dockerfile",
- "arborium-elixir",
- "arborium-erlang",
- "arborium-fish",
- "arborium-go",
- "arborium-graphql",
- "arborium-haskell",
- "arborium-hcl",
- "arborium-html",
- "arborium-ini",
- "arborium-java",
- "arborium-javascript",
- "arborium-json",
- "arborium-just",
- "arborium-kotlin",
- "arborium-lua",
- "arborium-make",
- "arborium-markdown",
- "arborium-meson",
- "arborium-ninja",
- "arborium-nix",
- "arborium-objc",
- "arborium-ocaml",
- "arborium-perl",
- "arborium-php",
- "arborium-powershell",
- "arborium-proto",
- "arborium-python",
- "arborium-r",
- "arborium-rego",
- "arborium-ruby",
- "arborium-rust",
- "arborium-scala",
- "arborium-scheme",
- "arborium-scss",
- "arborium-solidity",
- "arborium-sql",
- "arborium-starlark",
- "arborium-svelte",
- "arborium-swift",
- "arborium-theme",
- "arborium-toml",
- "arborium-tsx",
- "arborium-typescript",
- "arborium-vue",
- "arborium-x86asm",
- "arborium-xml",
- "arborium-yaml",
- "arborium-zig",
- "arborium-zsh",
- "ast-grep-core",
- "cc",
- "clankerdiff-fingerprint",
- "clankerdiff-ui-core",
- "thiserror 2.0.21",
- "tree-sitter",
+ "rouge-syntax",
 ]
 
 [[package]]
@@ -1622,6 +1492,7 @@ version = "0.10.0"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
+ "rouge-syntax",
  "rouge-theme",
  "serde",
  "serde_json",
@@ -3259,6 +3130,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
 
 [[package]]
+name = "linkify"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1dfa36d52c581e9ec783a7ce2a5e0143da6237be5811a0b3153fedfdbe9f780"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3423,7 +3303,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a616d2fb8c89516ac2723a581f69d6c18576046bed761bd6b305e5618e6ae130"
 dependencies = [
  "arrayvec",
- "bit-set 0.10.0",
+ "bit-set",
  "bitflags 2.13.2",
  "cfg-if",
  "cfg_aliases",
@@ -4665,6 +4545,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rouge-markdown"
+version = "0.1.0"
+dependencies = [
+ "linkify",
+ "pulldown-cmark",
+ "rouge-syntax",
+ "serde",
+]
+
+[[package]]
 name = "rouge-reactive"
 version = "0.1.0"
 dependencies = [
@@ -4687,6 +4577,79 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "wgpu",
+]
+
+[[package]]
+name = "rouge-syntax"
+version = "0.1.0"
+dependencies = [
+ "arborium-asm",
+ "arborium-bash",
+ "arborium-batch",
+ "arborium-c",
+ "arborium-c-sharp",
+ "arborium-clojure",
+ "arborium-cmake",
+ "arborium-commonlisp",
+ "arborium-cpp",
+ "arborium-css",
+ "arborium-dart",
+ "arborium-diff",
+ "arborium-dockerfile",
+ "arborium-elixir",
+ "arborium-erlang",
+ "arborium-fish",
+ "arborium-go",
+ "arborium-graphql",
+ "arborium-haskell",
+ "arborium-hcl",
+ "arborium-html",
+ "arborium-ini",
+ "arborium-java",
+ "arborium-javascript",
+ "arborium-json",
+ "arborium-just",
+ "arborium-kotlin",
+ "arborium-lua",
+ "arborium-make",
+ "arborium-markdown",
+ "arborium-meson",
+ "arborium-ninja",
+ "arborium-nix",
+ "arborium-objc",
+ "arborium-ocaml",
+ "arborium-perl",
+ "arborium-php",
+ "arborium-powershell",
+ "arborium-proto",
+ "arborium-python",
+ "arborium-r",
+ "arborium-rego",
+ "arborium-ruby",
+ "arborium-rust",
+ "arborium-scala",
+ "arborium-scheme",
+ "arborium-scss",
+ "arborium-solidity",
+ "arborium-sql",
+ "arborium-starlark",
+ "arborium-svelte",
+ "arborium-swift",
+ "arborium-theme",
+ "arborium-toml",
+ "arborium-tsx",
+ "arborium-typescript",
+ "arborium-vue",
+ "arborium-x86asm",
+ "arborium-xml",
+ "arborium-yaml",
+ "arborium-zig",
+ "arborium-zsh",
+ "cc",
+ "rouge-theme",
+ "serde",
+ "thiserror 2.0.21",
+ "tree-sitter",
 ]
 
 [[package]]
@@ -4726,7 +4689,9 @@ name = "rouge-widgets"
 version = "0.1.0"
 dependencies = [
  "rouge-core",
+ "rouge-markdown",
  "rouge-reactive",
+ "rouge-syntax",
  "rouge-theme",
 ]
 
@@ -6073,8 +6038,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14c018fce9b6270aa203c2fdd56f3cce996713534bd757e4ea58c8560b121f14"
 dependencies = [
  "arrayvec",
- "bit-set 0.10.0",
- "bit-vec 0.9.1",
+ "bit-set",
+ "bit-vec",
  "bitflags 2.13.2",
  "bytemuck",
  "cfg_aliases",
@@ -6136,7 +6101,7 @@ dependencies = [
  "android_system_properties",
  "arrayvec",
  "ash",
- "bit-set 0.10.0",
+ "bit-set",
  "bitflags 2.13.2",
  "block2 0.6.2",
  "bytemuck",
