@@ -26,6 +26,7 @@ struct Model {
     changes: usize,
     split: bool,
     compact: bool,
+    wrap: bool,
     flags: Flags,
     error: Option<String>,
 }
@@ -70,7 +71,7 @@ pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
                     .into_iter()
                     .flatten()
                     .map(|control| control.command.clone())
-                    .chain([C::SetFilesMode(FilesMode::Diff), C::SetFilesMode(FilesMode::Browse)])
+                    .chain([C::SetFilesMode(FilesMode::Diff), C::SetFilesMode(FilesMode::Browse), C::ToggleWrap])
                     .map(|command| {
                         let enabled = state.command_enabled(&command);
                         (command, enabled)
@@ -83,6 +84,7 @@ pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
                     changes: session.document().files.len(),
                     split,
                     compact: room < rems(COMPACT_TOOLBAR_WIDTH),
+                    wrap: status.wrap,
                     flags: Flags {
                         browsable: status.context.browsable,
                         files_focused: pane == ViewerPane::Files,
@@ -295,14 +297,26 @@ fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
         view! { <segmented_control id="view-mode-toggle">{..segments}</segmented_control> }
     });
     let handle = *handle;
+    let wrap = toolbar.stat.map(|_| {
+        let text = if model.wrap { "Stop wrapping long lines" } else { "Wrap long lines" };
+        let label = tooltip(text, shortcut_label(&C::ToggleWrap));
+        view! {
+            <icon_button id="toggle-wrap" icon=IconName::WrapText label selected=model.wrap
+                         disabled={!model.enabled(&C::ToggleWrap)}
+                         on_click={move || {
+                             handle.handle_command(C::ToggleWrap);
+                         }}/>
+        }
+    });
     let size = toolbar.stat.and_then(|_| size_menu());
-    let after_stat = stat.is_some() && (collapse.is_some() || layouts.is_some() || size.is_some());
+    let after_stat = stat.is_some() && (collapse.is_some() || layouts.is_some() || wrap.is_some() || size.is_some());
     view! {
         <div flex_none flex row items_center justify_end gap=2.0>
             {stat}
             {after_stat.then(divider)}
             {collapse}
             {layouts}
+            {wrap}
             {size}
             <icon_button id="command-palette-button" icon=IconName::Search label="Commands"
                          on_click={move || {

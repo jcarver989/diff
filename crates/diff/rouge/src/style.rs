@@ -1,10 +1,12 @@
 use clankerdiff_core::{FileStatus, LineStat};
 use clankerdiff_syntax::{HighlightLine, SyntaxTheme};
 use clankerdiff_ui_core::{DiffPalette, ReviewTheme, Rgba};
-use rouge_core::{Color, Div, SpanStyle, Styled, Text, Underline, component, div, rich_text, text, view};
+use rouge_core::{Color, Div, SpanStyle, Styled, Text, Underline, WrapIndent, component, div, rich_text, text, view};
 use rouge_reactive::ReadSignal;
 use rouge_widgets::UiStyles;
 use std::ops::Range;
+
+pub(crate) const CODE_WRAP: WrapIndent = WrapIndent::Leading { extra_columns: 2 };
 
 #[must_use]
 pub fn highlights(line: &str, spans: HighlightLine<'_>, theme: &SyntaxTheme) -> Vec<(Range<usize>, SpanStyle)> {

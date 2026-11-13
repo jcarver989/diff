@@ -266,7 +266,7 @@ fn code_line(code: &Rc<MarkdownCodeBlock>, index: usize, paint: &Paint) -> Div {
     let line = view! {
         <div px=16.0 min_h=CODE.line_height overflow_hidden border_l=px(1.0) border_r=px(1.0)
              border_color=Theme::current().border rounded=corners(false, last)>
-            <rich_text spans code no_wrap color=paint.markdown(|m| m.code)>{source}</rich_text>
+            <rich_text spans code wrap_indent=style::CODE_WRAP color=paint.markdown(|m| m.code)>{source}</rich_text>
         </div>
     };
     if last { line.pb(8.0).border_b(px(1.0)) } else { line }

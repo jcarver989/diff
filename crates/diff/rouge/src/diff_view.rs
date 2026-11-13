@@ -6,21 +6,17 @@ use clankerdiff_core::{
     DiffReviewCommand as C, DiffSide, DiffTone, FileStatus, Layout, LineAnchor, LineStat, PresentedCell, PresentedRow,
     RevealAmount, RowId, RowKind, SourceLocation,
 };
-use clankerdiff_rouge_ui::{
-    components::{empty_state, icon_button},
-    icon::IconName,
-    scrollbar::ListScrollbar,
-    theme::{UiTheme, color},
-    tokens::{BASE_SIZE, RADIUS_CONTROL, scaled},
-    typography::{Typography, UiStyles},
-};
 use clankerdiff_ui_core::{DiffPalette, Rgba};
 use rouge_core::{
-    Align, AnyView, Canvas, Color, Cursor, Div, Painter, Point, Rect, RowKey, ScrollLinked, Size, SpanStyle, Styled,
-    TextRun, View, VirtualListHandle, canvas, div, dynamic, pct, px, root_font_size, show, text, view, virtual_list,
-    virtual_list_handle,
+    Align, AnyView, Canvas, Color, Cursor, Div, Measure, Painter, Point, Rect, RowKey, ScrollLinked, Size, SpanStyle,
+    Styled, TextHit, TextRun, Theme, View, VirtualListHandle, canvas, div, dynamic, pct, px, root_font_size, show,
+    text, view, virtual_list, virtual_list_handle,
 };
 use rouge_reactive::{Memo, Signal, effect, memo, signal, untrack};
+use rouge_widgets::{
+    IconName, UiStyles, empty_state, icon_button, tokens::BASE_SIZE, tokens::RADIUS_CONTROL, tokens::scaled,
+    typography::CODE, vertical_scrollbar,
+};
 use std::{cell::Cell, ops::Range, rc::Rc};
 
 const CODE_HEIGHT: f32 = 22.0;
@@ -32,9 +28,13 @@ const GUTTER_PADDING: f32 = 7.0;
 const TEXT_TOP: f32 = 1.0;
 const META_PADDING: f32 = 12.0;
 const ADD_COMMENT_SIZE: f32 = 19.0;
+const CODE_PADDING_RIGHT: f32 = 8.0;
+const MAX_LINE_BYTES: usize = 16 * 1024;
+const CONTINUATION: &str = "↪";
 
 #[derive(Clone, Copy)]
-struct Horizontal {
+struct Flow {
+    wrap: Memo<bool>,
     offset: Signal<f32>,
     limit: Signal<f32>,
 }
@@ -50,7 +50,7 @@ pub(crate) fn content(handle: ReviewHandle) -> impl View {
     let review_bar = handle.with(|state| state.options().review_bar);
     let bg = handle.theme();
     view! {
-        <div size_full flex col bg={move || bg.with(|t| color(t.diff.background))}>
+        <div size_full flex col bg={move || bg.with(|t| Color::from(t.diff.background))}>
             {toolbar::toolbar(&handle)}
             <div flex row flex_1 min_h=0.0 overflow_hidden>
                 <show when={move || shown.get()}>{sidebar::sidebar(handle, files)}</show>
@@ -68,18 +68,21 @@ fn diff_pane(handle: ReviewHandle, list: VirtualListHandle, files: VirtualListHa
         handle.with(|state| state.session().visible_range())
     });
     let visible = signal(0..0);
-    let horizontal = Horizontal { offset: signal(0.0), limit: signal(0.0) };
+    let status = handle.status();
+    let wrap = memo(move || status.get().wrap);
+    let flow = Flow { wrap, offset: signal(0.0), limit: signal(0.0) };
     let hover: Hover = signal(None);
     effect(move || {
         revision.get();
-        horizontal.offset.set_if_changed(0.0);
-        horizontal.limit.set_if_changed(0.0);
+        wrap.get();
+        flow.offset.set_if_changed(0.0);
+        flow.limit.set_if_changed(0.0);
     });
     bind_navigation(&handle, list, files, range, visible);
     let rows = virtual_list(
         move || range.get().len(),
         CODE_HEIGHT,
-        move |index| row(&handle, range.get_untracked().start + index, horizontal, hover),
+        move |index| row(&handle, range.get_untracked().start + index, flow, hover),
     )
     .row_identity(move |index| {
         let revision = revision.get();
@@ -89,7 +92,7 @@ fn diff_pane(handle: ReviewHandle, list: VirtualListHandle, files: VirtualListHa
             revision,
         )
     })
-    .measure_rows(|| 0)
+    .measure_rows(move || u64::from(wrap.get()))
     .track_rows(visible)
     .handle(list)
     .size_full();
@@ -117,15 +120,15 @@ fn diff_pane(handle: ReviewHandle, list: VirtualListHandle, files: VirtualListHa
     view! {
         <div test_id="diff-pane" relative flex_1 min_w=0.0 min_h=0.0 overflow_hidden
              on_scroll={move |event| {
-                 if event.delta.x != 0.0 {
-                     let max = horizontal.limit.get_untracked();
-                     horizontal.offset.update(|x| *x = (*x - event.delta.x).clamp(0.0, max));
+                 if event.delta.x != 0.0 && !flow.wrap.get_untracked() {
+                     let max = flow.limit.get_untracked();
+                     flow.offset.update(|x| *x = (*x - event.delta.x).clamp(0.0, max));
                  }
              }}>
             {rows}
             <dynamic children=empty/>
             {sticky(handle, list, active, range)}
-            <div absolute right=0.0 top=0.0 bottom=0.0>{ListScrollbar::list(list)}</div>
+            <div absolute right=0.0 top=0.0 bottom=0.0>{vertical_scrollbar(list.scroll_state())}</div>
         </div>
     }
 }
@@ -212,7 +215,7 @@ fn sticky(
     })
 }
 
-fn row(handle: &ReviewHandle, index: usize, x: Horizontal, hover: Hover) -> AnyView {
+fn row(handle: &ReviewHandle, index: usize, flow: Flow, hover: Hover) -> AnyView {
     let Some(row) = handle.with(|s| s.session().presentation().row(index).cloned()) else {
         return div().into_any();
     };
@@ -220,17 +223,17 @@ fn row(handle: &ReviewHandle, index: usize, x: Horizontal, hover: Hover) -> AnyV
         RowKind::FileHeader => header(handle, row.file_index).into_any(),
         RowKind::Meta => meta(index, &row).into_any(),
         RowKind::ExpandGap => gap(handle, index).into_any(),
-        RowKind::Code | RowKind::ExpandedContext => line(handle, index, &row, x, hover).into_any(),
+        RowKind::Code | RowKind::ExpandedContext => line(handle, index, &row, flow, hover).into_any(),
     }
 }
 
 fn meta(index: usize, row: &PresentedRow) -> Div {
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let content = row.primary_cell().map_or_else(String::new, |cell| cell.text.to_string());
     let root = root_font_size();
     let label = canvas(move |painter| {
         let scale = root.get() / BASE_SIZE;
-        let style = Typography::Code.text_style(root.get());
+        let style = CODE.text_style(root.get());
         let size = painter.size();
         let origin = Point::new(META_PADDING * scale, TEXT_TOP * scale);
         let clip = Rect::new(0.0, 0.0, size.width, size.height);
@@ -285,38 +288,40 @@ impl Column {
         columns.get(position.min(columns.len().saturating_sub(1)))
     }
 
-    fn location(columns: &[Column], tag: u32) -> Option<SourceLocation> {
-        columns.iter().find(|column| column.side as u32 == tag).and_then(|column| column.location.clone())
+    fn location(columns: &[Column], hit: TextHit) -> Option<SourceLocation> {
+        let column = columns.iter().find(|column| column.side as u32 == hit.tag)?;
+        let shown = column.cell.as_ref().map_or(0, |cell| shown_len(cell.text.as_ref()));
+        column.location.clone().filter(|_| hit.index < shown)
     }
 }
 
-fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, x: Horizontal, hover: Hover) -> Div {
+fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, flow: Flow, hover: Hover) -> Div {
     let handle = *handle;
     let columns = Column::all(&handle, row);
     let size = signal(Size::ZERO);
     let overflow = signal(0.0_f32);
     effect(move || {
         let width = overflow.get();
-        if width > x.limit.get_untracked() {
-            x.limit.set(width);
+        if width > flow.limit.get_untracked() {
+            flow.limit.set(width);
         }
     });
-    let height = scaled(CODE_HEIGHT);
-    let painted = painted(&handle, index, row.clone(), &columns, x)
+    let code_height = Rc::new(Cell::new(0.0_f32));
+    let painted = painted(&handle, index, row.clone(), &columns, flow, code_height.clone())
         .track_overflow(overflow)
         .on_text_hover({
             let columns = columns.clone();
             let hovered = signal(None::<Range<usize>>);
-            let last = Cell::new(None::<u32>);
+            let last = Cell::new(None::<TextHit>);
             move |hit, modifiers| {
-                let tag = hit.map(|hit| hit.tag);
-                if let Some(previous) = last.replace(tag).filter(|previous| Some(*previous) != tag)
+                let hit = hit.filter(|hit| Column::location(&columns, *hit).is_some());
+                if let Some(previous) = last.replace(hit).filter(|previous| Some(previous.tag) != hit.map(|h| h.tag))
                     && let Some(location) = Column::location(&columns, previous)
                 {
                     definition_card::hover(&handle, &location, None, modifiers, hovered);
                 }
                 if let Some(hit) = hit
-                    && let Some(location) = Column::location(&columns, hit.tag)
+                    && let Some(location) = Column::location(&columns, hit)
                 {
                     definition_card::hover(&handle, &location, Some(hit.index), modifiers, hovered);
                 }
@@ -326,7 +331,7 @@ fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, x: Horizontal, 
             let columns = columns.clone();
             move |hit, modifiers| {
                 if let Some(hit) = hit
-                    && let Some(location) = Column::location(&columns, hit.tag)
+                    && let Some(location) = Column::location(&columns, hit)
                 {
                     definition_card::click(&handle, &location, Some(hit.index), modifiers);
                 }
@@ -348,14 +353,13 @@ fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, x: Horizontal, 
                 })
             }
         })
-        .w_full()
-        .h(CODE_HEIGHT);
+        .w_full();
     let pointer = columns.clone();
     view! {
         <div test_id={format!("diff-row-{index}")} layer flex col min_h=CODE_HEIGHT relative track_size=size
              on_pointer_move={move |event| {
                  let point = event.local();
-                 let target = (point.y < height())
+                 let target = (point.y < code_height.get())
                      .then(|| Column::at(&pointer, size.get_untracked().width, point.x))
                      .flatten()
                      .filter(|column| column.anchor.is_some())
@@ -374,53 +378,11 @@ fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, x: Horizontal, 
     }
 }
 
+type Spans = Vec<(Range<usize>, SpanStyle)>;
+
 struct Fill {
     background: Color,
     accent: Option<Color>,
-    spans: Vec<(Range<usize>, SpanStyle)>,
-}
-
-fn painted(handle: &ReviewHandle, index: usize, row: PresentedRow, columns: &Rc<[Column]>, x: Horizontal) -> Canvas {
-    let theme = UiTheme::current();
-    let selection = handle.selection();
-    let selected = memo(move || {
-        let selection = selection.get();
-        (selection.row == Some(index)).then_some(selection.side)
-    });
-    let (handle, columns) = (*handle, columns.clone());
-    let palette = handle.theme();
-    let root = root_font_size();
-    let file_index = row.file_index;
-    let revision = handle.syntax_revision();
-    let highlighted = memo(move || {
-        revision.get();
-        handle.with_syntax(|_, syntax| syntax.is_prepared(file_index))
-    });
-    canvas(move |painter| {
-        let colors = theme.get();
-        let selected = selected.get();
-        highlighted.get();
-        let offset = x.offset.get();
-        palette.with(|review| {
-            let fill = |column: &Column, cell: &PresentedCell| Fill {
-                background: color(if selected == Some(column.side) {
-                    review.diff.selection
-                } else {
-                    review.diff.tone(cell.tone).background
-                }),
-                accent: match cell.tone {
-                    DiffTone::Added => Some(color(review.diff.addition)),
-                    DiffTone::Removed => Some(color(review.diff.deletion)),
-                    _ => None,
-                },
-                spans: handle.with_syntax(|_, syntax| {
-                    style::highlights(cell.source_text(), syntax.ready_highlights(&row, cell), &review.syntax)
-                }),
-            };
-            let ink = Ink { number: colors.text_muted, text: colors.text, border: colors.border };
-            paint_line(painter, index, &columns, root.get(), offset, ink, fill);
-        });
-    })
 }
 
 #[derive(Clone, Copy)]
@@ -430,13 +392,192 @@ struct Ink {
     border: Color,
 }
 
-#[expect(clippy::cast_precision_loss, reason = "Column counts are one or two")]
+#[derive(Clone, Copy)]
+struct Geometry {
+    scale: f32,
+    width: f32,
+    count: usize,
+    wrap: bool,
+    offset: f32,
+}
+
+impl Geometry {
+    #[expect(clippy::cast_precision_loss, reason = "Column counts are one or two")]
+    fn column(&self, position: usize) -> Rect {
+        let width = self.width / self.count.max(1) as f32;
+        let last = position + 1 >= self.count;
+        Rect::new(position as f32 * width, 0.0, if last { width } else { width - self.scale }, 0.0)
+    }
+
+    fn code_left(&self, position: usize) -> f32 {
+        self.column(position).origin.x + (ACCENT_WIDTH + GUTTER_WIDTH) * self.scale
+    }
+
+    fn number_edge(&self, position: usize) -> f32 {
+        self.column(position).origin.x + (ACCENT_WIDTH + GUTTER_WIDTH - GUTTER_PADDING) * self.scale
+    }
+
+    fn code_run(
+        &self,
+        position: usize,
+        column: &Column,
+        cell: &PresentedCell,
+        spans: &Spans,
+        root: f32,
+        ink: Ink,
+    ) -> TextRun {
+        let side = column.side;
+        let column = self.column(position);
+        let left = self.code_left(position);
+        let mut style = CODE.text_style(root);
+        let (content, spans) = displayed(cell.text.as_ref(), spans, ink.number);
+        style.spans = spans;
+        style.wrap_indent = style::CODE_WRAP;
+        let top = TEXT_TOP * self.scale;
+        let run = if self.wrap {
+            let available = column.max().x - left - CODE_PADDING_RIGHT * self.scale;
+            TextRun::new(content, Point::new(left, top), &style, ink.text).wrap(available).continuation(
+                CONTINUATION,
+                self.number_edge(position),
+                ink.number.with_alpha(0.6),
+            )
+        } else {
+            TextRun::new(content, Point::new(left - self.offset, top), &style, ink.text)
+        };
+        run.tag(side as u32)
+    }
+
+    fn height(&self, measure: &mut Measure<'_>, columns: &[Column], spans: &[Spans], root: f32, ink: Ink) -> f32 {
+        let line = CODE_HEIGHT * self.scale;
+        if !self.wrap {
+            return line;
+        }
+        columns
+            .iter()
+            .zip(spans)
+            .enumerate()
+            .filter_map(|(position, (column, spans))| {
+                let cell = column.cell.as_ref()?;
+                let run = self.code_run(position, column, cell, spans, root, ink);
+                Some(measure.text(&run).max().y + TEXT_TOP * self.scale)
+            })
+            .fold(line, f32::max)
+            .ceil()
+    }
+}
+
+fn shown_len(text: &str) -> usize {
+    if text.len() <= MAX_LINE_BYTES {
+        return text.len();
+    }
+    (0..=MAX_LINE_BYTES).rev().find(|index| text.is_char_boundary(*index)).unwrap_or(0)
+}
+
+fn displayed(text: &str, spans: &Spans, muted: Color) -> (String, Spans) {
+    let shown = shown_len(text);
+    if shown == text.len() {
+        return (text.to_owned(), spans.clone());
+    }
+    let hidden = text[shown..].chars().count();
+    let mut content = text[..shown].to_owned();
+    let suffix = format!(" … {hidden} more characters");
+    let suffix_range = content.len()..content.len() + suffix.len();
+    content.push_str(&suffix);
+    let mut clipped: Spans = spans
+        .iter()
+        .filter(|(range, _)| range.start < shown)
+        .map(|(range, style)| (range.start..range.end.min(shown), style.clone()))
+        .collect();
+    clipped.push((suffix_range, SpanStyle { color: Some(muted), italic: Some(true), ..SpanStyle::default() }));
+    (content, clipped)
+}
+
+fn painted(
+    handle: &ReviewHandle,
+    index: usize,
+    row: PresentedRow,
+    columns: &Rc<[Column]>,
+    flow: Flow,
+    code_height: Rc<Cell<f32>>,
+) -> Canvas {
+    let theme = Theme::current();
+    let selection = handle.selection();
+    let selected = memo(move || {
+        let selection = selection.get();
+        (selection.row == Some(index)).then_some(selection.side)
+    });
+    let (handle, columns) = (*handle, columns.clone());
+    let palette = handle.theme();
+    let root = root_font_size();
+    let revision = handle.syntax_revision();
+    let spans = memo({
+        let columns = columns.clone();
+        move || {
+            revision.get();
+            palette.with(|review| {
+                columns
+                    .iter()
+                    .map(|column| {
+                        column.cell.as_ref().map_or_else(Vec::new, |cell| {
+                            handle.with_syntax(|_, syntax| {
+                                style::highlights(
+                                    cell.source_text(),
+                                    syntax.ready_highlights(&row, cell),
+                                    &review.syntax,
+                                )
+                            })
+                        })
+                    })
+                    .collect::<Rc<[Spans]>>()
+            })
+        }
+    });
+    let measured = columns.clone();
+    canvas(move |painter| {
+        let colors = theme.get();
+        let selected = selected.get();
+        let spans = spans.get();
+        let wrap = flow.wrap.get();
+        let offset = if wrap { 0.0 } else { flow.offset.get() };
+        let root = root.get();
+        let size = painter.size();
+        code_height.set(size.height);
+        let geometry = Geometry { scale: root / BASE_SIZE, width: size.width, count: columns.len(), wrap, offset };
+        let ink = Ink { number: colors.text_muted, text: colors.text, border: colors.border };
+        palette.with(|review| {
+            let fill = |column: &Column, cell: &PresentedCell| Fill {
+                background: Color::from(if selected == Some(column.side) {
+                    review.diff.selection
+                } else {
+                    review.diff.tone(cell.tone).background
+                }),
+                accent: match cell.tone {
+                    DiffTone::Added => Some(Color::from(review.diff.addition)),
+                    DiffTone::Removed => Some(Color::from(review.diff.deletion)),
+                    _ => None,
+                },
+            };
+            paint_line(painter, index, &columns, &spans, geometry, root, ink, fill);
+        });
+    })
+    .measure(move |measure, width| {
+        let colors = theme.get();
+        let root = root.get();
+        let wrap = flow.wrap.get();
+        let geometry = Geometry { scale: root / BASE_SIZE, width, count: measured.len(), wrap, offset: 0.0 };
+        let ink = Ink { number: colors.text_muted, text: colors.text, border: colors.border };
+        geometry.height(measure, &measured, &spans.get(), root, ink)
+    })
+}
+
+#[expect(clippy::too_many_arguments, reason = "Painting a row needs its geometry, palette and syntax together")]
 fn paint_line(
     painter: &mut Painter,
     index: usize,
     columns: &[Column],
+    spans: &[Spans],
+    geometry: Geometry,
     root: f32,
-    offset: f32,
     ink: Ink,
     fill: impl Fn(&Column, &PresentedCell) -> Fill,
 ) {
@@ -444,24 +585,22 @@ fn paint_line(
     if bounds.width <= 0.0 || bounds.height <= 0.0 {
         return;
     }
-    let scale = root / BASE_SIZE;
-    let width = bounds.width / columns.len() as f32;
-    let style = Typography::Code.text_style(root);
-    for (position, column) in columns.iter().enumerate() {
-        let left = position as f32 * width;
-        let rect = Rect::new(left, 0.0, width, bounds.height);
+    let scale = geometry.scale;
+    let style = CODE.text_style(root);
+    for (position, (column, spans)) in columns.iter().zip(spans).enumerate() {
+        let inner =
+            Rect { size: Size::new(geometry.column(position).size.width, bounds.height), ..geometry.column(position) };
+        let left = inner.origin.x;
         let side = column.side;
         if position + 1 < columns.len() {
-            painter.fill_rect(Rect::new(left + width - scale, 0.0, scale, bounds.height), ink.border);
+            painter.fill_rect(Rect::new(inner.max().x, 0.0, scale, bounds.height), ink.border);
         }
         let Some(cell) = &column.cell else {
-            painter.region(format!("empty-{index}-{side:?}"), rect);
+            painter.region(format!("empty-{index}-{side:?}"), inner);
             continue;
         };
-        painter.region(format!("diff-cell-{index}-{side:?}"), rect);
-        let Fill { background, accent, spans } = fill(column, cell);
-        let inner =
-            Rect::new(left, 0.0, if position + 1 < columns.len() { width - scale } else { width }, bounds.height);
+        painter.region(format!("diff-cell-{index}-{side:?}"), inner);
+        let Fill { background, accent } = fill(column, cell);
         painter.fill_rect(inner, background);
         if let Some(accent) = accent {
             painter.fill_rect(Rect::new(left, 0.0, ACCENT_WIDTH * scale, bounds.height), accent);
@@ -474,21 +613,20 @@ fn paint_line(
             );
         }
         if let Some(line) = cell.line_number() {
-            let edge = left + (ACCENT_WIDTH + GUTTER_WIDTH - GUTTER_PADDING) * scale;
             painter.run(
-                TextRun::new(line.to_string(), Point::new(edge, TEXT_TOP * scale), &style, ink.number).right_aligned(),
+                TextRun::new(
+                    line.to_string(),
+                    Point::new(geometry.number_edge(position), TEXT_TOP * scale),
+                    &style,
+                    ink.number,
+                )
+                .right_aligned(),
             );
         }
-        let code_left = left + (ACCENT_WIDTH + GUTTER_WIDTH) * scale;
+        let code_left = geometry.code_left(position);
         let clip = Rect::new(code_left, 0.0, (inner.max().x - code_left).max(0.0), bounds.height);
-        let mut code = style.clone();
-        code.spans = spans;
-        painter.run(
-            TextRun::new(cell.text.to_string(), Point::new(code_left - offset, TEXT_TOP * scale), &code, ink.text)
-                .clip(clip)
-                .tag(side as u32)
-                .name(format!("code-{index}-{side:?}")),
-        );
+        let run = geometry.code_run(position, column, cell, spans, root, ink);
+        painter.run(run.clip(clip).name(format!("code-{index}-{side:?}")));
     }
 }
 
@@ -569,10 +707,10 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
     let Some(info) = header_info(handle, index) else {
         return div();
     };
-    let theme = UiTheme::current();
+    let theme = Theme::current();
     let handle = *handle;
     let palette = handle.theme();
-    let tone = move |pick: fn(&DiffPalette) -> Rgba| move || palette.with(|t| color(pick(&t.diff)));
+    let tone = move |pick: fn(&DiffPalette) -> Rgba| move || palette.with(|t| Color::from(pick(&t.diff)));
     let selection = handle.selection();
     let start = info.start;
     let count = collapsed_comments(&handle, index);
@@ -598,11 +736,11 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
                  border_color={move || {
                      let selection = selection.get();
                      let selected = selection.pane == ViewerPane::Diff && start.is_some() && selection.row == start;
-                     palette.with(|t| color(if selected { t.diff.accent } else { t.diff.border }))
+                     palette.with(|t| Color::from(if selected { t.diff.accent } else { t.diff.border }))
                  }}
                  bg=theme.surface overflow_hidden>
                 {toggle}
-                <text code color={move || palette.with(|t| color(style::file_status_color(status, &t.diff)))}>
+                <text code color={move || palette.with(|t| Color::from(style::file_status_color(status, &t.diff)))}>
                     {status.code().to_string()}
                 </text>
                 <text body_strong no_wrap color=tone(|p| p.foreground)>{info.name}</text>
@@ -676,7 +814,9 @@ fn gap(handle: &ReviewHandle, index: usize) -> Div {
         selection.pane == ViewerPane::Diff && selection.row == Some(index)
     });
     let line = move || {
-        div().h(px(1.0)).bg(move || palette.with(|t| color(if selected.get() { t.diff.accent } else { t.diff.border })))
+        div()
+            .h(px(1.0))
+            .bg(move || palette.with(|t| Color::from(if selected.get() { t.diff.accent } else { t.diff.border })))
     };
     let reveal = info.is_expandable().then(|| {
         view! {
@@ -699,7 +839,7 @@ fn gap(handle: &ReviewHandle, index: usize) -> Div {
                 <div flex row items_center flex_none>
                     {line().w(12.0)}
                     <div px=8.0>
-                        <text caption no_wrap color={move || palette.with(|t| color(t.diff.muted))}>{hint.clone()}</text>
+                        <text caption no_wrap color={move || palette.with(|t| Color::from(t.diff.muted))}>{hint.clone()}</text>
                     </div>
                 </div>
             </show>

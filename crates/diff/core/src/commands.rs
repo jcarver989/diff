@@ -54,6 +54,7 @@ pub struct CommandContext {
     pub source_view: bool,
     pub navigation_available: bool,
     pub themes_available: bool,
+    pub wrap_available: bool,
     pub commits_available: bool,
     pub browsable: bool,
 }
@@ -68,6 +69,7 @@ impl Default for CommandContext {
             source_view: false,
             navigation_available: true,
             themes_available: false,
+            wrap_available: false,
             commits_available: false,
             browsable: false,
         }
@@ -133,6 +135,7 @@ pub enum DiffReviewCommand {
     SetFilesMode(FilesMode),
     SetViewMode(ViewMode),
     ToggleLayout,
+    ToggleWrap,
     SubmitReview,
     CopyReview,
     SetScope(DiffScope),
@@ -235,6 +238,7 @@ impl DiffReviewCommand {
             Self::SubmitReview => context.capabilities.submit,
             Self::SetFilesMode(_) => context.browsable,
             Self::CopyReview => context.capabilities.clipboard,
+            Self::ToggleWrap => context.wrap_available,
             Self::Focus(FocusPane::Files) | Self::ToggleFocus | Self::ToggleSidebar => context.navigation_available,
             _ => true,
         };

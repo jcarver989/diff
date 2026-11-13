@@ -71,6 +71,7 @@ pub(crate) struct Preferences {
     themes: persist::Store<ThemePair>,
     modes: persist::Store<ViewMode>,
     sizes: persist::Store<Option<f32>>,
+    wraps: persist::Store<Option<bool>>,
 }
 
 impl Preferences {
@@ -79,8 +80,10 @@ impl Preferences {
         let (modes, mode_flush) = persist::Store::load(ViewModeStore::user().file, handle);
         let (sizes, size_flush) =
             persist::Store::load(config_dir("ClankerDiff").map(|dir| dir.join("interface_size.json")), handle);
-        (Self { themes, modes, sizes }, async {
-            let _ = tokio::join!(theme_flush, mode_flush, size_flush);
+        let (wraps, wrap_flush) =
+            persist::Store::load(config_dir("ClankerDiff").map(|dir| dir.join("wrap.json")), handle);
+        (Self { themes, modes, sizes, wraps }, async {
+            let _ = tokio::join!(theme_flush, mode_flush, size_flush, wrap_flush);
         })
     }
 
@@ -109,6 +112,21 @@ impl Preferences {
                 false
             } else {
                 *value = mode;
+                true
+            }
+        });
+    }
+
+    pub(crate) fn wrap(&self) -> bool {
+        self.wraps.state().unwrap_or(true)
+    }
+
+    pub(crate) fn remember_wrap(&self, wrap: bool) {
+        self.wraps.update(|value| {
+            if *value == Some(wrap) {
+                false
+            } else {
+                *value = Some(wrap);
                 true
             }
         });

@@ -96,6 +96,23 @@ fn mount(source: &str) -> (TestUi, MarkdownHandle) {
 }
 
 #[test]
+fn long_code_block_lines_wrap_instead_of_clipping() -> Result<(), Box<dyn std::error::Error>> {
+    let _runtime = Runtime::new().enter();
+    let long = format!("    let call = compute({});", "argument, ".repeat(40));
+    let source = format!("```rust\nfn short() {{}}\n{long}\n```");
+    let mut ui = TestUiBuilder::default().size(720.0, 640.0).fonts(rouge_widgets::bundled_fonts()).build(|| {
+        let doc = Arc::new(MarkdownDocument::new(&source));
+        markdown_review_view(MarkdownController::new(doc, ReviewTheme::default()).mount(|_| {}))
+    });
+    ui.advance(0.0);
+    let short = ui.bounds_of("markdown-row-1").ok_or("no short code line")?;
+    let long = ui.bounds_of("markdown-row-2").ok_or("no long code line")?;
+    assert!(long.size.height > short.size.height * 4.0, "{short:?} {long:?}");
+    assert!(long.max().x <= 720.0);
+    Ok(())
+}
+
+#[test]
 fn standalone_markdown_blocks_render_without_a_review_and_copy_code() -> Result<(), Box<dyn std::error::Error>> {
     let _runtime = Runtime::new().enter();
     let output = Rc::new(RefCell::new(Vec::new()));

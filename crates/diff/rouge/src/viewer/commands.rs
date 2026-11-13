@@ -17,6 +17,7 @@ impl ReviewController {
             capabilities: self.capabilities,
             repository_pending: self.repository_pending,
             themes_available: self.options.themes,
+            wrap_available: true,
             commits_available: self.session.commits().is_some(),
             source_view: self.session.shows_source(),
             browsable: self.capabilities.lookups,
@@ -142,6 +143,10 @@ impl ReviewController {
                 if changed {
                     self.effects.push(Effect::Output(ReviewOutput::ViewModeChanged(self.session.view_mode())));
                 }
+            }
+            C::ToggleWrap => {
+                self.wrap = !self.wrap;
+                self.effects.push(Effect::Output(ReviewOutput::WrapChanged(self.wrap)));
             }
             C::ToggleStage => {
                 let Some(action) = self

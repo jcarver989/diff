@@ -34,6 +34,7 @@ pub struct DiffViewerOptions {
     pub themes: bool,
     pub review_bar: bool,
     pub view_mode: ViewMode,
+    pub wrap: bool,
 }
 
 impl Default for DiffViewerOptions {
@@ -44,6 +45,7 @@ impl Default for DiffViewerOptions {
             themes: true,
             review_bar: true,
             view_mode: ViewMode::Auto,
+            wrap: true,
         }
     }
 }
@@ -53,6 +55,7 @@ pub enum ReviewOutput {
     Event(DiffViewerEvent),
     ThemeChanged(String),
     ViewModeChanged(ViewMode),
+    WrapChanged(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +75,7 @@ pub struct ReviewStatus {
     pub files_mode: FilesMode,
     pub view_mode: ViewMode,
     pub layout: Layout,
+    pub wrap: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +96,7 @@ pub struct ReviewController {
     browse: Option<FileTree>,
     pane: ViewerPane,
     sidebar_collapsed: bool,
+    wrap: bool,
     capabilities: ReviewCapabilities,
     repository_pending: bool,
     repository_error: Option<String>,
@@ -128,6 +133,7 @@ impl ReviewController {
             browse: None,
             pane: ViewerPane::Diff,
             sidebar_collapsed: false,
+            wrap: options.wrap,
             capabilities: ReviewCapabilities::default(),
             repository_pending: false,
             repository_error: None,
@@ -224,6 +230,7 @@ impl ReviewController {
             files_mode: self.session.files_mode(),
             view_mode: self.session.view_mode(),
             layout: self.session.selected_layout(),
+            wrap: self.wrap,
         }
     }
 

@@ -288,6 +288,7 @@ static DIFF_COMMANDS: &[CommandEntry] = &[
     entry(C::ToggleFileCollapsed(None), "Collapse / expand file", View, &[letter('z', Document)]),
     entry(C::ToggleAllFilesCollapsed, "Collapse / expand all files", View, &[letter('Z', Any)]),
     entry(C::ToggleLayout, "Toggle split / unified", View, &[letter('v', Any)]),
+    entry(C::ToggleWrap, "Toggle line wrap", View, &[letter('w', Any)]),
     entry(C::SetViewMode(ViewMode::Auto), "Auto layout", View, &[]),
     entry(C::SetViewMode(ViewMode::Unified), "Unified layout", View, &[]),
     entry(C::SetViewMode(ViewMode::Split), "Split layout", View, &[]),

@@ -6,7 +6,10 @@ use clankerdiff_core::{
 };
 use clankerdiff_rouge::{ReviewController, ReviewOutput, ViewerPane};
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Key, Point, Size, testing::TestResult};
+use rouge_core::{
+    Point, Rect, Size,
+    testing::{TestResult, TestUi},
+};
 use std::{fmt::Write, io, sync::Arc};
 
 #[test]
@@ -47,7 +50,7 @@ fn same_count_replacement_retargets_mounted_rows_and_sidebar() -> TestResult {
         ui.advance(0.0);
         ui.click_on(&format!("add-comment-{row}-New"))?;
         ui.type_text("after refresh");
-        ui.press(Key::Enter);
+        ui.press("enter");
         assert!(handle.with(|s| s.session().review().comments().any(|c| c.anchor.path.as_str() == "src/new.rs")));
         ui.click_on("toggle-sidebar")?;
         assert!(handle.status().get().sidebar_collapsed);
@@ -130,7 +133,7 @@ fn keyboard_reveal_clears_the_sticky_header_and_next_file_pushes_it_off() -> Tes
             "{covered:?} not in {header:?}"
         );
         assert!(handle.handle_command(C::SelectRow(row + 1)));
-        ui.press(Key::ArrowUp);
+        ui.press("up");
         assert_eq!(handle.selection().get().row, Some(row));
         let revealed = ui.bounds_of(&cell).ok_or_else(|| io::Error::other("no revealed row"))?;
         let header = ui.bounds_of("sticky-file-header").ok_or_else(sticky)?;
@@ -151,9 +154,11 @@ fn keyboard_reveal_clears_the_sticky_header_and_next_file_pushes_it_off() -> Tes
 }
 
 #[test]
-fn long_code_scrolls_under_fixed_gutters() -> TestResult {
+fn long_code_scrolls_under_fixed_gutters_when_wrapping_is_off() -> TestResult {
     let doc = DocumentBuilder::new().changed("long.txt", "", &format!("{}\n", "long line ".repeat(250))).build();
     common::run(doc, |ui, handle, _| {
+        assert!(handle.handle_command(C::ToggleWrap));
+        ui.advance(0.0);
         let row = first_code(&handle)?;
         let cell = ui.center_of(&format!("diff-cell-{row}-New"))?;
         let code = format!("code-{row}-New");
@@ -163,6 +168,119 @@ fn long_code_scrolls_under_fixed_gutters() -> TestResult {
         let after = ui.center_of(&code)?;
         assert!(after.x < before.x - 100.0, "{before:?} -> {after:?}");
         assert_eq!(ui.center_of(&format!("diff-cell-{row}-New"))?, cell);
+        Ok(())
+    })
+}
+
+#[test]
+fn long_code_wraps_inside_its_cell_and_marks_each_continuation_line() -> TestResult {
+    let doc = DocumentBuilder::new().changed("long.txt", "", &format!("    {}\n", "wrapped words ".repeat(60))).build();
+    common::run(doc, |ui, handle, _| {
+        let row = first_code(&handle)?;
+        let cell = bounds(ui, &format!("diff-cell-{row}-New"))?;
+        let code = bounds(ui, &format!("code-{row}-New"))?;
+        let marks = ui.bounds_of_all(&format!("code-{row}-New:continuation"));
+        assert!(marks.len() >= 3, "{} continuation lines", marks.len());
+        assert!(code.max().x <= cell.max().x, "{code:?} inside {cell:?}");
+        assert!(cell.size.height >= code.size.height, "{cell:?} fits {code:?}");
+        assert!(marks.iter().all(|mark| mark.max().x <= code.origin.x && mark.origin.x >= cell.origin.x));
+        assert!(marks.windows(2).all(|pair| pair[1].origin.y > pair[0].origin.y));
+
+        ui.pointer_moved(cell.center());
+        ui.scroll(Point::new(-220.0, 0.0));
+        ui.advance(0.0);
+        assert_eq!(bounds(ui, &format!("code-{row}-New"))?.origin, code.origin, "wrapped rows don't scroll sideways");
+        Ok(())
+    })
+}
+
+#[test]
+fn split_rows_grow_to_the_taller_side_and_any_wrapped_line_selects_the_cell() -> TestResult {
+    let long = format!("let long = \"{}\";\n", "text ".repeat(80));
+    let doc = DocumentBuilder::new().changed("src/lib.rs", "let short = 1;\n", &long).build();
+    common::run(doc, |ui, handle, _| {
+        assert!(handle.handle_command(C::SetViewMode(ViewMode::Split)));
+        ui.advance(0.0);
+        let row = first_code(&handle)?;
+        let old = bounds(ui, &format!("diff-cell-{row}-Old"))?;
+        let new = bounds(ui, &format!("diff-cell-{row}-New"))?;
+        let short = bounds(ui, &format!("code-{row}-Old"))?;
+        let wrapped = bounds(ui, &format!("code-{row}-New"))?;
+        assert_eq!(old.size.height, new.size.height);
+        assert!(wrapped.size.height > short.size.height * 2.5, "{short:?} {wrapped:?}");
+        assert!(new.size.height >= wrapped.size.height);
+
+        ui.click(Point::new(old.center().x, old.max().y - 4.0));
+        assert_eq!((handle.selection().get().row, handle.selection().get().side), (Some(row), DiffSide::Old));
+        ui.click(Point::new(wrapped.center().x, wrapped.max().y - 4.0));
+        assert_eq!((handle.selection().get().row, handle.selection().get().side), (Some(row), DiffSide::New));
+        Ok(())
+    })
+}
+
+#[test]
+fn toggling_wrap_restores_single_line_rows_and_reports_the_preference() -> TestResult {
+    let doc = DocumentBuilder::new().changed("long.txt", "", &format!("{}\n", "long line ".repeat(250))).build();
+    common::run(doc, |ui, handle, outputs| {
+        let row = first_code(&handle)?;
+        let wrapped = bounds(ui, &format!("diff-row-{row}"))?;
+        ui.press("w");
+        let single = bounds(ui, &format!("diff-row-{row}"))?;
+        assert!(!handle.status().get().wrap);
+        assert!(single.size.height * 3.0 < wrapped.size.height, "{single:?} {wrapped:?}");
+        assert_eq!(ui.bounds_of_all(&format!("code-{row}-New:continuation")), Vec::<Rect>::new());
+        assert!(outputs.borrow().contains(&ReviewOutput::WrapChanged(false)));
+
+        ui.click_on("toggle-wrap")?;
+        ui.advance(0.0);
+        assert!(handle.status().get().wrap);
+        assert_eq!(bounds(ui, &format!("diff-row-{row}"))?.size, wrapped.size);
+        assert!(outputs.borrow().contains(&ReviewOutput::WrapChanged(true)));
+        Ok(())
+    })
+}
+
+#[test]
+fn overlong_lines_show_a_bounded_prefix() -> TestResult {
+    let doc = DocumentBuilder::new().changed("min.js", "", &format!("{}\n", "x".repeat(200_000))).build();
+    common::run(doc, |ui, handle, _| {
+        let row = first_code(&handle)?;
+        let cell = bounds(ui, &format!("diff-cell-{row}-New"))?;
+        let code = bounds(ui, &format!("code-{row}-New"))?;
+        let lines = ui.bounds_of_all(&format!("code-{row}-New:continuation")).len() + 1;
+        assert!(200_000 / lines > 1_000, "only a prefix wraps: {lines} lines");
+        assert!(cell.size.height >= code.size.height);
+        Ok(())
+    })
+}
+
+#[test]
+fn scrolling_wrapped_rows_only_does_work_for_rows_that_mount() -> TestResult {
+    let mut patch = String::new();
+    writeln!(
+        patch,
+        "diff --git a/wide.rs b/wide.rs\nnew file mode 100644\n--- /dev/null\n+++ b/wide.rs\n@@ -0,0 +1,2000 @@"
+    )?;
+    for n in 0..2000 {
+        writeln!(patch, "+    let value_{n} = {};", "compute(alpha, beta, gamma) + ".repeat(1 + n % 7))?;
+    }
+    let doc = Arc::new(DiffDocument { files: parse_detached_git_diff(patch.as_bytes())?, ..DiffDocument::default() });
+    common::run(doc, |ui, _, _| {
+        let pane = ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
+        ui.pointer_moved(Point::new(pane.max().x - 30.0, pane.center().y));
+        let mut quiet = 0;
+        for _ in 0..120 {
+            let before = ui.stats();
+            ui.scroll(Point::new(0.0, -60.0));
+            ui.advance(0.016);
+            let frame = ui.stats() - before;
+            assert!(frame.passes <= 3, "a wrapped mount needs at most two follow-up passes: {frame:?}");
+            if frame.elements_created + frame.elements_removed == 0 {
+                quiet += 1;
+                assert_eq!((frame.layouts, frame.layer_paints, frame.text.shapes), (0, 0, 0), "{frame:?}");
+            }
+        }
+        assert!(quiet > 60, "most scroll frames mount nothing: {quiet}");
         Ok(())
     })
 }
@@ -271,4 +389,8 @@ fn first_code(handle: &clankerdiff_rouge::ReviewHandle) -> Result<usize, io::Err
             p.rows(0..p.row_count()).iter().position(|row| row.kind == RowKind::Code)
         })
         .ok_or_else(|| io::Error::other("missing code row"))
+}
+
+fn bounds(ui: &mut TestUi, name: &str) -> Result<Rect, io::Error> {
+    ui.bounds_of(name).ok_or_else(|| io::Error::other(format!("no bounds for {name}")))
 }
