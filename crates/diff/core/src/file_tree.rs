@@ -63,7 +63,7 @@ impl FileTree {
         let repository = self.repository.clone();
         for (path, file) in listed(repository.as_deref(), document) {
             let diff = file.map(|index| &document.files[index]);
-            let stat = diff.map(FileDiff::line_stat).unwrap_or_default();
+            let stat = diff.map_or_else(Default::default, FileDiff::line_stat);
             let stage = diff.map_or(StageState::Unstaged, |diff| diff.staged);
             let directories = path.directory().map_or_else(Vec::new, |directory| directory.split('/').collect());
             let shared = open.iter().zip(&directories).take_while(|(left, right)| left == right).count();

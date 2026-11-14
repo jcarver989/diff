@@ -62,7 +62,7 @@ impl DocumentSyntax {
             for side in [DiffSide::Old, DiffSide::New] {
                 self.sources.push(match before {
                     Some((index, before)) if same_source(before, file, side) => {
-                        kept.get_mut(index * 2 + side as usize).map(mem::take).unwrap_or_default()
+                        kept.get_mut(index * 2 + side as usize).map_or_else(Default::default, mem::take)
                     }
                     _ => OnceLock::new(),
                 });

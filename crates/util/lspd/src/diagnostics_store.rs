@@ -78,6 +78,6 @@ struct DiagnosticsState {
 
 impl DiagnosticsState {
     fn uri_version(&self, uri: &Uri) -> u64 {
-        self.diagnostics.get(uri).map(|(_, version)| *version).unwrap_or_default()
+        self.diagnostics.get(uri).map_or_else(Default::default, |(_, version)| *version)
     }
 }
