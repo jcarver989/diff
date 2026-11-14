@@ -189,7 +189,7 @@ impl MarkdownContent<'_> {
     }
 
     fn code_text(&self, code: &MarkdownCodeBlock, index: usize) -> StyledText {
-        let text = code.lines().get(index).map(|line| code.line_text(line).to_owned()).unwrap_or_default();
+        let text = code.lines().get(index).map_or_else(Default::default, |line| code.line_text(line).to_owned());
         style::code_text(text.into(), code.syntax().highlights.line(index).unwrap_or_default(), &self.theme.syntax)
     }
 

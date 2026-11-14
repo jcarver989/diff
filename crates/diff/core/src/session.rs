@@ -281,7 +281,7 @@ impl ReviewSession {
                     short_id: commit.map(|commit| commit.id.short().to_owned()),
                     subject: subject.to_owned(),
                     title: CommitTitle::parse(subject),
-                    body: commit.map(|commit| commit_description(&commit.body)).unwrap_or_default(),
+                    body: commit.map_or_else(Default::default, |commit| commit_description(&commit.body)),
                     stat,
                     age: commit
                         .and_then(|commit| commit.committed_at)

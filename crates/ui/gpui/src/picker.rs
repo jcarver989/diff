@@ -622,7 +622,7 @@ impl SearchPicker {
 
     #[must_use]
     pub fn query(&self, cx: &App) -> String {
-        self.search.as_ref().map(|(input, _)| input.read(cx).value().to_string()).unwrap_or_default()
+        self.search.as_ref().map_or_else(Default::default, |(input, _)| input.read(cx).value().to_string())
     }
 
     fn apply_query(&mut self, query: &str, cx: &mut Context<Self>) {
