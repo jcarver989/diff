@@ -274,7 +274,7 @@ fn scrolling_wrapped_rows_only_does_work_for_rows_that_mount() -> TestResult {
             ui.scroll(Point::new(0.0, -60.0));
             ui.advance(0.016);
             let frame = ui.stats() - before;
-            assert!(frame.passes <= 3, "a wrapped mount needs at most two follow-up passes: {frame:?}");
+            assert!(frame.relayouts <= 1, "a wrapped mount needs at most one relayout: {frame:?}");
             if frame.elements_created + frame.elements_removed == 0 {
                 quiet += 1;
                 assert_eq!((frame.layouts, frame.layer_paints, frame.text.shapes), (0, 0, 0), "{frame:?}");
@@ -315,7 +315,7 @@ fn scrolling_a_large_diff_only_does_work_for_rows_that_mount() -> TestResult {
             ui.scroll(Point::new(0.0, -f32::from(step)));
             ui.advance(0.016);
             let frame = ui.stats() - before;
-            assert!(frame.passes <= 2, "a mount needs at most one follow-up pass: {frame:?}");
+            assert!(frame.relayouts <= 1, "a mount needs at most one relayout: {frame:?}");
             if frame.elements_created + frame.elements_removed > 0 {
                 continue;
             }

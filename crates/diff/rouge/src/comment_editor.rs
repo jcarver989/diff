@@ -1,5 +1,7 @@
 use crate::ReviewHandle;
-use rouge_core::{Cursor, FocusHandle, Styled, Theme, View, div, dynamic, editable, focus_handle, px, text, view};
+use rouge_core::{
+    Cursor, FocusHandle, Role, Styled, Theme, View, div, dynamic, editable, focus_handle, px, text, view,
+};
 use rouge_reactive::{Callback, Memo, effect, memo, provide_context, signal, use_context};
 use rouge_widgets::{
     ButtonVariant, ControlSize, Material, MaterialExt, UI_FONT, UiStyles, button, tokens::RADIUS_CONTROL,
@@ -38,21 +40,21 @@ pub(crate) fn composer(
     let focus = draft.map_or_else(focus_handle, |draft| draft.handle);
     let empty = memo(move || value.with(|body| body.trim().is_empty()));
     view! {
-        <div test_id="comment-composer" flex col gap=12.0 p=12.0 material=Material::Surface bg=theme.surface_selected>
+        <div test_id="comment-composer" flex col gap=12.0 p=12.0 material=Material::Surface bg=Role::SurfaceSelected>
             <text body_strong primary>{title}</text>
             <div min_h=96.0 w_full p=12.0 rounded=RADIUS_CONTROL border=px(1.0)
                  border_color={move || { let c = theme.get(); if focus.is_focused() { c.accent } else { c.border } }}
-                 bg=theme.canvas cursor=Cursor::Text>
+                 bg=Role::Canvas cursor=Cursor::Text>
                 <editable value test_id="comment-editor" when:autofocus=autofocus track_focus=focus multiline
-                          min_rows=3 max_rows=12 font=UI_FONT text_size=13.0 line_height=1.5 color=theme.text w_full
+                          min_rows=3 max_rows=12 font=UI_FONT text_size=13.0 line_height=1.5 color=Role::Text w_full
                           submit_on_enter=true on_submit={move |body| submit.call(body.to_owned())}/>
             </div>
             <div w_full flex row justify_end items_center gap=8.0>
-                <button id="cancel-comment" label="Cancel" variant=ButtonVariant::Ghost size=ControlSize::Small
+                <button test_id="cancel-comment" label="Cancel" variant=ButtonVariant::Ghost control_size=ControlSize::Small
                         on_click=on_cancel/>
                 <dynamic>
-                    <button id="save-comment" label={if editing { "Save" } else { "Comment" }}
-                            size=ControlSize::Small variant=ButtonVariant::Primary disabled={empty.get()}
+                    <button test_id="save-comment" label={if editing { "Save" } else { "Comment" }}
+                            control_size=ControlSize::Small variant=ButtonVariant::Primary disabled={empty.get()}
                             on_click={move || submit.call(value.get_untracked())}/>
                 </dynamic>
             </div>

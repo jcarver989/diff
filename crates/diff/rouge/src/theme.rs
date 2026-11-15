@@ -1,7 +1,9 @@
 use clankerdiff_ui_core::{Appearance, ReviewTheme, TerminalPalette, ThemeChoice, ThemePreference, ThemeSelection};
-use rouge_core::{Div, Theme, View, appearance, component, view};
+use rouge_core::{Theme, View, appearance, component, view};
 use rouge_reactive::{ReadSignal, Signal, batch, expect_context, provide_context, signal};
-use rouge_widgets::{Material, PickerItem, SearchPickerEvent, SearchPickerHandle, backdrop, search_picker};
+use rouge_widgets::{
+    Material, PickerItem, SearchPicker, SearchPickerEvent, SearchPickerHandle, backdrop, search_picker,
+};
 use std::{cell::RefCell, sync::Arc};
 
 #[derive(Clone, Copy)]
@@ -110,9 +112,9 @@ pub fn theme_picker_view(
     #[prop(into)] id: String,
     handle: SearchPickerHandle,
     #[prop(default)] material: Material,
-) -> Div {
+) -> SearchPicker {
     view! {
-        <search_picker id handle material searchable="Search themes…" empty="No matching themes"
+        <search_picker test_id=id handle material=material searchable="Search themes…" empty="No matching themes"
                        footer="↑↓ Preview    ↵ Apply    Esc Cancel"/>
     }
 }
@@ -121,7 +123,7 @@ pub fn theme_picker_view(
 #[component]
 pub fn theme_picker_overlay(#[prop(into)] id: String, handle: SearchPickerHandle) -> impl View {
     view! {
-        <backdrop id="theme-picker-backdrop" on_dismiss={move || handle.dismiss()}>
+        <backdrop test_id="theme-picker-backdrop" on_dismiss={move || handle.dismiss()}>
             <theme_picker_view id handle/>
         </backdrop>
     }

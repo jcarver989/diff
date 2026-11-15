@@ -22,7 +22,7 @@ clankerdiff-client = { workspace = true, features = ["websocket"] }
 clankerdiff-lspd = { workspace = true, features = ["daemon"] }
 clankerdiff-server.workspace = true
 clankerdiff-rouge.workspace = true
-rouge = { workspace = true, features = ["open-url", "tokio-rt"] }
+rouge = { workspace = true, features = ["open-url", "persist"] }
 rouge-widgets.workspace = true
 log = { workspace = true, features = ["release_max_level_info"] }
 serde_json.workspace = true

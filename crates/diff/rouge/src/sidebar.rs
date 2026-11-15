@@ -1,16 +1,15 @@
 use crate::{ReviewHandle, ViewerPane, style};
 use clankerdiff_core::{FilesMode, StageState};
 use rouge_core::{
-    Align, Color, Div, RowKey, Styled, Theme, View, VirtualListHandle, div, dynamic, text, view, virtual_list,
+    Align, Color, Role, RowKey, Styled, Theme, View, VirtualListHandle, div, dynamic, text, view, virtual_list,
 };
-use rouge_reactive::{effect, memo, signal};
+use rouge_reactive::{Selector, Stored, effect, memo, selector, signal, stored};
 use rouge_widgets::{
-    CODE_FONT, CheckState, IconName, SelectionState, Side, UiStyles, checkbox, muted_text, resizable_panel,
-    tokens::ROW_HEIGHT, tree_row, vertical_scrollbar,
+    CODE_FONT, CheckModel, CheckState, IconName, SelectionState, Side, TreeRow, UiStyles, checkbox, muted_text,
+    resizable_panel, tokens::ROW_HEIGHT, tree_row, vertical_scrollbar,
 };
 
 pub(crate) fn sidebar(handle: ReviewHandle, list: VirtualListHandle) -> impl View {
-    let theme = Theme::current();
     let revision = handle.sidebar_revision();
     let status = handle.status();
     let mode = memo(move || status.get().files_mode);
@@ -20,28 +19,29 @@ pub(crate) fn sidebar(handle: ReviewHandle, list: VirtualListHandle) -> impl Vie
         handle.with(|state| state.tree().map_or(0, |tree| tree.entries().len()))
     });
     let selection = handle.selection();
-    let selected = memo(move || selection.get().sidebar_row);
+    let current = memo(move || selection.get().sidebar_row);
+    let selected = selector(move || current.get());
     effect(move || {
-        if let Some(row) = selected.get() {
+        if let Some(row) = current.get() {
             list.scroll_to_row(row, Align::Visible);
         }
     });
-    let preferred = handle.sidebar_width_rem();
+    let preferred = handle.sidebar_width();
     let width = signal(preferred.get_untracked());
     effect(move || {
         width.set_if_changed(preferred.get());
     });
     view! {
-        <resizable_panel test_id="files-panel" edge=Side::Left size=width min_size=0.0 max_size=60.0
+        <resizable_panel test_id="files-panel" edge=Side::Left size=width min_size=0.0 max_size=960.0
                          on_resize={move |width: f32| handle.resize_sidebar(Some(width))}
-                         on_reset={move || handle.resize_sidebar(None)}>
-            <div relative size_full flex col overflow_hidden bg=theme.surface border_r=1.0
-                 border_color={move || { let c = theme.get(); if selection.get().pane == ViewerPane::Files { c.accent } else { c.border } }}>
+                         on_reset={move || handle.resize_sidebar(None)}
+                         divider_color={move || if selection.get().pane == ViewerPane::Files { Role::Accent } else { Role::Border }}>
+            <div relative size_full flex col overflow_hidden bg=Role::Surface>
                 <div flex_1 min_h=0.0 relative>
                     <virtual_list count={move || count.get()} row_height=ROW_HEIGHT
                                   row_identity={move |index| RowKey::new((index, (revision.get(), mode.get())), 0)}
                                   handle=list size_full let:index>
-                        <div px=4.0>{row(handle, index)}</div>
+                        <div px=4.0>{row(handle, selected, index)}</div>
                     </virtual_list>
                     <div absolute right=0.0 top=0.0 bottom=0.0>{vertical_scrollbar(list.scroll_state())}</div>
                     <dynamic>{
@@ -56,7 +56,7 @@ pub(crate) fn sidebar(handle: ReviewHandle, list: VirtualListHandle) -> impl Vie
     }
 }
 
-fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
+fn row(handle: ReviewHandle, selected: Selector<Option<usize>>, index: usize) -> Option<TreeRow> {
     let theme = Theme::current();
     let entry = handle.with(|s| s.tree()?.entries().get(index).cloned())?;
     let status = handle.status();
@@ -64,7 +64,7 @@ fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
     let palette = handle.theme();
     let file_status =
         entry.file.and_then(|file| handle.with(|s| s.session().document().files.get(file).map(|f| f.status)));
-    let selection = handle.selection();
+    let selected = selected.is(Some(index));
     let id = entry.file.map_or_else(|| format!("directory-{}", entry.path), |file| format!("diff-file-{file}"));
     let directory = entry.directory;
     let accent = browsing && entry.changed;
@@ -78,7 +78,7 @@ fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
         match (directory, file_status) {
             (true, _) if accent => palette.with(|t| Color::from(t.diff.accent)),
             (false, Some(status)) => status_color(status),
-            _ => theme.text_muted.get(),
+            _ => theme.get().text_muted,
         }
     };
     let stat = (!directory && !browsing && entry.changed).then(|| {
@@ -119,18 +119,18 @@ fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
             if !status.context.capabilities.repository || status.files_mode != FilesMode::Diff {
                 return None;
             }
-            let path = path.clone();
+            let staging = Staging { handle, state, path: stored(path.clone()) };
             Some(view! {
-                <checkbox id={checkbox_id.clone()} state tooltip={format!("Toggle staging for {path}")}
-                          disabled=status.context.repository_pending on_toggle={move || handle.stage_tree_entry(&path)}/>
+                <checkbox checked=staging test_id={checkbox_id.clone()} tooltip={format!("Toggle staging for {path}")}
+                          disabled=status.context.repository_pending/>
             })
         })
     });
     Some(view! {
-        <tree_row id label={entry.name.clone()} depth=entry.depth expanded?={directory.then_some(entry.expanded)} icon
-                  icon_color
+        <tree_row test_id=id label={entry.name.clone()} depth=entry.depth expanded?={directory.then_some(entry.expanded)} icon=icon
+                  icon_color=icon_color
                   selection={move || {
-                      if selection.get().sidebar_row == Some(index) {
+                      if selected.get() {
                           SelectionState::Selected
                       } else {
                           SelectionState::None
@@ -143,4 +143,21 @@ fn row(handle: ReviewHandle, index: usize) -> Option<Div> {
             {staging}
         </tree_row>
     })
+}
+
+#[derive(Clone, Copy)]
+struct Staging {
+    handle: ReviewHandle,
+    state: CheckState,
+    path: Stored<String>,
+}
+
+impl CheckModel for Staging {
+    fn state(self) -> CheckState {
+        self.state
+    }
+
+    fn toggle(self) {
+        self.path.with(|path| self.handle.stage_tree_entry(path));
+    }
 }

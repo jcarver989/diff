@@ -131,14 +131,14 @@ pub(super) fn view(handle: &ReviewHandle, kind: OverlayKind) -> AnyView {
         OverlayKind::Help => {
             let (picker, palette) = help_picker(&handle);
             handle.picker.set(Some(picker));
-            view! { <backdrop id="command-palette-backdrop" align_top on_dismiss=cancel>{palette}</backdrop> }
+            view! { <backdrop test_id="command-palette-backdrop" align_top on_dismiss=cancel>{palette}</backdrop> }
                 .into_any()
         }
         OverlayKind::Commits => {
             let (picker, commits) = commit_picker(&handle);
             handle.picker.set(Some(picker));
             view! {
-                <backdrop id="commit-picker-backdrop" anchor_below=handle.commit_anchor() on_dismiss=cancel>
+                <backdrop test_id="commit-picker-backdrop" anchor_below=handle.commit_anchor() on_dismiss=cancel>
                     {commits}
                 </backdrop>
             }
@@ -172,14 +172,14 @@ pub(super) fn view(handle: &ReviewHandle, kind: OverlayKind) -> AnyView {
             let value = signal(String::new());
             let status = handle.status();
             view! {
-                <modal id="commit-prompt" title="Commit staged changes" on_dismiss=cancel>
+                <modal test_id="commit-prompt" title="Commit staged changes" on_dismiss=cancel>
                     <editable value test_id="commit-message" autofocus multiline min_rows=3 max_rows=12
                               submit_on_enter=true
                               on_submit={move |body| {
                                   handle.confirm_repository(Some(body));
                               }}/>
                     <text>{move || status.get().repository_error.unwrap_or_default()}</text>
-                    <button id="commit-confirm" label="Commit"
+                    <button test_id="commit-confirm" label="Commit"
                             on_click={move || {
                                 handle.confirm_repository(Some(&value.get_untracked()));
                             }}/>
@@ -204,7 +204,7 @@ fn discard_prompt(handle: &ReviewHandle) -> impl View + use<> {
         handle.confirm_repository(None);
     };
     view! {
-        <modal id="discard-prompt" title="Discard changes?" on_dismiss=cancel>
+        <modal test_id="discard-prompt" title="Discard changes?" on_dismiss=cancel>
             <div focusable autofocus tab_index=-1
                  on_key_down={move |event| {
                      if event.modifiers != Modifiers::NONE {
@@ -224,9 +224,9 @@ fn discard_prompt(handle: &ReviewHandle) -> impl View + use<> {
                  }}>
                 <text>{format!("Discard changes to {path}?")}</text>
                 <action_bar>
-                    <button id="discard-cancel" label="Cancel" keyboard_focusable on_click=cancel/>
-                    <button id="discard-confirm" label="Discard" variant=ButtonVariant::Destructive
-                            keyboard_focusable on_click=confirm/>
+                    <button test_id="discard-cancel" label="Cancel" on_click=cancel/>
+                    <button test_id="discard-confirm" label="Discard" variant=ButtonVariant::Destructive
+                            on_click=confirm/>
                 </action_bar>
             </div>
         </modal>

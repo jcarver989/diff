@@ -1,9 +1,9 @@
 use crate::{ReviewHandle, shortcut_label};
 use clankerdiff_core::{CommandContext, InteractionPhase, palette_commands};
-use rouge_core::{Div, view};
-use rouge_widgets::{PickerItem, SearchPickerEvent, SearchPickerHandle, search_picker};
+use rouge_core::view;
+use rouge_widgets::{PickerItem, SearchPicker, SearchPickerEvent, SearchPickerHandle, search_picker};
 
-pub(crate) fn help_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) {
+pub(crate) fn help_picker(handle: &ReviewHandle) -> (SearchPickerHandle, SearchPicker) {
     let handle = *handle;
     let entries: Vec<_> = handle.with(|state| {
         let context = CommandContext { phase: InteractionPhase::Browse, ..state.command_context() };
@@ -32,7 +32,7 @@ pub(crate) fn help_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) {
         _ => (),
     });
     let palette = view! {
-        <search_picker id="command-palette" handle=picker title="Commands" searchable="Search commands…"/>
+        <search_picker test_id="command-palette" handle=picker title="Commands" searchable="Search commands…"/>
     };
     (picker, palette)
 }

@@ -6,7 +6,7 @@ use rouge_syntax::{HighlightLine, SyntaxTheme};
 use rouge_widgets::{UiStyles, syntax_spans};
 
 pub(crate) fn code(line: &str, spans: HighlightLine<'_>, theme: &SyntaxTheme) -> Text {
-    rich_text(line.to_owned(), syntax_spans(line, spans, theme)).code().no_wrap()
+    rich_text(line.to_owned(), syntax_spans(spans, theme)).code().no_wrap()
 }
 
 pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette) -> Rgba {

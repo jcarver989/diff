@@ -1,7 +1,7 @@
 use clankerdiff_core::ViewMode;
 use clankerdiff_ui_core::{Appearance, ReviewTheme, ThemePair};
 use rouge::{
-    appearance,
+    core::appearance,
     persist::{self, config_dir},
 };
 use std::{io, path::PathBuf};

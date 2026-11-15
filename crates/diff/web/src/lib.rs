@@ -220,7 +220,8 @@ mod wasm {
         ReviewOutput, diff_view, markdown_review_view,
     };
     use clankerdiff_ui_core::ReviewTheme;
-    use rouge_core::{Color, Styled, View, div, dynamic, view};
+    use rouge::{App, WindowOptions};
+    use rouge_core::{Styled, View, WindowHandle, div, dynamic, view, window_handle};
     use rouge_reactive::{Signal, Task, on_cleanup, signal, spawn};
     use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, bundled_fonts};
     use std::{
@@ -232,6 +233,7 @@ mod wasm {
     use web_sys::{CustomEvent, CustomEventInit, HtmlCanvasElement};
 
     const CONNECTION_STATE_EVENT: &str = "diff-review-connection-state";
+    const CANVAS_ID: &str = "diff-review-canvas";
 
     thread_local! {
         static COMMANDS: RefCell<Option<Sender<WebCommand>>> = const { RefCell::new(None) };
@@ -239,10 +241,11 @@ mod wasm {
         static GENERATION: Cell<u64> = const { Cell::new(0) };
         static APP: RefCell<Option<Mounted>> = const { RefCell::new(None) };
         static STARTING: Cell<bool> = const { Cell::new(false) };
+        static WINDOW: Cell<Option<WindowHandle>> = const { Cell::new(None) };
     }
 
     struct Mounted {
-        _app: rouge_web::BrowserApp,
+        _app: rouge::platform::web::Mounted,
         _listeners: Vec<Listener>,
         canvas: HtmlCanvasElement,
     }
@@ -292,6 +295,7 @@ mod wasm {
     }
 
     fn root(receiver: Receiver<WebCommand>) -> impl View {
+        WINDOW.set(Some(window_handle()));
         let _ = InterfaceSize::install(DEFAULT_INTERFACE_SIZE);
         let viewer = ReviewController::with_options(
             Arc::new(demo_document()),
@@ -570,9 +574,9 @@ mod wasm {
         }
     }
     fn copy(text: String) {
-        spawn_local(async move {
-            report(rouge_web::copy_text(&text).await);
-        });
+        if let Some(window) = WINDOW.get() {
+            window.copy_text(text);
+        }
     }
     fn markdown_output(output: MarkdownOutput) {
         match output {
@@ -583,7 +587,6 @@ mod wasm {
                 dispatch_markdown_event(&event);
             }
             MarkdownOutput::ThemeChanged(id) => store_theme(&id),
-            MarkdownOutput::CopyCode(text) => copy(text),
             MarkdownOutput::OpenLink(url) => {
                 if let Some(window) = web_sys::window() {
                     let _ = window.open_with_url_and_target_and_features(&url, "_blank", "noopener,noreferrer");
@@ -607,13 +610,11 @@ mod wasm {
         STARTING.set(true);
         connect_from_query();
         spawn_local(async move {
-            let app = rouge_web::BrowserApp::mount(
-                canvas.clone(),
-                bundled_fonts(),
-                Color::new(0.06, 0.08, 0.10, 1.0),
-                move || root(receiver),
-            )
-            .await;
+            let app = App::new()
+                .fonts(bundled_fonts())
+                .window(WindowOptions::default().title("Diff Review").canvas(CANVAS_ID), move || root(receiver))
+                .mount()
+                .await;
             STARTING.set(false);
             match app {
                 Ok(app) => {
@@ -654,6 +655,7 @@ mod wasm {
             .ok_or_else(|| JsValue::from_str("browser document is unavailable"))?;
         let canvas = doc.create_element("canvas")?.dyn_into::<HtmlCanvasElement>().map_err(JsValue::from)?;
         canvas.set_attribute("aria-label", "Diff Review")?;
+        canvas.set_id(CANVAS_ID);
         let mut listeners = Vec::new();
         for (name, command) in [
             ("diff-review-set-document", set_document_json as fn(&str) -> Result<(), JsValue>),

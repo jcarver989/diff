@@ -13,13 +13,12 @@ use clankerdiff_symbols::{DefinitionCard, DocumentSyntax, NameLookup};
 use clankerdiff_ui_core::ReviewTheme;
 use overlay::{Overlay, OverlayKind, PickerCommand};
 use rouge_core::{
-    Align, BuildCx, ElementId, Key, KeyEvent, Rect, Styled, View, VirtualListHandle, div, dynamic, focus_handle,
-    root_font_size, view,
+    Align, BuildCx, Key, KeyEvent, Rect, Styled, View, VirtualListHandle, div, dynamic, focus_handle, view,
 };
 use rouge_reactive::{
     Callback, Memo, ReadSignal, Signal, Stored, Task, batch, effect, memo, signal, spawn, stored, untrack,
 };
-use rouge_widgets::{SearchPickerHandle, tokens::BASE_SIZE};
+use rouge_widgets::SearchPickerHandle;
 use std::{cell::Cell, mem, ops::Range, sync::Arc};
 
 pub use clankerdiff_core::FocusPane as ViewerPane;
@@ -41,7 +40,7 @@ impl Default for DiffViewerOptions {
     fn default() -> Self {
         Self {
             sidebar_width: None,
-            auto_split_width: 900.0 / 16.0,
+            auto_split_width: 900.0,
             themes: true,
             review_bar: true,
             view_mode: ViewMode::Auto,
@@ -266,10 +265,9 @@ fn sidebar_width(width: Option<f32>, preferred: Option<f32>, options: DiffViewer
     let Some(width) = width else {
         return 0.0;
     };
-    let rem = |px| px / BASE_SIZE;
-    let maximum = (width - rem(320.0)).clamp(0.0, rem(960.0));
-    let preferred = preferred.or(options.sidebar_width).unwrap_or_else(|| (width * 0.25).max(rem(320.0)));
-    preferred.clamp(rem(180.0).min(maximum), maximum)
+    let maximum = (width - 320.0).clamp(0.0, 960.0);
+    let preferred = preferred.or(options.sidebar_width).unwrap_or_else(|| (width * 0.25).max(320.0));
+    preferred.clamp(180.0_f32.min(maximum), maximum)
 }
 
 #[derive(Clone, Copy)]
@@ -277,7 +275,6 @@ pub(crate) struct Viewport {
     pub(crate) diff: VirtualListHandle,
     pub(crate) files: VirtualListHandle,
     pub(crate) visible: Signal<Range<usize>>,
-    pub(crate) root_font_size: Signal<f32>,
 }
 
 #[derive(Clone, Copy)]
@@ -326,7 +323,7 @@ impl ReviewHandle {
     }
 
     #[must_use]
-    pub const fn sidebar_width_rem(&self) -> Memo<f32> {
+    pub const fn sidebar_width(&self) -> Memo<f32> {
         self.sidebar_width
     }
 
@@ -599,12 +596,11 @@ struct ReviewView<T> {
 }
 
 impl<T: View, U: FnOnce() -> T + 'static> View for ReviewView<U> {
-    fn build(self, cx: &mut BuildCx<'_>) -> ElementId {
+    fn build(self, cx: &mut BuildCx<'_>) {
         let Self { handle, content } = self;
         let bounds = signal(Rect::default());
-        let font_size = root_font_size();
         effect(move || {
-            let width = bounds.get().size.width / font_size.get();
+            let width = bounds.get().size.width;
             if width.is_finite() {
                 handle.width.set_if_changed(Some(width));
             }
@@ -636,7 +632,7 @@ impl<T: View, U: FnOnce() -> T + 'static> View for ReviewView<U> {
                 <dynamic>{overlay::view(&handle, handle.overlay.get())}</dynamic>
             </div>
         }
-        .build(cx)
+        .build(cx);
     }
 }
 

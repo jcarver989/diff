@@ -35,11 +35,12 @@ fn gpu_renders_diff_layout_theme_and_interface_size_changes() -> TestResult {
     ui.advance(0.0);
     let changed = ui.render()?;
     assert_ne!(split.pixel(800, 500), changed.pixel(800, 500));
-    let before = ui.center_of("diff-file-header-0")?;
+    let before = ui.bounds_of("diff-viewer").ok_or_else(|| io::Error::other("no viewer"))?;
     size.set(22.0);
     ui.advance(0.0);
     let scaled = ui.render()?;
     assert!(changed.pixels != scaled.pixels, "scale change must repaint");
-    assert!(ui.center_of("diff-file-header-0")?.y > before.y);
+    let after = ui.bounds_of("diff-viewer").ok_or_else(|| io::Error::other("no viewer"))?;
+    assert!(after.size.width < before.size.width, "a larger interface zooms in: {before:?} -> {after:?}");
     Ok(())
 }

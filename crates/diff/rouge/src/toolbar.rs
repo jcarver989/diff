@@ -3,9 +3,7 @@ use clankerdiff_core::{
     ControlKind, DiffReviewCommand as C, FilesMode, PageLabel, ReviewCommand, Toolbar, ToolbarControl, ViewMode,
     tooltip,
 };
-use rouge_core::{
-    AnyView, Color, Cursor, Div, Length, Rect, Styled, Theme, View, div, dynamic, px, root_font_size, text, view,
-};
+use rouge_core::{AnyView, Color, Cursor, Div, Rect, Role, Styled, Theme, View, div, dynamic, px, text, view};
 use rouge_reactive::{memo, signal, use_context};
 use rouge_widgets::{
     ButtonVariant, CODE_FONT, ControlSize, Icon, IconName, InterfaceSize, NoticeTone, SizeAction, UiStyles, button,
@@ -45,23 +43,20 @@ impl Model {
 }
 
 pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
-    let theme = Theme::current();
     let handle = *handle;
     let status = handle.status();
     let revision = handle.presentation_revision();
     let selection = handle.selection();
-    let sidebar = handle.sidebar_width_rem();
+    let sidebar = handle.sidebar_width();
     let bounds = signal(Rect::ZERO);
-    let font = root_font_size();
     let model = memo({
         move || {
             let status = status.get();
             revision.get();
             let pane = selection.get().pane;
-            let width = bounds.get().size.width / font.get();
-            let rems = |design: f32| design / tokens::BASE_SIZE;
+            let width = bounds.get().size.width;
             let beside = width - sidebar.get();
-            let split = !status.sidebar_collapsed && beside >= rems(MIN_SPLIT_TOOLBAR_WIDTH);
+            let split = !status.sidebar_collapsed && beside >= MIN_SPLIT_TOOLBAR_WIDTH;
             let room = if split { beside } else { width };
             handle.with(|state| {
                 let session = state.session();
@@ -83,7 +78,7 @@ pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
                     files_mode: status.files_mode,
                     changes: session.document().files.len(),
                     split,
-                    compact: room < rems(COMPACT_TOOLBAR_WIDTH),
+                    compact: room < COMPACT_TOOLBAR_WIDTH,
                     wrap: status.wrap,
                     flags: Flags {
                         browsable: status.context.browsable,
@@ -96,8 +91,8 @@ pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
         }
     });
     view! {
-        <div test_id="diff-toolbar" flex col flex_none track_bounds=bounds bg=theme.chrome border_b=px(1.0)
-             border_color=theme.border>
+        <div test_id="diff-toolbar" flex col flex_none track_bounds=bounds bg=Role::Chrome border_b=px(1.0)
+             border_color=Role::Border>
             <dynamic>{bar(&handle, &model.get())}</dynamic>
         </div>
     }
@@ -105,12 +100,12 @@ pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
 
 fn bar(handle: &ReviewHandle, model: &Model) -> Div {
     let theme = Theme::current();
-    let sidebar = handle.sidebar_width_rem();
+    let sidebar = handle.sidebar_width();
     let focused = model.flags.files_focused;
     let files = model.split.then(|| {
         view! {
-            <div test_id="toolbar-files" flex_none w={move || Length::Rem(sidebar.get())} h_full px=8.0 flex row
-                 items_center gap=4.0 bg=theme.surface border_r=px(1.0)
+            <div test_id="toolbar-files" flex_none w={move || px(sidebar.get())} h_full px=8.0 flex row
+                 items_center gap=4.0 bg=Role::Surface border_r=px(1.0)
                  border_color={move || { let c = theme.get(); if focused { c.accent } else { c.border } }}>
                 {..files_controls(handle, model)}
             </div>
@@ -153,14 +148,14 @@ fn files_controls(handle: &ReviewHandle, model: &Model) -> Vec<AnyView> {
             let detail = (mode == FilesMode::Diff && model.changes > 0).then(|| model.changes.to_string());
             let handle = *handle;
             view! {
-                <segment id label icon detail?=detail selected={model.files_mode == mode}
+                <segment test_id=id label icon=icon detail?=detail selected={model.files_mode == mode}
                          disabled={!model.enabled(&command)}
                          on_click={move || {
                              handle.handle_command(command.clone());
                          }}/>
             }
         });
-        view! { <segmented_control id="files-mode">{..segments}</segmented_control> }.into_any()
+        view! { <segmented_control test_id="files-mode">{..segments}</segmented_control> }.into_any()
     });
     toggle.into_iter().chain(switcher).collect()
 }
@@ -193,11 +188,11 @@ fn review_target(handle: &ReviewHandle, model: &Model) -> Option<Div> {
                 return None;
             };
             Some(view! {
-                <segment id={format!("scope-{scope:?}")} label=scope.title() selected=item.selected
+                <segment test_id={format!("scope-{scope:?}")} label=scope.title() selected=item.selected
                          disabled={!model.enabled(&item.command)} on_click=run(handle, item)/>
             })
         });
-        view! { <segmented_control id="scopes">{..segments}</segmented_control> }
+        view! { <segmented_control test_id="scopes">{..segments}</segmented_control> }
     });
     if stepper.is_none() && scopes.is_none() {
         return None;
@@ -219,7 +214,7 @@ fn stepper(handle: &ReviewHandle, model: &Model) -> Option<Div> {
     };
     Some(view! {
         <div test_id="commit-stepper" flex_grow=0.0 flex_shrink=1.0 w=MAX_STEPPER_WIDTH min_w=MIN_STEPPER_WIDTH h_full
-             px=2.0 flex row items_center gap=2.0 rounded=tokens::RADIUS_CONTROL bg=Theme::current().surface
+             px=2.0 flex row items_center gap=2.0 rounded=tokens::RADIUS_CONTROL bg=Role::Surface
              track_bounds=handle.commit_anchor()>
             {control(handle, model, previous, Some(tokens::ICON_SIZE_SMALL))}
             {commit_trigger(handle, model, label, choose)}
@@ -256,7 +251,7 @@ fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choos
     let trigger = view! {
         <div test_id="choose-commit" w_full min_w=0.0 h=tokens::ICON_BUTTON_SIZE px=8.0 flex row items_center gap=8.0
              rounded=tokens::RADIUS_INNER cursor=Cursor::Pointer
-             bg={move || if hovered.get() { theme.surface_hover.get() } else { Color::TRANSPARENT }}
+             bg={move || if hovered.get() { theme.get().surface_hover } else { Color::TRANSPARENT }}
              on_hover={move |inside| {
                  hovered.set_if_changed(inside);
              }}
@@ -269,7 +264,7 @@ fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choos
             <div flex_1/>
             <div flex_none flex row items_center gap=8.0>
                 {position}
-                {Icon::new(IconName::ChevronDown, theme.text_muted).size(tokens::ICON_SIZE_SMALL)}
+                {Icon::new(IconName::ChevronDown, Role::TextMuted).size(tokens::ICON_SIZE_SMALL)}
             </div>
         </div>
     };
@@ -290,18 +285,18 @@ fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
         let segments = toolbar.layouts.iter().map(|item| {
             let (id, icon) = control_icon(item.kind);
             view! {
-                <segment id label={item.tooltip.clone()} icon selected=item.selected
+                <segment test_id=id label={item.tooltip.clone()} icon=icon selected=item.selected
                          disabled={!model.enabled(&item.command)} on_click=run(handle, item)/>
             }
         });
-        view! { <segmented_control id="view-mode-toggle">{..segments}</segmented_control> }
+        view! { <segmented_control test_id="view-mode-toggle">{..segments}</segmented_control> }
     });
     let handle = *handle;
     let wrap = toolbar.stat.map(|_| {
         let text = if model.wrap { "Stop wrapping long lines" } else { "Wrap long lines" };
         let label = tooltip(text, shortcut_label(&C::ToggleWrap));
         view! {
-            <icon_button id="toggle-wrap" icon=IconName::WrapText label selected=model.wrap
+            <icon_button test_id="toggle-wrap" icon=IconName::WrapText label selected=model.wrap
                          disabled={!model.enabled(&C::ToggleWrap)}
                          on_click={move || {
                              handle.handle_command(C::ToggleWrap);
@@ -318,7 +313,7 @@ fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
             {layouts}
             {wrap}
             {size}
-            <icon_button id="command-palette-button" icon=IconName::Search label="Commands"
+            <icon_button test_id="command-palette-button" icon=IconName::Search label="Commands"
                          on_click={move || {
                              handle.handle_command(ReviewCommand::ShowHelp);
                          }}/>
@@ -331,12 +326,12 @@ fn size_menu() -> Option<AnyView> {
     let size = use_context::<InterfaceSize>()?;
     let open = signal(false);
     let trigger = view! {
-        <button id="interface-size" label="Aa" variant=ButtonVariant::Ghost size=ControlSize::Small tooltip="Text size"
+        <button test_id="interface-size" label="Aa" variant=ButtonVariant::Ghost control_size=ControlSize::Small tooltip="Text size"
                 on_click={move || open.set(true)}/>
     };
     let menu = move || {
         let step = |id: &str, icon, label: &str, action| {
-            view! { <icon_button id icon label on_click={move || size.apply(action)}/> }
+            view! { <icon_button test_id=id icon=icon label on_click={move || size.apply(action)}/> }
         };
         let hovered = signal(false);
         view! {
@@ -345,7 +340,7 @@ fn size_menu() -> Option<AnyView> {
                 {step("decrease-interface-size", IconName::Minus, "Decrease text size", SizeAction::Decrease)}
                 <div test_id="reset-interface-size" h=tokens::ICON_BUTTON_SIZE px=tokens::CONTROL_PADDING_X_SMALL flex
                      items_center rounded=tokens::RADIUS_INNER cursor=Cursor::Pointer
-                     bg={move || if hovered.get() { theme.surface_hover.get() } else { Color::TRANSPARENT }}
+                     bg={move || if hovered.get() { theme.get().surface_hover } else { Color::TRANSPARENT }}
                      on_hover={move |inside| {
                          hovered.set_if_changed(inside);
                      }}
@@ -363,7 +358,7 @@ fn size_menu() -> Option<AnyView> {
 }
 
 fn divider() -> Div {
-    view! { <div flex_none w=px(1.0) h=tokens::ICON_SIZE mx=4.0 bg=Theme::current().border_subtle/> }
+    view! { <div flex_none w=px(1.0) h=tokens::ICON_SIZE mx=4.0 bg=Role::BorderSubtle/> }
 }
 
 fn run(handle: &ReviewHandle, item: &ToolbarControl) -> impl Fn() + Clone + 'static {
@@ -377,9 +372,10 @@ fn run(handle: &ReviewHandle, item: &ToolbarControl) -> impl Fn() + Clone + 'sta
 fn control(handle: &ReviewHandle, model: &Model, item: &ToolbarControl, icon_size: Option<f32>) -> AnyView {
     let (id, icon) = control_icon(item.kind);
     view! {
-        <icon_button id icon label={item.tooltip.clone()} icon_size?=icon_size selected=item.selected
+        <icon_button test_id=id icon=icon label={item.tooltip.clone()} icon_size?=icon_size selected=item.selected
                      disabled={!model.enabled(&item.command)} on_click=run(handle, item)/>
     }
+    .into_any()
 }
 
 const fn control_icon(kind: ControlKind) -> (&'static str, IconName) {

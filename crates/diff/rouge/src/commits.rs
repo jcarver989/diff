@@ -1,10 +1,10 @@
 use crate::{ReviewHandle, style};
 use clankerdiff_core::{CommitKind, CommitPage, DiffReviewCommand, InteractionPhase, LineStat};
 use clankerdiff_ui_core::ReviewTheme;
-use rouge_core::{Color, Div, Length, Palette, Styled, Theme, View, div, pct, px, scroll, text, view};
+use rouge_core::{Color, Div, Palette, Role, Styled, Theme, View, div, pct, px, scroll, text, view};
 use rouge_reactive::ReadSignal;
 use rouge_widgets::{
-    CODE_FONT, Icon, IconName, PickerItem, PickerMarker, SearchPickerEvent, SearchPickerHandle, UiStyles,
+    CODE_FONT, Icon, IconName, PickerItem, PickerMarker, SearchPicker, SearchPickerEvent, SearchPickerHandle, UiStyles,
     search_picker, tokens,
 };
 use std::rc::Rc;
@@ -18,7 +18,7 @@ const FACTS_GAP: f32 = 10.0;
 const CHANGE_BAR_HEIGHT: f32 = 4.0;
 const CHANGE_BAR_GAP: f32 = 2.0;
 
-pub(crate) fn commit_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) {
+pub(crate) fn commit_picker(handle: &ReviewHandle) -> (SearchPickerHandle, SearchPicker) {
     let handle = *handle;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
     let pages = Rc::new(handle.with(|state| state.session().commit_pages(now).unwrap_or_default()));
@@ -48,9 +48,9 @@ pub(crate) fn commit_picker(handle: &ReviewHandle) -> (SearchPickerHandle, Div) 
     })
     .highlighted(current);
     let commits = view! {
-        <search_picker id="commit-picker" handle=picker searchable="Search commits…"
-                       width=Length::design(tokens::PICKER_PREVIEW_WIDTH)
-                       height=Length::design(tokens::PICKER_PREVIEW_HEIGHT) max_list_height=pct(100.0)
+        <search_picker test_id="commit-picker" handle=picker searchable="Search commits…"
+                       w=px(tokens::PICKER_PREVIEW_WIDTH)
+                       h=px(tokens::PICKER_PREVIEW_HEIGHT) max_list_height=pct(100.0)
                        preview={move |index: usize| pages.get(index).map(|page| preview(page, palette)).into_any()}/>
     };
     (picker, commits)
@@ -120,11 +120,10 @@ fn eyebrow(page: &CommitPage) -> Div {
 }
 
 fn facts(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
-    let theme = Theme::current();
     let fact = move |icon: IconName, label: String, code: bool| {
         view! {
             <div flex row items_center gap=6.0>
-                {Icon::new(icon, theme.text_muted).size(tokens::ICON_SIZE_SMALL)}
+                {Icon::new(icon, Role::TextMuted).size(tokens::ICON_SIZE_SMALL)}
                 <text small secondary no_wrap when:font=(code, CODE_FONT)>{label}</text>
             </div>
         }
@@ -135,7 +134,7 @@ fn facts(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
     };
     view! {
         <div test_id="commit-preview-facts" flex_none mx=PREVIEW_PADDING_X pt=PREVIEW_GAP pb=PREVIEW_PADDING_BOTTOM
-             border_t=px(1.0) border_color=theme.border_subtle flex col gap=FACTS_GAP>
+             border_t=px(1.0) border_color=Role::BorderSubtle flex col gap=FACTS_GAP>
             <div flex row flex_wrap items_center gap=12.0>
                 {commit}
                 {page.title.pull_request.map(|number| fact(IconName::GitPullRequest, format!("#{number}"), false))}

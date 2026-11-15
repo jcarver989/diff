@@ -8,14 +8,14 @@ use clankerdiff_core::{
 };
 use clankerdiff_ui_core::{DiffPalette, Rgba};
 use rouge_core::{
-    Align, AnyView, Canvas, Color, Cursor, Div, Measure, Painter, Point, Rect, RowKey, ScrollLinked, Size, SpanStyle,
-    Styled, TextHit, TextRun, Theme, View, VirtualListHandle, canvas, div, dynamic, pct, px, root_font_size, show,
-    text, view, virtual_list, virtual_list_handle,
+    Align, AnyView, Canvas, Color, Cursor, Div, Measure, Painter, Point, Rect, Role, RowKey, ScrollLinked, Size,
+    SpanStyle, Styled, TextHit, TextRun, Theme, View, VirtualListHandle, canvas, div, dynamic, pct, px, show, text,
+    view, virtual_list, virtual_list_handle,
 };
-use rouge_reactive::{Memo, Signal, effect, memo, signal, untrack};
+use rouge_reactive::{Memo, Signal, effect, memo, signal};
 use rouge_widgets::{
-    CODE_WRAP, IconName, UiStyles, empty_state, icon_button, syntax_spans, tokens::BASE_SIZE, tokens::RADIUS_CONTROL,
-    tokens::scaled, typography::CODE, vertical_scrollbar,
+    CODE_WRAP, IconName, UiStyles, empty_state, icon_button, syntax_spans, tokens::RADIUS_CONTROL, typography::CODE,
+    vertical_scrollbar,
 };
 use std::{cell::Cell, ops::Range, rc::Rc};
 
@@ -29,6 +29,8 @@ const TEXT_TOP: f32 = 1.0;
 const META_PADDING: f32 = 12.0;
 const ADD_COMMENT_SIZE: f32 = 19.0;
 const CODE_PADDING_RIGHT: f32 = 8.0;
+/// Between side-by-side columns.
+const DIVIDER: f32 = 1.0;
 const MAX_LINE_BYTES: usize = 16 * 1024;
 const CONTINUATION: &str = "↪";
 
@@ -140,16 +142,15 @@ fn bind_navigation(
     range: Memo<Range<usize>>,
     visible: Signal<Range<usize>>,
 ) {
-    handle.bind_viewport(Viewport { diff: list, files, visible, root_font_size: root_font_size() });
+    handle.bind_viewport(Viewport { diff: list, files, visible });
     let requests = handle.reveal_row();
-    let header = scaled(HEADER_HEIGHT);
     effect(move || {
         if let Some((row, align)) = requests.get() {
             let range = range.get_untracked();
             if range.contains(&row) {
                 let index = row - range.start;
                 if align == Align::Visible {
-                    list.reveal_row(index, untrack(&header));
+                    list.reveal_row(index, HEADER_HEIGHT);
                 } else {
                     list.scroll_to_row(index, align);
                 }
@@ -159,10 +160,6 @@ fn bind_navigation(
 }
 
 impl Viewport {
-    fn row_height(&self) -> f32 {
-        CODE_HEIGHT * self.root_font_size.get_untracked() / BASE_SIZE
-    }
-
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -173,7 +170,7 @@ impl Viewport {
             self.visible.with_untracked(Range::len)
         } else {
             let height = self.files.scroll_state().try_get().map_or(0.0, |state| state.viewport.height);
-            (height / self.row_height()).floor() as usize
+            (height / CODE_HEIGHT).floor() as usize
         };
         isize::try_from(rows.max(1)).unwrap_or(isize::MAX)
     }
@@ -184,7 +181,7 @@ impl Viewport {
         let Some(state) = list.scroll_state().try_get() else {
             return;
         };
-        let offset = state.offset.y + request.lines as f32 * self.row_height();
+        let offset = state.offset.y + request.lines as f32 * CODE_HEIGHT;
         list.scroll_to(state.clamp(Point::new(state.offset.x, offset)));
     }
 }
@@ -201,10 +198,9 @@ fn sticky(
         let file = active.get()?;
         let span = handle.with(|state| state.session().presentation().file_range(file))?;
         let start = range.get().start;
-        let size = scaled(HEADER_HEIGHT);
         let link = move || ScrollLinked::Sticky {
             lo: list.row_top(span.start.saturating_sub(start)),
-            hi: list.row_top(span.end.saturating_sub(start)) - size(),
+            hi: list.row_top(span.end.saturating_sub(start)) - HEADER_HEIGHT,
         };
         Some(view! {
             <div test_id="sticky-file-header" absolute top=0.0 left=0.0 right=0.0
@@ -230,14 +226,12 @@ fn row(handle: &ReviewHandle, index: usize, flow: Flow, hover: Hover) -> AnyView
 fn meta(index: usize, row: &PresentedRow) -> Div {
     let theme = Theme::current();
     let content = row.primary_cell().map_or_else(String::new, |cell| cell.text.to_string());
-    let root = root_font_size();
     let label = canvas(move |painter| {
-        let scale = root.get() / BASE_SIZE;
-        let style = CODE.text_style(root.get());
+        let style = CODE.text_style();
         let size = painter.size();
-        let origin = Point::new(META_PADDING * scale, TEXT_TOP * scale);
+        let origin = Point::new(META_PADDING, TEXT_TOP);
         let clip = Rect::new(0.0, 0.0, size.width, size.height);
-        painter.run(TextRun::new(content.clone(), origin, &style, theme.text_muted.get()).clip(clip));
+        painter.run(TextRun::new(content.clone(), origin, &style, theme.get().text_muted).clip(clip));
     });
     view! {
         <div test_id={format!("diff-meta-{index}")} min_h=CODE_HEIGHT>{label.w_full().h(CODE_HEIGHT)}</div>
@@ -394,7 +388,6 @@ struct Ink {
 
 #[derive(Clone, Copy)]
 struct Geometry {
-    scale: f32,
     width: f32,
     count: usize,
     wrap: bool,
@@ -406,36 +399,28 @@ impl Geometry {
     fn column(&self, position: usize) -> Rect {
         let width = self.width / self.count.max(1) as f32;
         let last = position + 1 >= self.count;
-        Rect::new(position as f32 * width, 0.0, if last { width } else { width - self.scale }, 0.0)
+        Rect::new(position as f32 * width, 0.0, if last { width } else { width - DIVIDER }, 0.0)
     }
 
     fn code_left(&self, position: usize) -> f32 {
-        self.column(position).origin.x + (ACCENT_WIDTH + GUTTER_WIDTH) * self.scale
+        self.column(position).origin.x + ACCENT_WIDTH + GUTTER_WIDTH
     }
 
     fn number_edge(&self, position: usize) -> f32 {
-        self.column(position).origin.x + (ACCENT_WIDTH + GUTTER_WIDTH - GUTTER_PADDING) * self.scale
+        self.column(position).origin.x + ACCENT_WIDTH + GUTTER_WIDTH - GUTTER_PADDING
     }
 
-    fn code_run(
-        &self,
-        position: usize,
-        column: &Column,
-        cell: &PresentedCell,
-        spans: &Spans,
-        root: f32,
-        ink: Ink,
-    ) -> TextRun {
+    fn code_run(&self, position: usize, column: &Column, cell: &PresentedCell, spans: &Spans, ink: Ink) -> TextRun {
         let side = column.side;
         let column = self.column(position);
         let left = self.code_left(position);
-        let mut style = CODE.text_style(root);
+        let mut style = CODE.text_style();
         let (content, spans) = displayed(cell.text.as_ref(), spans, ink.number);
         style.spans = spans;
         style.wrap_indent = CODE_WRAP;
-        let top = TEXT_TOP * self.scale;
+        let top = TEXT_TOP;
         let run = if self.wrap {
-            let available = column.max().x - left - CODE_PADDING_RIGHT * self.scale;
+            let available = column.max().x - left - CODE_PADDING_RIGHT;
             TextRun::new(content, Point::new(left, top), &style, ink.text).wrap(available).continuation(
                 CONTINUATION,
                 self.number_edge(position),
@@ -447,8 +432,8 @@ impl Geometry {
         run.tag(side as u32)
     }
 
-    fn height(&self, measure: &mut Measure<'_>, columns: &[Column], spans: &[Spans], root: f32, ink: Ink) -> f32 {
-        let line = CODE_HEIGHT * self.scale;
+    fn height(&self, measure: &mut Measure<'_>, columns: &[Column], spans: &[Spans], ink: Ink) -> f32 {
+        let line = CODE_HEIGHT;
         if !self.wrap {
             return line;
         }
@@ -458,8 +443,8 @@ impl Geometry {
             .enumerate()
             .filter_map(|(position, (column, spans))| {
                 let cell = column.cell.as_ref()?;
-                let run = self.code_run(position, column, cell, spans, root, ink);
-                Some(measure.text(&run).max().y + TEXT_TOP * self.scale)
+                let run = self.code_run(position, column, cell, spans, ink);
+                Some(measure.text(&run).max().y + TEXT_TOP)
             })
             .fold(line, f32::max)
             .ceil()
@@ -508,7 +493,6 @@ fn painted(
     });
     let (handle, columns) = (*handle, columns.clone());
     let palette = handle.theme();
-    let root = root_font_size();
     let revision = handle.syntax_revision();
     let spans = memo({
         let columns = columns.clone();
@@ -520,7 +504,7 @@ fn painted(
                     .map(|column| {
                         column.cell.as_ref().map_or_else(Vec::new, |cell| {
                             handle.with_syntax(|_, syntax| {
-                                syntax_spans(cell.source_text(), syntax.ready_highlights(&row, cell), &review.syntax)
+                                syntax_spans(syntax.ready_highlights(&row, cell), &review.syntax)
                             })
                         })
                     })
@@ -535,10 +519,9 @@ fn painted(
         let spans = spans.get();
         let wrap = flow.wrap.get();
         let offset = if wrap { 0.0 } else { flow.offset.get() };
-        let root = root.get();
         let size = painter.size();
         code_height.set(size.height);
-        let geometry = Geometry { scale: root / BASE_SIZE, width: size.width, count: columns.len(), wrap, offset };
+        let geometry = Geometry { width: size.width, count: columns.len(), wrap, offset };
         let ink = Ink { number: colors.text_muted, text: colors.text, border: colors.border };
         palette.with(|review| {
             let fill = |column: &Column, cell: &PresentedCell| Fill {
@@ -553,27 +536,24 @@ fn painted(
                     _ => None,
                 },
             };
-            paint_line(painter, index, &columns, &spans, geometry, root, ink, fill);
+            paint_line(painter, index, &columns, &spans, geometry, ink, fill);
         });
     })
     .measure(move |measure, width| {
         let colors = theme.get();
-        let root = root.get();
         let wrap = flow.wrap.get();
-        let geometry = Geometry { scale: root / BASE_SIZE, width, count: measured.len(), wrap, offset: 0.0 };
+        let geometry = Geometry { width, count: measured.len(), wrap, offset: 0.0 };
         let ink = Ink { number: colors.text_muted, text: colors.text, border: colors.border };
-        geometry.height(measure, &measured, &spans.get(), root, ink)
+        geometry.height(measure, &measured, &spans.get(), ink)
     })
 }
 
-#[expect(clippy::too_many_arguments, reason = "Painting a row needs its geometry, palette and syntax together")]
 fn paint_line(
     painter: &mut Painter,
     index: usize,
     columns: &[Column],
     spans: &[Spans],
     geometry: Geometry,
-    root: f32,
     ink: Ink,
     fill: impl Fn(&Column, &PresentedCell) -> Fill,
 ) {
@@ -581,15 +561,14 @@ fn paint_line(
     if bounds.width <= 0.0 || bounds.height <= 0.0 {
         return;
     }
-    let scale = geometry.scale;
-    let style = CODE.text_style(root);
+    let style = CODE.text_style();
     for (position, (column, spans)) in columns.iter().zip(spans).enumerate() {
         let inner =
             Rect { size: Size::new(geometry.column(position).size.width, bounds.height), ..geometry.column(position) };
         let left = inner.origin.x;
         let side = column.side;
         if position + 1 < columns.len() {
-            painter.fill_rect(Rect::new(inner.max().x, 0.0, scale, bounds.height), ink.border);
+            painter.fill_rect(Rect::new(inner.max().x, 0.0, DIVIDER, bounds.height), ink.border);
         }
         let Some(cell) = &column.cell else {
             painter.region(format!("empty-{index}-{side:?}"), inner);
@@ -599,20 +578,18 @@ fn paint_line(
         let Fill { background, accent } = fill(column, cell);
         painter.fill_rect(inner, background);
         if let Some(accent) = accent {
-            painter.fill_rect(Rect::new(left, 0.0, ACCENT_WIDTH * scale, bounds.height), accent);
+            painter.fill_rect(Rect::new(left, 0.0, ACCENT_WIDTH, bounds.height), accent);
         }
         if column.anchor.is_some() {
-            let button = ADD_COMMENT_SIZE * scale;
-            painter.region(
-                format!("add-comment-{index}-{side:?}"),
-                Rect::new(left + ACCENT_WIDTH * scale, 0.0, button, button),
-            );
+            let button = ADD_COMMENT_SIZE;
+            painter
+                .region(format!("add-comment-{index}-{side:?}"), Rect::new(left + ACCENT_WIDTH, 0.0, button, button));
         }
         if let Some(line) = cell.line_number() {
             painter.run(
                 TextRun::new(
                     line.to_string(),
-                    Point::new(geometry.number_edge(position), TEXT_TOP * scale),
+                    Point::new(geometry.number_edge(position), TEXT_TOP),
                     &style,
                     ink.number,
                 )
@@ -621,7 +598,7 @@ fn paint_line(
         }
         let code_left = geometry.code_left(position);
         let clip = Rect::new(code_left, 0.0, (inner.max().x - code_left).max(0.0), bounds.height);
-        let run = geometry.code_run(position, column, cell, spans, root, ink);
+        let run = geometry.code_run(position, column, cell, spans, ink);
         painter.run(run.clip(clip).name(format!("code-{index}-{side:?}")));
     }
 }
@@ -703,7 +680,6 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
     let Some(info) = header_info(handle, index) else {
         return div();
     };
-    let theme = Theme::current();
     let handle = *handle;
     let palette = handle.theme();
     let tone = move |pick: fn(&DiffPalette) -> Rgba| move || palette.with(|t| Color::from(pick(&t.diff)));
@@ -715,7 +691,7 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
         if collapsed { (IconName::ChevronRight, "Expand file") } else { (IconName::ChevronDown, "Collapse file") };
     let toggle = info.source.is_none().then(|| {
         view! {
-            <icon_button id={format!("collapse-file-{index}")} icon label
+            <icon_button test_id={format!("collapse-file-{index}")} icon label
                          on_click={move || {
                              handle.handle_command(C::ToggleFileCollapsed(Some(index)));
                          }}/>
@@ -734,7 +710,7 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
                      let selected = selection.pane == ViewerPane::Diff && start.is_some() && selection.row == start;
                      palette.with(|t| Color::from(if selected { t.diff.accent } else { t.diff.border }))
                  }}
-                 bg=theme.surface overflow_hidden>
+                 bg=Role::Surface overflow_hidden>
                 {toggle}
                 <text code color={move || palette.with(|t| Color::from(style::file_status_color(status, &t.diff)))}>
                     {status.code().to_string()}
@@ -816,7 +792,7 @@ fn gap(handle: &ReviewHandle, index: usize) -> Div {
     };
     let reveal = info.is_expandable().then(|| {
         view! {
-            <icon_button id={format!("reveal-gap-{index}")} icon=IconName::ChevronsUpDown label={info.message()}
+            <icon_button test_id={format!("reveal-gap-{index}")} icon=IconName::ChevronsUpDown label={info.message()}
                          on_click={move || {
                              if handle.handle_command(C::SelectRow(index)) {
                                  handle.handle_command(C::RevealGap(RevealAmount::Step));

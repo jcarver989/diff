@@ -1,6 +1,6 @@
 use clankerdiff_core::{DiffReviewCommand, DiffScope};
 use clankerdiff_rouge::RunCommand;
-use rouge::{Menu, MenuItem};
+use rouge::core::{Menu, MenuItem};
 
 pub(crate) fn all() -> Vec<Menu> {
     vec![

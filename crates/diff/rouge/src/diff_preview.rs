@@ -60,9 +60,10 @@ impl PatchPreview {
                         Theme::provide(theme.ui);
                     }
                     body.push(view! {
-                        <button id={format!("{id}-more")} label={format!("… {hidden} more rows · Open full diff")}
-                                size=ControlSize::Small full_width on_click={move || on_open(&document)}/>
-                    });
+                        <button test_id={format!("{id}-more")} label={format!("… {hidden} more rows · Open full diff")}
+                                control_size=ControlSize::Small w_full on_click={move || on_open(&document)}/>
+                    }
+                    .into_any());
                 }
                 body
             }

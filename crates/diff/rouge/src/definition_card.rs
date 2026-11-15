@@ -1,7 +1,7 @@
 use crate::{ReviewHandle, style};
 use clankerdiff_core::{DiffReviewCommand as C, SourceLocation};
 use clankerdiff_symbols::SymbolReference;
-use rouge_core::{Modifiers, Styled, Theme, View, div, dynamic, scroll, text, view};
+use rouge_core::{Modifiers, Role, Styled, View, div, dynamic, scroll, text, view};
 use rouge_reactive::{Signal, memo};
 use rouge_widgets::{ControlSize, UiStyles, button};
 use std::ops::Range;
@@ -56,7 +56,6 @@ fn reference(handle: &ReviewHandle, origin: &SourceLocation, byte: usize) -> Opt
 }
 
 pub(crate) fn at_line(handle: ReviewHandle, location: SourceLocation) -> impl View {
-    let theme = Theme::current();
     let card = memo(move || {
         handle.definition_revision().get();
         handle.with(|s| s.definition_card().filter(|card| card.origin == location).cloned())
@@ -76,7 +75,7 @@ pub(crate) fn at_line(handle: ReviewHandle, location: SourceLocation) -> impl Vi
                     {code.map(|code| view! {
                         <div test_id="definition-card-signature" flex col overflow_hidden>
                             {..code.map_lines(|line, spans| {
-                                style::code(line, spans, &review_theme.syntax).color(theme.text)
+                                style::code(line, spans, &review_theme.syntax).color(Role::Text)
                             })}
                         </div>
                     })}
@@ -93,15 +92,15 @@ pub(crate) fn at_line(handle: ReviewHandle, location: SourceLocation) -> impl Vi
         });
         let action = |id: &str, label: &str, command: C| {
             view! {
-                <button id label size=ControlSize::Small
+                <button test_id=id label control_size=ControlSize::Small
                         on_click={move || {
                             handle.handle_command(command.clone());
                         }}/>
             }
         };
         Some(view! {
-            <div test_id="definition-card" flex col gap=4.0 p=8.0 min_w=0.0 bg=theme.elevated border=1.0
-                 border_color=theme.border on_hover={move |hovered| handle.set_definition_hovered(false, hovered)}>
+            <div test_id="definition-card" flex col gap=4.0 p=8.0 min_w=0.0 bg=Role::Elevated border=1.0
+                 border_color=Role::Border on_hover={move |hovered| handle.set_definition_hovered(false, hovered)}>
                 <text body_strong primary>{card.name}</text>
                 {body}
                 <div flex row gap=4.0>

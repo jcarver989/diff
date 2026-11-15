@@ -34,7 +34,7 @@ pub(crate) fn review_bar(handle: ReviewHandle) -> impl View {
         let button = |id: &'static str, label: &'static str, variant: ButtonVariant, command: DiffReviewCommand| {
             let enabled = handle.with(|s| s.command_enabled(&command));
             view! {
-                <button id label size=ControlSize::Small variant disabled={!enabled}
+                <button test_id=id label control_size=ControlSize::Small variant=variant disabled={!enabled}
                         on_click={move || {
                             handle.handle_command(command.clone());
                         }}/>

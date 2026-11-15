@@ -9,7 +9,10 @@ use clankerdiff_client::DiffClient;
 use clankerdiff_core::ReviewSubmission;
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewSubmission};
 use preferences::Preferences;
-use rouge::{App, Menu, WindowOptions, core::View};
+use rouge::{
+    App, WindowOptions,
+    core::{Menu, View},
+};
 use rouge_widgets::bundled_fonts;
 use std::sync::mpsc;
 use std::time::Duration;

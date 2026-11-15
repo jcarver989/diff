@@ -51,7 +51,7 @@ fn setting_a_review_theme_updates_the_installed_ui_theme() -> TestResult {
     });
     active.set(next.clone());
     ui.advance(0.0);
-    assert_eq!(kit.palette(), next.ui.map(Color::from));
+    assert_eq!(kit.get(), next.ui.map(Color::from));
     assert_eq!(active.terminal(), next.terminal_palette());
     Ok(())
 }
