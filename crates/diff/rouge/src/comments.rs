@@ -2,7 +2,7 @@ use crate::{ReviewHandle, comment_editor::composer};
 use clankerdiff_core::{DiffSide, LineAnchor, ReviewCommand, ReviewComment};
 use rouge_core::{Color, Role, Styled, View, div, dynamic, px, text, view};
 use rouge_reactive::memo;
-use rouge_widgets::{IconName, UiStyles, icon_button, tokens::RADIUS_CONTROL};
+use rouge_widgets::{IconName, UiStyles, icon_button, tokens::Radius};
 
 pub(crate) fn thread(handle: ReviewHandle, row: usize, side: DiffSide, anchor: LineAnchor) -> impl View {
     let comments = memo({
@@ -30,7 +30,7 @@ pub(crate) fn thread(handle: ReviewHandle, row: usize, side: DiffSide, anchor: L
                 let comments = comments.get();
                 let last = comments.len().checked_sub(1)?;
                 Some(view! {
-                    <div test_id={format!("comment-thread-{row}")} w_full flex col rounded=RADIUS_CONTROL
+                    <div test_id={format!("comment-thread-{row}")} w_full flex col rounded=Radius::Control
                          border=px(1.0) border_color=Role::Border overflow_hidden>
                         {..comments
                             .into_iter()

@@ -7,14 +7,14 @@ use rouge_core::{
     virtual_list,
 };
 use rouge_reactive::{Memo, Signal, memo, signal};
-use rouge_widgets::tokens::RADIUS_CONTROL;
+use rouge_widgets::tokens::Radius;
 use rouge_widgets::{
     Icon, IconName, MarkdownPaint, MarkdownRow, UiStyles, empty_state, icon_button, vertical_scrollbar,
 };
 
 const COLUMN_WIDTH: f32 = 780.0;
 const GUTTER_WIDTH: f32 = 28.0;
-const ADD_BUTTON_SIZE: f32 = 18.0;
+const ADD_BUTTON_SIZE: f32 = 20.0;
 const TOP_PADDING: f32 = 32.0;
 const BOTTOM_PADDING: f32 = 96.0;
 
@@ -93,7 +93,7 @@ fn gutter(handle: &MarkdownHandle, row: &MarkdownRow, selected: Memo<bool>, hove
     view! {
         <div w=GUTTER_WIDTH flex_none relative>
             <show when={move || selected.get()}>
-                <div absolute top=0.0 bottom=0.0 right=3.0 w=px(2.0) rounded=px(1.0) bg=Role::Accent/>
+                <div absolute top=0.0 bottom=0.0 right=4.0 w=px(2.0) rounded=Radius::Full bg=Role::Accent/>
             </show>
             {add}
         </div>
@@ -105,7 +105,7 @@ fn add_comment(handle: MarkdownHandle, target: MarkdownTargetId, offset: f32) ->
     let palette = handle.theme;
     view! {
         <div test_id={format!("markdown-add-comment-{}", target.index())} absolute left=4.0 top=offset
-             size=ADD_BUTTON_SIZE rounded={ADD_BUTTON_SIZE / 2.0}
+             size=ADD_BUTTON_SIZE rounded=Radius::Inner
              bg={move || palette.with(|theme| Color::from(theme.diff.accent))} cursor=Cursor::Pointer flex items_center
              justify_center
              on_click={move |event| {
@@ -128,7 +128,7 @@ fn thread(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<
         Some(view! {
             <div pt=8.0 pb=4.0>
                 <div test_id={format!("markdown-comment-thread-{}", target.index())} w_full flex col
-                     rounded=RADIUS_CONTROL border=px(1.0) border_color=Role::Border overflow_hidden>
+                     rounded=Radius::Control border=px(1.0) border_color=Role::Border overflow_hidden>
                     {..comments
                         .into_iter()
                         .enumerate()

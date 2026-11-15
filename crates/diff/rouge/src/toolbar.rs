@@ -121,10 +121,10 @@ fn bar(handle: &ReviewHandle, model: &Model) -> Div {
                 </div>
             </div>
             {model.error.clone().map(|error| view! {
-                <div px=8.0 pb=6.0><notification message=error tone=NoticeTone::Error/></div>
+                <div px=8.0 pb=8.0><notification message=error tone=NoticeTone::Error/></div>
             })}
             {model.flags.pending.then(|| view! {
-                <div px=12.0 pb=6.0><muted_text>"Updating repository…"</muted_text></div>
+                <div px=12.0 pb=8.0><muted_text>"Updating repository…"</muted_text></div>
             })}
         </div>
     }
@@ -170,7 +170,7 @@ fn leading(handle: &ReviewHandle, model: &Model) -> Div {
     let target = review_target(handle, model);
     let (has_files, has_history) = (!files.is_empty(), !history.is_empty());
     view! {
-        <div flex_1 min_w=0.0 overflow_hidden flex row items_center gap=2.0>
+        <div flex_1 min_w=0.0 overflow_hidden flex row items_center gap=4.0>
             {..files}
             {(has_files && has_history).then(divider)}
             {..history}
@@ -200,7 +200,7 @@ fn review_target(handle: &ReviewHandle, model: &Model) -> Option<Div> {
     let both = stepper.is_some() && scopes.is_some();
     Some(view! {
         <div test_id="review-target" flex_grow=0.0 flex_shrink=1.0 min_w=0.0 overflow_hidden h=tokens::ROW_HEIGHT flex
-             row items_center gap=2.0>
+             row items_center gap=4.0>
             {stepper}
             {both.then(divider)}
             {scopes}
@@ -214,7 +214,7 @@ fn stepper(handle: &ReviewHandle, model: &Model) -> Option<Div> {
     };
     Some(view! {
         <div test_id="commit-stepper" flex_grow=0.0 flex_shrink=1.0 w=MAX_STEPPER_WIDTH min_w=MIN_STEPPER_WIDTH h_full
-             px=2.0 flex row items_center gap=2.0 rounded=tokens::RADIUS_CONTROL bg=Role::Surface
+             px=4.0 flex row items_center gap=4.0 rounded=tokens::Radius::Control bg=Role::Surface
              track_bounds=handle.commit_anchor()>
             {control(handle, model, previous, Some(tokens::ICON_SIZE_SMALL))}
             {commit_trigger(handle, model, label, choose)}
@@ -250,7 +250,7 @@ fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choos
     });
     let trigger = view! {
         <div test_id="choose-commit" w_full min_w=0.0 h=tokens::ICON_BUTTON_SIZE px=8.0 flex row items_center gap=8.0
-             rounded=tokens::RADIUS_INNER cursor=Cursor::Pointer
+             rounded=tokens::Radius::Inner cursor=Cursor::Pointer
              bg={move || if hovered.get() { theme.get().surface_hover } else { Color::TRANSPARENT }}
              on_hover={move |inside| {
                  hovered.set_if_changed(inside);
@@ -306,7 +306,7 @@ fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
     let size = toolbar.stat.and_then(|_| size_menu());
     let after_stat = stat.is_some() && (collapse.is_some() || layouts.is_some() || wrap.is_some() || size.is_some());
     view! {
-        <div flex_none flex row items_center justify_end gap=2.0>
+        <div flex_none flex row items_center justify_end gap=4.0>
             {stat}
             {after_stat.then(divider)}
             {collapse}
@@ -335,11 +335,11 @@ fn size_menu() -> Option<AnyView> {
         };
         let hovered = signal(false);
         view! {
-            <div test_id="interface-size-menu" p=tokens::FLOATING_INSET flex row items_center gap=2.0>
+            <div test_id="interface-size-menu" p=tokens::FLOATING_INSET flex row items_center gap=4.0>
                 <div px=4.0 mr=4.0><text small secondary>"Text size"</text></div>
                 {step("decrease-interface-size", IconName::Minus, "Decrease text size", SizeAction::Decrease)}
                 <div test_id="reset-interface-size" h=tokens::ICON_BUTTON_SIZE px=tokens::CONTROL_PADDING_X_SMALL flex
-                     items_center rounded=tokens::RADIUS_INNER cursor=Cursor::Pointer
+                     items_center rounded=tokens::Radius::Inner cursor=Cursor::Pointer
                      bg={move || if hovered.get() { theme.get().surface_hover } else { Color::TRANSPARENT }}
                      on_hover={move |inside| {
                          hovered.set_if_changed(inside);

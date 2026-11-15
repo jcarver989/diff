@@ -3,9 +3,7 @@ use rouge_core::{
     Cursor, FocusHandle, Role, Styled, Theme, View, div, dynamic, editable, focus_handle, px, text, view,
 };
 use rouge_reactive::{Callback, Memo, effect, memo, provide_context, signal, use_context};
-use rouge_widgets::{
-    ButtonVariant, ControlSize, Material, MaterialExt, UI_FONT, UiStyles, button, tokens::RADIUS_CONTROL,
-};
+use rouge_widgets::{ButtonVariant, ControlSize, Material, MaterialExt, UI_FONT, UiStyles, button, tokens::Radius};
 use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, PartialEq)]
@@ -40,9 +38,9 @@ pub(crate) fn composer(
     let focus = draft.map_or_else(focus_handle, |draft| draft.handle);
     let empty = memo(move || value.with(|body| body.trim().is_empty()));
     view! {
-        <div test_id="comment-composer" flex col gap=12.0 p=12.0 material=Material::Surface bg=Role::SurfaceSelected>
+        <div test_id="comment-composer" flex col gap=12.0 p=12.0 material=Material::Glass>
             <text body_strong primary>{title}</text>
-            <div min_h=96.0 w_full p=12.0 rounded=RADIUS_CONTROL border=px(1.0)
+            <div min_h=96.0 w_full p=12.0 rounded=Radius::Inner border=px(1.0)
                  border_color={move || { let c = theme.get(); if focus.is_focused() { c.accent } else { c.border } }}
                  bg=Role::Canvas cursor=Cursor::Text>
                 <editable value test_id="comment-editor" when:autofocus=autofocus track_focus=focus multiline

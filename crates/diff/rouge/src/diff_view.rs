@@ -14,20 +14,19 @@ use rouge_core::{
 };
 use rouge_reactive::{Memo, Signal, effect, memo, signal};
 use rouge_widgets::{
-    CODE_WRAP, IconName, UiStyles, empty_state, icon_button, syntax_spans, tokens::RADIUS_CONTROL, typography::CODE,
+    CODE_WRAP, IconName, UiStyles, empty_state, icon_button, syntax_spans, tokens::Radius, typography::CODE,
     vertical_scrollbar,
 };
 use std::{cell::Cell, ops::Range, rc::Rc};
 
-const CODE_HEIGHT: f32 = 22.0;
+const CODE_HEIGHT: f32 = 20.0;
 const HEADER_HEIGHT: f32 = 40.0;
 const HEADER_INSET: f32 = 4.0;
-const ACCENT_WIDTH: f32 = 3.0;
+const ACCENT_WIDTH: f32 = 4.0;
 const GUTTER_WIDTH: f32 = 52.0;
-const GUTTER_PADDING: f32 = 7.0;
-const TEXT_TOP: f32 = 1.0;
+const GUTTER_PADDING: f32 = 8.0;
+const TEXT_TOP: f32 = 0.0;
 const META_PADDING: f32 = 12.0;
-const ADD_COMMENT_SIZE: f32 = 19.0;
 const CODE_PADDING_RIGHT: f32 = 8.0;
 /// Between side-by-side columns.
 const DIVIDER: f32 = 1.0;
@@ -581,7 +580,7 @@ fn paint_line(
             painter.fill_rect(Rect::new(left, 0.0, ACCENT_WIDTH, bounds.height), accent);
         }
         if column.anchor.is_some() {
-            let button = ADD_COMMENT_SIZE;
+            let button = annotation::ADD_COMMENT_SIZE;
             painter
                 .region(format!("add-comment-{index}-{side:?}"), Rect::new(left + ACCENT_WIDTH, 0.0, button, button));
         }
@@ -704,7 +703,7 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
              on_click={move |_| {
                  handle.handle_command(C::SelectFile(index));
              }}>
-            <div size_full flex row items_center gap=8.0 px=12.0 rounded=RADIUS_CONTROL border=px(1.0)
+            <div size_full flex row items_center gap=8.0 px=12.0 rounded=Radius::Control border=px(1.0)
                  border_color={move || {
                      let selection = selection.get();
                      let selected = selection.pane == ViewerPane::Diff && start.is_some() && selection.row == start;

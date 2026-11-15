@@ -13,8 +13,8 @@ use web_time::{SystemTime, UNIX_EPOCH};
 const PREVIEW_PADDING_X: f32 = 24.0;
 const PREVIEW_PADDING_TOP: f32 = 24.0;
 const PREVIEW_PADDING_BOTTOM: f32 = 20.0;
-const PREVIEW_GAP: f32 = 14.0;
-const FACTS_GAP: f32 = 10.0;
+const PREVIEW_GAP: f32 = 16.0;
+const FACTS_GAP: f32 = 12.0;
 const CHANGE_BAR_HEIGHT: f32 = 4.0;
 const CHANGE_BAR_GAP: f32 = 2.0;
 
@@ -108,7 +108,7 @@ fn eyebrow(page: &CommitPage) -> Div {
         None => ("Commit", colors.text_secondary),
     };
     view! {
-        <div test_id="commit-preview-eyebrow" flex row items_center gap=6.0>
+        <div test_id="commit-preview-eyebrow" flex row items_center gap=8.0>
             {marker(page, &colors)}
             <text small weight=500.0 color=tone>{label}</text>
             {page.title.scope.clone().map(|scope| view! {
@@ -122,7 +122,7 @@ fn eyebrow(page: &CommitPage) -> Div {
 fn facts(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
     let fact = move |icon: IconName, label: String, code: bool| {
         view! {
-            <div flex row items_center gap=6.0>
+            <div flex row items_center gap=8.0>
                 {Icon::new(icon, Role::TextMuted).size(tokens::ICON_SIZE_SMALL)}
                 <text small secondary no_wrap when:font=(code, CODE_FONT)>{label}</text>
             </div>
@@ -156,7 +156,7 @@ fn change_bar(stat: LineStat, palette: ReadSignal<ReviewTheme>) -> Option<Div> {
     (total > 0).then(|| {
         view! {
             <div test_id="commit-preview-change-bar" h=CHANGE_BAR_HEIGHT w_full flex row gap=CHANGE_BAR_GAP
-                 rounded=CHANGE_BAR_HEIGHT overflow_hidden>
+                 rounded=tokens::Radius::Full overflow_hidden>
                 {(stat.added > 0).then(|| view! {
                     <div h_full w=pct(100.0 * stat.added as f32 / total as f32)
                          bg={move || palette.with(|t| Color::from(t.diff.addition))}/>

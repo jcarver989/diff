@@ -9,7 +9,7 @@ use rouge_core::{AnyView, Color, Div, Styled, Theme, View, div, text, view};
 use rouge_reactive::use_context;
 use rouge_widgets::{
     ControlSize, UiStyles, button,
-    tokens::RADIUS_CONTROL,
+    tokens::Radius,
     typography::{BODY_STRONG, CAPTION},
 };
 use std::sync::Arc;
@@ -69,7 +69,7 @@ impl PatchPreview {
             }
         };
         view! {
-            <div test_id={id.clone()} flex col min_w=0.0 overflow_hidden rounded=RADIUS_CONTROL border=1.0
+            <div test_id={id.clone()} flex col min_w=0.0 overflow_hidden rounded=Radius::Control border=1.0
                  border_color=Color::from(theme.ui.border_subtle) bg=Color::from(theme.diff.background)>
                 {..body}
             </div>
@@ -93,7 +93,7 @@ fn preview_row(row: &PresentedRow, cell: &PresentedCell, syntax: &DocumentSyntax
         _ => " ",
     };
     view! {
-        <div px=6.0 flex row gap=4.0 bg=Color::from(tone.background) overflow_hidden>
+        <div px=8.0 flex row gap=4.0 bg=Color::from(tone.background) overflow_hidden>
             <text code color=Color::from(tone.foreground)>{marker}</text>
             {style::code(&cell.text, syntax.highlights(row, cell), &theme.syntax).color(Color::from(theme.diff.foreground))}
         </div>

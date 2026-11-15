@@ -2,7 +2,7 @@ use super::MarkdownHandle;
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownAnchors, MarkdownFocusPane, MarkdownReviewCommand};
 use rouge_core::{Role, RowKey, Styled, Theme, View, component, div, dynamic, px, text, view, virtual_list};
-use rouge_widgets::tokens::ROW_HEIGHT;
+use rouge_widgets::tokens::{ROW_HEIGHT, Radius};
 use rouge_widgets::{
     ButtonVariant, CODE_FONT, ControlSize, IconName, ModalSize, SelectionState, Side, UiStyles, button, icon_button,
     modal, resizable_panel, tree_row, vertical_scrollbar,
@@ -170,7 +170,7 @@ fn outline_row(handle: &MarkdownHandle, index: usize) -> Option<impl View> {
                 annotations.get();
                 let count = handle.section_comment_count(index);
                 (count > 0).then(|| view! {
-                    <div flex_none px=6.0 rounded=ROW_HEIGHT bg=Role::SurfaceSelected>
+                    <div flex_none px=4.0 rounded=Radius::Inner bg=Role::SurfaceSelected>
                         <text caption accent>{count.to_string()}</text>
                     </div>
                 })

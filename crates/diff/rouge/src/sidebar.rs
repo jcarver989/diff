@@ -119,10 +119,10 @@ fn row(handle: ReviewHandle, selected: Selector<Option<usize>>, index: usize) ->
             if !status.context.capabilities.repository || status.files_mode != FilesMode::Diff {
                 return None;
             }
-            let staging = Staging { handle, state, path: stored(path.clone()) };
+            let staging = Staging { state, path: stored(path.clone()), handle };
             Some(view! {
-                <checkbox checked=staging test_id={checkbox_id.clone()} tooltip={format!("Toggle staging for {path}")}
-                          disabled=status.context.repository_pending/>
+                <checkbox checked=staging test_id={checkbox_id.clone()}
+                          tooltip={format!("Toggle staging for {path}")} disabled=status.context.repository_pending/>
             })
         })
     });
@@ -145,11 +145,12 @@ fn row(handle: ReviewHandle, selected: Selector<Option<usize>>, index: usize) ->
     })
 }
 
+/// A row's staging checkbox: shows the entry's stage state, and toggling asks the repository to (un)stage it.
 #[derive(Clone, Copy)]
 struct Staging {
-    handle: ReviewHandle,
     state: CheckState,
     path: Stored<String>,
+    handle: ReviewHandle,
 }
 
 impl CheckModel for Staging {
