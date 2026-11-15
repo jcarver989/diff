@@ -96,7 +96,7 @@ fn derived_ansi(theme: &ReviewTheme) -> [Rgba; 16] {
     let ui = &theme.ui;
     let dark = theme.appearance() == Appearance::Dark;
     let syntax = |names: &[&str], fallback: Rgba| {
-        names.iter().find_map(|name| theme.syntax.style(name)).map_or(solid(fallback), |style| solid(style.foreground))
+        names.iter().find_map(|name| theme.syntax_style(name)).map_or(solid(fallback), |style| solid(style.foreground))
     };
     let canvas = solid(ui.canvas);
     let text = solid(ui.text);

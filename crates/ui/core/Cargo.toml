@@ -14,6 +14,7 @@ workspace = true
 arborium-theme.workspace = true
 clankerdiff-fingerprint.workspace = true
 rouge-syntax.workspace = true
+rouge-picker.workspace = true
 rouge-theme.workspace = true
 serde.workspace = true
 serde_json.workspace = true

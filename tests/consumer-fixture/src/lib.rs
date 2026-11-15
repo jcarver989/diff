@@ -11,7 +11,7 @@ mod tests {
         markdown::{
             MarkdownDocument, MarkdownReviewCommand, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownStream,
         },
-        syntax::{LanguageHint, resolve_language},
+        syntax::resolve_language,
         theme::{ReviewTheme, Rgba, ThemeChoice, ThemeId},
     };
     use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
@@ -56,7 +56,7 @@ mod tests {
     fn preview_and_review_events_use_facade_types() -> TestResult {
         let theme = ReviewTheme::builtin("sage")?;
         let choice = ThemeChoice::new("Consumer", theme.clone());
-        assert_eq!(resolve_language(LanguageHint::Path("file.rs"), ""), Some("rust"));
+        assert_eq!(resolve_language("file.rs", ""), Some("rust"));
         let mut preview = DiffPreviewState::new(FileDiff::from_texts("file.rs", "old\n", "new\n")?);
         let lines = preview.render(
             80,

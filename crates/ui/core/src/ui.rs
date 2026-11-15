@@ -1,4 +1,4 @@
-use crate::{Rgba, ThemeError, UiPalette};
+use crate::{MarkdownPalette, Rgba, ThemeError, UiPalette};
 use serde::{Deserialize, Deserializer};
 use std::{collections::BTreeMap, sync::LazyLock};
 
@@ -80,6 +80,18 @@ pub(crate) const fn colors(ui: &UiPalette) -> [Rgba; 20] {
         ui.destructive,
         ui.destructive_foreground,
         ui.scrim,
+    ]
+}
+
+pub(crate) const fn markdown_colors(markdown: &MarkdownPalette) -> [Rgba; 7] {
+    [
+        markdown.heading,
+        markdown.link,
+        markdown.quote,
+        markdown.inline_code,
+        markdown.inline_code_background,
+        markdown.code,
+        markdown.code_background,
     ]
 }
 

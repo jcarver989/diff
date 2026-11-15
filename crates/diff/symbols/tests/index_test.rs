@@ -1,6 +1,5 @@
 use clankerdiff_core::{DiffSide, RepoPath, SourceLocation, testing::DocumentBuilder};
 use clankerdiff_symbols::{DocumentSyntax, SymbolChange, SymbolIndex, SymbolKind};
-use rouge_syntax::thread_work;
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -133,10 +132,10 @@ fn indexing_analyzes_only_sources_with_a_symbols_query_once() {
         .changed("src/lib.rs", "", "fn one() {}\n")
         .changed("data.json", "{}\n", "{\"a\": 1}\n")
         .build();
-    let before = thread_work().parses();
     let syntax = DocumentSyntax::new(document);
+    let before = syntax.work_stats().parses();
     assert_eq!(syntax.symbols().definitions("one", None).len(), 1);
-    assert_eq!(thread_work().parses() - before, 1, "only the Rust source with a symbols query is parsed");
+    assert_eq!(syntax.work_stats().parses() - before, 1, "only the Rust source with a symbols query is parsed");
     assert!(Arc::ptr_eq(&syntax.symbols(), &syntax.symbols()));
 }
 
@@ -148,10 +147,10 @@ fn syncing_to_an_edited_document_reindexes_and_keeps_unchanged_sources_analyzed(
     syntax.sync(&document);
     assert!(Arc::ptr_eq(&first, &syntax.symbols()));
     let next = DocumentBuilder::new().changed("src/lib.rs", "fn zero() {}\n", "fn one() {}\nfn two() {}\n").build();
-    let before = thread_work().parses();
+    let before = syntax.work_stats().parses();
     syntax.sync(&next);
     assert_eq!(syntax.symbols().definitions("two", None).len(), 1);
-    assert_eq!(thread_work().parses() - before, 1, "the unchanged old side keeps its analysis");
+    assert_eq!(syntax.work_stats().parses() - before, 1, "the unchanged old side keeps its analysis");
 }
 
 const OLD_LIB: &str = "pub struct Cache {

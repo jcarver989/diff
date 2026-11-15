@@ -1,6 +1,6 @@
 use crate::SymbolIndex;
 use clankerdiff_core::{DiffDocument, DiffSide, FileDiff, Hunk, PresentedCell, PresentedRow, RepoPath, join_lines};
-use rouge_syntax::{HighlightLine, LanguageHint, SourceSyntax, SymbolTags, analyze, has_symbols};
+use rouge_syntax::{HighlightLine, SourceSyntax, SymbolTags, SyntaxWorkStats, analyze, has_symbols};
 use std::{
     collections::HashMap,
     mem,
@@ -20,6 +20,7 @@ pub struct DocumentSyntax {
     windows: Vec<OnceLock<HunkWindow>>,
     prepared: Vec<OnceLock<()>>,
     symbols: OnceLock<Arc<SymbolIndex>>,
+    retired: SyntaxWorkStats,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +57,11 @@ impl DocumentSyntax {
                 .iter()
                 .map(|source| source.get().cloned().map(OnceLock::from).unwrap_or_default())
                 .collect(),
+            retired: self
+                .windows
+                .iter()
+                .filter_map(OnceLock::get)
+                .fold(self.retired, |work, window| work + window.syntax.work_stats()),
             ..Self::default()
         };
         next.follow(Arc::clone(document));
@@ -77,6 +83,11 @@ impl DocumentSyntax {
         if let Some(prepared) = self.prepared.get(file) {
             let _ = prepared.set(());
         }
+    }
+
+    #[must_use]
+    pub fn work_stats(&self) -> SyntaxWorkStats {
+        live_work(&self.sources, &self.windows, self.retired)
     }
 
     #[must_use]
@@ -122,6 +133,7 @@ impl DocumentSyntax {
             hunks += u32::try_from(file.hunks.len()).expect("hunk count fits u32");
             self.file_hunks.push(hunks);
         }
+        self.retired = live_work(&kept, &self.windows, self.retired);
         self.windows = (0..windows).map(|_| OnceLock::new()).collect();
         self.prepared = (0..self.document.files.len()).map(|_| OnceLock::new()).collect();
         self.symbols = OnceLock::new();
@@ -141,7 +153,7 @@ impl DocumentSyntax {
         let diff = &self.document.files[file];
         match diff.source_document(side) {
             Some(source) if has_symbols(language(diff, side), source.text()) => {
-                self.source(file, side).map_or_else(Arc::default, |syntax| Arc::clone(&syntax.symbols))
+                self.source(file, side).map_or_else(Arc::default, |syntax| Arc::clone(syntax.symbols()))
             }
             _ => Arc::default(),
         }
@@ -204,12 +216,22 @@ impl HunkWindow {
     }
 }
 
+fn live_work(
+    sources: &[OnceLock<SourceSyntax>],
+    windows: &[OnceLock<HunkWindow>],
+    retired: SyntaxWorkStats,
+) -> SyntaxWorkStats {
+    let sources = sources.iter().filter_map(OnceLock::get).map(SourceSyntax::work_stats);
+    let windows = windows.iter().filter_map(OnceLock::get).map(|window| window.syntax.work_stats());
+    sources.chain(windows).fold(retired, |work, next| work + next)
+}
+
 fn window_count(hunk: &Hunk) -> u32 {
     u32::try_from(hunk.lines.len().div_ceil(HUNK_WINDOW_LINES)).expect("window count fits u32")
 }
 
-fn language(file: &FileDiff, side: DiffSide) -> LanguageHint<'_> {
-    LanguageHint::Path(file.path_for_side(side).as_str())
+fn language(file: &FileDiff, side: DiffSide) -> &str {
+    file.path_for_side(side).as_str()
 }
 
 fn same_source(before: &FileDiff, after: &FileDiff, side: DiffSide) -> bool {

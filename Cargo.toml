@@ -79,8 +79,8 @@ rouge = { path = "../rouge/crates/rouge" }
 rouge-core = { path = "../rouge/crates/rouge-core" }
 rouge-reactive = { path = "../rouge/crates/rouge-reactive" }
 rouge-widgets = { path = "../rouge/crates/rouge-widgets" }
-rouge-web = { path = "../rouge/crates/rouge-web" }
 rouge-theme = { path = "../rouge/crates/rouge-theme" }
+rouge-picker = { path = "../rouge/crates/rouge-picker" }
 rouge-syntax = { path = "../rouge/crates/rouge-syntax" }
 rouge-markdown = { path = "../rouge/crates/rouge-markdown" }
 

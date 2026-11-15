@@ -8,7 +8,6 @@ use ratatui::{
     text::Line,
     widgets::{Paragraph, Widget},
 };
-use rouge_syntax::thread_work;
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -119,13 +118,13 @@ fn theme_changes_recolor_previews_without_parsing() -> Result<(), Box<dyn Error>
     let mut state =
         DiffPreviewState::new(FileDiff::from_texts("src/main.rs", "let before = 1;\n", "let after = 2;\n")?);
     let options = DiffPreviewOptions::default();
-    let before = thread_work().parses();
+    let before = state.syntax_work().parses();
     let first = state.render(80, &ReviewTheme::default(), options);
-    let parsed = thread_work().parses();
+    let parsed = state.syntax_work().parses();
     assert!(parsed > before);
     let changed = state.render(80, &ReviewTheme::ayu()?, options);
     assert_ne!(first, changed);
-    assert_eq!(thread_work().parses(), parsed);
+    assert_eq!(state.syntax_work().parses(), parsed);
     Ok(())
 }
 
@@ -204,7 +203,7 @@ fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result
         let mut state = DiffPreviewState::new(file);
         for max_content_rows in [0, 1, 2, 20] {
             for overflow_summary in [false, true] {
-                let before = thread_work().parser_input_bytes;
+                let before = state.syntax_work().parser_input_bytes;
                 let rows = state.render(
                     width,
                     &ReviewTheme::default(),
@@ -217,7 +216,7 @@ fn preview_budget_counts_visual_rows_and_reports_partial_source_rows() -> Result
                     },
                 );
                 if max_content_rows == 0 {
-                    assert_eq!(thread_work().parser_input_bytes, before);
+                    assert_eq!(state.syntax_work().parser_input_bytes, before);
                 }
                 assert_eq!(rows.len(), max_content_rows + usize::from(overflow_summary));
                 assert!(rows.iter().all(|row| row.width() == usize::from(width)));

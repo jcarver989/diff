@@ -3,7 +3,7 @@ use clankerdiff_core::{
     DefinitionRequest, DefinitionTarget, DiffSide, Lookup, LookupReply, LookupRequest, LookupStatus, LookupUnavailable,
     RepoPath, Resolution, ReviewSession, SourceLocation, TargetLocation,
 };
-use rouge_syntax::{HighlightLine, LanguageHint, analyze};
+use rouge_syntax::{HighlightLine, analyze};
 use std::{collections::HashMap, mem, ops::Range};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -48,7 +48,7 @@ pub struct CardCode<'a> {
 impl CardCode<'_> {
     #[must_use]
     pub fn map_lines<T>(&self, mut line: impl FnMut(&str, HighlightLine<'_>) -> T) -> Vec<T> {
-        let highlights = analyze(LanguageHint::Path(self.path.as_str()), self.text).highlights;
+        let highlights = analyze(self.path.as_str(), self.text).highlights;
         self.text
             .lines()
             .enumerate()

@@ -3,10 +3,12 @@ mod selection;
 mod terminal;
 mod ui;
 pub use appearance::{ThemePair, ThemePreference};
+pub use rouge_picker::{PickerOption, PickerRow, PickerState};
+use rouge_syntax::capture_style;
 pub use rouge_syntax::{FontStyle, HighlightId, HighlightSpan, SyntaxStyle, SyntaxTheme};
 pub use rouge_theme::{
-    Appearance, AppearanceMode, ButtonVariant, ControlSize, ControlState, InteractionState, MarkdownPalette, ModalSize,
-    NoticeTone, PickerOption, PickerRow, PickerState, Rgba, SCRIM_ALPHA, SelectionState, SemanticStyle, UiPalette,
+    Appearance, AppearanceMode, ButtonVariant, ControlState, InteractionState, MarkdownPalette, ModalSize, NoticeTone,
+    Rgba, SelectionState, SemanticStyle, UiPalette,
 };
 pub use selection::{ThemeChoice, ThemeSelection};
 pub use terminal::TerminalPalette;
@@ -14,7 +16,11 @@ pub use terminal::TerminalPalette;
 use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt, sync::LazyLock};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{Arc, LazyLock},
+};
 
 const THEME_VERSION: u32 = 3;
 
@@ -158,14 +164,43 @@ pub struct ReviewTheme {
     pub ui: UiPalette,
     pub syntax: SyntaxTheme,
     pub markdown: MarkdownPalette,
+    captures: Arc<BTreeMap<String, SyntaxStyle>>,
 }
 
+const SAGE_UI: UiPalette = UiPalette {
+    canvas: Rgba::new(13, 17, 16, 255),
+    surface: Rgba::new(13, 17, 16, 255),
+    surface_hover: Rgba::new(34, 46, 45, 255),
+    surface_selected: Rgba::new(32, 44, 45, 255),
+    chrome: Rgba::new(3, 4, 4, 255),
+    elevated: Rgba::new(37, 42, 38, 255),
+    input: Rgba::new(9, 12, 11, 255),
+    text: Rgba::new(212, 221, 214, 255),
+    text_secondary: Rgba::new(156, 165, 160, 255),
+    text_muted: Rgba::new(92, 112, 104, 255),
+    border: Rgba::new(70, 78, 78, 255),
+    border_subtle: Rgba::new(37, 45, 44, 255),
+    accent: Rgba::new(143, 188, 176, 255),
+    accent_foreground: Rgba::new(0, 0, 0, 255),
+    info: Rgba::new(130, 177, 204, 255),
+    positive: Rgba::new(167, 192, 128, 255),
+    warning: Rgba::new(216, 181, 106, 255),
+    destructive: Rgba::new(230, 126, 128, 255),
+    destructive_foreground: Rgba::new(0, 0, 0, 255),
+    scrim: Rgba::new(13, 17, 16, 184),
+};
+
 impl ReviewTheme {
+    #[must_use]
+    pub fn syntax_style(&self, capture: &str) -> Option<SyntaxStyle> {
+        capture_style(&self.captures, capture)
+    }
+
     pub fn builder(id: impl Into<String>) -> ReviewThemeBuilder {
         ReviewThemeBuilder {
             id: ThemeId::Custom(id.into()),
             diff: DiffPalette::default(),
-            ui: UiPalette::default(),
+            ui: SAGE_UI,
             syntax: BTreeMap::new(),
             markdown: None,
         }
@@ -188,8 +223,9 @@ impl ReviewTheme {
             id,
             ui: document.ui,
             diff: document.palette,
-            syntax: SyntaxTheme::new(document.syntax),
+            syntax: SyntaxTheme::new(&document.syntax),
             markdown: document.markdown,
+            captures: Arc::new(document.syntax),
         })
     }
 
@@ -213,10 +249,10 @@ impl ReviewTheme {
     #[must_use]
     pub fn revision(&self) -> Fingerprint {
         let diff = self.diff.colors().map(ui::bytes);
-        let markdown = self.markdown.colors().map(ui::bytes);
+        let markdown = ui::markdown_colors(&self.markdown).map(ui::bytes);
         let ui = ui::colors(&self.ui).map(ui::bytes);
         Fingerprint::of(
-            std::iter::once(syntax_revision(&self.syntax).as_bytes().as_slice())
+            std::iter::once(syntax_revision(&self.captures).as_bytes().as_slice())
                 .chain(diff.iter().map(<[u8; 4]>::as_slice))
                 .chain(markdown.iter().map(<[u8; 4]>::as_slice))
                 .chain(ui.iter().map(<[u8; 4]>::as_slice)),
@@ -228,7 +264,7 @@ impl ReviewTheme {
             version: THEME_VERSION,
             palette: self.diff.clone(),
             ui: self.ui,
-            syntax: self.syntax.captures().clone(),
+            syntax: BTreeMap::clone(&self.captures),
             markdown: self.markdown,
         })
         .map_err(|error| ThemeError::Parse { message: error.to_string() })
@@ -293,9 +329,8 @@ impl ReviewTheme {
                 ))
             })
             .collect::<BTreeMap<_, _>>();
-        let syntax = SyntaxTheme::new(syntax);
         let markdown = markdown_palette(&syntax, &palette);
-        Self { id, diff: palette, ui, syntax, markdown }
+        Self { id, diff: palette, ui, syntax: SyntaxTheme::new(&syntax), markdown, captures: Arc::new(syntax) }
     }
 
     /// Loads the bundled Sage theme.
@@ -415,15 +450,21 @@ impl ReviewThemeBuilder {
 
     #[must_use]
     pub fn build(self) -> ReviewTheme {
-        let syntax = SyntaxTheme::new(self.syntax);
-        let markdown = self.markdown.unwrap_or_else(|| markdown_palette(&syntax, &self.diff));
-        ReviewTheme { id: self.id, ui: self.ui, diff: self.diff, syntax, markdown }
+        let markdown = self.markdown.unwrap_or_else(|| markdown_palette(&self.syntax, &self.diff));
+        ReviewTheme {
+            id: self.id,
+            ui: self.ui,
+            diff: self.diff,
+            syntax: SyntaxTheme::new(&self.syntax),
+            markdown,
+            captures: Arc::new(self.syntax),
+        }
     }
 }
 
-fn syntax_revision(syntax: &SyntaxTheme) -> Fingerprint {
-    let mut fields = Vec::with_capacity(syntax.captures().len() * 3);
-    for (capture, style) in syntax.captures() {
+fn syntax_revision(captures: &BTreeMap<String, SyntaxStyle>) -> Fingerprint {
+    let mut fields = Vec::with_capacity(captures.len() * 3);
+    for (capture, style) in captures {
         fields.push(capture.as_bytes().to_vec());
         fields.push(ui::bytes(style.foreground).to_vec());
         fields.push(vec![
@@ -435,8 +476,8 @@ fn syntax_revision(syntax: &SyntaxTheme) -> Fingerprint {
     Fingerprint::of(fields)
 }
 
-fn markdown_palette(syntax: &SyntaxTheme, palette: &DiffPalette) -> MarkdownPalette {
-    let capture = |name, fallback| syntax.style(name).map_or(fallback, |style| style.foreground);
+fn markdown_palette(captures: &BTreeMap<String, SyntaxStyle>, palette: &DiffPalette) -> MarkdownPalette {
+    let capture = |name, fallback| capture_style(captures, name).map_or(fallback, |style| style.foreground);
     MarkdownPalette {
         heading: capture("markup.heading", palette.accent),
         link: capture("markup.link", palette.accent),

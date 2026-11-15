@@ -22,8 +22,8 @@ fn sage_notices_preserve_semantic_colors() -> TestResult {
 }
 
 #[test]
-fn the_default_ui_palette_is_sage() -> TestResult {
-    assert_eq!(UiPalette::default(), ReviewTheme::sage()?.ui);
+fn a_built_theme_defaults_to_the_sage_ui_palette() -> TestResult {
+    assert_eq!(ReviewTheme::builder("plain").build().ui, ReviewTheme::sage()?.ui);
     Ok(())
 }
 
@@ -91,16 +91,18 @@ fn ui_is_independent_and_every_channel_affects_revision() -> TestResult {
 }
 
 #[test]
-fn builder_keeps_default_and_explicit_ui_independent_of_diff() {
-    let ui = UiPalette { info: Rgba::new(1, 2, 3, 255), ..UiPalette::default() };
+fn builder_keeps_default_and_explicit_ui_independent_of_diff() -> TestResult {
+    let sage = ReviewTheme::sage()?.ui;
+    let ui = UiPalette { info: Rgba::new(1, 2, 3, 255), ..sage };
     let diff = DiffPalette { foreground: Rgba::new(1, 2, 3, 255), ..DiffPalette::default() };
     let first = ReviewTheme::builder("first").ui(ui).diff(diff.clone()).build();
     let second = ReviewTheme::builder("second").diff(diff.clone()).ui(ui).build();
     let default_ui = ReviewTheme::builder("default").diff(diff).build().ui;
-    assert_eq!(default_ui, UiPalette::default());
+    assert_eq!(default_ui, sage);
     assert_eq!(first.ui, ui);
     assert_eq!(second.ui, ui);
     assert_eq!(first.revision(), second.revision());
+    Ok(())
 }
 
 #[test]

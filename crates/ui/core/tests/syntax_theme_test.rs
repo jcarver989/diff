@@ -86,7 +86,7 @@ fn resolved(highlights: &DocumentHighlights, theme: &SyntaxTheme) -> Vec<Option<
         .map(|index| {
             highlights.line(index).map(|spans| {
                 let mut styled: Vec<HighlightSpan> = Vec::new();
-                for span in spans {
+                for span in spans.iter() {
                     let Some(style) = theme.highlight(span.highlight) else {
                         continue;
                     };
