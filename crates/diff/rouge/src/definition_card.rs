@@ -143,7 +143,7 @@ fn body(handle: ReviewHandle, card: &DefinitionCard) -> Div {
                     }}/>
         }
     };
-    let divider = head.is_some().then(|| view! { <div h=1.0 bg=Role::BorderSubtle/> });
+    let divider = head.is_some().then(|| view! { <div border_t=1.0 border_color=Role::BorderSubtle/> });
     view! {
         <div flex col>
             <div flex col gap=4.0 px=12.0 py=8.0>

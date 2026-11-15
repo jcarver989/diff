@@ -8,7 +8,7 @@ use clankerdiff_core::{
 };
 use clankerdiff_ui_core::{DiffPalette, Rgba};
 use rouge_core::{
-    Align, AnyView, Canvas, Color, Cursor, Div, Measure, Painter, Point, Rect, Role, RowKey, ScrollLinked, Size,
+    Align, AnyView, Canvas, Color, Cursor, Div, Measure, Painter, Point, Quad, Rect, Role, RowKey, ScrollLinked, Size,
     SpanStyle, Styled, TextHit, TextRun, Theme, Underline, View, VirtualListHandle, canvas, div, dynamic, modifiers,
     pct, px, show, text, view, virtual_list, virtual_list_handle,
 };
@@ -647,7 +647,7 @@ fn paint_line(
         let left = inner.origin.x;
         let side = column.side;
         if position + 1 < columns.len() {
-            painter.fill_rect(Rect::new(inner.max().x, 0.0, DIVIDER, bounds.height), ink.border);
+            painter.quad(Quad::line(Rect::new(inner.max().x, 0.0, DIVIDER, bounds.height), ink.border));
         }
         let Some(cell) = &column.cell else {
             painter.region(format!("empty-{index}-{side:?}"), inner);
@@ -864,9 +864,9 @@ fn gap(handle: &ReviewHandle, index: usize) -> Div {
         selection.pane == ViewerPane::Diff && selection.row == Some(index)
     });
     let line = move || {
-        div()
-            .h(px(1.0))
-            .bg(move || palette.with(|t| Color::from(if selected.get() { t.diff.accent } else { t.diff.border })))
+        div().border_t(1.0).border_color(move || {
+            palette.with(|t| Color::from(if selected.get() { t.diff.accent } else { t.diff.border }))
+        })
     };
     let reveal = info.is_expandable().then(|| {
         view! {

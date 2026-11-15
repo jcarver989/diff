@@ -358,7 +358,7 @@ fn size_menu() -> Option<AnyView> {
 }
 
 fn divider() -> Div {
-    view! { <div flex_none w=px(1.0) h=tokens::ICON_SIZE mx=4.0 bg=Role::BorderSubtle/> }
+    view! { <div flex_none h=tokens::ICON_SIZE mx=4.0 border_l=1.0 border_color=Role::BorderSubtle/> }
 }
 
 fn run(handle: &ReviewHandle, item: &ToolbarControl) -> impl Fn() + Clone + 'static {
