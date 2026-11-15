@@ -120,7 +120,7 @@ impl MarkdownReviewState {
             C::First | C::Last => {
                 let last = command == C::Last;
                 if self.focus == MarkdownFocusPane::Outline {
-                    self.select_heading(if last { self.document().outline().len().saturating_sub(1) } else { 0 });
+                    self.select_heading(if last { self.outline().len().saturating_sub(1) } else { 0 });
                 } else {
                     self.session.select_boundary(last);
                 }
@@ -141,7 +141,7 @@ impl MarkdownReviewState {
                         self.outline_scroll = self
                             .outline_scroll
                             .saturating_add_signed(lines)
-                            .min(self.document().outline().len().saturating_sub(1));
+                            .min(self.outline().len().saturating_sub(1));
                     }
                 }
                 self.mark_dirty();
@@ -261,7 +261,7 @@ impl MarkdownReviewState {
     }
 
     fn select_heading(&mut self, index: usize) -> bool {
-        let Some(heading) = self.document().outline().get(index) else {
+        let Some(heading) = self.outline().get(index) else {
             return false;
         };
         let target = heading.target_id;
@@ -272,9 +272,7 @@ impl MarkdownReviewState {
     fn move_selection(&mut self, delta: isize) {
         if self.focus == MarkdownFocusPane::Outline {
             self.select_heading(
-                self.outline_selected
-                    .saturating_add_signed(delta)
-                    .min(self.document().outline().len().saturating_sub(1)),
+                self.outline_selected.saturating_add_signed(delta).min(self.outline().len().saturating_sub(1)),
             );
         } else {
             self.session.move_target(delta);
@@ -284,7 +282,7 @@ impl MarkdownReviewState {
     fn sync_outline_selection(&mut self) {
         if let Some(selected) = self.selected_target()
             && let Some(index) =
-                self.document().outline().iter().rposition(|heading| heading.target_id.index() <= selected.index())
+                self.outline().iter().rposition(|heading| heading.target_id.index() <= selected.index())
         {
             self.outline_selected = index;
         }

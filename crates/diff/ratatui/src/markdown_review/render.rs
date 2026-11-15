@@ -93,7 +93,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, state: &mut MarkdownReviewState,
     }
     let outline_width =
         state.options.navigation.width(area.width, OUTLINE_BREAKPOINT, OUTLINE_WIDTH.min(area.width / 3));
-    let wide = outline_width > 0 && !state.document().outline().is_empty();
+    let wide = outline_width > 0 && !state.outline().is_empty();
     let (outline, separator, document) = if wide {
         let [outline, separator, document] =
             Layout::horizontal([Constraint::Length(outline_width), Constraint::Length(1), Constraint::Min(1)])
@@ -133,7 +133,7 @@ fn render_outline(area: Rect, buffer: &mut Buffer, state: &mut MarkdownReviewSta
     if area.is_empty() {
         return;
     }
-    let heading_count = state.document().outline().len();
+    let heading_count = state.outline().len();
     state.outline_selected = state.outline_selected.min(heading_count.saturating_sub(1));
     let height = usize::from(area.height);
     if state.follow_pending {
@@ -145,7 +145,7 @@ fn render_outline(area: Rect, buffer: &mut Buffer, state: &mut MarkdownReviewSta
     }
     let max_scroll = heading_count.saturating_sub(height.max(1));
     state.outline_scroll = state.outline_scroll.min(max_scroll);
-    let headings = state.document().outline().to_vec();
+    let headings = state.outline().to_vec();
     for (offset, heading) in headings.iter().skip(state.outline_scroll).take(height).enumerate() {
         let row = Rect::new(area.x, area.y + u16::try_from(offset).unwrap_or(u16::MAX), area.width, 1);
         let index = state.outline_scroll + offset;

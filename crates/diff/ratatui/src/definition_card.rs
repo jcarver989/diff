@@ -1,7 +1,7 @@
 use crate::{
     DiffReviewCommand, DiffReviewEvent, DiffReviewState, FocusPane, InputOutcome, KeyModifiers, MarkdownLayoutOptions,
     MarkdownRenderer, RatatuiTheme,
-    markdown::{MarkdownOptions, parse_markdown},
+    markdown::{MarkdownDocument, MarkdownOptions},
     syntax::{SyntaxTheme, highlighted_line},
     text::row_pieces,
     ui::SelectionState,
@@ -246,7 +246,7 @@ impl DiffReviewState {
     }
 
     fn doc_lines(&mut self, docs: &str, width: u16) -> Arc<[Line<'static>]> {
-        let document = parse_markdown(docs, MarkdownOptions { intra_doc_links: true });
+        let document = MarkdownDocument::parse_with(docs, MarkdownOptions { intra_doc_links: true });
         let options = MarkdownLayoutOptions { width, heading_markers: false, ..MarkdownLayoutOptions::default() };
         MarkdownRenderer::new().render_lines(&document, options, &self.theme)
     }
@@ -254,7 +254,7 @@ impl DiffReviewState {
 
 fn code_lines(code: &CardCode<'_>, syntax: &SyntaxTheme, theme: &RatatuiTheme) -> Vec<Line<'static>> {
     let base = theme.ui.selection_style(SelectionState::None).fg(theme.ui.text);
-    code.map_lines(|line, spans| highlighted_line(line, spans, syntax, base))
+    code.map_lines(|line, spans| highlighted_line(line, spans.iter(), syntax, base))
 }
 
 struct CardLines {

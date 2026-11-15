@@ -1,17 +1,17 @@
 use super::MarkdownHandle;
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownAnchors, MarkdownFocusPane, MarkdownReviewCommand};
-use rouge_core::{RowKey, Styled, Theme, View, component, div, dynamic, px, text, view, virtual_list};
+use rouge_core::{Role, RowKey, Styled, Theme, View, component, div, dynamic, px, text, view, virtual_list};
 use rouge_widgets::tokens::ROW_HEIGHT;
 use rouge_widgets::{
     ButtonVariant, CODE_FONT, ControlSize, IconName, ModalSize, SelectionState, Side, UiStyles, button, icon_button,
-    modal, panel_toggle, resizable_panel, tree_row, vertical_scrollbar,
+    modal, resizable_panel, tree_row, vertical_scrollbar,
 };
 use std::path::Path;
 
 const HEADER_HEIGHT: f32 = 56.0;
-const MIN_OUTLINE_WIDTH: f32 = 160.0 / 16.0;
-const MAX_OUTLINE_WIDTH: f32 = 420.0 / 16.0;
+const MIN_OUTLINE_WIDTH: f32 = 160.0;
+const MAX_OUTLINE_WIDTH: f32 = 420.0;
 
 type Shortcuts = &'static [(&'static str, &'static str)];
 
@@ -40,10 +40,10 @@ pub(super) fn header(handle: &MarkdownHandle) -> impl View {
     let handle = *handle;
     let leading = move || {
         let toggle = handle.outline_available().then(|| {
-            let open = !handle.outline_collapsed.get();
             view! {
-                <panel_toggle side=Side::Left id="markdown-outline-toggle" open name="outline"
-                              on_click={move || handle.toggle_outline()}/>
+                <icon_button test_id="markdown-outline-toggle" icon=IconName::PanelLeft label="Toggle outline"
+                             selected={move || !handle.outline_collapsed.get()}
+                             on_click={move || handle.toggle_outline()}/>
             }
         });
         view! {
@@ -67,26 +67,26 @@ pub(super) fn header(handle: &MarkdownHandle) -> impl View {
         let run = |command: MarkdownReviewCommand| move || handle.run(command);
         let copy = (caps.clipboard && count > 0).then(|| {
             view! {
-                <icon_button id="markdown-copy" icon=IconName::Copy label="Copy review"
+                <icon_button test_id="markdown-copy" icon=IconName::Copy label="Copy review"
                              on_click={move || handle.run(MarkdownReviewCommand::CopyReview(handle.copy_decision()))}/>
             }
         });
         view! {
             <div flex flex_none row items_center gap=8.0>
-                <icon_button id="markdown-shortcuts" icon=IconName::Info label="Keyboard shortcuts"
+                <icon_button test_id="markdown-shortcuts" icon=IconName::Info label="Keyboard shortcuts"
                              on_click=run(ReviewCommand::ShowHelp.into())/>
-                <button id="markdown-theme" label="Theme" size=ControlSize::Small
+                <button test_id="markdown-theme" label="Theme" control_size=ControlSize::Small
                         disabled={!handle.command_enabled(ReviewCommand::OpenThemePicker.into())}
                         on_click=run(ReviewCommand::OpenThemePicker.into())/>
                 {copy}
-                <button id="markdown-submit" label variant=ButtonVariant::Primary size=ControlSize::Small
+                <button test_id="markdown-submit" label variant=ButtonVariant::Primary control_size=ControlSize::Small
                         disabled={!handle.command_enabled(command)} on_click=run(command)/>
             </div>
         }
     };
     view! {
         <div test_id="markdown-header" h=HEADER_HEIGHT flex_none flex row items_center gap=8.0 px=12.0
-             border_b=px(1.0) border_color=Theme::current().border>
+             border_b=px(1.0) border_color=Role::Border>
             <dynamic children=leading/>
             <dynamic children=trailing/>
         </div>
@@ -129,14 +129,12 @@ pub(super) fn outline(handle: &MarkdownHandle) -> impl View + use<> {
     view! {
         <resizable_panel test_id="markdown-outline" edge=Side::Left size=width min_size=MIN_OUTLINE_WIDTH
                          max_size=MAX_OUTLINE_WIDTH on_resize={move |value: f32| width.set(value)}
-                         on_reset={move || width.set(super::DEFAULT_OUTLINE_WIDTH)}>
-            <div size_full flex col overflow_hidden bg=theme.surface border_r=px(1.0)
-                 border_color={move || {
-                     if pane.get() == MarkdownFocusPane::Outline { theme.accent.get() } else { theme.border.get() }
-                 }}>
+                         on_reset={move || width.set(super::DEFAULT_OUTLINE_WIDTH)}
+                         divider_color={move || if pane.get() == MarkdownFocusPane::Outline { theme.get().accent } else { theme.get().border }}>
+            <div size_full flex col overflow_hidden bg=Role::Surface>
                 <div px=12.0 pt=16.0 pb=8.0><text label muted>"Contents"</text></div>
                 <div flex_1 min_h=0.0 relative pb=8.0>
-                    <virtual_list count={move || rows.with(|rows| rows.document.outline().len())}
+                    <virtual_list count={move || rows.with(|rows| rows.headings)}
                                   row_height=ROW_HEIGHT
                                   row_identity={move |index| RowKey::new(index, revision.get())}
                                   handle=list size_full let:index>
@@ -151,14 +149,14 @@ pub(super) fn outline(handle: &MarkdownHandle) -> impl View + use<> {
 
 #[component]
 fn outline_row(handle: &MarkdownHandle, index: usize) -> Option<impl View> {
-    let heading = handle.with(|session| session.document().outline().get(index).cloned())?;
-    let (handle, theme) = (*handle, Theme::current());
+    let heading = handle.with(|session| session.outline().get(index).cloned())?;
+    let handle = *handle;
     let (selected, annotations) = (handle.selected, handle.annotations);
     let target = heading.target_id;
     Some(view! {
-        <tree_row id={format!("markdown-heading-{index}")} label=heading.title
+        <tree_row test_id={format!("markdown-heading-{index}")} label=heading.title
                   depth={usize::from(heading.level.saturating_sub(1))}
-                  label_color={if heading.level <= 1 { theme.text } else { theme.text_secondary }}
+                  label_color={if heading.level <= 1 { Role::Text } else { Role::TextSecondary }}
                   selection={move || {
                       selected.get();
                       if handle.active_heading() == Some(index) {
@@ -172,7 +170,7 @@ fn outline_row(handle: &MarkdownHandle, index: usize) -> Option<impl View> {
                 annotations.get();
                 let count = handle.section_comment_count(index);
                 (count > 0).then(|| view! {
-                    <div flex_none px=6.0 rounded=ROW_HEIGHT bg=theme.surface_selected>
+                    <div flex_none px=6.0 rounded=ROW_HEIGHT bg=Role::SurfaceSelected>
                         <text caption accent>{count.to_string()}</text>
                     </div>
                 })
@@ -185,7 +183,7 @@ impl MarkdownHandle {
     fn section_comment_count(&self, index: usize) -> usize {
         self.with(|session| {
             let document = session.document();
-            let outline = document.outline();
+            let outline = session.outline();
             let Some(heading) = outline.get(index) else {
                 return 0;
             };
@@ -227,7 +225,7 @@ pub(super) fn shortcuts(close: impl Fn() + 'static) -> impl View {
         }
     });
     view! {
-        <modal id="markdown-shortcuts-help" title="Review shortcuts" hint="Esc to close" size=ModalSize::Wide
+        <modal test_id="markdown-shortcuts-help" title="Review shortcuts" hint="Esc to close" modal_size=ModalSize::Wide
                on_dismiss=close>
             {..rows.collect::<Vec<_>>()}
         </modal>

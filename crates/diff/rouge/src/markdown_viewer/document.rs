@@ -3,8 +3,8 @@ use crate::comment_editor::composer;
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownFocusPane, MarkdownReviewComment, MarkdownTargetId};
 use rouge_core::{
-    AnyView, Apply, Color, Cursor, Div, RowKey, Styled, Theme, View, component, div, dynamic, px, root_font_size, show,
-    text, view, virtual_list,
+    AnyView, Apply, Color, Cursor, Div, Role, RowKey, Styled, View, component, div, dynamic, px, show, text, view,
+    virtual_list,
 };
 use rouge_reactive::{Memo, Signal, memo, signal};
 use rouge_widgets::tokens::RADIUS_CONTROL;
@@ -26,7 +26,7 @@ pub(super) fn document(handle: &MarkdownHandle, paint: MarkdownPaint) -> impl Vi
         <div test_id="markdown-document" flex_1 min_w=0.0 min_h=0.0 relative>
             <virtual_list count={move || rows.with(|rows| rows.len())} row_height=48.0
                           row_identity={move |index| RowKey::new(rows.with_untracked(|r| r.key(index)), revision.get())}
-                          measure_rows={|| u64::from(root_font_size().get().to_bits())} handle=list size_full
+                          handle=list size_full
                           let:index>
                 {row(&handle, index, &paint)}
             </virtual_list>
@@ -43,27 +43,19 @@ pub(super) fn document(handle: &MarkdownHandle, paint: MarkdownPaint) -> impl Vi
 fn row(handle: &MarkdownHandle, index: usize, paint: &MarkdownPaint) -> Option<AnyView> {
     let rows = handle.rows.get_untracked();
     let row = rows.get(index)?;
-    let (handle, theme) = (*handle, Theme::current());
+    let handle = *handle;
     let target = row.target;
     let active = handle.selected;
     let selected = memo(move || target.is_some() && active.get() == target);
     let hovered = signal(false);
     let block_hovered = signal(false);
-    let base = row.background(paint);
     let block = row
         .block(paint)
         .on_hover(move |inside| {
             block_hovered.set_if_changed(inside);
         })
-        .bg(move || {
-            if selected.get() {
-                theme.surface_selected.get()
-            } else if target.is_some() && block_hovered.get() {
-                theme.surface_hover.get()
-            } else {
-                base()
-            }
-        });
+        .when(move || target.is_some() && block_hovered.get(), |style| style.bg(Role::SurfaceHover))
+        .when(selected, |style| style.bg(Role::SurfaceSelected));
     let block = block.when_some(target, |block, target| {
         block.cursor(Cursor::Pointer).on_click(move |_| handle.select(target, MarkdownFocusPane::Document))
     });
@@ -101,7 +93,7 @@ fn gutter(handle: &MarkdownHandle, row: &MarkdownRow, selected: Memo<bool>, hove
     view! {
         <div w=GUTTER_WIDTH flex_none relative>
             <show when={move || selected.get()}>
-                <div absolute top=0.0 bottom=0.0 right=3.0 w=px(2.0) rounded=px(1.0) bg=Theme::current().accent/>
+                <div absolute top=0.0 bottom=0.0 right=3.0 w=px(2.0) rounded=px(1.0) bg=Role::Accent/>
             </show>
             {add}
         </div>
@@ -136,7 +128,7 @@ fn thread(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<
         Some(view! {
             <div pt=8.0 pb=4.0>
                 <div test_id={format!("markdown-comment-thread-{}", target.index())} w_full flex col
-                     rounded=RADIUS_CONTROL border=px(1.0) border_color=Theme::current().border overflow_hidden>
+                     rounded=RADIUS_CONTROL border=px(1.0) border_color=Role::Border overflow_hidden>
                     {..comments
                         .into_iter()
                         .enumerate()
@@ -153,19 +145,19 @@ fn card(
     comment: MarkdownReviewComment,
     last: bool,
 ) -> impl View + use<> {
-    let (handle, theme, id) = (*handle, Theme::current(), comment.id);
+    let (handle, id) = (*handle, comment.id);
     let title = if comment.outdated { "Outdated comment" } else { "Your comment" };
     view! {
         <div test_id={format!("markdown-comment-{id}")} w_full flex col when:border_b=(!last, px(1.0))
-             when:border_color=(!last, theme.border)>
-            <div px=12.0 py=8.0 bg=theme.surface_selected flex row items_center gap=8.0>
+             when:border_color=(!last, Role::Border)>
+            <div px=12.0 py=8.0 bg=Role::SurfaceSelected flex row items_center gap=8.0>
                 <div flex_1 min_w=0.0><text label muted>{title}</text></div>
-                <icon_button id={format!("Edit-comment-{id}")} icon=IconName::Pencil label="Edit comment"
-                             keyboard_focusable on_click={move || handle.edit_comment(target, id)}/>
-                <icon_button id={format!("Delete-comment-{id}")} icon=IconName::X label="Delete comment"
-                             keyboard_focusable on_click={move || handle.delete_comment(id)}/>
+                <icon_button test_id={format!("Edit-comment-{id}")} icon=IconName::Pencil label="Edit comment"
+                             on_click={move || handle.edit_comment(target, id)}/>
+                <icon_button test_id={format!("Delete-comment-{id}")} icon=IconName::X label="Delete comment"
+                             on_click={move || handle.delete_comment(id)}/>
             </div>
-            <div p=12.0 bg=theme.surface><text body primary>{comment.body}</text></div>
+            <div p=12.0 bg=Role::Surface><text body primary>{comment.body}</text></div>
         </div>
     }
 }

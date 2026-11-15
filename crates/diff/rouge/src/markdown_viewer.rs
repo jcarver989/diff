@@ -13,18 +13,17 @@ use rouge_core::{
     Align, AnyView, Color, Key, KeyEvent, Modifiers, Styled, View, VirtualListHandle, div, dynamic, focus_handle,
     overlay, view, virtual_list_handle,
 };
-use rouge_reactive::{Callback, Memo, Signal, batch, effect, memo, signal, untrack, use_context};
+use rouge_reactive::{Callback, Memo, Signal, batch, effect, signal, untrack, use_context};
 use rouge_widgets::UI_FONT;
-use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, MarkdownAction, MarkdownPaint, SearchPickerHandle};
+use rouge_widgets::{DEFAULT_INTERFACE_SIZE, InterfaceSize, MarkdownPaint, SearchPickerHandle};
 use std::{rc::Rc, sync::Arc};
 
-const DEFAULT_OUTLINE_WIDTH: f32 = 220.0 / 16.0;
+const DEFAULT_OUTLINE_WIDTH: f32 = 220.0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MarkdownOutput {
     Event(MarkdownReviewEvent),
     ThemeChanged(String),
-    CopyCode(String),
     OpenLink(String),
 }
 
@@ -149,7 +148,7 @@ impl MarkdownHandle {
     }
 
     fn outline_available(&self) -> bool {
-        self.rows.with(|rows| rows.document.outline().len() > 1)
+        self.rows.with(|rows| rows.headings > 1)
     }
 
     fn outline_visible(&self) -> bool {
@@ -188,7 +187,7 @@ impl MarkdownHandle {
 
     fn active_heading(&self) -> Option<usize> {
         let target = self.selected.get_untracked()?;
-        self.with(|session| session.document().outline().partition_point(|h| h.target_id <= target).checked_sub(1))
+        self.with(|session| session.outline().partition_point(|h| h.target_id <= target).checked_sub(1))
     }
 
     fn copy_decision(&self) -> MarkdownReviewDecision {
@@ -290,7 +289,7 @@ impl MarkdownHandle {
             }
             C::SelectTarget(id) => return self.edit(|s| s.select_target(id)),
             C::SelectHeading(index) => {
-                let target = self.with(|s| s.document().outline().get(index).map(|heading| heading.target_id));
+                let target = self.with(|s| s.outline().get(index).map(|heading| heading.target_id));
                 let Some(target) = target else { return false };
                 self.edit(|s| s.select_target(target));
             }
@@ -321,7 +320,7 @@ impl MarkdownHandle {
         let list = self.list_for(pane);
         let count = match pane {
             MarkdownFocusPane::Document => self.rows.with_untracked(|rows| rows.len()),
-            MarkdownFocusPane::Outline => self.with(|s| s.document().outline().len()),
+            MarkdownFocusPane::Outline => self.with(|s| s.outline().len()),
         };
         let state = list.scroll_state().get_untracked();
         let bottom = state.offset.y + state.viewport.height;
@@ -335,10 +334,10 @@ impl MarkdownHandle {
                 self.edit(|session| session.move_target(delta));
             }
             MarkdownFocusPane::Outline => {
-                let count = self.with(|s| s.document().outline().len());
+                let count = self.with(|s| s.outline().len());
                 let index =
                     self.active_heading().unwrap_or(0).saturating_add_signed(delta).min(count.saturating_sub(1));
-                let target = self.with(|s| s.document().outline().get(index).map(|heading| heading.target_id));
+                let target = self.with(|s| s.outline().get(index).map(|heading| heading.target_id));
                 if let Some(target) = target {
                     self.edit(|session| session.select_target(target));
                     self.outline.scroll_to_row(index, Align::Visible);
@@ -455,16 +454,12 @@ pub fn markdown_review_view(handle: MarkdownHandle) -> impl View {
     let size = use_context::<InterfaceSize>().unwrap_or_else(|| InterfaceSize::install(DEFAULT_INTERFACE_SIZE));
     let focus = focus_handle();
     let keys = handle;
-    let capabilities = handle.capabilities;
     let theme = handle.theme.read_only();
     let emit = handle.emit;
-    let paint = MarkdownPaint::new(theme.select(|t| t.markdown), theme.select(|t| t.syntax.clone()), move |action| {
-        emit.call(match action {
-            MarkdownAction::OpenLink(url) => MarkdownOutput::OpenLink(url),
-            MarkdownAction::CopyCode(code) => MarkdownOutput::CopyCode(code),
-        });
-    })
-    .clipboard(memo(move || capabilities.get().clipboard));
+    let paint = MarkdownPaint::current()
+        .palette(theme.select(|t| t.markdown))
+        .syntax(theme.select(|t| t.syntax.clone()))
+        .on_link(move |url| emit.call(MarkdownOutput::OpenLink(url)));
     let root = view! {
         <div test_id="markdown-reviewer" flex col size_full min_h=0.0 font=UI_FONT
              bg={move || theme_signal.with(|t| Color::from(t.diff.background))}

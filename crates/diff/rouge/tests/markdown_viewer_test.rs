@@ -18,7 +18,7 @@ fn mounted_markdown_uses_semantic_selection_and_single_review_session() -> Resul
     let output = Rc::new(RefCell::new(Vec::new()));
     let (mut ui, handle) =
         TestUiBuilder::default().size(920.0, 640.0).fonts(rouge_widgets::bundled_fonts()).build_with(|| {
-            let doc = Arc::new(MarkdownDocument::new(
+            let doc = Arc::new(MarkdownDocument::parse(
                 "# Title\n\nA **paragraph** with `code`.\n\n```rust\nfn main() {}\n```",
             ));
             let sink = output.clone();
@@ -37,7 +37,7 @@ fn mounted_markdown_uses_semantic_selection_and_single_review_session() -> Resul
     ui.ime(ImeEvent::Commit("あ".into()));
     ui.press("enter");
     assert_eq!(handle.with(|s| s.review().comments()[0].body.clone()), "あ");
-    handle.set_document(Arc::new(MarkdownDocument::new(
+    handle.set_document(Arc::new(MarkdownDocument::parse(
         "\n# Title\n\nA **paragraph** with `code`.\n\n```rust\nfn main() {}\n```",
     )));
     ui.advance(0.0);
@@ -51,7 +51,7 @@ fn mounted_markdown_uses_semantic_selection_and_single_review_session() -> Resul
 fn outline_lists_every_heading_that_fits_the_window() -> Result<(), Box<dyn std::error::Error>> {
     let _runtime = Runtime::new().enter();
     let (mut ui, _handle) = TestUiBuilder::default().size(920.0, 640.0).build_with(|| {
-        let doc = Arc::new(MarkdownDocument::new("# One\n\n## Two\n\n## Three\n\n## Four\n\n## Five\n\n## Six\n"));
+        let doc = Arc::new(MarkdownDocument::parse("# One\n\n## Two\n\n## Three\n\n## Four\n\n## Five\n\n## Six\n"));
         let handle = MarkdownController::new(doc, ReviewTheme::default()).mount(|_| {});
         (markdown_review_view(handle), handle)
     });
@@ -78,7 +78,7 @@ fn outline_focus_moves_the_selection_between_headings() -> Result<(), Box<dyn st
     let _runtime = Runtime::new().enter();
     let (mut ui, handle) = mount("# One\n\nFirst.\n\n## Two\n\nSecond.\n\n## Three\n");
     ui.advance(0.0);
-    let headings = handle.with(|s| s.document().outline().iter().map(|h| h.target_id).collect::<Vec<_>>());
+    let headings = handle.with(|s| s.outline().iter().map(|h| h.target_id).collect::<Vec<_>>());
     assert!(handle.handle_command(MarkdownReviewCommand::Focus(MarkdownFocusPane::Outline))?);
     assert!(handle.handle_command(MarkdownReviewCommand::MoveSelection(1))?);
     assert_eq!(handle.with(MarkdownReviewSession::selected_target), headings.get(1).copied());
@@ -90,7 +90,7 @@ fn outline_focus_moves_the_selection_between_headings() -> Result<(), Box<dyn st
 fn mount(source: &str) -> (TestUi, MarkdownHandle) {
     TestUiBuilder::default().size(920.0, 640.0).fonts(rouge_widgets::bundled_fonts()).build_with(|| {
         let handle =
-            MarkdownController::new(Arc::new(MarkdownDocument::new(source)), ReviewTheme::default()).mount(|_| {});
+            MarkdownController::new(Arc::new(MarkdownDocument::parse(source)), ReviewTheme::default()).mount(|_| {});
         (markdown_review_view(handle), handle)
     })
 }
@@ -101,7 +101,7 @@ fn long_code_block_lines_wrap_instead_of_clipping() -> Result<(), Box<dyn std::e
     let long = format!("    let call = compute({});", "argument, ".repeat(40));
     let source = format!("```rust\nfn short() {{}}\n{long}\n```");
     let mut ui = TestUiBuilder::default().size(720.0, 640.0).fonts(rouge_widgets::bundled_fonts()).build(|| {
-        let doc = Arc::new(MarkdownDocument::new(&source));
+        let doc = Arc::new(MarkdownDocument::parse(&source));
         markdown_review_view(MarkdownController::new(doc, ReviewTheme::default()).mount(|_| {}))
     });
     ui.advance(0.0);

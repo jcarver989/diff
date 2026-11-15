@@ -203,7 +203,7 @@ fn markdown_bindings_and_outline_commands_work_without_default_keys() -> Result<
     state.set_keybindings(Vec::new());
     state.handle_command(MarkdownCommand::Focus(MarkdownFocusPane::Outline))?;
     state.handle_command(MarkdownCommand::MoveSelection(1))?;
-    let second_heading = state.document().outline()[1].target_id;
+    let second_heading = state.outline()[1].target_id;
     assert_eq!(state.selected_target(), Some(second_heading));
     state.handle_command(MarkdownCommand::OpenSelected)?;
     assert_eq!(state.focus(), MarkdownFocusPane::Document);

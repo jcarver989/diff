@@ -169,7 +169,7 @@ pub struct MarkdownSourcePayload {
 /// Returns an error when `json` is not a valid Markdown source payload.
 pub fn decode_markdown_document(json: &str) -> Result<MarkdownDocument, WebError> {
     let payload: MarkdownSourcePayload = serde_json::from_str(json).map_err(WebError::InvalidMarkdownPayload)?;
-    Ok(MarkdownDocument::parse_with_metadata(payload.source_path, payload.title, payload.source))
+    Ok(MarkdownDocument::parse(payload.source).with_metadata(payload.source_path, payload.title))
 }
 
 /// Markdown-specific browser event names; existing diff event names remain unchanged.
@@ -1100,7 +1100,7 @@ mod tests {
         assert_eq!(document.source(), "# Plan");
         assert_eq!(document.source_path(), Some("plan.md"));
         assert_eq!(document.title(), Some("Review"));
-        assert_eq!(document.outline()[0].title, "Plan");
+        assert_eq!(clankerdiff_markdown::outline(&document)[0].title, "Plan");
         assert!(matches!(decode_markdown_document("not json"), Err(WebError::InvalidMarkdownPayload(_))));
     }
 

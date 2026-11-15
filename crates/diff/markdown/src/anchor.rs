@@ -7,7 +7,7 @@
 use crate::{
     Fingerprint, MarkdownBlock, MarkdownBlockKind, MarkdownCodeBlock, MarkdownCodeLine, MarkdownDocument,
     MarkdownLineRange, MarkdownTableRow, MarkdownTarget, MarkdownTargetId, MarkdownTargetKind, SourceRange,
-    rendered_text,
+    outline::heading_path,
 };
 use serde::{Deserialize, Serialize};
 
@@ -100,12 +100,12 @@ pub fn anchor_for_target(document: &MarkdownDocument, id: MarkdownTargetId) -> O
     let target = document.target(id)?;
     target_details(document, id)?;
     if target.kind == MarkdownTargetKind::CodeLine {
-        let (block_id, code, line) = code_line_parent(document, id)?;
+        let (block_id, code, index, line) = code_line_parent(document, id)?;
         let block = block_anchor(document, block_id)?;
         return Some(MarkdownAnchor::CodeLine(MarkdownCodeLineAnchor {
             block,
-            code_line_index: line.index,
-            source_line: line.source_line,
+            code_line_index: index,
+            source_line: Some(line.source.lines.start),
             content_fingerprint: line_content_fingerprint(code.line_text(line)),
             snapshot: snapshot(document.source(), &line.source),
         }));
@@ -143,7 +143,7 @@ fn block_anchor(document: &MarkdownDocument, id: MarkdownTargetId) -> Option<Mar
     let text = target_text(document, id)?;
     let normalized = normalize_text(target.kind, &text);
     let target_digest = Fingerprint::of([kind_name(target.kind), normalized.as_str()]);
-    let heading_path = heading_path(document, target);
+    let heading_path = heading_path(document, target.source.lines.start);
     let previous = neighboring_text(document, id, -1);
     let next = neighboring_text(document, id, 1);
     let surrounding_digest = Fingerprint::of([
@@ -184,7 +184,7 @@ fn resolve_block(document: &MarkdownDocument, anchor: &MarkdownBlockAnchor) -> O
         .iter()
         .filter(|target| {
             target_content_fingerprint(document, target) == anchor.content_fingerprint
-                && heading_path(document, target) == anchor.heading_path
+                && heading_path(document, target.source.lines.start) == anchor.heading_path
         })
         .copied()
         .collect::<Vec<_>>();
@@ -221,13 +221,13 @@ fn nearest_line_index(code: &crate::MarkdownCodeBlock, anchor: &MarkdownCodeLine
     let mut nearest = None;
     let mut distance = usize::MAX;
     let mut tied = false;
-    for line in code.lines() {
+    for (index, line) in code.lines().iter().enumerate() {
         if line_content_fingerprint(code.line_text(line)) != anchor.content_fingerprint {
             continue;
         }
-        let candidate_distance = line.index.abs_diff(anchor.code_line_index);
+        let candidate_distance = index.abs_diff(anchor.code_line_index);
         if candidate_distance < distance {
-            nearest = Some(line.index);
+            nearest = Some(index);
             distance = candidate_distance;
             tied = false;
         } else if candidate_distance == distance {
@@ -239,7 +239,7 @@ fn nearest_line_index(code: &crate::MarkdownCodeBlock, anchor: &MarkdownCodeLine
 
 fn block_context_fingerprint(document: &MarkdownDocument, target: &MarkdownTarget) -> Fingerprint {
     let normalized = normalize_text(target.kind, &target_text(document, target.id).unwrap_or_default());
-    let path = heading_path(document, target);
+    let path = heading_path(document, target.source.lines.start);
     Fingerprint::of([
         document.source_path().unwrap_or(""),
         kind_name(target.kind),
@@ -263,20 +263,6 @@ fn neighboring_text(document: &MarkdownDocument, id: MarkdownTargetId, direction
     let index = id.index().checked_add_signed(direction)?;
     let target = document.targets().get(index)?;
     Some(normalize_text(target.kind, &target_text(document, target.id).unwrap_or_default()))
-}
-
-fn heading_path(document: &MarkdownDocument, target: &MarkdownTarget) -> Vec<String> {
-    let mut path = Vec::<(u8, String)>::new();
-    for heading in document.outline() {
-        if heading.source.lines.start > target.source.lines.start {
-            break;
-        }
-        while path.last().is_some_and(|(level, _)| *level >= heading.level) {
-            path.pop();
-        }
-        path.push((heading.level, heading.title.clone()));
-    }
-    path.into_iter().map(|(_, title)| title).collect()
 }
 
 fn normalize_text(kind: MarkdownTargetKind, text: &str) -> String {
@@ -319,7 +305,7 @@ fn find_in_block(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<String> 
     match &block.kind {
         MarkdownBlockKind::List { items, .. } => items.iter().find_map(|item| {
             if item.target_id == Some(id) {
-                return Some(rendered_text(&item.content));
+                return Some(item.content.text().to_owned());
             }
             item.blocks.iter().find_map(|block| find_in_block(block, id))
         }),
@@ -341,13 +327,25 @@ fn target_text(document: &MarkdownDocument, id: MarkdownTargetId) -> Option<Stri
     target_details(document, id)
 }
 
+#[must_use]
+pub fn target_label(document: &MarkdownDocument, id: MarkdownTargetId) -> Option<String> {
+    match document.target(id)?.kind {
+        MarkdownTargetKind::CodeBlock => Some("Code block".to_owned()),
+        MarkdownTargetKind::CodeLine => {
+            let (_, _, index, _) = code_line_parent(document, id)?;
+            Some(format!("Code line {}", index + 1))
+        }
+        _ => target_text(document, id),
+    }
+}
+
 fn block_text(block: &MarkdownBlock) -> String {
     match &block.kind {
         MarkdownBlockKind::Heading { content, .. }
         | MarkdownBlockKind::Paragraph { content }
-        | MarkdownBlockKind::HtmlFallback { content } => rendered_text(content),
+        | MarkdownBlockKind::HtmlFallback { content } => content.text().to_owned(),
         MarkdownBlockKind::List { items, .. } => {
-            items.iter().map(|item| rendered_text(&item.content)).collect::<Vec<_>>().join(" ")
+            items.iter().map(|item| item.content.text()).collect::<Vec<_>>().join(" ")
         }
         MarkdownBlockKind::BlockQuote { blocks } => blocks.iter().map(block_text).collect::<Vec<_>>().join(" "),
         MarkdownBlockKind::CodeBlock(code) => code.text().to_owned(),
@@ -357,7 +355,7 @@ fn block_text(block: &MarkdownBlock) -> String {
 }
 
 fn row_text(row: &MarkdownTableRow) -> String {
-    row.cells.iter().map(|cell| rendered_text(&cell.content)).collect::<Vec<_>>().join(" | ")
+    row.cells.iter().map(|cell| cell.content.text()).collect::<Vec<_>>().join(" | ")
 }
 
 fn code_block(document: &MarkdownDocument, id: MarkdownTargetId) -> Option<&MarkdownCodeBlock> {
@@ -374,7 +372,7 @@ fn code_block_in(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<&crate::
     }
 }
 
-type CodeLineParent<'a> = (MarkdownTargetId, &'a MarkdownCodeBlock, &'a MarkdownCodeLine);
+type CodeLineParent<'a> = (MarkdownTargetId, &'a MarkdownCodeBlock, usize, &'a MarkdownCodeLine);
 
 fn code_line_parent(document: &MarkdownDocument, id: MarkdownTargetId) -> Option<CodeLineParent<'_>> {
     document.blocks().iter().find_map(|block| code_line_parent_in(block, id))
@@ -383,8 +381,8 @@ fn code_line_parent(document: &MarkdownDocument, id: MarkdownTargetId) -> Option
 fn code_line_parent_in(block: &MarkdownBlock, id: MarkdownTargetId) -> Option<CodeLineParent<'_>> {
     match &block.kind {
         MarkdownBlockKind::CodeBlock(code) => {
-            let line = code.lines().iter().find(|line| line.target_id == Some(id))?;
-            Some((code.target_id?, code, line))
+            let (index, line) = code.lines().iter().enumerate().find(|(_, line)| line.target_id == Some(id))?;
+            Some((code.target_id?, code, index, line))
         }
         MarkdownBlockKind::List { items, .. } => {
             items.iter().find_map(|item| item.blocks.iter().find_map(|block| code_line_parent_in(block, id)))
@@ -399,14 +397,14 @@ mod tests {
     use crate::{MarkdownDocument, MarkdownTargetKind};
 
     fn document(source: &str) -> MarkdownDocument {
-        MarkdownDocument::parse_with_metadata(Some("plans/plan.md".to_owned()), Some("Plan".to_owned()), source)
+        MarkdownDocument::parse(source).with_metadata(Some("plans/plan.md".to_owned()), Some("Plan".to_owned()))
     }
 
     fn id(document: &MarkdownDocument, kind: MarkdownTargetKind, label: &str) -> MarkdownTargetId {
         document
             .targets()
             .iter()
-            .find(|target| target.kind == kind && target.display_label == label)
+            .find(|target| target.kind == kind && target_label(document, target.id).as_deref() == Some(label))
             .map_or_else(|| panic!("missing target {kind:?} {label}"), |target| target.id)
     }
 
@@ -431,16 +429,16 @@ mod tests {
         let replacement_id = replacement
             .targets()
             .iter()
-            .find(|candidate| candidate.display_label == "Keep this.")
+            .find(|candidate| target_label(&replacement, candidate.id).as_deref() == Some("Keep this."))
             .map(|candidate| candidate.id);
         assert_eq!(replacement.resolve_anchor(&anchor), replacement_id);
 
         let changed_path =
-            MarkdownDocument::parse_with_metadata(Some("other.md".to_owned()), None, "# Plan\n\nKeep this.\n");
+            MarkdownDocument::parse("# Plan\n\nKeep this.\n").with_metadata(Some("other.md".to_owned()), None);
         let changed_id = changed_path
             .targets()
             .iter()
-            .find(|candidate| candidate.display_label == "Keep this.")
+            .find(|candidate| target_label(&changed_path, candidate.id).as_deref() == Some("Keep this."))
             .map(|candidate| candidate.id);
         assert_eq!(changed_path.resolve_anchor(&anchor), changed_id);
     }
@@ -470,14 +468,20 @@ mod tests {
         let old_line = old
             .targets()
             .iter()
-            .find(|target| target.kind == MarkdownTargetKind::CodeLine && target.display_label == "Code line 2")
+            .find(|target| {
+                target.kind == MarkdownTargetKind::CodeLine
+                    && target_label(&old, target.id).as_deref() == Some("Code line 2")
+            })
             .unwrap();
         let anchor = old.anchor_for_target(old_line.id).unwrap();
         let replacement = document("Inserted context.\n\n```\none\ntwo\none\n```\n");
         let replacement_id = replacement
             .targets()
             .iter()
-            .find(|target| target.kind == MarkdownTargetKind::CodeLine && target.display_label == "Code line 2")
+            .find(|target| {
+                target.kind == MarkdownTargetKind::CodeLine
+                    && target_label(&replacement, target.id).as_deref() == Some("Code line 2")
+            })
             .map(|target| target.id);
         assert_eq!(replacement.resolve_anchor(&anchor), replacement_id);
     }

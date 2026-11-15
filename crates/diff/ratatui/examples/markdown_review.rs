@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let path = env::args().nth(1).unwrap_or_else(|| "markdown-plan.md".into());
     let source = fs::read_to_string(&path)?;
     let title = Path::new(&path).file_name().map(|name| name.to_string_lossy().into_owned());
-    let document = MarkdownDocument::parse_with_metadata(Some(path), title, source);
+    let document = MarkdownDocument::parse(source).with_metadata(Some(path), title);
     let outcome = run(Arc::new(document))?;
     if let Some(submission) = outcome {
         println!("{}", submission.formatted);

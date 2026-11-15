@@ -4,7 +4,9 @@ use crate::{
     theme_picker::ThemePicker,
 };
 use clankerdiff_core::ReviewCapabilities;
-use clankerdiff_markdown::{MarkdownDocument, MarkdownReview, MarkdownReviewSession, MarkdownTargetId};
+use clankerdiff_markdown::{
+    MarkdownDocument, MarkdownHeading, MarkdownReview, MarkdownReviewSession, MarkdownTargetId,
+};
 use clankerdiff_ui_core::{Fingerprint, ReviewTheme};
 use ratatui::layout::{Position, Rect};
 use std::sync::Arc;
@@ -107,6 +109,11 @@ impl MarkdownReviewState {
     #[must_use]
     pub const fn document(&self) -> &Arc<MarkdownDocument> {
         self.session.document()
+    }
+
+    #[must_use]
+    pub fn outline(&self) -> &[MarkdownHeading] {
+        self.session.outline()
     }
 
     #[must_use]

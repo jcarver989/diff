@@ -1,4 +1,6 @@
-use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownTargetKind};
+use clankerdiff_markdown::{
+    MarkdownBlock, MarkdownDocument, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownTargetKind, target_label,
+};
 use clankerdiff_ratatui::testing::{key, mouse, render_markdown_review as draw, type_markdown_text as type_text};
 use clankerdiff_ratatui::{
     InputOutcome, InteractionPhase, KeyCode, MarkdownReviewState, MarkdownReviewWidget, MouseButton, MouseEventKind,
@@ -6,7 +8,7 @@ use clankerdiff_ratatui::{
 };
 use clankerdiff_ui_core::ReviewTheme;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
-use rouge_syntax::thread_work;
+use rouge_syntax::DocumentHighlights;
 use std::{error::Error, fmt::Write, sync::Arc};
 
 #[test]
@@ -41,7 +43,8 @@ fn target_navigation_and_code_lines_are_semantic() -> Result<(), Box<dyn Error>>
         }
         state.handle_input(key(KeyCode::Down))?;
     }
-    assert_eq!(state.session().selected_target_info().ok_or("no target")?.display_label, "Code line 1");
+    let selected = state.session().selected_target().ok_or("no target")?;
+    assert_eq!(target_label(state.document(), selected).as_deref(), Some("Code line 1"));
     Ok(())
 }
 
@@ -229,13 +232,12 @@ fn outline_click_and_draft_cancellation() -> Result<(), Box<dyn Error>> {
 #[test]
 fn changing_the_theme_does_not_reparse_code_blocks() -> Result<(), Box<dyn Error>> {
     let mut state = MarkdownReviewState::new(document());
-    let before = thread_work().parses();
     draw(&mut state, 100, 30);
-    let parsed = thread_work().parses();
-    assert!(parsed > before);
+    let parsed = code_highlights(&state);
+    assert!(!parsed.is_empty());
     state.set_theme(ReviewTheme::ayu()?);
     draw(&mut state, 100, 30);
-    assert_eq!(thread_work().parses(), parsed);
+    assert!(code_highlights(&state).iter().zip(&parsed).all(|(after, before)| Arc::ptr_eq(after, before)));
     Ok(())
 }
 
@@ -256,9 +258,15 @@ fn rendered_row(state: &mut MarkdownReviewState, text: &str) -> Result<u16, Box<
 }
 
 fn document() -> Arc<MarkdownDocument> {
-    Arc::new(MarkdownDocument::parse_with_metadata(
-        Some("plan.md".to_owned()),
-        Some("Plan".to_owned()),
-        "# Plan\n\nA **paragraph** with `code` and [a link](https://example.com).\n\n- first\n  - nested\n\n> quoted text\n\n| Name | Value |\n| --- | --- |\n| one | two |\n\n```rust\nlet value = 1;\nprintln!(\"{value}\");\n```\n",
-    ))
+    Arc::new(MarkdownDocument::parse("# Plan\n\nA **paragraph** with `code` and [a link](https://example.com).\n\n- first\n  - nested\n\n> quoted text\n\n| Name | Value |\n| --- | --- |\n| one | two |\n\n```rust\nlet value = 1;\nprintln!(\"{value}\");\n```\n").with_metadata(Some("plan.md".to_owned()), Some("Plan".to_owned())))
+}
+
+fn code_highlights(state: &MarkdownReviewState) -> Vec<Arc<DocumentHighlights>> {
+    state
+        .document()
+        .blocks()
+        .iter()
+        .flat_map(MarkdownBlock::code_blocks)
+        .map(|code| Arc::clone(&code.syntax().highlights))
+        .collect()
 }

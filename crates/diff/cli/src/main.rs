@@ -8,7 +8,7 @@ use args::{CapabilitiesArgs, Cli, Command, ConnectArgs, MarkdownArgs, OutputForm
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_git::GitRepository;
-use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission};
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission, outline};
 use clankerdiff_protocol::{CapabilityResponse, PROTOCOL_VERSION, ReviewOutcome, ReviewResponse};
 use clankerdiff_server::{DiffServer, ReviewCompletion, ServerOptions, StreamTransport};
 use clap::Parser;
@@ -194,16 +194,11 @@ fn run_markdown(args: &MarkdownArgs) -> Result<ReviewResponse, AppError> {
         (decode_markdown(bytes)?, Some(args.path.clone()), file_name)
     };
     let source_path = args.source_path.clone().or(physical_source_path);
-    let provisional = MarkdownDocument::parse_with_metadata(source_path.clone(), None, source.clone());
+    let provisional = MarkdownDocument::parse(source.clone()).with_metadata(source_path.clone(), None);
     let title = args.title.clone().or_else(|| {
-        provisional
-            .outline()
-            .iter()
-            .find(|heading| heading.level == 1)
-            .map(|heading| heading.title.clone())
-            .or(file_name)
+        outline(&provisional).into_iter().find(|heading| heading.level == 1).map(|heading| heading.title).or(file_name)
     });
-    let document = MarkdownDocument::parse_with_metadata(source_path.clone(), title, source);
+    let document = MarkdownDocument::parse(source).with_metadata(source_path.clone(), title);
     let submission = match args.ui {
         Ui::Tui => tui::run_markdown(Arc::new(document))?,
         #[cfg(feature = "desktop")]

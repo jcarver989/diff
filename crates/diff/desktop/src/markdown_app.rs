@@ -29,7 +29,7 @@ pub(crate) fn root(
             window.quit();
         }
         MarkdownOutput::Event(MarkdownReviewEvent::Cancel) => window.quit(),
-        MarkdownOutput::Event(MarkdownReviewEvent::CopyFormatted(text)) | MarkdownOutput::CopyCode(text) => {
+        MarkdownOutput::Event(MarkdownReviewEvent::CopyFormatted(text)) => {
             window.copy_text(text);
         }
         MarkdownOutput::ThemeChanged(id) => prefs.remember_theme(&id),
