@@ -300,7 +300,7 @@ mod wasm {
         let viewer = ReviewController::with_options(
             Arc::new(demo_document()),
             stored_theme(),
-            DiffViewerOptions { view_mode: stored_view_mode(), ..DiffViewerOptions::default() },
+            DiffViewerOptions { view_mode: stored_view_mode(), wrap: stored_wrap(), ..DiffViewerOptions::default() },
         )
         .mount(|output| {
             let _ = send(WebCommand::Output(output));
@@ -506,6 +506,10 @@ mod wasm {
                 }
                 ReviewOutput::ViewModeChanged(mode) => {
                     store_view_mode(mode);
+                    return;
+                }
+                ReviewOutput::WrapChanged(wrap) => {
+                    store_wrap(wrap);
                     return;
                 }
                 ReviewOutput::Event(event) => event,
@@ -803,6 +807,21 @@ mod wasm {
             (web_sys::window().and_then(|window| window.local_storage().ok().flatten()), serde_json::to_string(&mode))
         {
             let _ = storage.set_item(VIEW_MODE_STORAGE_KEY, &mode);
+        }
+    }
+
+    const WRAP_STORAGE_KEY: &str = "clankerdiff.wrap.v1";
+
+    fn stored_wrap() -> bool {
+        web_sys::window()
+            .and_then(|window| window.local_storage().ok().flatten())
+            .and_then(|storage| storage.get_item(WRAP_STORAGE_KEY).ok().flatten())
+            .is_some_and(|wrap| wrap == "true")
+    }
+
+    fn store_wrap(wrap: bool) {
+        if let Some(storage) = web_sys::window().and_then(|window| window.local_storage().ok().flatten()) {
+            let _ = storage.set_item(WRAP_STORAGE_KEY, if wrap { "true" } else { "false" });
         }
     }
 
