@@ -7,7 +7,7 @@ use crate::theme::ActiveReviewTheme;
 use crate::{DiffViewerEvent, diff_view::content, shortcuts::Shortcuts, syntax_job};
 use clankerdiff_core::{
     CommandContext, DiffDocument, DiffReviewCommand, DiffSide, FileTree, FilesMode, Layout, LineAnchor, LookupReply,
-    RepoPath, ReviewCapabilities, ReviewSession, ViewMode, ViewportAnchor,
+    RepoPath, ReviewCapabilities, ReviewSession, TargetLocation, ViewMode, ViewportAnchor,
 };
 use clankerdiff_symbols::{DefinitionCard, DocumentSyntax, NameLookup};
 use clankerdiff_ui_core::ReviewTheme;
@@ -20,6 +20,8 @@ use rouge_reactive::{
 };
 use rouge_widgets::SearchPickerHandle;
 use std::{cell::Cell, mem, ops::Range, sync::Arc};
+
+const MAX_DEPARTURES: usize = 64;
 
 pub use clankerdiff_core::FocusPane as ViewerPane;
 
@@ -110,6 +112,17 @@ pub struct ReviewController {
     comments_revision: u64,
     hide_card: Option<Task>,
     effects: Vec<Effect>,
+    departures: Vec<(TargetLocation, ViewportAnchor, f32)>,
+}
+
+impl ReviewController {
+    fn remember_departure(&mut self, departure: (TargetLocation, ViewportAnchor, f32)) {
+        self.departures.retain(|(left, ..)| *left != departure.0);
+        if self.departures.len() >= MAX_DEPARTURES {
+            self.departures.remove(0);
+        }
+        self.departures.push(departure);
+    }
 }
 
 impl ReviewController {
@@ -147,6 +160,7 @@ impl ReviewController {
             comments_revision: 0,
             hide_card: None,
             effects: Vec::new(),
+            departures: Vec::new(),
         };
         controller.follow_syntax();
         controller
@@ -452,6 +466,32 @@ impl ReviewHandle {
         })
     }
 
+    fn departure(&self) -> Option<(TargetLocation, ViewportAnchor, f32)> {
+        let (_, anchor, offset) = self.viewport_anchor()?;
+        let location = self.with(|state| state.session.current_location())?;
+        Some((location, anchor, offset))
+    }
+
+    fn return_to_departure(&self) -> bool {
+        let Some(list) = self.viewport.get().map(|viewport| viewport.diff) else {
+            return false;
+        };
+        let saved = self.with(|state| {
+            let location = state.session.current_location()?;
+            state
+                .departures
+                .iter()
+                .rev()
+                .find(|(left, ..)| *left == location)
+                .map(|(_, anchor, offset)| (anchor.clone(), *offset))
+        });
+        let Some((anchor, offset)) = saved else {
+            return false;
+        };
+        self.restore_viewport((list, anchor, offset));
+        true
+    }
+
     fn restore_viewport(&self, (list, anchor, offset): (VirtualListHandle, ViewportAnchor, f32)) {
         self.with(|state| {
             let range = state.session.visible_range();
@@ -508,10 +548,19 @@ impl ReviewHandle {
             | C::Review(R::BeginComment | R::EditComment) => Some(Align::Visible),
             _ => None,
         };
+        let returning = matches!(command, C::NavigateBack | C::NavigateForward);
+        let departs = returning || matches!(command, C::JumpTo(_) | C::GoToDefinition);
         batch(|| {
             let old = self.selection.get_untracked();
+            let departure = departs.then(|| self.departure()).flatten();
             let handled = self.update(|state| state.handle_command(command)).unwrap_or(false);
             let next = self.selection.get_untracked();
+            if handled && let Some(departure) = departure {
+                self.update(|state| state.remember_departure(departure));
+            }
+            if handled && returning && self.return_to_departure() {
+                return handled;
+            }
             if handled
                 && let Some(align) = align
                 && (next.row != old.row || next.file != old.file || next.pane == ViewerPane::Diff)
