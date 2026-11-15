@@ -9,10 +9,10 @@ use clankerdiff_core::{
 use clankerdiff_ui_core::{DiffPalette, Rgba};
 use rouge_core::{
     Align, AnyView, Canvas, Color, Cursor, Div, Measure, Painter, Point, Rect, Role, RowKey, ScrollLinked, Size,
-    SpanStyle, Styled, TextHit, TextRun, Theme, View, VirtualListHandle, canvas, div, dynamic, pct, px, show, text,
-    view, virtual_list, virtual_list_handle,
+    SpanStyle, Styled, TextHit, TextRun, Theme, Underline, View, VirtualListHandle, canvas, div, dynamic, modifiers,
+    pct, px, show, text, view, virtual_list, virtual_list_handle,
 };
-use rouge_reactive::{Memo, Signal, effect, memo, signal};
+use rouge_reactive::{Memo, Signal, effect, memo, on_cleanup, signal};
 use rouge_widgets::{
     CODE_WRAP, IconName, UiStyles, empty_state, icon_button, syntax_spans, tokens::Radius, typography::CODE,
     vertical_scrollbar,
@@ -73,6 +73,7 @@ fn diff_pane(handle: ReviewHandle, list: VirtualListHandle, files: VirtualListHa
     let wrap = memo(move || status.get().wrap);
     let flow = Flow { wrap, offset: signal(0.0), limit: signal(0.0) };
     let hover: Hover = signal(None);
+    let anchor = signal(Rect::ZERO);
     effect(move || {
         revision.get();
         wrap.get();
@@ -83,7 +84,7 @@ fn diff_pane(handle: ReviewHandle, list: VirtualListHandle, files: VirtualListHa
     let rows = virtual_list(
         move || range.get().len(),
         CODE_HEIGHT,
-        move |index| row(&handle, range.get_untracked().start + index, flow, hover),
+        move |index| row(&handle, range.get_untracked().start + index, flow, hover, anchor),
     )
     .row_identity(move |index| {
         let revision = revision.get();
@@ -120,6 +121,11 @@ fn diff_pane(handle: ReviewHandle, list: VirtualListHandle, files: VirtualListHa
     };
     view! {
         <div test_id="diff-pane" relative flex_1 min_w=0.0 min_h=0.0 overflow_hidden
+             on_pointer_down={move |event| {
+                 if !definition_card::links(event.modifiers) && handle.with(|s| s.definition_card().is_some()) {
+                     handle.handle_command(C::CloseDefinition);
+                 }
+             }}
              on_scroll={move |event| {
                  if event.delta.x != 0.0 && !flow.wrap.get_untracked() {
                      let max = flow.limit.get_untracked();
@@ -129,6 +135,7 @@ fn diff_pane(handle: ReviewHandle, list: VirtualListHandle, files: VirtualListHa
             {rows}
             <dynamic children=empty/>
             {sticky(handle, list, active, range)}
+            {definition_card::popover(handle, anchor)}
             <div absolute right=0.0 top=0.0 bottom=0.0>{vertical_scrollbar(list.scroll_state())}</div>
         </div>
     }
@@ -210,7 +217,7 @@ fn sticky(
     })
 }
 
-fn row(handle: &ReviewHandle, index: usize, flow: Flow, hover: Hover) -> AnyView {
+fn row(handle: &ReviewHandle, index: usize, flow: Flow, hover: Hover, anchor: Signal<Rect>) -> AnyView {
     let Some(row) = handle.with(|s| s.session().presentation().row(index).cloned()) else {
         return div().into_any();
     };
@@ -218,7 +225,7 @@ fn row(handle: &ReviewHandle, index: usize, flow: Flow, hover: Hover) -> AnyView
         RowKind::FileHeader => header(handle, row.file_index).into_any(),
         RowKind::Meta => meta(index, &row).into_any(),
         RowKind::ExpandGap => gap(handle, index).into_any(),
-        RowKind::Code | RowKind::ExpandedContext => line(handle, index, &row, flow, hover).into_any(),
+        RowKind::Code | RowKind::ExpandedContext => line(handle, index, &row, flow, hover, anchor).into_any(),
     }
 }
 
@@ -288,7 +295,14 @@ impl Column {
     }
 }
 
-fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, flow: Flow, hover: Hover) -> Div {
+fn line(
+    handle: &ReviewHandle,
+    index: usize,
+    row: &PresentedRow,
+    flow: Flow,
+    hover: Hover,
+    anchor: Signal<Rect>,
+) -> Div {
     let handle = *handle;
     let columns = Column::all(&handle, row);
     let size = signal(Size::ZERO);
@@ -300,7 +314,7 @@ fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, flow: Flow, hov
         }
     });
     let code_height = Rc::new(Cell::new(0.0_f32));
-    let painted = painted(&handle, index, row.clone(), &columns, flow, code_height.clone())
+    let painted = painted(&handle, index, row.clone(), &columns, flow, code_height.clone(), anchor)
         .track_overflow(overflow)
         .on_text_hover({
             let columns = columns.clone();
@@ -326,7 +340,7 @@ fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, flow: Flow, hov
                 if let Some(hit) = hit
                     && let Some(location) = Column::location(&columns, hit)
                 {
-                    definition_card::click(&handle, &location, Some(hit.index), modifiers);
+                    definition_card::click(&handle, index, &location, hit, modifiers);
                 }
             }
         })
@@ -372,6 +386,51 @@ fn line(handle: &ReviewHandle, index: usize, row: &PresentedRow, flow: Flow, hov
 }
 
 type Spans = Vec<(Range<usize>, SpanStyle)>;
+
+#[derive(PartialEq)]
+struct Styling {
+    spans: Spans,
+    card: Option<Range<usize>>,
+}
+
+#[derive(Default)]
+struct Marks {
+    card: Option<Range<usize>>,
+    references: Vec<Range<usize>>,
+}
+
+impl Marks {
+    fn at(handle: &ReviewHandle, location: Option<&SourceLocation>, links: bool) -> Self {
+        let Some(location) = location else {
+            return Self::default();
+        };
+        let card = handle
+            .with(|s| s.definition_card().filter(|card| card.origin == *location).map(|card| card.columns.clone()));
+        let references = if links {
+            handle.with_syntax(|_, syntax| {
+                syntax.ready_symbols().map_or_else(Vec::new, |index| {
+                    index.references_at(location).iter().map(|reference| reference.span.columns.clone()).collect()
+                })
+            })
+        } else {
+            Vec::new()
+        };
+        Self { card, references }
+    }
+
+    fn spans(&self, underline: Color, carded: Color) -> impl Iterator<Item = (Range<usize>, SpanStyle)> + '_ {
+        let underline = Underline { color: underline, thickness: 1.0 };
+        let references = self
+            .references
+            .iter()
+            .map(move |range| (range.clone(), SpanStyle { underline: Some(underline), ..SpanStyle::default() }));
+        let card = self
+            .card
+            .iter()
+            .map(move |range| (range.clone(), SpanStyle { background: Some(carded), ..SpanStyle::default() }));
+        card.chain(references)
+    }
+}
 
 struct Fill {
     background: Color,
@@ -431,18 +490,18 @@ impl Geometry {
         run.tag(side as u32)
     }
 
-    fn height(&self, measure: &mut Measure<'_>, columns: &[Column], spans: &[Spans], ink: Ink) -> f32 {
+    fn height(&self, measure: &mut Measure<'_>, columns: &[Column], styled: &[Styling], ink: Ink) -> f32 {
         let line = CODE_HEIGHT;
         if !self.wrap {
             return line;
         }
         columns
             .iter()
-            .zip(spans)
+            .zip(styled)
             .enumerate()
-            .filter_map(|(position, (column, spans))| {
+            .filter_map(|(position, (column, styling))| {
                 let cell = column.cell.as_ref()?;
-                let run = self.code_run(position, column, cell, spans, ink);
+                let run = self.code_run(position, column, cell, &styling.spans, ink);
                 Some(measure.text(&run).max().y + TEXT_TOP)
             })
             .fold(line, f32::max)
@@ -483,6 +542,7 @@ fn painted(
     columns: &Rc<[Column]>,
     flow: Flow,
     code_height: Rc<Cell<f32>>,
+    anchor: Signal<Rect>,
 ) -> Canvas {
     let theme = Theme::current();
     let selection = handle.selection();
@@ -493,29 +553,47 @@ fn painted(
     let (handle, columns) = (*handle, columns.clone());
     let palette = handle.theme();
     let revision = handle.syntax_revision();
-    let spans = memo({
+    let definition = handle.definition_revision();
+    let held = modifiers();
+    let styled = memo({
         let columns = columns.clone();
         move || {
             revision.get();
+            definition.get();
+            let links = definition_card::links(held.get());
             palette.with(|review| {
+                let (underline, carded) = (Color::from(review.diff.accent), Color::from(review.carded_name()));
                 columns
                     .iter()
                     .map(|column| {
-                        column.cell.as_ref().map_or_else(Vec::new, |cell| {
+                        let mut spans = column.cell.as_ref().map_or_else(Vec::new, |cell| {
                             handle.with_syntax(|_, syntax| {
                                 syntax_spans(syntax.ready_highlights(&row, cell), &review.syntax)
                             })
-                        })
+                        });
+                        let marks = Marks::at(&handle, column.location.as_ref(), links);
+                        spans.extend(marks.spans(underline, carded));
+                        Styling { spans, card: marks.card }
                     })
-                    .collect::<Rc<[Spans]>>()
+                    .collect::<Rc<[Styling]>>()
             })
         }
     });
     let measured = columns.clone();
+    let anchored = Rc::new(Cell::new(false));
+    on_cleanup({
+        let anchored = anchored.clone();
+        move || {
+            if anchored.get() {
+                anchor.set(Rect::ZERO);
+            }
+        }
+    });
     canvas(move |painter| {
         let colors = theme.get();
         let selected = selected.get();
-        let spans = spans.get();
+        let styled = styled.get();
+        anchored.set(styled.iter().any(|styling| styling.card.is_some()));
         let wrap = flow.wrap.get();
         let offset = if wrap { 0.0 } else { flow.offset.get() };
         let size = painter.size();
@@ -535,7 +613,7 @@ fn painted(
                     _ => None,
                 },
             };
-            paint_line(painter, index, &columns, &spans, geometry, ink, fill);
+            paint_line(painter, index, &columns, &styled, geometry, ink, fill, anchor);
         });
     })
     .measure(move |measure, width| {
@@ -543,25 +621,27 @@ fn painted(
         let wrap = flow.wrap.get();
         let geometry = Geometry { width, count: measured.len(), wrap, offset: 0.0 };
         let ink = Ink { number: colors.text_muted, text: colors.text, border: colors.border };
-        geometry.height(measure, &measured, &spans.get(), ink)
+        geometry.height(measure, &measured, &styled.get(), ink)
     })
 }
 
+#[expect(clippy::too_many_arguments, reason = "Painting a line needs its geometry, colours and card anchor")]
 fn paint_line(
     painter: &mut Painter,
     index: usize,
     columns: &[Column],
-    spans: &[Spans],
+    styled: &[Styling],
     geometry: Geometry,
     ink: Ink,
     fill: impl Fn(&Column, &PresentedCell) -> Fill,
+    anchor: Signal<Rect>,
 ) {
     let bounds = painter.size();
     if bounds.width <= 0.0 || bounds.height <= 0.0 {
         return;
     }
     let style = CODE.text_style();
-    for (position, (column, spans)) in columns.iter().zip(spans).enumerate() {
+    for (position, (column, styling)) in columns.iter().zip(styled).enumerate() {
         let inner =
             Rect { size: Size::new(geometry.column(position).size.width, bounds.height), ..geometry.column(position) };
         let left = inner.origin.x;
@@ -597,8 +677,15 @@ fn paint_line(
         }
         let code_left = geometry.code_left(position);
         let clip = Rect::new(code_left, 0.0, (inner.max().x - code_left).max(0.0), bounds.height);
-        let run = geometry.code_run(position, column, cell, spans, ink);
-        painter.run(run.clip(clip).name(format!("code-{index}-{side:?}")));
+        let run = geometry
+            .code_run(position, column, cell, &styling.spans, ink)
+            .clip(clip)
+            .name(format!("code-{index}-{side:?}"));
+        let run = match styling.card.clone() {
+            Some(range) => run.track_range(range, anchor),
+            None => run,
+        };
+        painter.run(run);
     }
 }
 
@@ -621,25 +708,19 @@ fn blocks(handle: &ReviewHandle, index: usize, columns: Rc<[Column]>) -> impl Vi
     let handle = *handle;
     let comments = handle.comments_revision();
     let draft = handle.draft_placement();
-    let definition = handle.definition_revision();
     let shown = memo({
         let columns = columns.clone();
         move || {
             comments.get();
             let draft = draft.get();
-            definition.get();
             handle.with(|state| {
                 columns
                     .iter()
                     .map(|column| {
-                        let thread = column.anchor.as_ref().is_some_and(|anchor| {
+                        column.anchor.as_ref().is_some_and(|anchor| {
                             draft.as_ref().is_some_and(|(placed, _)| placed == anchor)
                                 || state.session().review().comments_for_anchor(anchor).any(|comment| !comment.outdated)
-                        });
-                        let card = column.location.as_ref().is_some_and(|location| {
-                            state.definition_card().is_some_and(|card| card.origin == *location)
-                        });
-                        (thread, card)
+                        })
                     })
                     .collect::<Vec<_>>()
             })
@@ -647,16 +728,14 @@ fn blocks(handle: &ReviewHandle, index: usize, columns: Rc<[Column]>) -> impl Vi
     });
     dynamic(move || {
         let shown = shown.get();
-        if shown.iter().all(|(thread, card)| !thread && !card) {
+        if shown.iter().all(|thread| !thread) {
             return None;
         }
-        let cells = columns.iter().zip(shown).map(|(column, (thread, card))| {
+        let cells = columns.iter().zip(shown).map(|(column, thread)| {
             let thread = column.anchor.clone().filter(|_| thread);
-            let card = column.location.clone().filter(|_| card);
             view! {
                 <div flex_1 min_w=0.0 flex col>
                     {thread.map(|anchor| comments::thread(handle, index, column.side, anchor))}
-                    {card.map(|location| definition_card::at_line(handle, location))}
                 </div>
             }
         });
