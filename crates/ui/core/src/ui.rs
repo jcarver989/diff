@@ -31,7 +31,7 @@ impl From<UiPaletteDocument> for UiPalette {
     fn from(document: UiPaletteDocument) -> Self {
         Self {
             chrome: document.chrome.unwrap_or(document.surface),
-            elevated: document.elevated.unwrap_or(document.surface_hover),
+            elevated: document.elevated.unwrap_or_else(|| document.surface_hover.mix(document.canvas, 128)),
             input: document.input.unwrap_or(document.canvas),
             border_subtle: document.border_subtle.unwrap_or_else(|| document.border.mix(document.canvas, 128)),
             canvas: document.canvas,

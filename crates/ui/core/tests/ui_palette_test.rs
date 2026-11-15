@@ -160,6 +160,16 @@ fn palettes_without_layer_tokens_derive_them_from_their_roles() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn hovering_an_elevated_surface_is_visible_in_every_theme() -> TestResult {
+    for descriptor in ReviewTheme::catalog() {
+        let ui = ReviewTheme::builtin(&descriptor.id)?.ui;
+        assert_ne!(ui.elevated, ui.surface_hover, "{}: a hovered menu row disappears", descriptor.id);
+        assert_ne!(ui.elevated, ui.canvas, "{}: an elevated surface sits flush with the canvas", descriptor.id);
+    }
+    Ok(())
+}
+
 fn assert_readable(id: &str, ui: UiPalette) {
     for (role, foreground) in [
         ("text", ui.text),
