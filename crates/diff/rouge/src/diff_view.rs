@@ -1,11 +1,12 @@
 use crate::{
     ReviewHandle, ScrollRequest, ViewerPane, annotation, comment_editor, comments, definition_card, review_bar,
-    sidebar, style, toolbar, viewer::Viewport,
+    shortcut_label, sidebar, style, toolbar, viewer::Viewport,
 };
 use clankerdiff_core::{
-    DiffReviewCommand as C, DiffSide, DiffTone, FileStatus, Layout, LineAnchor, LineStat, PresentedCell, PresentedRow,
-    RevealAmount, RowId, RowKind, SourceLocation,
+    DiffReviewCommand as C, DiffSide, DiffTone, FileStatus, FileView, Layout, LineAnchor, LineStat, PresentedCell,
+    PresentedRow, RevealAmount, RowId, RowKind, SourceLocation, tooltip,
 };
+use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ui_core::{DiffPalette, ReviewTheme, Rgba};
 use rouge_core::{
     Align, AnyView, Canvas, Color, Cursor, Div, Measure, Painter, Point, Quad, Rect, Role, RowKey, ScrollLinked, Size,
@@ -14,7 +15,8 @@ use rouge_core::{
 };
 use rouge_reactive::{Memo, ReadSignal, Signal, effect, memo, on_cleanup, signal};
 use rouge_widgets::{
-    CODE_WRAP, Icon, IconName, UiStyles, empty_state, icon_button, syntax_spans,
+    CODE_WRAP, Icon, IconName, SegmentedControl, UiStyles, empty_state, icon_button, markdown, segment,
+    segmented_control, syntax_spans,
     tokens::{self, Radius},
     typography::CODE,
     vertical_scrollbar,
@@ -38,6 +40,8 @@ const CODE_PADDING_RIGHT: f32 = 8.0;
 const DIVIDER: f32 = 1.0;
 const MAX_LINE_BYTES: usize = 16 * 1024;
 const CONTINUATION: &str = "↪";
+const PREVIEW_WIDTH: f32 = 780.0;
+const PREVIEW_PADDING: f32 = 24.0;
 
 #[derive(Clone, Copy)]
 struct Flow {
@@ -231,6 +235,7 @@ fn row(handle: &ReviewHandle, index: usize, flow: Flow, hover: Hover, anchor: Si
         RowKind::FileHeader => header(handle, row.file_index).into_any(),
         RowKind::Meta => meta(index, &row).into_any(),
         RowKind::ExpandGap => gap(handle, index).into_any(),
+        RowKind::MarkdownPreview => markdown_preview(handle, row.file_index).into_any(),
         RowKind::Code | RowKind::ExpandedContext => line(handle, index, &row, flow, hover, anchor).into_any(),
     }
 }
@@ -755,7 +760,8 @@ struct HeaderInfo {
     directory: Option<String>,
     renamed_from: Option<String>,
     stat: LineStat,
-    collapsed: bool,
+    view: FileView,
+    previewable: bool,
     source: Option<&'static str>,
     start: Option<usize>,
     after_header: bool,
@@ -771,7 +777,8 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
     let selection = handle.selection();
     let start = info.start;
     let count = collapsed_comments(&handle, index);
-    let (status, collapsed) = (info.status, info.collapsed);
+    let (status, view) = (info.status, info.view);
+    let collapsed = view == FileView::Collapsed;
     let (icon, label) =
         if collapsed { (IconName::ChevronRight, "Expand file") } else { (IconName::ChevronDown, "Collapse file") };
     let toggle = info.source.is_none().then(|| {
@@ -786,7 +793,7 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
         let selection = selection.get();
         selection.pane == ViewerPane::Diff && start.is_some() && selection.row == start
     });
-    let comments = memo(move || if collapsed { count() } else { 0 });
+    let comments = memo(move || if view == FileView::Diff { 0 } else { count() });
     let status_color = move || palette.with(|t| style::file_status_color(status, &t.diff));
     let band = move |pick: fn(&DiffPalette) -> Rgba| {
         move || {
@@ -810,6 +817,8 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
         },
         None => stat_columns(info.stat, palette, comments),
     };
+    let preview =
+        (info.previewable && info.source.is_none()).then(|| preview_toggle(&handle, index, view == FileView::Preview));
     view! {
         <div test_id={format!("diff-file-header-{index}")} h=HEADER_HEIGHT w_full flex row items_center
              border_t=px(if info.after_header { 0.0 } else { 1.0 }) border_b=px(1.0) border_color=rule
@@ -834,10 +843,49 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
                     <text body_strong no_wrap color=tone(|p| p.foreground)>{info.name}</text>
                 </div>
             </div>
+            {preview}
             {trailing}
         </div>
     }
     .hover(move |style| style.bg(band(|p| p.foreground.mix(p.background, 18))))
+}
+
+fn preview_toggle(handle: &ReviewHandle, index: usize, previewed: bool) -> SegmentedControl {
+    let handle = *handle;
+    let segments = [
+        (false, "show-diff", IconName::FileDiff, "Show diff"),
+        (true, "preview-markdown", IconName::Eye, "Preview markdown"),
+    ]
+    .map(|(preview, id, icon, text)| {
+        let label = tooltip(text, shortcut_label(&C::ToggleMarkdownPreview(None)));
+        view! {
+            <segment test_id={format!("{id}-{index}")} label icon=icon selected={previewed == preview}
+                     on_click={move || {
+                         if previewed != preview {
+                             handle.handle_command(C::ToggleMarkdownPreview(Some(index)));
+                         }
+                     }}/>
+        }
+    });
+    view! { <segmented_control test_id={format!("markdown-toggle-{index}")} flex_none p=2.0>{..segments}</segmented_control> }
+}
+
+fn markdown_preview(handle: &ReviewHandle, file: usize) -> Div {
+    let source = handle.with(|s| {
+        s.session().presentation().document().files.get(file).and_then(|file| file.markdown_source().cloned())
+    });
+    let Some(source) = source else {
+        return div();
+    };
+    let theme = handle.theme();
+    let document = markdown(MarkdownDocument::parse(source.text()))
+        .palette(theme.select(|t| t.markdown))
+        .syntax(theme.select(|t| t.syntax.clone()));
+    view! {
+        <div test_id={format!("markdown-preview-{file}")} p=PREVIEW_PADDING pl={ACCENT_WIDTH + GUTTER_WIDTH}>
+            <div max_w=PREVIEW_WIDTH>{document}</div>
+        </div>
+    }
 }
 
 fn stat_columns(stat: LineStat, palette: ReadSignal<ReviewTheme>, comments: Memo<usize>) -> Div {
@@ -891,7 +939,8 @@ fn header_info(handle: &ReviewHandle, index: usize) -> Option<HeaderInfo> {
             directory: file.path.directory().map(|directory| format!("{directory}/")),
             renamed_from: file.renamed_from().map(|old| format!("{old}  →  ")),
             stat: file.line_stat(),
-            collapsed: presentation.is_collapsed(index),
+            view: presentation.file_view(index),
+            previewable: session.command_available(&C::ToggleMarkdownPreview(Some(index))),
             source: session.source_view_label(),
             start,
             after_header: start

@@ -109,6 +109,15 @@ pub enum RowKind {
     Code,
     ExpandedContext,
     ExpandGap,
+    MarkdownPreview,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FileView {
+    #[default]
+    Diff,
+    Collapsed,
+    Preview,
 }
 
 /// Stable identity of a gap before, between, or after hunks.
@@ -185,7 +194,7 @@ pub struct ContentProjection {
     source_view: Option<RepoPath>,
     pub(crate) expansions: HashMap<GapId, GapExpansion>,
     pub(crate) full_files: HashSet<RepoPath>,
-    pub(crate) collapsed_files: HashSet<RepoPath>,
+    pub(crate) file_views: HashMap<RepoPath, FileView>,
 }
 
 impl ContentProjection {
@@ -220,17 +229,17 @@ impl ContentProjection {
         self.full_files.contains(path)
     }
 
-    pub fn set_collapsed(&mut self, path: RepoPath, collapsed: bool) {
-        if collapsed {
-            self.collapsed_files.insert(path);
+    pub fn set_file_view(&mut self, path: RepoPath, view: FileView) {
+        if view == FileView::Diff {
+            self.file_views.remove(&path);
         } else {
-            self.collapsed_files.remove(&path);
+            self.file_views.insert(path, view);
         }
     }
 
     #[must_use]
-    pub fn is_collapsed(&self, path: &RepoPath) -> bool {
-        self.collapsed_files.contains(path)
+    pub fn file_view(&self, path: &RepoPath) -> FileView {
+        self.file_views.get(path).copied().unwrap_or_default()
     }
 }
 
@@ -328,7 +337,7 @@ impl PresentedRow {
         match self.kind {
             RowKind::Code | RowKind::ExpandedContext => self.source_lines().next().is_some(),
             RowKind::ExpandGap => true,
-            RowKind::FileHeader | RowKind::Meta => false,
+            RowKind::FileHeader | RowKind::Meta | RowKind::MarkdownPreview => false,
         }
     }
 }
@@ -346,7 +355,7 @@ pub struct DiffPresentation {
     file_order: Vec<usize>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
-    collapsed: Vec<bool>,
+    views: Vec<FileView>,
 }
 
 impl DiffPresentation {
@@ -370,7 +379,7 @@ impl DiffPresentation {
         let file_order = tree_order(&document);
         let mut file_ranges = vec![0..0; document.files.len()];
         let mut hunk_ranges = vec![Vec::new(); document.files.len()];
-        let mut collapsed = vec![false; document.files.len()];
+        let mut views = vec![FileView::Diff; document.files.len()];
         for &file_index in &file_order {
             let file = &document.files[file_index];
             let layout = layout.for_status(file.status);
@@ -383,8 +392,20 @@ impl DiffPresentation {
                 file_ranges[file_index] = file_start..rows.len();
                 continue;
             }
-            if options.include_file_headers && projection.is_collapsed(&file.path) {
-                collapsed[file_index] = true;
+            let view = projection.file_view(&file.path);
+            if options.include_file_headers && view == FileView::Collapsed
+                || view == FileView::Preview && file.markdown_source().is_some()
+            {
+                if view == FileView::Preview {
+                    let id = row_id(&file.path, "markdown-preview", None, None, None);
+                    rows.push(PresentedRow {
+                        id,
+                        kind: RowKind::MarkdownPreview,
+                        right: None,
+                        ..header_row(file_index, file)
+                    });
+                }
+                views[file_index] = view;
                 file_ranges[file_index] = file_start..rows.len();
                 continue;
             }
@@ -452,18 +473,7 @@ impl DiffPresentation {
                 })
             })
             .collect();
-        Self {
-            document,
-            layout,
-            rows,
-            anchor_rows,
-            source_rows,
-            gap_info,
-            file_order,
-            file_ranges,
-            hunk_ranges,
-            collapsed,
-        }
+        Self { document, layout, rows, anchor_rows, source_rows, gap_info, file_order, file_ranges, hunk_ranges, views }
     }
 
     /// Returns the retained immutable snapshot.
@@ -531,7 +541,12 @@ impl DiffPresentation {
 
     #[must_use]
     pub fn is_collapsed(&self, file_index: usize) -> bool {
-        self.collapsed.get(file_index).copied().unwrap_or(false)
+        self.file_view(file_index) == FileView::Collapsed
+    }
+
+    #[must_use]
+    pub fn file_view(&self, file_index: usize) -> FileView {
+        self.views.get(file_index).copied().unwrap_or_default()
     }
 
     /// Returns the row range occupied by a hunk, including its header.
@@ -623,7 +638,7 @@ impl DiffPresentation {
     #[must_use]
     pub fn is_navigable(&self, index: usize) -> bool {
         self.row(index).is_some_and(|row| {
-            row.is_navigable() || (row.kind == RowKind::FileHeader && self.is_collapsed(row.file_index))
+            row.is_navigable() || (row.kind == RowKind::FileHeader && self.file_view(row.file_index) != FileView::Diff)
         })
     }
 

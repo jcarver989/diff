@@ -474,6 +474,7 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
                 .render(area, buffer);
         }
         RowKind::ExpandGap => render_gap_row(area, buffer, context, style.selected),
+        RowKind::MarkdownPreview => {}
         RowKind::Code | RowKind::ExpandedContext if geometry.split => {
             let separator_width = u16::from(area.width > 0);
             let [left, separator, right] = Layout::horizontal([

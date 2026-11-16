@@ -1,7 +1,7 @@
 use super::{Effect, Overlay, PickerCommand, ReviewController, ReviewOutput, ScrollRequest, ViewerPane};
 use crate::DiffViewerEvent;
 use clankerdiff_core::{
-    CommandContext, DiffDocument, DiffReviewCommand as C, FilesMode, InteractionPhase, RepositoryAction,
+    CommandContext, DiffDocument, DiffReviewCommand as C, FileView, FilesMode, InteractionPhase, RepositoryAction,
     ReviewCapabilities, ReviewCommand as R,
 };
 use std::sync::Arc;
@@ -18,6 +18,7 @@ impl ReviewController {
             repository_pending: self.repository_pending,
             themes_available: self.options.themes,
             wrap_available: true,
+            markdown_preview_available: true,
             commits_available: self.session.commits().is_some(),
             source_view: self.session.shows_source(),
             browsable: self.capabilities.lookups,
@@ -128,12 +129,9 @@ impl ReviewController {
                 return changed;
             }
             C::ToggleFullFile => return self.session.toggle_full_file(),
-            C::ToggleFileCollapsed(index) => {
-                return index
-                    .or_else(|| self.session.selected_file())
-                    .is_some_and(|index| self.session.toggle_file_collapsed(index));
-            }
+            C::ToggleFileCollapsed(index) => return self.session.toggle_file_view(index, FileView::Collapsed),
             C::ToggleAllFilesCollapsed => return self.session.toggle_all_files_collapsed(),
+            C::ToggleMarkdownPreview(index) => return self.session.toggle_file_view(index, FileView::Preview),
             C::SetViewMode(_) | C::ToggleLayout => {
                 let changed = if let C::SetViewMode(mode) = command {
                     self.session.set_view_mode(mode)

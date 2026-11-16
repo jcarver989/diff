@@ -28,6 +28,7 @@ impl DiffReviewState {
             wrap_available: false,
             commits_available: self.session.commits().is_some(),
             browsable: false,
+            markdown_preview_available: false,
         }
     }
 
@@ -127,7 +128,7 @@ impl DiffReviewState {
                 self.reveal_selected_gap(amount);
                 return InputOutcome::Consumed;
             }
-            C::SetFilesMode(_) | C::ToggleWrap => return InputOutcome::Ignored,
+            C::SetFilesMode(_) | C::ToggleWrap | C::ToggleMarkdownPreview(_) => return InputOutcome::Ignored,
             C::ToggleSourceView => {
                 if self.session.source_view().is_none() && self.focus == FocusPane::Files {
                     let Some(index) = self.drawer.selected().and_then(|entry| entry.file) else {

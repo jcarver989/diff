@@ -544,6 +544,7 @@ impl ReviewHandle {
             | C::NavigateBack
             | C::NavigateForward
             | C::ToggleSourceView
+            | C::ToggleMarkdownPreview(_)
             | C::SetFilesMode(_)
             | C::Review(R::BeginComment | R::EditComment) => Some(Align::Visible),
             _ => None,

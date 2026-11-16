@@ -1,7 +1,7 @@
 use super::{FilesMode, ReviewSession};
 use crate::{
-    DiffDocument, DiffReviewCommand, DiffSide, FileDiff, GapExpansion, GapId, RepoPath, SourceDocument, SourceLocation,
-    SourcePath, TargetLocation, gaps_for_file,
+    DiffDocument, DiffReviewCommand, DiffSide, FileDiff, FileView, GapExpansion, GapId, RepoPath, SourceDocument,
+    SourceLocation, SourcePath, TargetLocation, gaps_for_file,
 };
 use std::sync::Arc;
 
@@ -266,9 +266,7 @@ impl ReviewSession {
             return false;
         };
         if self.presentation.row_showing_source(location).is_none() {
-            if self.presentation.is_collapsed(file_index) {
-                self.projection.set_collapsed(location.path.clone(), false);
-            }
+            self.projection.set_file_view(location.path.clone(), FileView::Diff);
             if let Some((id, expansion)) = self.gap_expansion(file_index, location) {
                 self.projection.set_expansion(id, expansion);
             }

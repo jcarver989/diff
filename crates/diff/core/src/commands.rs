@@ -57,6 +57,7 @@ pub struct CommandContext {
     pub wrap_available: bool,
     pub commits_available: bool,
     pub browsable: bool,
+    pub markdown_preview_available: bool,
 }
 
 impl Default for CommandContext {
@@ -72,6 +73,7 @@ impl Default for CommandContext {
             wrap_available: false,
             commits_available: false,
             browsable: false,
+            markdown_preview_available: false,
         }
     }
 }
@@ -131,6 +133,7 @@ pub enum DiffReviewCommand {
     ToggleFullFile,
     ToggleFileCollapsed(Option<usize>),
     ToggleAllFilesCollapsed,
+    ToggleMarkdownPreview(Option<usize>),
     ToggleSourceView,
     SetFilesMode(FilesMode),
     SetViewMode(ViewMode),
@@ -197,6 +200,7 @@ impl DiffReviewCommand {
                     | Self::ToggleFullFile
                     | Self::ToggleFileCollapsed(_)
                     | Self::ToggleAllFilesCollapsed
+                    | Self::ToggleMarkdownPreview(_)
                     | Self::SetViewMode(_)
                     | Self::ToggleLayout
                     | Self::SelectSide(_)
@@ -239,6 +243,7 @@ impl DiffReviewCommand {
             Self::SetFilesMode(_) => context.browsable,
             Self::CopyReview => context.capabilities.clipboard,
             Self::ToggleWrap => context.wrap_available,
+            Self::ToggleMarkdownPreview(_) => context.markdown_preview_available,
             Self::Focus(FocusPane::Files) | Self::ToggleFocus | Self::ToggleSidebar => context.navigation_available,
             _ => true,
         };

@@ -1,7 +1,7 @@
 mod common;
 
 use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand as C, DiffSide, RowKind, ViewMode, parse_detached_git_diff,
+    DiffDocument, DiffReviewCommand as C, DiffSide, FileView, RowKind, ViewMode, parse_detached_git_diff,
     testing::{DocumentBuilder, location},
 };
 use clankerdiff_rouge::{ReviewController, ReviewOutput, ViewerPane};
@@ -30,6 +30,33 @@ fn split_and_unified_render_the_same_patch_and_target_the_correct_side() -> Test
         let location = location("src/lib.rs", 1)?;
         assert_eq!(handle.with(|s| s.session().selected_source_line()), Some(location));
         assert!(outputs.borrow().contains(&ReviewOutput::ViewModeChanged(ViewMode::Unified)));
+        Ok(())
+    })
+}
+
+#[test]
+fn markdown_files_toggle_between_their_diff_and_a_rendered_preview() -> TestResult {
+    let doc = DocumentBuilder::new()
+        .changed("README.md", "# Diff\n", "# Diff\n\nRead [the guide](https://example.com/guide).\n")
+        .changed("src/lib.rs", "old\n", "new\n")
+        .build();
+    common::run(doc, |ui, handle, _| {
+        let previewed = || handle.with(|s| s.session().presentation().file_view(0)) == FileView::Preview;
+        assert!(ui.bounds_of("markdown-toggle-0").is_some());
+        assert!(ui.bounds_of("markdown-toggle-1").is_none());
+        ui.click_on("preview-markdown-0")?;
+        ui.advance(0.0);
+        assert!(previewed());
+        assert!(ui.bounds_of("markdown-preview-0").is_some());
+        ui.click_on("show-diff-0")?;
+        ui.advance(0.0);
+        assert!(!previewed());
+        assert!(ui.bounds_of("markdown-preview-0").is_none());
+        let row = handle.with(|s| s.session().presentation().file_range(0)).ok_or("no README rows")?.start + 1;
+        ui.click_on(&format!("diff-cell-{row}-New"))?;
+        ui.press("m");
+        ui.advance(0.0);
+        assert!(previewed());
         Ok(())
     })
 }
