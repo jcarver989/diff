@@ -877,10 +877,11 @@ fn markdown_preview(handle: &ReviewHandle, file: usize) -> Div {
     let Some(source) = source else {
         return div();
     };
-    let theme = handle.theme();
+    let (handle, theme) = (*handle, handle.theme());
     let document = markdown(MarkdownDocument::parse(source.text()))
         .palette(theme.select(|t| t.markdown))
-        .syntax(theme.select(|t| t.syntax.clone()));
+        .syntax(theme.select(|t| t.syntax.clone()))
+        .on_link(move |url| handle.open_link(url));
     view! {
         <div test_id={format!("markdown-preview-{file}")} p=PREVIEW_PADDING pl={ACCENT_WIDTH + GUTTER_WIDTH}>
             <div max_w=PREVIEW_WIDTH>{document}</div>

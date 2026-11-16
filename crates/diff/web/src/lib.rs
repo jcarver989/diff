@@ -512,6 +512,10 @@ mod wasm {
                     store_wrap(wrap);
                     return;
                 }
+                ReviewOutput::OpenLink(url) => {
+                    open_link(&url);
+                    return;
+                }
                 ReviewOutput::Event(event) => event,
             };
             if let DiffReviewEvent::Lookup(lookup) = event {
@@ -591,11 +595,13 @@ mod wasm {
                 dispatch_markdown_event(&event);
             }
             MarkdownOutput::ThemeChanged(id) => store_theme(&id),
-            MarkdownOutput::OpenLink(url) => {
-                if let Some(window) = web_sys::window() {
-                    let _ = window.open_with_url_and_target_and_features(&url, "_blank", "noopener,noreferrer");
-                }
-            }
+            MarkdownOutput::OpenLink(url) => open_link(&url),
+        }
+    }
+
+    fn open_link(url: &str) {
+        if let Some(window) = web_sys::window() {
+            let _ = window.open_with_url_and_target_and_features(url, "_blank", "noopener,noreferrer");
         }
     }
 

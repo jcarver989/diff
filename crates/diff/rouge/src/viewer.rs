@@ -57,6 +57,7 @@ pub enum ReviewOutput {
     ThemeChanged(String),
     ViewModeChanged(ViewMode),
     WrapChanged(bool),
+    OpenLink(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,6 +390,10 @@ impl ReviewHandle {
 
     pub(crate) fn resize_sidebar(&self, width: Option<f32>) {
         self.preferred.set_if_changed(width);
+    }
+
+    pub(crate) fn open_link(&self, url: String) {
+        self.output.call(ReviewOutput::OpenLink(url));
     }
 
     pub(crate) fn bind_viewport(&self, viewport: Viewport) {

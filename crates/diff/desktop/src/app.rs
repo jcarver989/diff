@@ -88,6 +88,9 @@ impl Host {
             ReviewOutput::ThemeChanged(id) => self.preferences.with(|preferences| preferences.remember_theme(&id)),
             ReviewOutput::ViewModeChanged(mode) => self.preferences.with(|preferences| preferences.remember_mode(mode)),
             ReviewOutput::WrapChanged(wrap) => self.preferences.with(|preferences| preferences.remember_wrap(wrap)),
+            ReviewOutput::OpenLink(url) => {
+                let _ = rouge::platform::open_url(&url);
+            }
             ReviewOutput::Event(DiffReviewEvent::SubmitReview(submission)) => self.submit(submission),
             ReviewOutput::Event(DiffReviewEvent::Cancel) => self.window.quit(),
             ReviewOutput::Event(DiffReviewEvent::CopyFormattedReview(text)) => self.window.copy_text(text),

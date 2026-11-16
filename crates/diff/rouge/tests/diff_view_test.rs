@@ -40,7 +40,7 @@ fn markdown_files_toggle_between_their_diff_and_a_rendered_preview() -> TestResu
         .changed("README.md", "# Diff\n", "# Diff\n\nRead [the guide](https://example.com/guide).\n")
         .changed("src/lib.rs", "old\n", "new\n")
         .build();
-    common::run(doc, |ui, handle, _| {
+    common::run(doc, |ui, handle, outputs| {
         let previewed = || handle.with(|s| s.session().presentation().file_view(0)) == FileView::Preview;
         assert!(ui.bounds_of("markdown-toggle-0").is_some());
         assert!(ui.bounds_of("markdown-toggle-1").is_none());
@@ -48,6 +48,8 @@ fn markdown_files_toggle_between_their_diff_and_a_rendered_preview() -> TestResu
         ui.advance(0.0);
         assert!(previewed());
         assert!(ui.bounds_of("markdown-preview-0").is_some());
+        ui.click_text("the guide")?;
+        assert!(outputs.borrow().contains(&ReviewOutput::OpenLink("https://example.com/guide".to_owned())));
         ui.click_on("show-diff-0")?;
         ui.advance(0.0);
         assert!(!previewed());
