@@ -813,8 +813,7 @@ impl IncrementalLayout {
                 continue;
             }
             let raw = &source[range.bytes.clone()];
-            let text = raw.strip_suffix('\n').unwrap_or(raw);
-            let text = text.strip_suffix('\r').unwrap_or(text);
+            let text = raw.trim_suffix('\n').trim_suffix('\r');
             let line_number = index + 1;
             let target = target_by_line.get(&line_number).map(|(_, id)| *id);
             let code_input = code_lines.get(&line_number);

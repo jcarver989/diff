@@ -3,13 +3,13 @@ use framer::github::{Ci as CiWorkflow, Job, Step, Workflow};
 use framer::just::Justfile;
 use framer::rust::{Level, Lints};
 use framer::toml_edit::{Array, ArrayOfTables, InlineTable, Item, Table, Value};
-use framer::{Project, TextFile, TomlKeys};
+use framer::{KeyPath, Project, TextFile, TomlKeys};
 use framer_presets::{Ci, CompilingJob, Dist, Release, ReleasePlz, Rust, RustMonorepo, Rustfmt, Tools, Workspace};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let monorepo = RustMonorepo::new()
-        .rust(Rust::new("1.99").toolchain("1.99.1").targets(["wasm32-unknown-unknown"]))
+        .rust(Rust::new("1.100").toolchain("1.100.0").targets(["wasm32-unknown-unknown"]))
         .workspace(workspace())
         .lints(lints())
         .rustfmt(rustfmt())
@@ -17,17 +17,33 @@ fn main() -> ExitCode {
         .ci(ci())
         .without_conventions()
         .release(release());
-    let rouge = RougeApp::new(".").crates(CRATES.iter().map(|(name, _)| *name)).web();
+    let rouge = RougeApp::new(".").crates(
+        CRATES.iter().map(|(name, _)| *name).filter(|name| !matches!(*name, "clankerdiff-remote" | "clankerdiff-web")),
+    );
 
     let mut project = Project::new();
     project.apply(monorepo);
     project.apply(rouge);
     project.add(TextFile::new(".github/scripts/checkout-rouge.sh", RougeApp::checkout_script()));
     project.add(TomlKeys::new("release-plz.toml").set_item("package", Item::ArrayOfTables(publishable_packages())));
+    configure_cargo(&mut project);
     configure_workflows(&mut project);
     configure_dist_recipes(&mut project);
     project.toml("clippy.toml").set("disallowed-methods", disallowed_radii());
     project.synth()
+}
+
+fn configure_cargo(project: &mut Project) {
+    project.add(TomlKeys::new(".cargo/config.toml").set("registry.global-min-publish-age", "7 days"));
+    project
+        .toml("Cargo.toml")
+        .set("workspace.lints.cargo.unused_dependencies", "deny")
+        .set("workspace.lints.cargo.unused_workspace_dependencies", "deny");
+    let mut dependencies = TomlKeys::new("Cargo.toml");
+    for name in ["clankerdiff-remote", "clankerdiff-web", "open", "pulldown-cmark", "schemars", "tree-sitter"] {
+        dependencies = dependencies.set_item(KeyPath::new(["workspace", "dependencies", name]), Item::None);
+    }
+    project.add(dependencies);
 }
 
 fn workspace() -> Workspace {

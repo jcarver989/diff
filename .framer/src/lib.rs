@@ -3,10 +3,18 @@ use framer::toml_edit::{InlineTable, Value};
 use framer::{KeyPath, Preset, Project, TomlKeys};
 
 const ROUGE_REPOSITORY: &str = "https://github.com/jcarver989/rouge.git";
-const ROUGE_REVISION: &str = "df25bbf3375f2609cbc33cdff445b633fbc300db";
+const ROUGE_REVISION: &str = "c49dbe2f1f048da202499882ce785b2e04d28276";
 pub const ROUGE_LINUX_PACKAGES: [&str; 3] = ["libfontconfig1-dev", "libxkbcommon-dev", "libwayland-dev"];
-const ROUGE_CRATES: [&str; 7] =
-    ["rouge", "rouge-core", "rouge-reactive", "rouge-widgets", "rouge-theme", "rouge-syntax", "rouge-markdown"];
+const ROUGE_CRATES: [&str; 8] = [
+    "rouge",
+    "rouge-core",
+    "rouge-reactive",
+    "rouge-widgets",
+    "rouge-theme",
+    "rouge-syntax",
+    "rouge-markdown",
+    "rouge-picker",
+];
 
 pub const CRATES: [(&str, &str); 16] = [
     ("clankerdiff-fingerprint", "crates/util/fingerprint"),
@@ -79,7 +87,7 @@ impl RougeApp {
 
 revision={ROUGE_REVISION}
 if [[ -e ../rouge ]]; then
-    if [[ $(git -C ../rouge rev-parse --verify HEAD 2>/dev/null) == "$revision" && -f ../rouge/crates/rouge-web/Cargo.toml ]]; then
+    if [[ $(git -C ../rouge rev-parse --verify HEAD 2>/dev/null) == "$revision" && -f ../rouge/crates/rouge/Cargo.toml ]]; then
         exit 0
     fi
     echo 'Expected the pinned Rouge checkout in ../rouge; refusing to replace the existing path.' >&2

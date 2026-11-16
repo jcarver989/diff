@@ -52,11 +52,7 @@ impl DocumentSyntax {
     pub fn followed(&self, document: &Arc<DiffDocument>) -> Self {
         let mut next = Self {
             document: Arc::clone(&self.document),
-            sources: self
-                .sources
-                .iter()
-                .map(|source| source.get().cloned().map(OnceLock::from).unwrap_or_default())
-                .collect(),
+            sources: self.sources.iter().map(|source| source.get().cloned().map_or_default(OnceLock::from)).collect(),
             retired: self
                 .windows
                 .iter()
@@ -121,7 +117,7 @@ impl DocumentSyntax {
             for side in [DiffSide::Old, DiffSide::New] {
                 self.sources.push(match before {
                     Some((index, before)) if same_source(before, file, side) => {
-                        kept.get_mut(index * 2 + side as usize).map(mem::take).unwrap_or_default()
+                        kept.get_mut(index * 2 + side as usize).map_or_default(mem::take)
                     }
                     _ => OnceLock::new(),
                 });
@@ -134,8 +130,8 @@ impl DocumentSyntax {
             self.file_hunks.push(hunks);
         }
         self.retired = live_work(&kept, &self.windows, self.retired);
-        self.windows = (0..windows).map(|_| OnceLock::new()).collect();
-        self.prepared = (0..self.document.files.len()).map(|_| OnceLock::new()).collect();
+        self.windows = Vec::from_fn(windows as usize, |_| OnceLock::new());
+        self.prepared = Vec::from_fn(self.document.files.len(), |_| OnceLock::new());
         self.symbols = OnceLock::new();
     }
 

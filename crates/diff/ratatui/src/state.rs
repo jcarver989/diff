@@ -308,7 +308,7 @@ impl DiffReviewState {
     }
 
     pub(crate) fn toggle_sidebar(&mut self) {
-        self.sidebar_hidden = !self.sidebar_hidden;
+        self.sidebar_hidden.toggle();
         if self.sidebar_hidden {
             self.focus = FocusPane::Diff;
         }

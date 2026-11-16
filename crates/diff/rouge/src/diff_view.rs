@@ -6,22 +6,28 @@ use clankerdiff_core::{
     DiffReviewCommand as C, DiffSide, DiffTone, FileStatus, Layout, LineAnchor, LineStat, PresentedCell, PresentedRow,
     RevealAmount, RowId, RowKind, SourceLocation,
 };
-use clankerdiff_ui_core::{DiffPalette, Rgba};
+use clankerdiff_ui_core::{DiffPalette, ReviewTheme, Rgba};
 use rouge_core::{
     Align, AnyView, Canvas, Color, Cursor, Div, Measure, Painter, Point, Quad, Rect, Role, RowKey, ScrollLinked, Size,
     SpanStyle, Styled, TextHit, TextRun, Theme, Underline, View, VirtualListHandle, canvas, div, dynamic, modifiers,
     pct, px, show, text, view, virtual_list, virtual_list_handle,
 };
-use rouge_reactive::{Memo, Signal, effect, memo, on_cleanup, signal};
+use rouge_reactive::{Memo, ReadSignal, Signal, effect, memo, on_cleanup, signal};
 use rouge_widgets::{
-    CODE_WRAP, IconName, UiStyles, empty_state, icon_button, syntax_spans, tokens::Radius, typography::CODE,
+    CODE_WRAP, Icon, IconName, UiStyles, empty_state, icon_button, syntax_spans,
+    tokens::{self, Radius},
+    typography::CODE,
     vertical_scrollbar,
 };
 use std::{cell::Cell, ops::Range, rc::Rc};
 
 const CODE_HEIGHT: f32 = 20.0;
-const HEADER_HEIGHT: f32 = 40.0;
-const HEADER_INSET: f32 = 4.0;
+const HEADER_HEIGHT: f32 = 34.0;
+const STATUS_CHIP: f32 = 18.0;
+const COMMENT_COLUMN: f32 = 40.0;
+const ADDED_COLUMN: f32 = 64.0;
+const DELETED_COLUMN: f32 = 40.0;
+const STAT_INSET: f32 = 16.0;
 const ACCENT_WIDTH: f32 = 4.0;
 const GUTTER_WIDTH: f32 = 52.0;
 const GUTTER_PADDING: f32 = 8.0;
@@ -752,6 +758,7 @@ struct HeaderInfo {
     collapsed: bool,
     source: Option<&'static str>,
     start: Option<usize>,
+    after_header: bool,
 }
 
 fn header(handle: &ReviewHandle, index: usize) -> Div {
@@ -775,42 +782,80 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
                          }}/>
         }
     });
-    let paths = info.directory.into_iter().chain(info.renamed_from);
+    let selected = memo(move || {
+        let selection = selection.get();
+        selection.pane == ViewerPane::Diff && start.is_some() && selection.row == start
+    });
+    let comments = memo(move || if collapsed { count() } else { 0 });
+    let status_color = move || palette.with(|t| style::file_status_color(status, &t.diff));
+    let band = move |pick: fn(&DiffPalette) -> Rgba| {
+        move || {
+            palette.with(|t| {
+                let p = &t.diff;
+                Color::from(if selected.get() { p.accent.mix(p.background, 26) } else { pick(p) })
+            })
+        }
+    };
+    let rule = move || {
+        palette.with(|t| {
+            let p = &t.diff;
+            Color::from(if selected.get() { p.accent.mix(p.background, 115) } else { p.border })
+        })
+    };
+    let trailing = match info.source {
+        Some(source) => view! {
+            <div test_id="source-mode-header" flex_none pr=STAT_INSET>
+                <text body no_wrap color=tone(|p| p.muted)>{source}</text>
+            </div>
+        },
+        None => stat_columns(info.stat, palette, comments),
+    };
     view! {
-        <div test_id={format!("diff-file-header-{index}")} h=HEADER_HEIGHT w_full px=8.0 py=HEADER_INSET
-             bg=tone(|p| p.background) cursor=Cursor::Pointer
+        <div test_id={format!("diff-file-header-{index}")} h=HEADER_HEIGHT w_full flex row items_center
+             border_t=px(if info.after_header { 0.0 } else { 1.0 }) border_b=px(1.0) border_color=rule
+             bg=band(|p| p.foreground.mix(p.background, 10)) cursor=Cursor::Pointer overflow_hidden
              on_click={move |_| {
                  handle.handle_command(C::SelectFile(index));
              }}>
-            <div size_full flex row items_center gap=8.0 px=12.0 rounded=Radius::Control border=px(1.0)
-                 border_color={move || {
-                     let selection = selection.get();
-                     let selected = selection.pane == ViewerPane::Diff && start.is_some() && selection.row == start;
-                     palette.with(|t| Color::from(if selected { t.diff.accent } else { t.diff.border }))
-                 }}
-                 bg=Role::Surface overflow_hidden>
-                {toggle}
-                <text code color={move || palette.with(|t| Color::from(style::file_status_color(status, &t.diff)))}>
-                    {status.code().to_string()}
-                </text>
-                <text body_strong no_wrap color=tone(|p| p.foreground)>{info.name}</text>
-                <div flex row flex_1 min_w=0.0 gap=8.0 overflow_hidden>
-                    {..paths.map(move |label| view! { <text body no_wrap color=tone(|p| p.muted)>{label}</text> })}
+            <div w=ACCENT_WIDTH h_full flex_none bg={move || Color::from(status_color())}/>
+            <div w=GUTTER_WIDTH flex_none flex justify_center>{toggle}</div>
+            <div flex row flex_1 min_w=0.0 items_center gap=10.0 overflow_hidden>
+                <div size=STATUS_CHIP flex_none flex items_center justify_center rounded=Radius::Inner
+                     bg={move || palette.with(|t| Color::from(status_color().mix(t.diff.background, 36)))}>
+                    <text caption font_weight=700.0 color={move || Color::from(status_color())}>
+                        {status.code().to_string()}
+                    </text>
                 </div>
-                {match info.source {
-                    Some(source) => view! {
-                        <div test_id="source-mode-header" flex_none>
-                            <text body no_wrap color=tone(|p| p.muted)>{source}</text>
-                        </div>
-                    },
-                    None => style::stat_badges(info.stat, palette),
-                }}
-                <text caption accent>
-                    {move || {
-                        let count = count();
-                        if collapsed && count > 0 { format!("{count} comments") } else { String::new() }
-                    }}
-                </text>
+                <div flex row min_w=0.0 overflow_hidden>
+                    {info.renamed_from.map(|old| view! { <text body no_wrap color=tone(|p| p.muted)>{old}</text> })}
+                    {info.directory.map(|directory| view! {
+                        <text body no_wrap color=tone(|p| p.muted)>{directory}</text>
+                    })}
+                    <text body_strong no_wrap color=tone(|p| p.foreground)>{info.name}</text>
+                </div>
+            </div>
+            {trailing}
+        </div>
+    }
+    .hover(move |style| style.bg(band(|p| p.foreground.mix(p.background, 18))))
+}
+
+fn stat_columns(stat: LineStat, palette: ReadSignal<ReviewTheme>, comments: Memo<usize>) -> Div {
+    let tone = move |pick: fn(&DiffPalette) -> Rgba| move || palette.with(|t| Color::from(pick(&t.diff)));
+    let count = |value: usize, sign: char| if value == 0 { String::new() } else { format!("{sign}{value}") };
+    view! {
+        <div flex row flex_none items_center pr=STAT_INSET>
+            <div w=COMMENT_COLUMN flex row items_center justify_end gap=4.0>
+                <show when={move || comments.get() > 0}>
+                    {Icon::new(IconName::MessageCircle, Role::Accent).size(tokens::ICON_SIZE_SMALL)}
+                    <text caption accent no_wrap>{move || comments.get().to_string()}</text>
+                </show>
+            </div>
+            <div w=ADDED_COLUMN flex justify_end>
+                <text code no_wrap color=tone(|p| p.addition)>{count(stat.added, '+')}</text>
+            </div>
+            <div w=DELETED_COLUMN flex justify_end>
+                <text code no_wrap color=tone(|p| p.deletion)>{count(stat.deleted, '−')}</text>
             </div>
         </div>
     }
@@ -839,15 +884,20 @@ fn header_info(handle: &ReviewHandle, index: usize) -> Option<HeaderInfo> {
         let session = state.session();
         let presentation = session.presentation();
         let file = presentation.document().files.get(index)?;
+        let start = presentation.file_range(index).map(|range| range.start);
         Some(HeaderInfo {
             status: file.status,
             name: file.path.file_name().to_owned(),
             directory: file.path.directory().map(|directory| format!("{directory}/")),
-            renamed_from: file.renamed_from().map(|old| format!("← {old}")),
+            renamed_from: file.renamed_from().map(|old| format!("{old}  →  ")),
             stat: file.line_stat(),
             collapsed: presentation.is_collapsed(index),
             source: session.source_view_label(),
-            start: presentation.file_range(index).map(|range| range.start),
+            start,
+            after_header: start
+                .and_then(|start| start.checked_sub(1))
+                .and_then(|previous| presentation.row(previous))
+                .is_some_and(|row| row.kind == RowKind::FileHeader),
         })
     })
 }

@@ -119,7 +119,7 @@ fn rendering(criterion: &mut Criterion) {
     group.bench_function("navigate_and_draw_100x24", |bencher| {
         bencher.iter(|| {
             let code = if down { KeyCode::Down } else { KeyCode::Up };
-            down = !down;
+            down.toggle();
             black_box(cached_navigation.input_and_draw(key(code)))
         });
     });

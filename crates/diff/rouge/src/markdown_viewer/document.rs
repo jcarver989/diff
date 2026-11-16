@@ -166,7 +166,7 @@ fn draft(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<>
     let (handle, draft) = (*handle, handle.draft);
     dynamic(move || {
         let (_, editing) = draft.get().filter(|(id, _)| *id == target)?;
-        let body = handle.with(|session| session.draft().map(|draft| draft.body().to_owned()).unwrap_or_default());
+        let body = handle.with(|session| session.draft().map_or_default(|draft| draft.body().to_owned()));
         Some(view! {
             <div pt=8.0 pb=4.0>
                 {composer(

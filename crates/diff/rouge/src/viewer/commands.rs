@@ -145,7 +145,7 @@ impl ReviewController {
                 }
             }
             C::ToggleWrap => {
-                self.wrap = !self.wrap;
+                self.wrap.toggle();
                 self.effects.push(Effect::Output(ReviewOutput::WrapChanged(self.wrap)));
             }
             C::ToggleStage => {
@@ -171,7 +171,7 @@ impl ReviewController {
             C::UnstageAll => self.repository_action(RepositoryAction::UnstageAll),
             C::RepositoryAction(action) => self.repository_action(action),
             C::ToggleSidebar => {
-                self.sidebar_collapsed = !self.sidebar_collapsed;
+                self.sidebar_collapsed.toggle();
                 if self.sidebar_collapsed {
                     self.pane = ViewerPane::Diff;
                 }

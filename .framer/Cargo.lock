@@ -28,9 +28,9 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "framer"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc485c386d9ce52c2e11af5287550e8a136dc38eb107949d1ffab81f1d11c8d8"
+checksum = "d121692aa43b9fdeed28e3bd81faeb974ee7cf21b898799d3f015b29b824a498"
 dependencies = [
  "serde",
  "serde_json",
@@ -41,9 +41,9 @@ dependencies = [
 
 [[package]]
 name = "framer-presets"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95cdaada987c15d915a0939784ffe67866e27050da48055a4f8168d41aa62509"
+checksum = "07bc3bbf2c158d674020dfcc4c3731e4dddf4658073dcc23a443e05e51c08f42"
 dependencies = [
  "framer",
 ]

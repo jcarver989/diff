@@ -164,7 +164,7 @@ impl MarkdownHandle {
             return;
         }
         batch(|| {
-            self.outline_collapsed.update(|collapsed| *collapsed = !*collapsed);
+            self.outline_collapsed.update(bool::toggle);
             if self.outline_collapsed.get_untracked() {
                 self.pane.set_if_changed(MarkdownFocusPane::Document);
             }

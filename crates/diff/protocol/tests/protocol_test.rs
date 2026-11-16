@@ -151,6 +151,24 @@ fn truncated_and_foreign_payloads_are_rejected() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[test]
+fn event_mapping_transforms_only_document_payloads() {
+    let mut calls = 0;
+    let event = Event::Document(41).map(|document| {
+        calls += 1;
+        document + 1
+    });
+    assert!(matches!(event, Event::Document(42)));
+    assert_eq!(calls, 1);
+
+    let event = Event::<u32>::Health { error: None }.map(|document| {
+        calls += 1;
+        document + 1
+    });
+    assert!(matches!(event, Event::Health { error: None }));
+    assert_eq!(calls, 1);
+}
+
 #[derive(Debug, Default)]
 struct SyncPair {
     sent: SentDocument,

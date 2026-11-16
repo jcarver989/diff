@@ -128,7 +128,7 @@ fn headless_desktop_request_fails_before_network_connection() -> Result<(), Box<
         .args(["connect", "ws://127.0.0.1:1/ws", "--ui", "desktop"])
         .output()?;
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, [] as [u8; 0]);
     assert!(String::from_utf8(output.stderr)?.contains("desktop"));
     Ok(())
 }

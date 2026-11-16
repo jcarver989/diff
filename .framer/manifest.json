@@ -1,5 +1,11 @@
 {
   "files": {
+    ".cargo/config.toml": {
+      "kind": "toml",
+      "keys": [
+        "registry.global-min-publish-age"
+      ]
+    },
     ".config/nextest.toml": {
       "kind": "managed"
     },
@@ -41,9 +47,8 @@
         "workspace.dependencies.rouge-theme",
         "workspace.dependencies.rouge-syntax",
         "workspace.dependencies.rouge-markdown",
-        "workspace.dependencies.rouge-web",
+        "workspace.dependencies.rouge-picker",
         "workspace.dependencies.clankerdiff-fingerprint.path",
-        "workspace.dependencies.clankerdiff-remote.path",
         "workspace.dependencies.clankerdiff-lspd.path",
         "workspace.dependencies.clankerdiff-ui-core.path",
         "workspace.dependencies.clankerdiff-core.path",
@@ -57,7 +62,12 @@
         "workspace.dependencies.clankerdiff-rouge.path",
         "workspace.dependencies.clankerdiff-ratatui.path",
         "workspace.dependencies.clankerdiff-desktop.path",
-        "workspace.dependencies.clankerdiff-web.path"
+        "workspace.dependencies.clankerdiff-remote",
+        "workspace.dependencies.clankerdiff-web",
+        "workspace.dependencies.open",
+        "workspace.dependencies.pulldown-cmark",
+        "workspace.dependencies.schemars",
+        "workspace.dependencies.tree-sitter"
       ]
     },
     "clippy.toml": {

@@ -18,12 +18,12 @@ workspace = true
 clankerdiff-core.workspace = true
 clankerdiff-markdown.workspace = true
 clankerdiff-ui-core.workspace = true
-clankerdiff-rouge.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+clankerdiff-rouge.workspace = true
 rouge.workspace = true
 rouge-core.workspace = true
 rouge-widgets.workspace = true

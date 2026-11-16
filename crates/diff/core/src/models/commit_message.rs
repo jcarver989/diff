@@ -97,7 +97,7 @@ fn split_pull_request(subject: &str) -> (&str, Option<u64>) {
 fn split_conventional(subject: &str) -> Option<(CommitKind, Option<&str>, &str)> {
     let (head, rest) = subject.split_once(':')?;
     let rest = rest.strip_prefix(' ')?.trim_start();
-    let head = head.strip_suffix('!').unwrap_or(head);
+    let head = head.trim_suffix('!');
     let (word, scope) = match head.split_once('(') {
         Some((word, scope)) => (word, Some(scope.strip_suffix(')')?).filter(|scope| !scope.is_empty())),
         None => (head, None),

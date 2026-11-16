@@ -4,7 +4,7 @@ use super::{
 };
 use clankerdiff_core::{LookupAnswer, RepoPath};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::{convert::Infallible, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event<T> {
@@ -19,7 +19,7 @@ pub enum Event<T> {
 
 impl<T> Event<T> {
     pub fn map<U>(self, document: impl FnOnce(T) -> U) -> Event<U> {
-        let Ok(event) = self.try_map(|value| Ok::<_, Infallible>(document(value)));
+        let Ok(event) = self.try_map(|value| Ok::<_, !>(document(value)));
         event
     }
 

@@ -18,7 +18,7 @@ pub(crate) fn root(
 ) -> impl View {
     let size = preferences.interface_size();
     let initial_theme = preferences.theme();
-    let prefs = preferences.clone();
+    let prefs = preferences;
     let window = window_handle();
     let outcome = RefCell::new(Some(outcome));
     let review = MarkdownController::new(Arc::new(document), initial_theme).mount(move |event| match event {

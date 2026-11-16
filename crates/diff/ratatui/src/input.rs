@@ -10,7 +10,6 @@ use clankerdiff_core::{CommentDraft, DiffReviewEvent, RepositoryAction};
 #[cfg(feature = "crossterm-backend")]
 use crossterm::event::Event;
 use ratatui::layout::{Position, Rect};
-use std::convert::Infallible;
 
 #[cfg(feature = "crossterm-backend")]
 #[must_use]
@@ -39,13 +38,13 @@ impl DiffReviewState {
 
 impl ReviewWidget for DiffReviewState {
     type Event = DiffReviewEvent;
-    type Error = Infallible;
+    type Error = !;
     type Draft = CommentDraft;
 
     fn phase(&self) -> InteractionPhase {
         self.interaction_phase()
     }
-    fn handle_review_command(&mut self, command: ReviewCommand) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
+    fn handle_review_command(&mut self, command: ReviewCommand) -> Result<InputOutcome<DiffReviewEvent>, !> {
         Ok(self.handle_command(command))
     }
     fn contains(&self, position: Position) -> bool {
@@ -67,7 +66,7 @@ impl ReviewWidget for DiffReviewState {
             message.push_str(text);
         }
     }
-    fn handle_browse_key(&mut self, key: KeyEvent) -> Result<InputOutcome<DiffReviewEvent>, Infallible> {
+    fn handle_browse_key(&mut self, key: KeyEvent) -> Result<InputOutcome<DiffReviewEvent>, !> {
         if self.set_links_visible(false) {
             self.mark_dirty();
         }

@@ -7,24 +7,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{env, error::Error, fs, io::stdout, path::Path, sync::Arc};
-
-struct TerminalGuard;
-
-impl TerminalGuard {
-    fn enter() -> std::io::Result<Self> {
-        enable_raw_mode()?;
-        execute!(stdout(), EnterAlternateScreen)?;
-        Ok(Self)
-    }
-}
-
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(stdout(), LeaveAlternateScreen);
-    }
-}
+use std::{env, error::Error, fs, io::stdout, mem::DropGuard, path::Path, sync::Arc};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let path = env::args().nth(1).unwrap_or_else(|| "markdown-plan.md".into());
@@ -39,7 +22,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run(document: Arc<MarkdownDocument>) -> Result<Option<MarkdownReviewSubmission>, Box<dyn Error>> {
-    let _guard = TerminalGuard::enter()?;
+    enable_raw_mode()?;
+    let _raw_mode = DropGuard::new((), |()| {
+        let _ = disable_raw_mode();
+    });
+    execute!(stdout(), EnterAlternateScreen)?;
+    let _alternate_screen = DropGuard::new((), |()| {
+        let _ = execute!(stdout(), LeaveAlternateScreen);
+    });
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut state = MarkdownReviewState::new(document);
     state.set_theme_choices(ThemeChoice::catalog());

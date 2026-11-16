@@ -14,7 +14,7 @@ fn an_external_crate_can_mount_and_render_review_and_ui() -> Result<(), Box<dyn 
         let _ = ActiveReviewTheme::install(ReviewTheme::default());
         view! {
             <div size_full flex col>
-                <button id="fixture" label="Fixture"/>
+                <button test_id="fixture" label="Fixture"/>
                 {diff_view(review)}
             </div>
         }

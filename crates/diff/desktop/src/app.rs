@@ -4,7 +4,7 @@ use clankerdiff_core::{DiffReviewCommand, DiffReviewEvent, Lookup, LookupReply, 
 use clankerdiff_rouge::{DiffClientView, DiffViewerOptions, ReviewOutput, RunCommand};
 use clankerdiff_server::{DiffServer, ServerOptions};
 use rouge::{
-    core::{Chord, Div, Key, Modifiers, Styled, View, WindowHandle, appearance, div, window_handle},
+    core::{Chord, Div, Key, Modifiers, Styled, View, WindowHandle, div, window_handle},
     reactive::{Stored, Task, effect, spawn, spawn_tokio, stored},
 };
 use std::sync::mpsc::Sender;
@@ -22,7 +22,7 @@ pub(crate) fn root(
         outcome: stored(outcome),
         lookup: stored(None),
         window: window_handle(),
-        preferences: stored(preferences.clone()),
+        preferences: stored(preferences),
     };
     let view = DiffClientView::mount(
         preferences.theme(),
@@ -34,10 +34,13 @@ pub(crate) fn root(
         move |output| host.output(output),
     );
     host.view.set(Some(view));
-    let appearance = appearance();
     effect(move || {
-        appearance.get();
-        view.review().set_theme(preferences.theme());
+        let review = view.review();
+        review.set_theme(preferences.theme());
+        review.handle_command(DiffReviewCommand::SetViewMode(preferences.view_mode()));
+        if review.with(|state| state.status().wrap) != preferences.wrap() {
+            review.handle_command(DiffReviewCommand::ToggleWrap);
+        }
     });
     spawn(host.connect(args, client));
     let root = div()
