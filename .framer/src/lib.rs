@@ -5,7 +5,7 @@ use framer::{KeyPath, Preset, Project, TomlKeys};
 const ROUGE_REPOSITORY: &str = "https://github.com/jcarver989/rouge.git";
 const ROUGE_REVISION: &str = "c49dbe2f1f048da202499882ce785b2e04d28276";
 pub const ROUGE_LINUX_PACKAGES: [&str; 3] = ["libfontconfig1-dev", "libxkbcommon-dev", "libwayland-dev"];
-const ROUGE_CRATES: [&str; 8] = [
+const ROUGE_CRATES: [&str; 7] = [
     "rouge",
     "rouge-core",
     "rouge-reactive",
@@ -13,7 +13,6 @@ const ROUGE_CRATES: [&str; 8] = [
     "rouge-theme",
     "rouge-syntax",
     "rouge-markdown",
-    "rouge-picker",
 ];
 
 pub const CRATES: [(&str, &str); 16] = [

@@ -1,9 +1,11 @@
 mod appearance;
+mod fuzzy;
+mod picker;
 mod selection;
 mod terminal;
 mod ui;
 pub use appearance::{ThemePair, ThemePreference};
-pub use rouge_picker::{PickerOption, PickerRow, PickerState};
+pub use picker::{PickerOption, PickerRow, PickerState};
 use rouge_syntax::capture_style;
 pub use rouge_syntax::{FontStyle, HighlightId, HighlightSpan, SyntaxStyle, SyntaxTheme};
 pub use rouge_theme::{

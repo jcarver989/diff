@@ -61,6 +61,7 @@ tokio = { version = "1.47.1", features = ["fs", "io-util", "macros", "net", "pro
 tokio-util = { version = "0.7.18", features = ["codec"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json", "registry"] }
+nucleo-matcher = "0.3"
 unicode-width = "0.2.2"
 unicode-segmentation = "1.13.3"
 web-time = "1.1.0"
@@ -75,7 +76,6 @@ rouge-core = { path = "../rouge/crates/rouge-core" }
 rouge-reactive = { path = "../rouge/crates/rouge-reactive" }
 rouge-widgets = { path = "../rouge/crates/rouge-widgets" }
 rouge-theme = { path = "../rouge/crates/rouge-theme" }
-rouge-picker = { path = "../rouge/crates/rouge-picker" }
 rouge-syntax = { path = "../rouge/crates/rouge-syntax" }
 rouge-markdown = { path = "../rouge/crates/rouge-markdown" }
 

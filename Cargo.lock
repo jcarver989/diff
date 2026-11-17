@@ -1492,7 +1492,7 @@ version = "0.10.0"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
- "rouge-picker",
+ "nucleo-matcher",
  "rouge-syntax",
  "rouge-theme",
  "serde",
@@ -4578,13 +4578,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rouge-picker"
-version = "0.1.0"
-dependencies = [
- "nucleo-matcher",
-]
-
-[[package]]
 name = "rouge-reactive"
 version = "0.1.0"
 dependencies = [
@@ -4702,9 +4695,9 @@ dependencies = [
 name = "rouge-widgets"
 version = "0.1.0"
 dependencies = [
+ "nucleo-matcher",
  "rouge-core",
  "rouge-markdown",
- "rouge-picker",
  "rouge-reactive",
  "rouge-syntax",
  "rouge-theme",
