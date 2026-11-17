@@ -66,13 +66,13 @@ feature-check: consumer-check layer-check
     cargo clippy -p clankerdiff-server --no-default-features --all-targets -- -D warnings
 
 consumer-check:
-    cargo test --manifest-path tests/rouge-consumer-fixture/Cargo.toml --target-dir target
-    cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
-    cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
-    cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
-    cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
-    cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
-    cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
+    cargo test --locked --manifest-path tests/rouge-consumer-fixture/Cargo.toml --target-dir target
+    cargo nextest run --config-file .config/nextest.toml --locked --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
+    cargo nextest run --config-file .config/nextest.toml --locked --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
+    cargo nextest run --config-file .config/nextest.toml --locked --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
+    cargo test --doc --locked --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target
+    cargo test --doc --locked --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
+    cargo test --doc --locked --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
 
 wasm-check:
     cargo check -p clankerdiff-core -p clankerdiff-ui-core -p rouge-syntax -p rouge-markdown -p clankerdiff-markdown -p rouge-theme -p rouge-widgets -p clankerdiff-rouge -p clankerdiff-web --target wasm32-unknown-unknown
@@ -88,7 +88,7 @@ remote-test:
     cargo nextest run -p clankerdiff-server --no-default-features
     cargo build -p clankerdiff-cli --no-default-features --bin clankerdiff
     cargo nextest run -p clankerdiff-cli --no-default-features
-    cargo nextest run --config-file .config/nextest.toml --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features remote
+    cargo nextest run --config-file .config/nextest.toml --locked --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features remote
 
 # Exercise the filesystem watcher against real Git worktrees.
 watch-test:
