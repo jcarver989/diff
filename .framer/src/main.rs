@@ -1,5 +1,5 @@
 use diff_framer::{CRATES, ROUGE_LINUX_PACKAGES, RougeApp};
-use framer::github::Step;
+use framer::github::{Dependabot, DependabotUpdate, Step};
 use framer::just::Justfile;
 use framer::rust::{Level, Lints};
 use framer::toml_edit::{Array, ArrayOfTables, InlineTable, Item, Table, Value};
@@ -15,6 +15,7 @@ fn main() -> ExitCode {
         .rustfmt(rustfmt())
         .tools(Tools::new().tool("actionlint", "1.7.12"))
         .ci(ci())
+        .dependabot(dependabot())
         .without_conventions()
         .release(release());
     let rouge = RougeApp::new(".").crates(
@@ -32,7 +33,6 @@ fn main() -> ExitCode {
 }
 
 fn configure_cargo(project: &mut Project) {
-    project.add(TomlKeys::new(".cargo/config.toml").set("registry.global-min-publish-age", "7 days"));
     project
         .toml("Cargo.toml")
         .set("workspace.lints.cargo.unused_dependencies", "deny")
@@ -95,6 +95,29 @@ fn rustfmt() -> Rustfmt {
 
 fn ci() -> Ci {
     Ci::new().setup(RougeApp::linux_dependencies()).compiling_job(features_job()).compiling_job(wasm_job())
+}
+
+fn dependabot() -> Dependabot {
+    let mut dependabot = Dependabot::new();
+    for (ecosystem, directory) in [
+        ("cargo", "/"),
+        ("cargo", "/.framer"),
+        ("cargo", "/tests/consumer-fixture"),
+        ("cargo", "/tests/rouge-consumer-fixture"),
+        ("github-actions", "/"),
+        ("npm", "/crates/diff/web"),
+        ("rust-toolchain", "/"),
+    ] {
+        dependabot = dependabot.update(
+            DependabotUpdate::new(ecosystem)
+                .directory(directory)
+                .interval("weekly")
+                .cooldown_days(7)
+                .commit_message_prefix("chore(deps):")
+                .group(format!("{ecosystem}-minor-patch"), ["minor", "patch"]),
+        );
+    }
+    dependabot
 }
 
 fn features_job() -> CompilingJob {

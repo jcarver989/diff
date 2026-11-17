@@ -1,12 +1,9 @@
 {
   "files": {
-    ".cargo/config.toml": {
-      "kind": "toml",
-      "keys": [
-        "registry.global-min-publish-age"
-      ]
-    },
     ".config/nextest.toml": {
+      "kind": "managed"
+    },
+    ".github/dependabot.yml": {
       "kind": "managed"
     },
     ".github/workflows/ci.yml": {
