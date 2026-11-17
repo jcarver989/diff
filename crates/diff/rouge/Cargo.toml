@@ -1,7 +1,6 @@
 [package]
 name = "clankerdiff-rouge"
 description = "Reusable Rouge diff review component"
-publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
