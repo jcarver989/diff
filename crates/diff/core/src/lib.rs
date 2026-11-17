@@ -44,7 +44,7 @@ pub use parser::{
 };
 pub use patch::{PatchError, git_patch_from_texts};
 pub use presentation::{
-    ContentProjection, DiffPresentation, DiffTone, GapExpansion, GapId, GapInfo, GapInterval, Layout,
+    ContentProjection, DiffPresentation, DiffTone, FileView, GapExpansion, GapId, GapInfo, GapInterval, Layout,
     MAX_CELL_TEXT_BYTES, PresentationOptions, PresentedCell, PresentedRow, RowId, RowKind, ViewMode, ViewportAnchor,
     gaps_for_file,
 };

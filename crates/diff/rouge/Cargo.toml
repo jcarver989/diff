@@ -1,0 +1,27 @@
+[package]
+name = "clankerdiff-rouge"
+description = "Reusable Rouge diff review component"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clankerdiff-client.workspace = true
+clankerdiff-core.workspace = true
+clankerdiff-markdown.workspace = true
+clankerdiff-symbols.workspace = true
+rouge-syntax.workspace = true
+clankerdiff-ui-core.workspace = true
+rouge-core.workspace = true
+rouge-reactive.workspace = true
+rouge-widgets = { workspace = true, features = ["markdown"] }
+web-time.workspace = true
+
+[dev-dependencies]
+clankerdiff-core = { workspace = true, features = ["test-support"] }

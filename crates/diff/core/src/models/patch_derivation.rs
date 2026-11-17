@@ -42,7 +42,7 @@ pub(super) fn derive_patch(old: &str, new: &str) -> (Vec<Hunk>, bool) {
 }
 
 fn strip_line_ending(value: &str) -> &str {
-    value.strip_suffix('\n').map_or(value, |trimmed| trimmed.strip_suffix('\r').unwrap_or(trimmed))
+    value.strip_suffix('\n').map_or(value, |trimmed| trimmed.trim_suffix('\r'))
 }
 
 fn grouped_hunks(lines: &[PatchLine], context: usize) -> Vec<Hunk> {

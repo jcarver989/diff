@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "source_revision": "09a11f7e7fbaa354a2df4743b4ee18ede000a30c",
+  "date": "2026-11-10",
+  "commands": [
+    {
+      "command": "cargo test -p clankerdiff-core --features test-support",
+      "exit_code": 0,
+      "passed_including_doctests": 178,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo test -p clankerdiff-gpui --features test-support",
+      "exit_code": 0,
+      "passed_including_doctests": 151,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "command": "cargo test -p clankerdiff-gpui-ui -p clankerdiff-gpui-shell -p clankerdiff-gpui-desktop -p clankerdiff-gpui-web --all-features",
+      "exit_code": 0,
+      "passed_including_doctests": 112,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cd crates/diff/web && trunk build --release",
+      "exit_code": 0
+    },
+    {
+      "command": "cd crates/diff/web && npx vitest run --browser.enabled",
+      "exit_code": 0,
+      "passed": 2,
+      "files": 2,
+      "note": "Reused the preceding release dist; globalSetup builds a headless CLI and starts the actual WebSocket server."
+    },
+    {
+      "command": "cargo run -p clankerdiff-core --features test-support --example migration_fixtures -- target/migration-baseline/reproduced-fixtures",
+      "exit_code": 0,
+      "note": "All eight generated JSON outputs byte-compared: small, same-count-refresh, empty, review, manifest against checked-in fixtures; large, many-files, long-lines against captured inputs."
+    },
+    {
+      "command": "node scripts/migration/capture-browser.mjs",
+      "exit_code": 0,
+      "screenshots": 8,
+      "performance_fixtures": 4,
+      "samples_per_operation": 5,
+      "page_errors": 0,
+      "console_errors": 0
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/migration -p \"*_test.py\" -v",
+      "exit_code": 0,
+      "passed": 2
+    },
+    {
+      "command": "python3 scripts/migration/inventory.py --check",
+      "exit_code": 0,
+      "source_files": 62,
+      "mapped_tests": 265
+    },
+    {
+      "command": "cargo clippy -p clankerdiff-core --features test-support --example migration_fixtures --test migration_fixture_test -- -D warnings",
+      "exit_code": 0
+    },
+    {
+      "command": "rustfmt --edition 2024 --check crates/diff/core/examples/migration_fixtures.rs crates/diff/core/tests/migration_fixture_test.rs",
+      "exit_code": 0
+    },
+    {
+      "command": "node --check scripts/migration/capture-browser.mjs",
+      "exit_code": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0
+    }
+  ],
+  "known_ignored_test": {
+    "name": "grapheme_navigation_and_deletion_keep_combining_text_and_emoji_intact",
+    "reason": "gpui-base 0.7.0 uses scalar cursor boundaries; awaiting upstream grapheme support",
+    "file": "crates/diff/gpui/tests/comment_editor_test.rs"
+  },
+  "limitations": [
+    "Executed test counts include doctests and therefore differ from the explicit named test-map inventory.",
+    "GPUI test windows validate public rendering behavior but are not real native OS screenshots, startup timings or GPU presentation benchmarks.",
+    "LSP returned no errors for the integration test but a stale unused DiffDocument import warning for the example after that import was removed; current compiler tests and targeted Clippy pass without warnings.",
+    "Raw build/test logs remain under ignored target/migration-baseline; curated outcomes are recorded here."
+  ]
+}

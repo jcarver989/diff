@@ -4,21 +4,26 @@ use nucleo_matcher::{
 };
 use std::cmp::Reverse;
 
-#[must_use]
-pub fn fuzzy_filter<T: AsRef<str>>(query: &str, keys: impl IntoIterator<Item = T>) -> Vec<usize> {
-    let keys = keys.into_iter();
+pub(crate) fn fuzzy_filter<T: AsRef<str>>(
+    query: &str,
+    keys: impl ExactSizeIterator<Item = T>,
+    output: &mut Vec<usize>,
+) {
+    output.clear();
     if query.trim().is_empty() {
-        return (0..keys.count()).collect();
+        output.extend(0..keys.len());
+        return;
     }
     let mut matcher = Matcher::new(Config::DEFAULT);
     let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
-    let mut buf = Vec::new();
+    let mut haystack = Vec::new();
     let mut scored: Vec<(u32, usize)> = keys
         .enumerate()
         .filter_map(|(index, key)| {
-            pattern.score(Utf32Str::new(key.as_ref(), &mut buf), &mut matcher).map(|score| (score, index))
+            let score = pattern.score(Utf32Str::new(key.as_ref(), &mut haystack), &mut matcher)?;
+            Some((score, index))
         })
         .collect();
     scored.sort_by_key(|&(score, _)| Reverse(score));
-    scored.into_iter().map(|(_, index)| index).collect()
+    output.extend(scored.into_iter().map(|(_, index)| index));
 }

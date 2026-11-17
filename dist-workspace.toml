@@ -10,3 +10,6 @@ installers = ["shell"]
 install-path = "CARGO_HOME"
 install-updater = false
 allow-dirty = ["ci"]
+
+[dist.system-dependencies]
+apt = { libfontconfig1-dev = "*", libxkbcommon-dev = "*", libwayland-dev = "*" }

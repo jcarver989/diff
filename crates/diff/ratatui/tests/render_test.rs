@@ -217,7 +217,7 @@ fn ui_only_changes_recolor_loading_and_empty_states() {
         ..Default::default()
     });
     let mut theme = ReviewTheme::default();
-    let syntax_revision = theme.syntax.revision();
+    let syntax = theme.syntax.clone();
     for (info, secondary) in [
         (Rgba::new(1, 150, 230, 255), Rgba::new(130, 140, 150, 255)),
         (Rgba::new(80, 190, 240, 255), Rgba::new(170, 180, 190, 255)),
@@ -246,7 +246,7 @@ fn ui_only_changes_recolor_loading_and_empty_states() {
         );
         harness.state_mut().set_document(Arc::new(DiffDocument::empty()));
     }
-    assert_eq!(theme.syntax.revision(), syntax_revision);
+    assert_eq!(theme.syntax, syntax);
 }
 
 #[cfg(feature = "test-support")]

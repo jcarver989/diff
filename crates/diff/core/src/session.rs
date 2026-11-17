@@ -1,6 +1,6 @@
 use crate::{
     AgentFeedbackOptions, CommitPage, CommitStack, CommitTitle, ContentProjection, DiffDocument, DiffPresentation,
-    DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, FileDiff, GapId, Layout, LineAnchor, PageLabel,
+    DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, FileDiff, FileView, GapId, Layout, LineAnchor, PageLabel,
     PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind,
     SourceLocation, SourcePath, TargetLocation, UNCOMMITTED_CHANGES, ViewMode, commit_description,
     commit_picker::format_age, presentation::retained_expansions,
@@ -281,7 +281,7 @@ impl ReviewSession {
                     short_id: commit.map(|commit| commit.id.short().to_owned()),
                     subject: subject.to_owned(),
                     title: CommitTitle::parse(subject),
-                    body: commit.map(|commit| commit_description(&commit.body)).unwrap_or_default(),
+                    body: commit.map_or_default(|commit| commit_description(&commit.body)),
                     stat,
                     age: commit
                         .and_then(|commit| commit.committed_at)
@@ -319,6 +319,9 @@ impl ReviewSession {
             DiffReviewCommand::NavigateBack => self.back_location().is_some(),
             DiffReviewCommand::NavigateForward => self.forward_location().is_some(),
             DiffReviewCommand::CopyReview => !self.review().is_empty(),
+            DiffReviewCommand::ToggleMarkdownPreview(index) => {
+                self.file(index.unwrap_or(self.selected_file)).is_some_and(|file| file.markdown_source().is_some())
+            }
             _ => true,
         }
     }
@@ -527,10 +530,12 @@ impl ReviewSession {
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
         if let Some(file) = self
             .selected_presented_row()
-            .filter(|row| row.kind == RowKind::FileHeader && self.presentation.is_collapsed(row.file_index))
+            .filter(|row| {
+                row.kind == RowKind::FileHeader && self.presentation.file_view(row.file_index) != FileView::Diff
+            })
             .map(|row| row.file_index)
         {
-            return self.toggle_file_collapsed(file);
+            return self.toggle_file_view(Some(file), self.presentation.file_view(file));
         }
         let id = self.presentation.gap_info(self.selected_row).map(|info| info.id).or_else(|| {
             let row = self.presentation.row(self.selected_row)?;
@@ -589,20 +594,25 @@ impl ReviewSession {
     }
 
     pub fn toggle_file_collapsed(&mut self, index: usize) -> bool {
+        self.toggle_file_view(Some(index), FileView::Collapsed)
+    }
+
+    pub fn toggle_file_view(&mut self, index: Option<usize>, view: FileView) -> bool {
+        let index = index.unwrap_or(self.selected_file);
         let Some(file) = self.document.files.get(index) else {
             return false;
         };
-        if self.source_view().is_some() {
+        let next = if self.presentation.file_view(index) == view { FileView::Diff } else { view };
+        let drafting = self.draft.as_ref().is_some_and(|draft| draft.anchor.path == file.path);
+        if self.source_view().is_some()
+            || next != FileView::Diff && drafting
+            || next == FileView::Preview && file.markdown_source().is_none()
+        {
             return false;
         }
-        let collapse = !self.presentation.is_collapsed(index);
-        if collapse && self.draft.as_ref().is_some_and(|draft| draft.anchor.path == file.path) {
-            return false;
-        }
-        let header_selected = self.selected_on_header(index);
-        self.projection.set_collapsed(file.path.clone(), collapse);
+        self.projection.set_file_view(file.path.clone(), next);
         self.rebuild();
-        if header_selected && !collapse {
+        if next == FileView::Diff && self.selected_on_header(index) {
             self.select_first_row();
         }
         true
@@ -617,8 +627,9 @@ impl ReviewSession {
             return false;
         }
         let header_selected = self.selected_on_header(self.selected_file);
+        let view = if collapse { FileView::Collapsed } else { FileView::Diff };
         for file in &self.document.files {
-            self.projection.set_collapsed(file.path.clone(), collapse);
+            self.projection.set_file_view(file.path.clone(), view);
         }
         self.rebuild();
         if header_selected && !collapse {
@@ -659,7 +670,7 @@ impl ReviewSession {
         }
         self.projection.expansions = retained_expansions(&self.document, &self.projection.expansions, &document);
         self.projection.full_files.retain(|path| document.file_index(path).is_some());
-        self.projection.collapsed_files.retain(|path| document.file_index(path).is_some());
+        self.projection.file_views.retain(|path, _| document.file_index(path).is_some());
         self.navigation.document_changed(&document, target_changed);
         self.document = document;
         self.reference = reference.or(unchanged);

@@ -50,7 +50,7 @@ pub fn parse_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
 }
 
 pub fn parse_detached_git_diff(bytes: &[u8]) -> Result<Vec<FileDiff>, DiffError> {
-    parse_git_diff_with_path_mapper(bytes, |path| RepoPath::new(path.strip_prefix('/').unwrap_or(path)))
+    parse_git_diff_with_path_mapper(bytes, |path| RepoPath::new(path.trim_prefix('/')))
 }
 
 pub fn parse_git_diff_with_path_mapper<T>(bytes: &[u8], mut map_path: T) -> Result<Vec<FileDiff>, DiffError>
@@ -163,8 +163,7 @@ fn normalize_hunks(text: &Patch<'_, [u8]>) -> Result<Vec<Hunk>, DiffError> {
                         number
                     });
                     let no_newline = !bytes.ends_with(b"\n");
-                    let text = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-                    let text = std::str::from_utf8(text.strip_suffix(b"\r").unwrap_or(text))?;
+                    let text = std::str::from_utf8(bytes.trim_suffix(b"\n").trim_suffix(b"\r"))?;
                     Ok(PatchLine { kind, text: text.into(), old_line_no, new_line_no, no_newline })
                 })
                 .collect::<Result<Vec<_>, DiffError>>()?;
@@ -206,7 +205,7 @@ fn decode_path_with_mapper<T>(
 where
     T: FnMut(&str) -> Result<RepoPath, RepoPathError>,
 {
-    let bytes = expected_prefix.and_then(|prefix| bytes.strip_prefix(prefix)).unwrap_or(bytes);
+    let bytes = expected_prefix.map_or(bytes, |prefix| bytes.trim_prefix(prefix));
     let path = std::str::from_utf8(bytes).map_err(DiffError::UnsupportedPathEncoding)?;
     map_path(path).map_err(DiffError::InvalidPath)
 }

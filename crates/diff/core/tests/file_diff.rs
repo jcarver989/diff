@@ -132,3 +132,15 @@ fn zero_context_hunks_map_lines_on_either_side_of_an_insertion() -> Result<(), B
     assert_eq!([3, 4].map(|line| diff.unchanged_new_line(line)), [Some(3), Some(6)]);
     Ok(())
 }
+
+#[test]
+fn an_incomplete_line_keeps_its_standalone_carriage_return() -> Result<(), DiffError> {
+    let diff = FileDiff::from_texts("main.rs", "a\r", "b\r")?;
+    assert!(diff.no_newline_at_end);
+    let lines = &diff.hunks[0].lines;
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].text.as_ref(), "a\r");
+    assert_eq!(lines[1].text.as_ref(), "b\r");
+    assert!(lines.iter().all(|line| line.no_newline));
+    Ok(())
+}

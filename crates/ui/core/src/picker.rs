@@ -1,4 +1,5 @@
 use crate::fuzzy::fuzzy_filter;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PickerOption {
@@ -8,7 +9,6 @@ pub struct PickerOption {
 }
 
 impl PickerOption {
-    #[must_use]
     pub fn new(text: impl Into<String>) -> Self {
         Self { text: text.into(), group: None, disabled: false }
     }
@@ -26,28 +26,47 @@ impl PickerOption {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PickerRow<'a> {
-    Group(&'a str),
-    Option { position: usize, index: usize },
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PickerRow {
+    Group(usize),
+    Option(usize),
+}
+
+impl PickerRow {
+    #[must_use]
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Group(index) | Self::Option(index) => index,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PickerState {
     options: Vec<PickerOption>,
+    groups: Vec<Option<usize>>,
     filtered: bool,
     limit: Option<usize>,
     query: String,
     matches: Vec<usize>,
+    positions: Vec<Option<usize>>,
     highlighted: usize,
 }
 
 impl PickerState {
     #[must_use]
     pub fn new(options: Vec<PickerOption>) -> Self {
-        let mut state =
-            Self { options, filtered: true, limit: None, query: String::new(), matches: Vec::new(), highlighted: 0 };
-        state.refilter();
+        let mut state = Self {
+            options: Vec::new(),
+            groups: Vec::new(),
+            filtered: true,
+            limit: None,
+            query: String::new(),
+            matches: Vec::new(),
+            positions: Vec::new(),
+            highlighted: 0,
+        };
+        state.set_options(options);
         state
     }
 
@@ -66,11 +85,6 @@ impl PickerState {
     }
 
     #[must_use]
-    pub const fn is_filtered(&self) -> bool {
-        self.filtered
-    }
-
-    #[must_use]
     pub fn query(&self) -> &str {
         &self.query
     }
@@ -80,8 +94,24 @@ impl PickerState {
         self.refilter();
     }
 
+    #[must_use]
+    pub fn options(&self) -> &[PickerOption] {
+        &self.options
+    }
+
     pub fn set_options(&mut self, options: Vec<PickerOption>) {
         self.options = options;
+        let mut order = HashMap::new();
+        self.groups = self
+            .options
+            .iter()
+            .map(|option| {
+                option.group.as_deref().map(|group| {
+                    let next = order.len();
+                    *order.entry(group).or_insert(next)
+                })
+            })
+            .collect();
         self.refilter();
     }
 
@@ -91,22 +121,15 @@ impl PickerState {
     }
 
     #[must_use]
-    pub const fn highlighted_position(&self) -> usize {
-        self.highlighted
-    }
-
-    #[must_use]
     pub fn highlighted(&self) -> Option<usize> {
         self.matches.get(self.highlighted).copied().filter(|&index| !self.options[index].disabled)
     }
 
     pub fn highlight(&mut self, index: usize) -> bool {
-        let position = self.matches.iter().position(|&matched| matched == index);
-        position.is_some_and(|position| self.highlight_position(position))
-    }
-
-    pub fn highlight_position(&mut self, position: usize) -> bool {
-        let enabled = self.matches.get(position).is_some_and(|&index| !self.options[index].disabled);
+        let Some(position) = self.positions.get(index).copied().flatten() else {
+            return false;
+        };
+        let enabled = !self.options[index].disabled;
         if enabled {
             self.highlighted = position;
         }
@@ -128,35 +151,39 @@ impl PickerState {
     }
 
     #[must_use]
-    pub fn rows(&self) -> Vec<PickerRow<'_>> {
+    pub fn rows(&self) -> Vec<PickerRow> {
         let mut rows = Vec::with_capacity(self.matches.len());
         let mut group = None;
-        for (position, &index) in self.matches.iter().enumerate() {
+        for &index in &self.matches {
             let option_group = self.options[index].group.as_deref();
             if option_group != group {
-                rows.extend(option_group.map(PickerRow::Group));
+                if option_group.is_some() {
+                    rows.push(PickerRow::Group(index));
+                }
                 group = option_group;
             }
-            rows.push(PickerRow::Option { position, index });
+            rows.push(PickerRow::Option(index));
         }
         rows
     }
 
     fn refilter(&mut self) {
-        self.matches = if self.filtered {
-            fuzzy_filter(&self.query, self.options.iter().map(|option| &option.text))
+        if self.filtered {
+            let keys = self.options.iter().map(|option| option.text.as_str());
+            fuzzy_filter(&self.query, keys, &mut self.matches);
         } else {
-            (0..self.options.len()).collect()
-        };
-        let options = &self.options;
-        self.matches.sort_by_key(|&index| {
-            options[index]
-                .group
-                .as_ref()
-                .map(|group| options.iter().position(|option| option.group.as_ref() == Some(group)))
-        });
+            self.matches.clear();
+            self.matches.extend(0..self.options.len());
+        }
+        let groups = &self.groups;
+        self.matches.sort_by_key(|&index| groups[index]);
         if let Some(limit) = self.limit {
             self.matches.truncate(limit);
+        }
+        self.positions.clear();
+        self.positions.resize(self.options.len(), None);
+        for (position, &index) in self.matches.iter().enumerate() {
+            self.positions[index] = Some(position);
         }
         self.highlighted = self.enabled_from(0, 1).unwrap_or(0);
     }

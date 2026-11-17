@@ -4,12 +4,18 @@ mod picker;
 mod selection;
 mod terminal;
 mod ui;
-pub use appearance::{Appearance, AppearanceMode, ThemePair, ThemePreference};
+pub use appearance::{ThemePair, ThemePreference};
 pub use picker::{PickerOption, PickerRow, PickerState};
+use rouge_syntax::capture_style;
+pub use rouge_syntax::{FontStyle, HighlightId, HighlightSpan, SyntaxStyle, SyntaxTheme};
+pub use rouge_theme::{
+    Appearance, AppearanceMode, ButtonVariant, ControlState, InteractionState, MarkdownPalette, ModalSize, NoticeTone,
+    Rgba, SelectionState, SemanticStyle, UiPalette,
+};
 pub use selection::{ThemeChoice, ThemeSelection};
 pub use terminal::TerminalPalette;
 
-use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index, tag_to_name};
+use arborium_theme::{HIGHLIGHTS, ThemeSlot, builtin, slot_to_highlight_index};
 pub use clankerdiff_fingerprint::{Fingerprint, FingerprintError};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -19,117 +25,6 @@ use std::{
 };
 
 const THEME_VERSION: u32 = 3;
-
-/// An sRGB color with an explicit alpha channel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Rgba {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-impl Rgba {
-    #[must_use]
-    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self { r, g, b, a }
-    }
-
-    /// Composites this color over an opaque background.
-    #[must_use]
-    pub const fn over(self, background: Self) -> Self {
-        #[expect(clippy::cast_possible_truncation, reason = "weighted u8 average fits in u8")]
-        const fn channel(foreground: u8, background: u8, alpha: u8) -> u8 {
-            let foreground = foreground as u32 * alpha as u32;
-            let background = background as u32 * (u8::MAX - alpha) as u32;
-            ((foreground + background + 127) / 255) as u8
-        }
-        Self::new(
-            channel(self.r, background.r, self.a),
-            channel(self.g, background.g, self.a),
-            channel(self.b, background.b, self.a),
-            u8::MAX,
-        )
-    }
-
-    #[must_use]
-    pub const fn mix(self, background: Self, amount: u8) -> Self {
-        Self::new(self.r, self.g, self.b, amount).over(background)
-    }
-
-    #[must_use]
-    pub const fn to_bytes(self) -> [u8; 4] {
-        [self.r, self.g, self.b, self.a]
-    }
-}
-
-impl Default for Rgba {
-    fn default() -> Self {
-        Self::new(212, 221, 214, 255)
-    }
-}
-
-/// Text modifiers returned by the syntax engine.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct FontStyle {
-    #[serde(default)]
-    pub bold: bool,
-    #[serde(default)]
-    pub italic: bool,
-    #[serde(default)]
-    pub underline: bool,
-}
-
-impl FontStyle {
-    #[must_use]
-    pub const fn none() -> Self {
-        Self { bold: false, italic: false, underline: false }
-    }
-
-    #[must_use]
-    pub const fn is_plain(self) -> bool {
-        !self.bold && !self.italic && !self.underline
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HighlightId(u8);
-
-impl HighlightId {
-    #[must_use]
-    pub fn from_tag(tag: &str) -> Option<Self> {
-        tag_to_name(tag)?;
-        let index = HIGHLIGHTS.iter().position(|highlight| highlight.tag == tag)?;
-        u8::try_from(index).ok().map(Self)
-    }
-}
-
-fn capture_for_name(name: &'static str) -> &'static str {
-    match name {
-        "title" => "markup.heading",
-        "strong" => "markup.bold",
-        "emphasis" => "markup.italic",
-        "link" => "markup.link",
-        "literal" => "markup.raw",
-        "strikethrough" => "markup.strikethrough",
-        name => name,
-    }
-}
-
-/// A highlighted, UTF-8-safe byte range into the supplied source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HighlightSpan {
-    pub range: std::ops::Range<usize>,
-    pub highlight: HighlightId,
-}
-
-/// Style assigned to a Tree-sitter capture name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SyntaxStyle {
-    pub foreground: Rgba,
-    #[serde(default)]
-    pub font_style: FontStyle,
-}
 
 /// Semantic tint for a diff cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -203,261 +98,6 @@ impl DiffPalette {
         ]
     }
 }
-
-/// Alpha applied to the canvas color when it backs a modal scrim.
-pub const SCRIM_ALPHA: u8 = 184;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(from = "UiPaletteDocument")]
-pub struct UiPalette {
-    pub canvas: Rgba,
-    pub surface: Rgba,
-    pub surface_hover: Rgba,
-    pub surface_selected: Rgba,
-    pub chrome: Rgba,
-    pub elevated: Rgba,
-    pub input: Rgba,
-    pub text: Rgba,
-    pub text_secondary: Rgba,
-    pub text_muted: Rgba,
-    pub border: Rgba,
-    pub border_subtle: Rgba,
-    pub accent: Rgba,
-    pub accent_foreground: Rgba,
-    pub info: Rgba,
-    pub positive: Rgba,
-    pub warning: Rgba,
-    pub destructive: Rgba,
-    pub destructive_foreground: Rgba,
-    pub scrim: Rgba,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct UiPaletteDocument {
-    canvas: Rgba,
-    surface: Rgba,
-    surface_hover: Rgba,
-    surface_selected: Rgba,
-    chrome: Option<Rgba>,
-    elevated: Option<Rgba>,
-    input: Option<Rgba>,
-    text: Rgba,
-    text_secondary: Rgba,
-    text_muted: Rgba,
-    border: Rgba,
-    border_subtle: Option<Rgba>,
-    accent: Rgba,
-    accent_foreground: Rgba,
-    info: Rgba,
-    positive: Rgba,
-    warning: Rgba,
-    destructive: Rgba,
-    destructive_foreground: Rgba,
-    scrim: Rgba,
-}
-
-impl From<UiPaletteDocument> for UiPalette {
-    fn from(document: UiPaletteDocument) -> Self {
-        Self {
-            chrome: document.chrome.unwrap_or(document.surface),
-            elevated: document.elevated.unwrap_or(document.surface_hover),
-            input: document.input.unwrap_or(document.canvas),
-            border_subtle: document.border_subtle.unwrap_or_else(|| document.border.mix(document.canvas, 128)),
-            canvas: document.canvas,
-            surface: document.surface,
-            surface_hover: document.surface_hover,
-            surface_selected: document.surface_selected,
-            text: document.text,
-            text_secondary: document.text_secondary,
-            text_muted: document.text_muted,
-            border: document.border,
-            accent: document.accent,
-            accent_foreground: document.accent_foreground,
-            info: document.info,
-            positive: document.positive,
-            warning: document.warning,
-            destructive: document.destructive,
-            destructive_foreground: document.destructive_foreground,
-            scrim: document.scrim,
-        }
-    }
-}
-
-/// Semantic intent shared by renderer-native action controls.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ButtonVariant {
-    Primary,
-    Secondary,
-    Destructive,
-    #[default]
-    Ghost,
-}
-
-/// Interaction state shared by renderer-native controls.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum InteractionState {
-    #[default]
-    Rest,
-    Hovered,
-    Disabled,
-}
-
-/// Complete semantic state for an action control.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ControlState {
-    pub interaction: InteractionState,
-    pub selected: bool,
-}
-
-impl ControlState {
-    #[must_use]
-    pub const fn new(interaction: InteractionState) -> Self {
-        Self { interaction, selected: false }
-    }
-
-    #[must_use]
-    pub const fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-}
-
-/// Semantic size shared by renderer-native controls.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ControlSize {
-    Small,
-    #[default]
-    Medium,
-}
-
-/// Semantic state for selectable content.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum SelectionState {
-    #[default]
-    None,
-    Selected,
-    Focused,
-    Disabled,
-}
-
-/// Semantic tone for notices and status messages.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum NoticeTone {
-    Neutral,
-    #[default]
-    Info,
-    Positive,
-    Warning,
-    Error,
-}
-
-/// Cross-renderer modal size category.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ModalSize {
-    Compact,
-    #[default]
-    Medium,
-    Wide,
-}
-
-/// Renderer-neutral visual result for one semantic component state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SemanticStyle {
-    pub foreground: Rgba,
-    pub background: Option<Rgba>,
-    pub emphasized: bool,
-}
-
-impl UiPalette {
-    /// Resolves an action control without renderer-specific state ordering.
-    #[must_use]
-    pub const fn control_style(self, variant: ButtonVariant, state: ControlState) -> SemanticStyle {
-        if matches!(state.interaction, InteractionState::Disabled) {
-            return SemanticStyle {
-                foreground: self.text_muted,
-                background: Some(self.surface_selected),
-                emphasized: false,
-            };
-        }
-        let (foreground, background) = match (variant, state.interaction, state.selected) {
-            (ButtonVariant::Primary, _, _) => (self.accent_foreground, Some(self.accent)),
-            (ButtonVariant::Destructive, _, _) => (self.destructive_foreground, Some(self.destructive)),
-            (ButtonVariant::Ghost, _, true) => (self.accent, Some(self.surface_selected)),
-            (ButtonVariant::Secondary | ButtonVariant::Ghost, InteractionState::Hovered, _) => {
-                (self.text, Some(self.surface_hover))
-            }
-            (ButtonVariant::Secondary, _, _) => (self.text, Some(self.surface)),
-            (ButtonVariant::Ghost, _, false) => (self.text_muted, None),
-        };
-        SemanticStyle { foreground, background, emphasized: state.selected }
-    }
-
-    /// Resolves selectable content consistently across renderers.
-    #[must_use]
-    pub const fn selection_style(self, state: SelectionState) -> SemanticStyle {
-        match state {
-            SelectionState::None => {
-                SemanticStyle { foreground: self.text, background: Some(self.surface), emphasized: false }
-            }
-            SelectionState::Selected => {
-                SemanticStyle { foreground: self.accent, background: Some(self.surface_selected), emphasized: false }
-            }
-            SelectionState::Focused => {
-                SemanticStyle { foreground: self.accent_foreground, background: Some(self.accent), emphasized: true }
-            }
-            SelectionState::Disabled => {
-                SemanticStyle { foreground: self.text_muted, background: Some(self.surface), emphasized: false }
-            }
-        }
-    }
-
-    /// Resolves the foreground used to communicate a notice tone.
-    #[must_use]
-    pub const fn notice_style(self, tone: NoticeTone) -> SemanticStyle {
-        let foreground = match tone {
-            NoticeTone::Neutral => self.text_secondary,
-            NoticeTone::Info => self.info,
-            NoticeTone::Positive => self.positive,
-            NoticeTone::Warning => self.warning,
-            NoticeTone::Error => self.destructive,
-        };
-        SemanticStyle {
-            foreground,
-            background: None,
-            emphasized: matches!(tone, NoticeTone::Warning | NoticeTone::Error),
-        }
-    }
-}
-
-impl UiPalette {
-    #[must_use]
-    pub const fn colors(&self) -> [Rgba; 20] {
-        [
-            self.canvas,
-            self.surface,
-            self.surface_hover,
-            self.surface_selected,
-            self.chrome,
-            self.elevated,
-            self.input,
-            self.text,
-            self.text_secondary,
-            self.text_muted,
-            self.border,
-            self.border_subtle,
-            self.accent,
-            self.accent_foreground,
-            self.info,
-            self.positive,
-            self.warning,
-            self.destructive,
-            self.destructive_foreground,
-            self.scrim,
-        ]
-    }
-}
-
 impl Default for DiffPalette {
     fn default() -> Self {
         let background = Rgba::new(21, 29, 31, 255);
@@ -465,7 +105,7 @@ impl Default for DiffPalette {
         let deletion = Rgba::new(223, 120, 122, 255);
         Self {
             background,
-            foreground: Rgba::default(),
+            foreground: Rgba::new(212, 221, 214, 255),
             gutter: Rgba::new(80, 96, 91, 255),
             addition,
             deletion,
@@ -513,6 +153,7 @@ pub struct ThemeDescriptor {
 struct ThemeDocument {
     version: u32,
     palette: DiffPalette,
+    #[serde(deserialize_with = "ui::palette")]
     ui: UiPalette,
     syntax: BTreeMap<String, SyntaxStyle>,
     markdown: MarkdownPalette,
@@ -525,14 +166,43 @@ pub struct ReviewTheme {
     pub ui: UiPalette,
     pub syntax: SyntaxTheme,
     pub markdown: MarkdownPalette,
+    captures: Arc<BTreeMap<String, SyntaxStyle>>,
 }
 
+const SAGE_UI: UiPalette = UiPalette {
+    canvas: Rgba::new(13, 17, 16, 255),
+    surface: Rgba::new(13, 17, 16, 255),
+    surface_hover: Rgba::new(34, 46, 45, 255),
+    surface_selected: Rgba::new(32, 44, 45, 255),
+    chrome: Rgba::new(3, 4, 4, 255),
+    elevated: Rgba::new(37, 42, 38, 255),
+    input: Rgba::new(9, 12, 11, 255),
+    text: Rgba::new(212, 221, 214, 255),
+    text_secondary: Rgba::new(156, 165, 160, 255),
+    text_muted: Rgba::new(92, 112, 104, 255),
+    border: Rgba::new(70, 78, 78, 255),
+    border_subtle: Rgba::new(37, 45, 44, 255),
+    accent: Rgba::new(143, 188, 176, 255),
+    accent_foreground: Rgba::new(0, 0, 0, 255),
+    info: Rgba::new(130, 177, 204, 255),
+    positive: Rgba::new(167, 192, 128, 255),
+    warning: Rgba::new(216, 181, 106, 255),
+    destructive: Rgba::new(230, 126, 128, 255),
+    destructive_foreground: Rgba::new(0, 0, 0, 255),
+    scrim: Rgba::new(13, 17, 16, 184),
+};
+
 impl ReviewTheme {
+    #[must_use]
+    pub fn syntax_style(&self, capture: &str) -> Option<SyntaxStyle> {
+        capture_style(&self.captures, capture)
+    }
+
     pub fn builder(id: impl Into<String>) -> ReviewThemeBuilder {
         ReviewThemeBuilder {
             id: ThemeId::Custom(id.into()),
             diff: DiffPalette::default(),
-            ui: UiPalette::default(),
+            ui: SAGE_UI,
             syntax: BTreeMap::new(),
             markdown: None,
         }
@@ -555,8 +225,9 @@ impl ReviewTheme {
             id,
             ui: document.ui,
             diff: document.palette,
-            syntax: SyntaxTheme::new(document.syntax),
+            syntax: SyntaxTheme::new(&document.syntax),
             markdown: document.markdown,
+            captures: Arc::new(document.syntax),
         })
     }
 
@@ -579,11 +250,11 @@ impl ReviewTheme {
 
     #[must_use]
     pub fn revision(&self) -> Fingerprint {
-        let diff = self.diff.colors().map(Rgba::to_bytes);
-        let markdown = self.markdown.colors().map(Rgba::to_bytes);
-        let ui = self.ui.colors().map(Rgba::to_bytes);
+        let diff = self.diff.colors().map(ui::bytes);
+        let markdown = ui::markdown_colors(&self.markdown).map(ui::bytes);
+        let ui = ui::colors(&self.ui).map(ui::bytes);
         Fingerprint::of(
-            std::iter::once(self.syntax.revision().as_bytes().as_slice())
+            std::iter::once(syntax_revision(&self.captures).as_bytes().as_slice())
                 .chain(diff.iter().map(<[u8; 4]>::as_slice))
                 .chain(markdown.iter().map(<[u8; 4]>::as_slice))
                 .chain(ui.iter().map(<[u8; 4]>::as_slice)),
@@ -595,8 +266,8 @@ impl ReviewTheme {
             version: THEME_VERSION,
             palette: self.diff.clone(),
             ui: self.ui,
-            syntax: self.syntax.captures.clone(),
-            markdown: self.markdown.clone(),
+            syntax: BTreeMap::clone(&self.captures),
+            markdown: self.markdown,
         })
         .map_err(|error| ThemeError::Parse { message: error.to_string() })
     }
@@ -660,9 +331,8 @@ impl ReviewTheme {
                 ))
             })
             .collect::<BTreeMap<_, _>>();
-        let syntax = SyntaxTheme::new(syntax);
-        let markdown = MarkdownPalette::from_syntax(&syntax, &palette);
-        Self { id, diff: palette, ui, syntax, markdown }
+        let markdown = markdown_palette(&syntax, &palette);
+        Self { id, diff: palette, ui, syntax: SyntaxTheme::new(&syntax), markdown, captures: Arc::new(syntax) }
     }
 
     /// Loads the bundled Sage theme.
@@ -747,12 +417,6 @@ impl Default for ReviewTheme {
     }
 }
 
-impl Default for UiPalette {
-    fn default() -> Self {
-        DEFAULT_THEME.ui
-    }
-}
-
 pub struct ReviewThemeBuilder {
     id: ThemeId,
     diff: DiffPalette,
@@ -788,116 +452,42 @@ impl ReviewThemeBuilder {
 
     #[must_use]
     pub fn build(self) -> ReviewTheme {
-        let syntax = SyntaxTheme::new(self.syntax);
-        let markdown = self.markdown.unwrap_or_else(|| MarkdownPalette::from_syntax(&syntax, &self.diff));
-        ReviewTheme { id: self.id, ui: self.ui, diff: self.diff, syntax, markdown }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyntaxTheme {
-    captures: BTreeMap<String, SyntaxStyle>,
-    highlights: Arc<[Option<SyntaxStyle>]>,
-    revision: Fingerprint,
-}
-
-impl SyntaxTheme {
-    #[must_use]
-    pub fn new(captures: BTreeMap<String, SyntaxStyle>) -> Self {
-        let mut fields = Vec::with_capacity(captures.len() * 3);
-        for (capture, style) in &captures {
-            fields.push(capture.as_bytes().to_vec());
-            fields.push(style.foreground.to_bytes().to_vec());
-            fields.push(vec![
-                u8::from(style.font_style.bold),
-                u8::from(style.font_style.italic),
-                u8::from(style.font_style.underline),
-            ]);
-        }
-        let highlights = HIGHLIGHTS
-            .iter()
-            .map(|highlight| tag_to_name(highlight.tag).and_then(|name| lookup(&captures, capture_for_name(name))))
-            .collect();
-        Self { captures, highlights, revision: Fingerprint::of(fields) }
-    }
-
-    #[must_use]
-    pub const fn revision(&self) -> Fingerprint {
-        self.revision
-    }
-
-    #[must_use]
-    pub fn style(&self, capture: &str) -> Option<SyntaxStyle> {
-        lookup(&self.captures, capture)
-    }
-
-    #[must_use]
-    pub fn highlight(&self, id: HighlightId) -> Option<SyntaxStyle> {
-        self.highlights.get(usize::from(id.0)).copied().flatten()
-    }
-}
-
-fn lookup(captures: &BTreeMap<String, SyntaxStyle>, capture: &str) -> Option<SyntaxStyle> {
-    let mut candidate = capture;
-    loop {
-        if let Some(style) = captures.get(candidate) {
-            return Some(*style);
-        }
-        let (parent, _) = candidate.rsplit_once('.')?;
-        candidate = parent;
-    }
-}
-
-impl Default for SyntaxTheme {
-    fn default() -> Self {
-        DEFAULT_THEME.syntax.clone()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MarkdownPalette {
-    pub heading: Rgba,
-    pub link: Rgba,
-    pub quote: Rgba,
-    pub inline_code: Rgba,
-    pub inline_code_background: Rgba,
-    pub code: Rgba,
-    pub code_background: Rgba,
-}
-
-impl MarkdownPalette {
-    #[must_use]
-    pub fn from_syntax(syntax: &SyntaxTheme, palette: &DiffPalette) -> Self {
-        let capture = |name, fallback| syntax.style(name).map_or(fallback, |style| style.foreground);
-        Self {
-            heading: capture("markup.heading", palette.accent),
-            link: capture("markup.link", palette.accent),
-            quote: capture("markup.quote", palette.muted),
-            inline_code: capture("markup.raw.inline", palette.foreground),
-            inline_code_background: palette.border,
-            code: capture("markup.raw.block", palette.foreground),
-            code_background: palette.background,
+        let markdown = self.markdown.unwrap_or_else(|| markdown_palette(&self.syntax, &self.diff));
+        ReviewTheme {
+            id: self.id,
+            ui: self.ui,
+            diff: self.diff,
+            syntax: SyntaxTheme::new(&self.syntax),
+            markdown,
+            captures: Arc::new(self.syntax),
         }
     }
-
-    #[must_use]
-    pub const fn colors(&self) -> [Rgba; 7] {
-        [
-            self.heading,
-            self.link,
-            self.quote,
-            self.inline_code,
-            self.inline_code_background,
-            self.code,
-            self.code_background,
-        ]
-    }
 }
 
-impl Default for MarkdownPalette {
-    fn default() -> Self {
-        DEFAULT_THEME.markdown.clone()
+fn syntax_revision(captures: &BTreeMap<String, SyntaxStyle>) -> Fingerprint {
+    let mut fields = Vec::with_capacity(captures.len() * 3);
+    for (capture, style) in captures {
+        fields.push(capture.as_bytes().to_vec());
+        fields.push(ui::bytes(style.foreground).to_vec());
+        fields.push(vec![
+            u8::from(style.font_style.bold),
+            u8::from(style.font_style.italic),
+            u8::from(style.font_style.underline),
+        ]);
+    }
+    Fingerprint::of(fields)
+}
+
+fn markdown_palette(captures: &BTreeMap<String, SyntaxStyle>, palette: &DiffPalette) -> MarkdownPalette {
+    let capture = |name, fallback| capture_style(captures, name).map_or(fallback, |style| style.foreground);
+    MarkdownPalette {
+        heading: capture("markup.heading", palette.accent),
+        link: capture("markup.link", palette.accent),
+        quote: capture("markup.quote", palette.muted),
+        inline_code: capture("markup.raw.inline", palette.foreground),
+        inline_code_background: palette.border,
+        code: capture("markup.raw.block", palette.foreground),
+        code_background: palette.background,
     }
 }
 

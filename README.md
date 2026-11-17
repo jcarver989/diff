@@ -14,12 +14,26 @@ See the [ClankerDiff README](crates/diff/cli/README.md) for usage, the agent ski
 
 ## Repository layout
 
-This repository also holds the GPUI building blocks ClankerDiff is made of, which other apps use too. Crates are grouped by domain under `crates/`:
+This repository also holds the Rouge building blocks ClankerDiff is made of, which other apps use too. Crates are grouped by domain under `crates/`:
 
 | Domain | Crates | What's there |
 | --- | --- | --- |
 | `util/` | `fingerprint`, `remote` | General-purpose crates with no UI and no diff concepts. |
-| `ui/` | `theme`, `syntax`, `gpui`, `gpui-shell` | Themes, syntax highlighting, and the GPUI design system and app shell. |
-| `diff/` | `core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `gpui`, `ratatui`, `cli`, `desktop`, `web` | The diff and markdown review domain, its renderers and the ClankerDiff apps. |
+| `ui/` | `core`, `syntax` | Themes and syntax highlighting. |
+| `diff/` | `core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `rouge`, `ratatui`, `cli`, `desktop`, `web` | The diff and markdown review domain, its renderers and the ClankerDiff apps. |
 
 A crate may depend only on its own domain or a lower one (`util` < `ui` < `diff`), which `just layer-check` enforces. See [AGENTS.md](AGENTS.md) for conventions.
+
+## Building the migration branch
+
+The checked-in sources are midway through a [hard cutover to Rouge](migration-plan.md). The desktop and browser targets do not build yet; the release linked above predates the cutover. For a headless build, use `cargo build -p clankerdiff-cli --no-default-features`.
+
+All workspace commands require Rust 1.100.0. Rouge dependencies are fetched from crates.io; a sibling checkout is not required. Local binary packaging uses cargo-dist. Downstream consumers must adopt the renamed crates and Rouge APIs; the rename alone does not port their UI code.
+
+The shared design system (`rouge-widgets`) and its renderer-neutral theme types (`rouge-theme`) live in the Rouge repository. To run the component gallery, clone Rouge into `../rouge` and use a graphical session:
+
+```sh
+cargo run --manifest-path ../rouge/Cargo.toml -p rouge-widgets --example component_gallery
+```
+
+For a native presentation smoke test, set `ROUGE_EXIT_AFTER_FRAMES=4` before the command. The gallery is the only shared-crate target that uses the native Rouge application facade; the library can be checked for `wasm32-unknown-unknown` independently.

@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "embedded")]
+    use clankerdiff_client::{ClientOptions, DiffClient};
     #[cfg(feature = "git")]
     use clankerdiff_git::GitRepository;
     #[cfg(feature = "git")]
@@ -11,10 +13,14 @@ mod tests {
         markdown::{
             MarkdownDocument, MarkdownReviewCommand, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownStream,
         },
-        syntax::{LanguageHint, resolve_language},
+        syntax::resolve_language,
         theme::{ReviewTheme, Rgba, ThemeChoice, ThemeId},
     };
+    #[cfg(feature = "embedded")]
+    use clankerdiff_server::{DiffServer, ServerOptions};
     use ratatui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
+    #[cfg(feature = "embedded")]
+    use std::time::Duration;
     use std::{error::Error, str, sync::Arc};
     #[cfg(feature = "git")]
     use std::{fs, process::Command};
@@ -56,7 +62,7 @@ mod tests {
     fn preview_and_review_events_use_facade_types() -> TestResult {
         let theme = ReviewTheme::builtin("sage")?;
         let choice = ThemeChoice::new("Consumer", theme.clone());
-        assert_eq!(resolve_language(LanguageHint::Path("file.rs"), ""), Some("rust"));
+        assert_eq!(resolve_language("file.rs", ""), Some("rust"));
         let mut preview = DiffPreviewState::new(FileDiff::from_texts("file.rs", "old\n", "new\n")?);
         let lines = preview.render(
             80,
@@ -139,6 +145,27 @@ mod tests {
         let mut state = DiffReviewState::new(Arc::new(snapshot));
         let area = Rect::new(0, 0, 80, 24);
         DiffReviewWidget::new().render(area, &mut Buffer::empty(area), &mut state);
+        Ok(())
+    }
+
+    #[cfg(feature = "embedded")]
+    #[tokio::test]
+    async fn embedded_clients_review_repository_snapshots_without_a_network_listener() -> TestResult {
+        let directory = RepositoryBuilder.build()?;
+        let server = DiffServer::open(directory.path(), ServerOptions::default()).await?;
+        let client = DiffClient::from_transport(server.connect()?, ClientOptions::default()).await?;
+        let mut subscription = client.subscribe();
+        let state = subscription.wait_until(Duration::from_secs(10), |state| state.snapshot.is_some()).await?;
+        assert_eq!(state.snapshot.as_ref().ok_or("initial repository snapshot")?.files.len(), 1);
+        client.set_target(DiffScope::Staged).await?;
+        let state = subscription
+            .wait_until(Duration::from_secs(10), |state| {
+                state.snapshot.as_ref().is_some_and(|snapshot| snapshot.target.scope() == Some(DiffScope::Staged))
+            })
+            .await?;
+        assert!(state.snapshot.as_ref().ok_or("staged repository snapshot")?.files.is_empty());
+        client.close().await?;
+        server.shutdown().await?;
         Ok(())
     }
 

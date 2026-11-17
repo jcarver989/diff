@@ -8,7 +8,7 @@ use args::{CapabilitiesArgs, Cli, Command, ConnectArgs, MarkdownArgs, OutputForm
 use clankerdiff_client::DiffClient;
 use clankerdiff_core::{DiffReviewEvent, DiffScope, ReviewSubmission};
 use clankerdiff_git::GitRepository;
-use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission};
+use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewSubmission, outline};
 use clankerdiff_protocol::{CapabilityResponse, PROTOCOL_VERSION, ReviewOutcome, ReviewResponse};
 use clankerdiff_server::{DiffServer, ReviewCompletion, ServerOptions, StreamTransport};
 use clap::Parser;
@@ -21,6 +21,8 @@ use std::{
 };
 use thiserror::Error;
 use tokio::runtime::Runtime;
+#[cfg(feature = "desktop")]
+use tokio::task::block_in_place;
 
 fn main() -> ExitCode {
     if let Some(exit) = clankerdiff_lspd::run_if_requested() {
@@ -109,7 +111,7 @@ async fn connect(args: ConnectArgs) -> Result<ReviewOutcome, AppError> {
     let outcome = match args.ui {
         Ui::Tui => tui::run_client(&client),
         #[cfg(feature = "desktop")]
-        Ui::Desktop => Ok(clankerdiff_gpui_desktop::run_client_review(client.clone())),
+        Ui::Desktop => Ok(block_in_place(|| clankerdiff_desktop::run_client_review(client.clone()))),
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
     };
@@ -128,11 +130,13 @@ async fn run(args: ReviewArgs) -> Result<ReviewResponse, AppError> {
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
         #[cfg(feature = "desktop")]
-        Ui::Desktop => clankerdiff_gpui_desktop::run_review(clankerdiff_gpui_desktop::args::CliArgs {
-            repository: root.clone(),
-            scope: args.scope,
-            commits: args.commits,
-            connect: None,
+        Ui::Desktop => block_in_place(|| {
+            clankerdiff_desktop::run_review(clankerdiff_desktop::args::CliArgs {
+                repository: root.clone(),
+                scope: args.scope,
+                commits: args.commits,
+                connect: None,
+            })
         }),
         Ui::Tui => match args.tui_placement {
             TuiPlacement::Current => {
@@ -190,20 +194,15 @@ fn run_markdown(args: &MarkdownArgs) -> Result<ReviewResponse, AppError> {
         (decode_markdown(bytes)?, Some(args.path.clone()), file_name)
     };
     let source_path = args.source_path.clone().or(physical_source_path);
-    let provisional = MarkdownDocument::parse_with_metadata(source_path.clone(), None, source.clone());
+    let provisional = MarkdownDocument::parse(source.clone()).with_metadata(source_path.clone(), None);
     let title = args.title.clone().or_else(|| {
-        provisional
-            .outline()
-            .iter()
-            .find(|heading| heading.level == 1)
-            .map(|heading| heading.title.clone())
-            .or(file_name)
+        outline(&provisional).into_iter().find(|heading| heading.level == 1).map(|heading| heading.title).or(file_name)
     });
-    let document = MarkdownDocument::parse_with_metadata(source_path.clone(), title, source);
+    let document = MarkdownDocument::parse(source).with_metadata(source_path.clone(), title);
     let submission = match args.ui {
         Ui::Tui => tui::run_markdown(Arc::new(document))?,
         #[cfg(feature = "desktop")]
-        Ui::Desktop => clankerdiff_gpui_desktop::run_markdown_review(document),
+        Ui::Desktop => block_in_place(|| clankerdiff_desktop::run_markdown_review(document)),
         #[cfg(not(feature = "desktop"))]
         Ui::Desktop => return Err(AppError::DesktopDisabled),
     };

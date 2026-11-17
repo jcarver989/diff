@@ -1,8 +1,9 @@
 //! Selection, draft editing, and decisions for a Markdown review.
 
 use crate::{
-    MarkdownAnchor, MarkdownCommentContext, MarkdownDocument, MarkdownReview, MarkdownReviewDecision,
-    MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSubmission, MarkdownTarget, MarkdownTargetId,
+    MarkdownAnchor, MarkdownAnchors, MarkdownCommentContext, MarkdownDocument, MarkdownHeading, MarkdownReview,
+    MarkdownReviewDecision, MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSubmission, MarkdownTarget,
+    MarkdownTargetId, outline,
 };
 use std::sync::Arc;
 
@@ -118,6 +119,7 @@ impl MarkdownCommentDraft {
 #[derive(Debug, Clone)]
 pub struct MarkdownReviewSession {
     document: Arc<MarkdownDocument>,
+    outline: Arc<[MarkdownHeading]>,
     review: MarkdownReview,
     selected_target: Option<MarkdownTargetId>,
     draft: Option<MarkdownCommentDraft>,
@@ -128,12 +130,24 @@ impl MarkdownReviewSession {
     #[must_use]
     pub fn new(document: Arc<MarkdownDocument>) -> Self {
         let selected_target = document.targets().first().map(|target| target.id);
-        Self { document, review: MarkdownReview::default(), selected_target, draft: None, annotations_revision: 0 }
+        Self {
+            outline: outline(&document).into(),
+            document,
+            review: MarkdownReview::default(),
+            selected_target,
+            draft: None,
+            annotations_revision: 0,
+        }
     }
 
     #[must_use]
     pub const fn document(&self) -> &Arc<MarkdownDocument> {
         &self.document
+    }
+
+    #[must_use]
+    pub fn outline(&self) -> &[MarkdownHeading] {
+        &self.outline
     }
 
     #[must_use]
@@ -269,7 +283,7 @@ impl MarkdownReviewSession {
 
     fn move_heading(&mut self, previous: bool) -> Option<MarkdownTargetId> {
         let current = self.selected_target.map(MarkdownTargetId::index);
-        let headings = self.document.outline();
+        let headings = &self.outline;
         let heading = if previous {
             headings.iter().rev().find(|heading| current.is_none_or(|index| heading.target_id.index() < index))
         } else {
@@ -447,11 +461,9 @@ mod tests {
     use crate::{MarkdownDocument, MarkdownTargetKind};
 
     fn session(source: &str) -> MarkdownReviewSession {
-        MarkdownReviewSession::new(Arc::new(MarkdownDocument::parse_with_metadata(
-            Some("plan.md".into()),
-            None,
-            source,
-        )))
+        MarkdownReviewSession::new(Arc::new(
+            MarkdownDocument::parse(source).with_metadata(Some("plan.md".into()), None),
+        ))
     }
 
     #[test]
@@ -493,11 +505,9 @@ mod tests {
         session.begin_draft(None);
         session.draft_mut().unwrap().insert("note");
         session.submit_draft();
-        session.replace_document(Arc::new(MarkdownDocument::parse_with_metadata(
-            Some("new.md".into()),
-            None,
-            "# Plan\n\nInserted\n\nKeep\n",
-        )));
+        session.replace_document(Arc::new(
+            MarkdownDocument::parse("# Plan\n\nInserted\n\nKeep\n").with_metadata(Some("new.md".into()), None),
+        ));
         assert_ne!(session.selected_target(), None);
         assert_eq!(session.review().outdated_count(), 1);
         assert_eq!(session.draft(), None);

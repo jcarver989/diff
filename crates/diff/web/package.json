@@ -1,4 +1,5 @@
 {
+  "name": "clankerdiff-web",
   "private": true,
   "scripts": {
     "test": "trunk build --release && vitest run --browser.enabled"

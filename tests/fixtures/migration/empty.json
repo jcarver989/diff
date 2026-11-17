@@ -1,0 +1,7 @@
+{
+  "repo_root": "/migration-empty",
+  "target": {
+    "working_tree": "Both"
+  },
+  "files": []
+}

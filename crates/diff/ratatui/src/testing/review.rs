@@ -5,13 +5,13 @@ use crate::{
     DiffReviewEvent, DiffReviewState, DiffReviewWidget, InputOutcome, KeyCode, MouseButton, MouseEventKind, ReviewInput,
 };
 use clankerdiff_core::{DiffDocument, Lookup, LookupAnswer, LookupReply, ReviewCapabilities, testing::DocumentBuilder};
-use clankerdiff_syntax::{SyntaxWorkStats, thread_work};
 use ratatui::{
     Terminal,
     backend::TestBackend,
     buffer::Buffer,
     layout::{Position, Rect},
 };
+use rouge_syntax::SyntaxWorkStats;
 use std::sync::Arc;
 
 /// Deterministic work performed while drawing one frame.
@@ -103,7 +103,7 @@ impl ReviewHarness {
     ///
     /// Panics if the in-memory test terminal cannot draw the frame.
     pub fn draw(&mut self) -> FrameStats {
-        let before = thread_work();
+        let before = self.state.syntax.work_stats();
         self.terminal
             .draw(|frame| {
                 frame.render_stateful_widget(DiffReviewWidget::new(), frame.area(), &mut self.state);
@@ -112,7 +112,7 @@ impl ReviewHarness {
                 }
             })
             .expect("infallible test draw");
-        FrameStats::new(self.terminal.backend_mut().take_stats(), before, thread_work())
+        FrameStats::new(self.terminal.backend_mut().take_stats(), before, self.state.syntax.work_stats())
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {

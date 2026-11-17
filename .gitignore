@@ -1,7 +1,9 @@
+/tests/rouge-consumer-fixture/target
 /tests/consumer-fixture/target
-/tests/consumer-fixture/Cargo.lock
+/crates/diff/web/.vitest/
 node_modules/
 dist/
+/rouge-profile/
 
 # framer:begin framer
 /.framer/target/

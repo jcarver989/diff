@@ -1,0 +1,342 @@
+[
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":1,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":2,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":3,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":4,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":5,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":6,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":7,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":8,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-copy",
+    "detail": "I'm reviewing the working tree diff. Here are my comments:\n\n## `src/deleted.rs`\n\n**Line 1 (removed):** `pub const REMOVED: bool = true;`\n> Check Unicode, tabs, anchors, and wrapped review comments.\n> A second line must survive export."
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":9,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-submit",
+    "detail": "{\"comments\":[{\"id\":0,\"anchor\":{\"path\":\"src/deleted.rs\",\"side\":\"Old\",\"old_line_no\":1,\"new_line_no\":null,\"kind\":\"Removed\",\"fingerprint\":\"40d2f37eb8e81a7e9770ccad1877335111764869c0b823ffa910d9917056a074\",\"content_fingerprint\":\"06f326c4da4eeadd848b60bfb0140cf95754d1eb239f9cf215b29400d591e2cc\"},\"body\":\"Check Unicode, tabs, anchors, and wrapped review comments.\\nA second line must survive export.\",\"context\":{\"path\":\"src/deleted.rs\",\"side\":\"Old\",\"line_number\":1,\"line_kind\":\"Removed\",\"line_text\":\"pub const REMOVED: bool = true;\"},\"outdated\":false,\"target\":{\"working_tree\":\"Both\"}}],\"formatted\":\"I'm reviewing the working tree diff. Here are my comments:\\n\\n## `src/deleted.rs`\\n\\n**Line 1 (removed):** `pub const REMOVED: bool = true;`\\n> Check Unicode, tabs, anchors, and wrapped review comments.\\n> A second line must survive export.\"}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":10,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":11,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":12,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "markdown-review-submit",
+    "detail": "{\"decision\":\"Approved\",\"comments\":[],\"formatted\":\"Markdown review approved.\"}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":false}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":false}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":13,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":14,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":15,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":16,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":17,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":18,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":19,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":20,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":21,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":22,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":23,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":24,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":25,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":26,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":27,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":28,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":29,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":30,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":31,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":32,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":33,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":34,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":35,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":36,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":37,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":38,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":39,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":40,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":41,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":42,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":43,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":44,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":45,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":46,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":47,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":48,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":49,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":50,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":51,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":52,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":53,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":54,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":55,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-command-result",
+    "detail": "{\"request_id\":56,\"handled\":true,\"error\":null}"
+  },
+  {
+    "name": "diff-review-document-applied",
+    "detail": "{\"revision\":null,\"changed\":true}"
+  }
+]

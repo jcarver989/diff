@@ -1,8 +1,6 @@
 use clankerdiff_core::{DiffReviewCommand, FocusPane, ReviewCommand};
-use clankerdiff_gpui_web::commands::{
-    CommandError, CommandRequest, ViewerCommand, decode_capabilities, decode_command,
-};
 use clankerdiff_markdown::{MarkdownReviewCommand, MarkdownReviewDecision};
+use clankerdiff_web::commands::{CommandError, CommandRequest, ViewerCommand, decode_capabilities, decode_command};
 use std::error::Error;
 
 #[test]

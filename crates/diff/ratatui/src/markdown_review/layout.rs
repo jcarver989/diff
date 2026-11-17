@@ -3,7 +3,7 @@ use crate::{
     annotation::{AnnotationBox, AnnotationKind},
     annotation_layout::{AnnotationLayout, AnnotationRow},
 };
-use clankerdiff_markdown::{MarkdownReviewSession, MarkdownTargetId};
+use clankerdiff_markdown::{MarkdownAnchors, MarkdownReviewSession, MarkdownTargetId};
 use clankerdiff_ui_core::ReviewTheme;
 use std::{
     collections::{BTreeMap, HashMap},

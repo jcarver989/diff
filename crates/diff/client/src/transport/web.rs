@@ -6,13 +6,18 @@ use crate::{
 };
 use futures_util::{SinkExt, StreamExt};
 use gloo_net::websocket::{Message, futures::WebSocket};
+use std::future::{Ready, ready};
 
 pub struct WebSocketTransport {
     socket: Option<WebSocket>,
 }
 
 impl WebSocketTransport {
-    pub async fn try_connect(url: &str, headers: &[ConnectionHeader]) -> Result<Self, ClientError> {
+    pub fn try_connect(url: &str, headers: &[ConnectionHeader]) -> Ready<Result<Self, ClientError>> {
+        ready(Self::open(url, headers))
+    }
+
+    fn open(url: &str, headers: &[ConnectionHeader]) -> Result<Self, ClientError> {
         if !headers.is_empty() {
             return Err(ClientError::Transport(
                 "custom WebSocket headers are unavailable in browser clients".to_owned(),
@@ -42,9 +47,10 @@ impl ClientMessageTransport for WebSocketTransport {
         Ok(ServerMessage::decode(&text)?)
     }
 
-    async fn close(&mut self) {
+    fn close(&mut self) -> impl Future<Output = ()> {
         if let Some(socket) = self.socket.take() {
             let _ = socket.close(None, None);
         }
+        ready(())
     }
 }

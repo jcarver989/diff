@@ -1,6 +1,6 @@
 use clankerdiff_core::{
-    DiffError, FileStatus, PatchLineKind, RepoPath, RepoPathError, git_patch_from_texts, parse_git_diff,
-    parse_git_diff_with_path_mapper,
+    DiffError, FileStatus, PatchLineKind, RepoPath, RepoPathError, git_patch_from_texts, parse_detached_git_diff,
+    parse_git_diff, parse_git_diff_with_path_mapper,
 };
 
 #[test]
@@ -40,8 +40,36 @@ fn mapping_is_explicit_and_keeps_repository_path_validation() {
     }
 }
 
+#[test]
+fn detached_patch_paths_accept_relative_and_absolute_names() -> Result<(), DiffError> {
+    for path in ["src/main.rs", "/src/main.rs"] {
+        let patch = changed_patch(path, Some("old\n"), Some("new\n"));
+        let files = parse_detached_git_diff(patch.as_bytes())?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path.as_str(), "src/main.rs");
+        assert_eq!(files[0].old_path.as_ref(), Some(&files[0].path));
+    }
+    Ok(())
+}
+
+#[test]
+fn patch_lines_keep_their_text_and_final_newline_status() -> Result<(), DiffError> {
+    for ending in ["\n", "\r\n", ""] {
+        let patch = changed_patch("main.rs", Some(&format!("old{ending}")), Some(&format!("new{ending}")));
+        let files = parse_git_diff(patch.as_bytes())?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].no_newline_at_end, ending.is_empty());
+        let lines = &files[0].hunks[0].lines;
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text.as_ref(), "old");
+        assert_eq!(lines[1].text.as_ref(), "new");
+        assert!(lines.iter().all(|line| line.no_newline == ending.is_empty()));
+    }
+    Ok(())
+}
+
 fn workspace_path(path: &str) -> Result<RepoPath, RepoPathError> {
-    RepoPath::new(path.strip_prefix("/workspace/").unwrap_or(path))
+    RepoPath::new(path.trim_prefix("/workspace/"))
 }
 
 fn changed_patch(path: &str, old: Option<&str>, new: Option<&str>) -> String {

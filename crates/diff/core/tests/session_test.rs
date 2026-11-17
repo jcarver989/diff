@@ -2,7 +2,8 @@
 
 use clankerdiff_core::{
     CommitKind, CommitPage, CommitSummary, CommitTitle, DiffDocument, DiffReviewCommand, DiffReviewEvent, DiffScope,
-    DiffSide, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession, ReviewTarget, RowKind, ViewMode,
+    DiffSide, FileView, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession, ReviewTarget, RowKind,
+    SourceUnavailable, ViewMode,
     testing::{DocumentBuilder, commit_id},
 };
 use std::{error::Error, sync::Arc, time::Duration};
@@ -363,6 +364,35 @@ fn source_view_cannot_collapse_files() {
     assert!(!session.toggle_file_collapsed(0));
     assert!(!session.toggle_all_files_collapsed());
     assert!(!session.is_file_collapsed(0));
+}
+
+#[test]
+fn markdown_files_preview_in_place_of_their_diff() -> Result<(), Box<dyn Error>> {
+    let readme = |new| DocumentBuilder::new().changed("README.md", "# Old\n", new).changed("a.rs", "old\n", "new\n");
+    let mut session = ReviewSession::new(readme("# New\n").build());
+    let preview = |session: &mut ReviewSession, index| session.toggle_file_view(Some(index), FileView::Preview);
+    assert!(!session.command_available(&DiffReviewCommand::ToggleMarkdownPreview(Some(1))));
+    assert!(!preview(&mut session, 1));
+    let source = session.selected_source_line();
+    assert!(session.begin_draft(None));
+    assert!(!preview(&mut session, 0));
+    session.cancel_draft();
+    assert!(session.toggle_file_collapsed(0));
+    assert!(preview(&mut session, 0));
+    let range = session.presentation().file_range(0).ok_or("range")?;
+    let kinds: Vec<_> = session.presentation().rows(range.clone()).iter().map(|row| row.kind).collect();
+    assert_eq!(kinds, [RowKind::FileHeader, RowKind::MarkdownPreview]);
+    assert_eq!(session.selected_row(), Some(range.start));
+    session.set_document(readme("# Newer\n").build());
+    assert_eq!(session.presentation().file_view(0), FileView::Preview);
+    assert!(session.reveal_selected_gap(RevealAmount::Step));
+    assert_eq!(session.selected_source_line(), source);
+    assert!(preview(&mut session, 0));
+    session.set_document(
+        readme("# New\n").source("README.md", DiffSide::New, Err::<&str, _>(SourceUnavailable::NotCaptured)).build(),
+    );
+    assert_eq!(session.presentation().file_view(0), FileView::Diff);
+    Ok(())
 }
 
 fn session() -> ReviewSession {

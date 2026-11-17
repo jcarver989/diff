@@ -1,8 +1,9 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    ContentProjection, DiffPresentation, DiffSide, DiffTone, Layout, MAX_CELL_TEXT_BYTES, PresentationOptions,
-    PresentedCell, PresentedRow, RowKind, SourceUnavailable, ViewMode, ViewportAnchor, testing::DocumentBuilder,
+    ContentProjection, DiffPresentation, DiffSide, DiffTone, FileView, Layout, MAX_CELL_TEXT_BYTES,
+    PresentationOptions, PresentedCell, PresentedRow, RowKind, SourceUnavailable, ViewMode, ViewportAnchor,
+    testing::DocumentBuilder,
 };
 use std::error::Error;
 
@@ -133,7 +134,7 @@ fn viewport_anchors_fall_back_to_their_file_start() -> Result<(), Box<dyn Error>
 fn collapsed_files_project_only_a_navigable_header() -> Result<(), Box<dyn Error>> {
     let document = DocumentBuilder::new().changed("a.rs", "old\n", "new\n").changed("b.rs", "old\n", "new\n").build();
     let mut projection = ContentProjection::default();
-    projection.set_collapsed(document.files[0].path.clone(), true);
+    projection.set_file_view(document.files[0].path.clone(), FileView::Collapsed);
     let presentation = DiffPresentation::with_projection(document, PresentationOptions::default(), &projection);
     let collapsed = presentation.file_range(0).ok_or("collapsed range")?;
     assert_eq!(collapsed.len(), 1);

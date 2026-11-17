@@ -22,15 +22,21 @@ fn sage_notices_preserve_semantic_colors() -> TestResult {
 }
 
 #[test]
+fn a_built_theme_defaults_to_the_sage_ui_palette() -> TestResult {
+    assert_eq!(ReviewTheme::builder("plain").build().ui, ReviewTheme::sage()?.ui);
+    Ok(())
+}
+
+#[test]
 fn every_catalog_entry_has_an_explicit_complete_palette() -> TestResult {
-    let mut expected: BTreeMap<String, UiPalette> = serde_json::from_slice(include_bytes!("../assets/ui.json"))?;
+    let mut expected: BTreeMap<String, Value> = serde_json::from_slice(include_bytes!("../assets/ui.json"))?;
     for (id, bytes) in [
         ("sage", include_bytes!("../assets/themes/sage.json").as_slice()),
         ("ayu-dark", include_bytes!("../assets/themes/ayu-dark.json").as_slice()),
     ] {
         let document: Value = serde_json::from_slice(bytes)?;
         assert_eq!(document["version"], 3);
-        expected.insert(id.to_owned(), serde_json::from_value(document["ui"].clone())?);
+        expected.insert(id.to_owned(), document["ui"].clone());
     }
     let catalog = ReviewTheme::catalog();
     assert_eq!(catalog.len(), 34);
@@ -41,7 +47,10 @@ fn every_catalog_entry_has_an_explicit_complete_palette() -> TestResult {
     );
     for descriptor in catalog {
         let theme = ReviewTheme::builtin(&descriptor.id)?;
-        assert_eq!(theme.ui, expected[&descriptor.id], "{}", descriptor.id);
+        let loaded = serde_json::to_value(theme.ui)?;
+        for (role, color) in expected[&descriptor.id].as_object().ok_or("missing ui object")? {
+            assert_eq!(&loaded[role], color, "{}.{role}", descriptor.id);
+        }
         assert_ne!(theme.ui.text_secondary, theme.ui.text_muted, "{}", descriptor.id);
         assert_ne!(theme.ui.info, theme.ui.warning, "{}", descriptor.id);
         assert_ne!(theme.ui.info, theme.ui.text_muted, "{}", descriptor.id);
@@ -66,7 +75,6 @@ fn ui_is_independent_and_every_channel_affects_revision() -> TestResult {
         .build();
     let document: Value = serde_json::from_slice(&theme.to_bytes()?)?;
     let colors = document["ui"].as_object().ok_or("missing UI object")?;
-    assert_eq!(colors.len(), theme.ui.colors().len());
     for role in colors.keys() {
         for channel in ["r", "g", "b", "a"] {
             let mut changed = document.clone();
@@ -83,16 +91,18 @@ fn ui_is_independent_and_every_channel_affects_revision() -> TestResult {
 }
 
 #[test]
-fn builder_keeps_default_and_explicit_ui_independent_of_diff() {
-    let ui = UiPalette { info: Rgba::new(1, 2, 3, 255), ..UiPalette::default() };
+fn builder_keeps_default_and_explicit_ui_independent_of_diff() -> TestResult {
+    let sage = ReviewTheme::sage()?.ui;
+    let ui = UiPalette { info: Rgba::new(1, 2, 3, 255), ..sage };
     let diff = DiffPalette { foreground: Rgba::new(1, 2, 3, 255), ..DiffPalette::default() };
     let first = ReviewTheme::builder("first").ui(ui).diff(diff.clone()).build();
     let second = ReviewTheme::builder("second").diff(diff.clone()).ui(ui).build();
     let default_ui = ReviewTheme::builder("default").diff(diff).build().ui;
-    assert_eq!(default_ui, UiPalette::default());
+    assert_eq!(default_ui, sage);
     assert_eq!(first.ui, ui);
     assert_eq!(second.ui, ui);
     assert_eq!(first.revision(), second.revision());
+    Ok(())
 }
 
 #[test]
@@ -147,6 +157,16 @@ fn palettes_without_layer_tokens_derive_them_from_their_roles() -> TestResult {
     assert_ne!(ui.elevated, ui.canvas);
     assert_ne!(ui.border_subtle, ui.border);
     assert_readable("derived sage", ui);
+    Ok(())
+}
+
+#[test]
+fn hovering_an_elevated_surface_is_visible_in_every_theme() -> TestResult {
+    for descriptor in ReviewTheme::catalog() {
+        let ui = ReviewTheme::builtin(&descriptor.id)?.ui;
+        assert_ne!(ui.elevated, ui.surface_hover, "{}: a hovered menu row disappears", descriptor.id);
+        assert_ne!(ui.elevated, ui.canvas, "{}: an elevated surface sits flush with the canvas", descriptor.id);
+    }
     Ok(())
 }
 

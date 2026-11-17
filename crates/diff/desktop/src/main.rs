@@ -1,7 +1,7 @@
-//! Native GPUI shell for reviewing changes in a local Git repository.
+//! Native Rouge shell for reviewing changes in a local Git repository.
 
 use clankerdiff_client::{DiffClient, DiffReviewEvent};
-use clankerdiff_gpui_desktop::{
+use clankerdiff_desktop::{
     args::{ArgsError, CliArgs, USAGE},
     run, run_client_review,
 };

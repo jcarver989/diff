@@ -12,20 +12,20 @@ use crate::{
 pub use clankerdiff_markdown::{
     Fingerprint, FingerprintError, MarkdownAnchor, MarkdownBlock, MarkdownBlockAnchor, MarkdownBlockKind,
     MarkdownCodeBlock, MarkdownCodeLine, MarkdownCodeLineAnchor, MarkdownCommentContext, MarkdownCommentDraft,
-    MarkdownDocument, MarkdownFocusPane, MarkdownHeading, MarkdownInline, MarkdownLineRange, MarkdownListItem,
+    MarkdownDocument, MarkdownFocusPane, MarkdownHeading, MarkdownLineRange, MarkdownListItem, MarkdownMarks,
     MarkdownOptions, MarkdownParseStats, MarkdownReview, MarkdownReviewCommand, MarkdownReviewComment,
     MarkdownReviewDecision, MarkdownReviewError, MarkdownReviewEvent, MarkdownReviewSession, MarkdownReviewSubmission,
     MarkdownSourceRole, MarkdownSourceStyle, MarkdownStream, MarkdownStreamChanges, MarkdownStreamIdentity,
     MarkdownStreamUpdate, MarkdownTable, MarkdownTableAlignment, MarkdownTableCell, MarkdownTableRow, MarkdownTarget,
-    MarkdownTargetId, MarkdownTargetKind, SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target, format_markdown_review,
-    parse_markdown, rendered_text, resolve_anchor,
+    MarkdownTargetId, MarkdownTargetKind, MarkdownText, SNAPSHOT_CHAR_LIMIT, SourceRange, anchor_for_target,
+    format_markdown_review, resolve_anchor,
 };
-use clankerdiff_syntax::{HighlightLine, SyntaxTheme, thread_work};
 use clankerdiff_ui_core::{ReviewTheme, Rgba};
 use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
+use rouge_syntax::{HighlightLine, SyntaxTheme};
 use similar::{ChangeTag, TextDiff};
 use std::{collections::HashMap, ops::Range, sync::Arc};
 use thiserror::Error;
@@ -39,7 +39,6 @@ pub struct MarkdownRenderStats {
     pub parsed_bytes: usize,
     pub scanned_bytes: usize,
     pub source_bytes_copied: usize,
-    pub prefix_bytes_copied: usize,
     pub parsed_documents: u64,
     pub rows_generated: usize,
     pub rows_reused: usize,
@@ -57,7 +56,6 @@ impl MarkdownRenderStats {
         self.parsed_bytes += parse.parsed_bytes.saturating_sub(seen.parsed_bytes);
         self.scanned_bytes += parse.scanned_bytes.saturating_sub(seen.scanned_bytes);
         self.source_bytes_copied += parse.source_bytes_copied.saturating_sub(seen.source_bytes_copied);
-        self.prefix_bytes_copied += parse.prefix_bytes_copied.saturating_sub(seen.prefix_bytes_copied);
         self.parsed_documents += parse.parses.saturating_sub(seen.parses);
         self.highlighted_bytes += parse.highlighted_bytes.saturating_sub(seen.highlighted_bytes);
     }
@@ -286,7 +284,6 @@ impl MarkdownRenderer {
             Some(changes) if same_shape && !changes.replaced => ((changes.first_block, changes.first_line), false),
             _ => ((0, 0), true),
         };
-        let highlighted_before = thread_work().parser_input_bytes;
         let build = state.incremental.build(
             document,
             stream.open_code_block(),
@@ -298,7 +295,6 @@ impl MarkdownRenderer {
             &state.history,
             &mut state.stats,
         );
-        state.stats.highlighted_bytes += thread_work().parser_input_bytes - highlighted_before;
         state.incremental.identity = Some(stream.identity());
         state.incremental.revision = stream.revision();
         state.incremental.source_revision = stream.source_revision();
@@ -778,12 +774,10 @@ impl IncrementalLayout {
                 }
                 for (line_index, line) in code.lines().iter().enumerate() {
                     stats.chunks_visited += 1;
-                    if let Some(source_line) = line.source_line {
-                        code_lines.insert(
-                            source_line,
-                            (code.line_text(line), highlights.line(line_index).unwrap_or_default()),
-                        );
-                    }
+                    code_lines.insert(
+                        line.source.lines.start,
+                        (code.line_text(line), highlights.line(line_index).unwrap_or_default()),
+                    );
                 }
             }
         }
@@ -819,15 +813,14 @@ impl IncrementalLayout {
                 continue;
             }
             let raw = &source[range.bytes.clone()];
-            let text = raw.strip_suffix('\n').unwrap_or(raw);
-            let text = text.strip_suffix('\r').unwrap_or(text);
+            let text = raw.trim_suffix('\n').trim_suffix('\r');
             let line_number = index + 1;
             let target = target_by_line.get(&line_number).map(|(_, id)| *id);
             let code_input = code_lines.get(&line_number);
             let styles = styles_by_line.get(&line_number).map_or(&[][..], Vec::as_slice);
             let mut output = RowOutput::new(options).after(checkpoint);
             let code = code_input.and_then(|(code, spans)| {
-                Some((text.strip_suffix(*code)?, highlighted_line(code, *spans, &theme.syntax, code_style)))
+                Some((text.strip_suffix(*code)?, highlighted_line(code, spans.iter(), &theme.syntax, code_style)))
             });
             let spans = match code {
                 Some((prefix, line)) => {
@@ -1094,7 +1087,7 @@ fn render_code_line(
     target: Option<MarkdownTargetId>,
     output: &mut RowOutput,
 ) {
-    let mut rendered = highlighted_line(text, spans, syntax, base);
+    let mut rendered = highlighted_line(text, spans.iter(), syntax, base);
     rendered.spans.insert(0, Span::styled(prefix.to_owned(), base));
     output.push_wrapped(rendered.spans, prefix, RowOrigin { source: &line.source, target });
 }
@@ -1106,7 +1099,7 @@ fn table_column_widths(table: &MarkdownTable, available: usize, wrap: bool) -> O
     let mut natural = vec![1; columns];
     for row in &table.rows {
         for (index, cell) in row.cells.iter().enumerate() {
-            natural[index] = natural[index].max(rendered_text(&cell.content).width());
+            natural[index] = natural[index].max(cell.content.text().width());
         }
     }
     if !wrap || natural.iter().sum::<usize>() <= available {
@@ -1196,43 +1189,45 @@ fn render_table(
     }
 }
 
-fn inline_spans(inlines: &[MarkdownInline], style: Style, theme: &ReviewTheme) -> Vec<Span<'static>> {
-    fn append(inline: &MarkdownInline, style: Style, theme: &ReviewTheme, output: &mut Vec<Span<'static>>) {
-        match inline {
-            MarkdownInline::Text(text) => output.push(Span::styled(text.clone(), style)),
-            MarkdownInline::Code(text) => {
-                output.push(Span::styled(text.clone(), inline_code_style(style, theme)));
-            }
-            MarkdownInline::Strong(children) => children.iter().for_each(|child| {
-                append(child, style.add_modifier(Modifier::BOLD), theme, output);
-            }),
-            MarkdownInline::Emphasis(children) => children.iter().for_each(|child| {
-                append(child, style.add_modifier(Modifier::ITALIC), theme, output);
-            }),
-            MarkdownInline::Strikethrough(children) => children.iter().for_each(|child| {
-                append(child, style.add_modifier(Modifier::CROSSED_OUT), theme, output);
-            }),
-            MarkdownInline::Link { content, .. } => content.iter().for_each(|child| {
-                append(
-                    child,
-                    style.fg(page_color(theme, theme.markdown.link)).add_modifier(Modifier::UNDERLINED),
-                    theme,
-                    output,
-                );
-            }),
-            MarkdownInline::SoftBreak => output.push(Span::styled(" ", style)),
-            MarkdownInline::HardBreak => output.push(Span::styled("\n", style)),
-            MarkdownInline::ImageAlt(text) => output.push(Span::styled(
-                format!("Image: {text}"),
-                style.fg(page_color(theme, theme.markdown.link)).add_modifier(Modifier::ITALIC),
-            )),
-        }
-    }
-
+fn inline_spans(content: &MarkdownText, style: Style, theme: &ReviewTheme) -> Vec<Span<'static>> {
+    let text = content.text();
     let mut output = Vec::new();
-    for inline in inlines {
-        append(inline, style, theme, &mut output);
+    let plain = |output: &mut Vec<Span<'static>>, range: Range<usize>| {
+        if !range.is_empty() {
+            output.push(Span::styled(text[range].to_owned(), style));
+        }
+    };
+    let mut offset = 0;
+    for mark in content.marks() {
+        plain(&mut output, offset..mark.range.start);
+        offset = mark.range.end;
+        let marks = mark.marks;
+        let mut marked = style;
+        if marks.contains(MarkdownMarks::STRONG) {
+            marked = marked.add_modifier(Modifier::BOLD);
+        }
+        if marks.contains(MarkdownMarks::EMPHASIS) {
+            marked = marked.add_modifier(Modifier::ITALIC);
+        }
+        if marks.contains(MarkdownMarks::STRIKETHROUGH) {
+            marked = marked.add_modifier(Modifier::CROSSED_OUT);
+        }
+        if marks.contains(MarkdownMarks::LINK) {
+            marked = marked.fg(page_color(theme, theme.markdown.link)).add_modifier(Modifier::UNDERLINED);
+        }
+        let segment = &text[mark.range.clone()];
+        output.push(if marks.contains(MarkdownMarks::IMAGE) {
+            Span::styled(
+                format!("Image: {segment}"),
+                marked.fg(page_color(theme, theme.markdown.link)).add_modifier(Modifier::ITALIC),
+            )
+        } else if marks.contains(MarkdownMarks::CODE) {
+            Span::styled(segment.to_owned(), inline_code_style(marked, theme))
+        } else {
+            Span::styled(segment.to_owned(), marked)
+        });
     }
+    plain(&mut output, offset..text.len());
     output
 }
 

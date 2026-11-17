@@ -3,7 +3,7 @@ use clankerdiff_core::{
     testing::DocumentBuilder,
 };
 use clankerdiff_symbols::{DocumentSyntax, HUNK_WINDOW_LINES};
-use clankerdiff_syntax::{LanguageHint, analyze, thread_work};
+use rouge_syntax::analyze;
 use std::{error::Error, sync::Arc};
 
 #[test]
@@ -20,7 +20,7 @@ fn cells_with_a_captured_source_are_highlighted_in_its_context() -> Result<(), B
         };
         let file = &presentation.document().files[row.file_index];
         let source = file.source_document(location.side).ok_or("source")?;
-        let expected = analyze(LanguageHint::Path(file.path_for_side(location.side).as_str()), source.text());
+        let expected = analyze(file.path_for_side(location.side).as_str(), source.text());
         assert_eq!(syntax.highlights(row, cell), expected.highlights.line(location.line_number - 1).ok_or("line")?);
         seen += 1;
     }
@@ -33,13 +33,13 @@ fn each_source_is_analyzed_once_across_repeated_highlights() {
     let document = DocumentBuilder::new().changed("a.rs", "fn a() {}\n", "fn b() {}\n").build();
     let presentation = DiffPresentation::new(Arc::clone(&document), PresentationOptions::default());
     let syntax = DocumentSyntax::new(document);
-    let before = thread_work().parses();
+    let before = syntax.work_stats().parses();
     for _ in 0..3 {
         for (row, cell) in code_cells(&presentation) {
             assert!(!syntax.highlights(row, cell).is_empty());
         }
     }
-    assert_eq!(thread_work().parses() - before, 2);
+    assert_eq!(syntax.work_stats().parses() - before, 2);
 }
 
 #[test]
@@ -50,11 +50,11 @@ fn patch_only_cells_are_highlighted_within_their_hunk_window() -> Result<(), Box
         let syntax = DocumentSyntax::new(document);
         let cells = code_cells(&presentation);
         assert_eq!(cells.len(), lines);
-        let before = thread_work().parses();
+        let before = syntax.work_stats().parses();
         assert!(!syntax.highlights(cells[0].0, cells[0].1).is_empty());
-        assert_eq!(thread_work().parses() - before, 1, "only the first window is analyzed");
+        assert_eq!(syntax.work_stats().parses() - before, 1, "only the first window is analyzed");
         let highlighted: Vec<_> = cells.iter().map(|(row, cell)| syntax.highlights(row, cell)).collect();
-        assert_eq!(thread_work().parses() - before, lines.div_ceil(HUNK_WINDOW_LINES));
+        assert_eq!(syntax.work_stats().parses() - before, lines.div_ceil(HUNK_WINDOW_LINES));
         for (window, highlighted) in cells.chunks(HUNK_WINDOW_LINES).zip(highlighted.chunks(HUNK_WINDOW_LINES)) {
             let expected = analyze("src/lib.rs", &join_lines(window.iter().map(|(_, cell)| cell.text.as_ref())));
             for (line, spans) in highlighted.iter().enumerate() {
@@ -85,9 +85,9 @@ fn an_edited_file_keeps_the_analysis_of_its_unchanged_side() {
     highlight_every_cell(&syntax);
     let edited = DocumentBuilder::new().changed("a.rs", "fn a() {}\n", "fn c() {}\n").build();
     syntax.sync(&edited);
-    let before = thread_work().parses();
+    let before = syntax.work_stats().parses();
     highlight_every_cell(&syntax);
-    assert_eq!(thread_work().parses() - before, 1, "only the edited new side is analyzed again");
+    assert_eq!(syntax.work_stats().parses() - before, 1, "only the edited new side is analyzed again");
 }
 
 #[test]

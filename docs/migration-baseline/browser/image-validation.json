@@ -1,0 +1,61 @@
+{
+  "method": "ImageMagick identify; 1280x800, >100 colors, entropy >0.05 and all hashes distinct. This is a nonblank check, not human visual approval.",
+  "images": [
+    {
+      "file": "screenshots/diff-unified.png",
+      "width": 1280,
+      "height": 800,
+      "colors": 3520,
+      "entropy": 0.195171
+    },
+    {
+      "file": "screenshots/diff-split.png",
+      "width": 1280,
+      "height": 800,
+      "colors": 3936,
+      "entropy": 0.173888
+    },
+    {
+      "file": "screenshots/comment-draft.png",
+      "width": 1280,
+      "height": 800,
+      "colors": 3855,
+      "entropy": 0.226545
+    },
+    {
+      "file": "screenshots/comment-thread.png",
+      "width": 1280,
+      "height": 800,
+      "colors": 3835,
+      "entropy": 0.199433
+    },
+    {
+      "file": "screenshots/theme-picker.png",
+      "width": 1280,
+      "height": 800,
+      "colors": 1496,
+      "entropy": 0.163997
+    },
+    {
+      "file": "screenshots/theme-ayu-dark.png",
+      "width": 1280,
+      "height": 800,
+      "colors": 4297,
+      "entropy": 0.267904
+    },
+    {
+      "file": "screenshots/interface-size-20.png",
+      "width": 1280,
+      "height": 800,
+      "colors": 4512,
+      "entropy": 0.277341
+    },
+    {
+      "file": "screenshots/markdown.png",
+      "width": 1280,
+      "height": 800,
+      "colors": 1623,
+      "entropy": 0.16727
+    }
+  ]
+}

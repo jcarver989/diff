@@ -4,8 +4,8 @@ mod support;
 
 use clankerdiff_core::{DiffDocument, ViewMode, testing::DocumentBuilder};
 use clankerdiff_ratatui::{KeyCode, MouseEventKind, NavigationPane, ReviewOptions};
-use clankerdiff_syntax::{analyze, thread_work};
 use clankerdiff_ui_core::ReviewTheme;
+use rouge_syntax::analyze;
 use std::{error::Error, fmt::Write, str, sync::Arc};
 use support::{MarkdownStreamFixture, ReviewHarness, key, mouse};
 
@@ -115,9 +115,8 @@ fn deep_full_file_scroll_parses_complete_sources_once() {
         "first visible complete side parsed {} bytes",
         first_parse.parsed_bytes
     );
-    let before = thread_work().parser_input_bytes;
-    let _ = [&old, &new].map(|source| analyze("rust", source));
-    let reference = thread_work().parser_input_bytes - before;
+    let reference: usize =
+        [&old, &new].map(|source| analyze("rust", source).work_stats().parser_input_bytes).into_iter().sum();
     assert!(first_parse.parses <= 2);
     assert!(first_parse.parsed_bytes <= reference);
     assert!(reference <= 4 * (old.len() + new.len()) + 64 * 1024);

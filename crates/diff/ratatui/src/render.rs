@@ -256,7 +256,7 @@ fn render_patch(area: Rect, track: Rect, buffer: &mut Buffer, state: &mut DiffRe
     state.scroll = state.scroll.min(visual_layout.len().saturating_sub(state.last_height));
     let active_file = state.active_file();
     let top = visual_layout.row(state.scroll).map(|row| row.source());
-    let symbol_path = top.map(|top| state.symbol_path(top)).unwrap_or_default();
+    let symbol_path = top.map_or_default(|top| state.symbol_path(top));
     let names = state.name_overlays();
     let pointer = state.pointer;
     state.syntax.sync(state.session.presentation().document());
@@ -474,6 +474,7 @@ fn render_row(area: Rect, buffer: &mut Buffer, context: &mut CellContext<'_>, st
                 .render(area, buffer);
         }
         RowKind::ExpandGap => render_gap_row(area, buffer, context, style.selected),
+        RowKind::MarkdownPreview => {}
         RowKind::Code | RowKind::ExpandedContext if geometry.split => {
             let separator_width = u16::from(area.width > 0);
             let [left, separator, right] = Layout::horizontal([
@@ -527,7 +528,7 @@ fn render_cell(
     let location = context.presentation.source_location(context.row, cell);
     let overlays = location.as_ref().map_or_else(Vec::new, |location| context.names.styles(location, card));
     let source_spans =
-        styled_spans(&cell.text, highlights, &context.diff_theme.syntax, &overlays, Style::new().bg(background));
+        styled_spans(&cell.text, highlights.iter(), &context.diff_theme.syntax, &overlays, Style::new().bg(background));
     let fit = FitOptions {
         width: geometry.content_width,
         wrap: true,

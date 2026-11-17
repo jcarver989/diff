@@ -3,7 +3,7 @@ mod index;
 mod lookup;
 mod syntax;
 
-pub use clankerdiff_syntax::{SymbolKind, SymbolReference};
 pub use index::{Definition, SymbolChange, SymbolIndex, SymbolUse};
 pub use lookup::{Activation, CardCode, CardContent, DefinitionCard, Hold, NameLookup, Settled};
+pub use rouge_syntax::{SymbolKind, SymbolReference};
 pub use syntax::{DocumentSyntax, HUNK_WINDOW_LINES};

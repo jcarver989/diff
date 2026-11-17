@@ -234,10 +234,9 @@ pub(crate) fn render_annotation_line(
             ])
         }
         AnnotationLine::Bottom => Line::styled(format!("╰{}╯", "─".repeat(width.saturating_sub(2))), border),
-        AnnotationLine::Compact(text) => Line::from(vec![
-            Span::styled("│ ", border),
-            Span::styled(text.strip_prefix("│ ").unwrap_or(text).to_owned(), body),
-        ]),
+        AnnotationLine::Compact(text) => {
+            Line::from(vec![Span::styled("│ ", border), Span::styled(text.trim_prefix("│ ").to_owned(), body)])
+        }
     };
     Paragraph::new(rendered).render(box_area, buffer);
 }

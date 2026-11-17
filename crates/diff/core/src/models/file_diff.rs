@@ -290,6 +290,15 @@ impl FileDiff {
     }
 
     #[must_use]
+    pub fn markdown_source(&self) -> Option<&Arc<SourceDocument>> {
+        let markdown = ["md", "markdown"].iter().any(|extension| self.language().eq_ignore_ascii_case(extension));
+        if !markdown || self.binary {
+            return None;
+        }
+        self.source_document(self.source_side())
+    }
+
+    #[must_use]
     pub fn line(&self, hunk: usize, line: usize) -> Option<&PatchLine> {
         self.hunks.get(hunk)?.lines.get(line)
     }

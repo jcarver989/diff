@@ -28,3 +28,7 @@ tempfile.workspace = true
 [[test]]
 name = "session_navigation_test"
 path = "tests/session/navigation_test.rs"
+
+[[example]]
+name = "migration_fixtures"
+required-features = ["test-support"]

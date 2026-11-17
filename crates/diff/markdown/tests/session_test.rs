@@ -1,5 +1,3 @@
-#![cfg(feature = "review")]
-
 use clankerdiff_markdown::{MarkdownDocument, MarkdownReviewDecision, MarkdownReviewEvent, MarkdownReviewSession};
 use std::{error::Error, sync::Arc};
 

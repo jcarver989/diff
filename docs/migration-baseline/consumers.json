@@ -1,0 +1,364 @@
+{
+  "schema_version": 1,
+  "scope": "Actual current sibling worktrees: package declarations and explicit imports. Glob imports require the accompanying consumer checklist; lexical import evidence is not a resolved-symbol usage graph. Consumers are read only and are not migrated by baseline capture.",
+  "consumers": [
+    {
+      "repository": "j-terminal",
+      "available": true,
+      "revision": "ffff8c48904cd6a147c726512824c1c2666cd421",
+      "tracked_worktree_dirty": false,
+      "references": [
+        {
+          "file": "Cargo.toml",
+          "line": 42,
+          "source": "clankerdiff-gpui-shell = { path = \"../diff/crates/ui/gpui-shell\" }",
+          "file_sha256": "23ceecf333a9131c23ab60741ec2745d6e2bbd55fd75ccfdb10a2ff761fedcca"
+        },
+        {
+          "file": "Cargo.toml",
+          "line": 44,
+          "source": "clankerdiff-gpui-ui = { path = \"../diff/crates/ui/gpui\" }",
+          "file_sha256": "23ceecf333a9131c23ab60741ec2745d6e2bbd55fd75ccfdb10a2ff761fedcca"
+        },
+        {
+          "file": "crates/j-terminal/Cargo.toml",
+          "line": 20,
+          "source": "test-support = [\"gpui/test-support\", \"gpui-base/test-support\", \"jt-term-view/test-support\", \"clankerdiff-gpui-ui/test-support\"]",
+          "file_sha256": "514972cbc7d51d2361475af8bac9fbbaba3cafec41c99f92c3041805c23cb699"
+        },
+        {
+          "file": "crates/j-terminal/Cargo.toml",
+          "line": 21,
+          "source": "dev-script = [\"test-support\", \"clankerdiff-gpui-shell/script\"]",
+          "file_sha256": "514972cbc7d51d2361475af8bac9fbbaba3cafec41c99f92c3041805c23cb699"
+        },
+        {
+          "file": "crates/j-terminal/Cargo.toml",
+          "line": 29,
+          "source": "clankerdiff-gpui-shell.workspace = true",
+          "file_sha256": "514972cbc7d51d2361475af8bac9fbbaba3cafec41c99f92c3041805c23cb699"
+        },
+        {
+          "file": "crates/j-terminal/Cargo.toml",
+          "line": 30,
+          "source": "clankerdiff-gpui-ui.workspace = true",
+          "file_sha256": "514972cbc7d51d2361475af8bac9fbbaba3cafec41c99f92c3041805c23cb699"
+        },
+        {
+          "file": "crates/j-terminal/src/lib.rs",
+          "line": 16,
+          "source": "use clankerdiff_gpui_shell::launch;",
+          "file_sha256": "e32dec29dbf53363f1cd6690300fbc78b9626682d3f5a27794e8625d45c5619d"
+        },
+        {
+          "file": "crates/j-terminal/src/lib.rs",
+          "line": 17,
+          "source": "use clankerdiff_gpui_shell::persist::config_dir;",
+          "file_sha256": "e32dec29dbf53363f1cd6690300fbc78b9626682d3f5a27794e8625d45c5619d"
+        },
+        {
+          "file": "crates/j-terminal/src/lib.rs",
+          "line": 18,
+          "source": "use clankerdiff_gpui_ui::interface_size::{DEFAULT_INTERFACE_SIZE, InterfaceSize};",
+          "file_sha256": "e32dec29dbf53363f1cd6690300fbc78b9626682d3f5a27794e8625d45c5619d"
+        },
+        {
+          "file": "crates/j-terminal/src/lib.rs",
+          "line": 19,
+          "source": "use clankerdiff_gpui_ui::prelude::{ConfirmDialog, SearchPicker};",
+          "file_sha256": "e32dec29dbf53363f1cd6690300fbc78b9626682d3f5a27794e8625d45c5619d"
+        },
+        {
+          "file": "crates/j-terminal/src/menus.rs",
+          "line": 6,
+          "source": "use clankerdiff_gpui_shell::menus::{About, Quit};",
+          "file_sha256": "af3bc4f1a3c6c4c51754e7c8b7772e1721d90cabecb77b5fb603b2775ee97b10"
+        },
+        {
+          "file": "crates/j-terminal/src/menus.rs",
+          "line": 7,
+          "source": "use clankerdiff_gpui_ui::interface_size::{DecreaseInterfaceSize, IncreaseInterfaceSize, ResetInterfaceSize};",
+          "file_sha256": "af3bc4f1a3c6c4c51754e7c8b7772e1721d90cabecb77b5fb603b2775ee97b10"
+        },
+        {
+          "file": "crates/j-terminal/src/menus.rs",
+          "line": 8,
+          "source": "use clankerdiff_gpui_ui::menu::{self, with_menu};",
+          "file_sha256": "af3bc4f1a3c6c4c51754e7c8b7772e1721d90cabecb77b5fb603b2775ee97b10"
+        },
+        {
+          "file": "crates/j-terminal/src/menus.rs",
+          "line": 9,
+          "source": "use clankerdiff_gpui_ui::prelude::{IconButton, IconName, UiTheme};",
+          "file_sha256": "af3bc4f1a3c6c4c51754e7c8b7772e1721d90cabecb77b5fb603b2775ee97b10"
+        },
+        {
+          "file": "crates/j-terminal/src/remote.rs",
+          "line": 5,
+          "source": "use clankerdiff_gpui_ui::prelude::*;",
+          "file_sha256": "6df5cd13ee76c6b70a56afd0fff22b7d1f13e1ffdaeebbe31b0a86580e1e6a4b"
+        },
+        {
+          "file": "crates/j-terminal/src/remote.rs",
+          "line": 6,
+          "source": "use clankerdiff_gpui_ui::tokens::{self, rem};",
+          "file_sha256": "6df5cd13ee76c6b70a56afd0fff22b7d1f13e1ffdaeebbe31b0a86580e1e6a4b"
+        },
+        {
+          "file": "crates/j-terminal/src/settings.rs",
+          "line": 1,
+          "source": "use clankerdiff_gpui_shell::persist;",
+          "file_sha256": "85ff581ae9f87d56a6f8e08969a66c6c5fe4771a88ee71e0bb8e5d7a61cbaf5f"
+        },
+        {
+          "file": "crates/j-terminal/src/sidebar.rs",
+          "line": 9,
+          "source": "use clankerdiff_gpui_ui::prelude::*;",
+          "file_sha256": "63aa1a9df5141132db8f2f462a72b65fc98f7b05435f0130bc4c55a0878056a2"
+        },
+        {
+          "file": "crates/j-terminal/src/sidebar.rs",
+          "line": 10,
+          "source": "use clankerdiff_gpui_ui::tokens::{self, BAR_HEIGHT, ICON_SIZE_SMALL, RADIUS_INNER, rem};",
+          "file_sha256": "63aa1a9df5141132db8f2f462a72b65fc98f7b05435f0130bc4c55a0878056a2"
+        },
+        {
+          "file": "crates/j-terminal/src/state.rs",
+          "line": 2,
+          "source": "use clankerdiff_gpui_shell::persist;",
+          "file_sha256": "bcbe0b1c70cb5aa19a7df7dc744c50b5cc52b703a6ce83981ba1c5e42224e55b"
+        },
+        {
+          "file": "crates/j-terminal/src/tab.rs",
+          "line": 3,
+          "source": "use clankerdiff_gpui_ui::theme;",
+          "file_sha256": "3cc9fbef8c188a8467d78137c1ac7429f7cd1e5fe84b33e82f32aad05df56115"
+        },
+        {
+          "file": "crates/j-terminal/src/workspace.rs",
+          "line": 7,
+          "source": "use clankerdiff_gpui_shell::persist;",
+          "file_sha256": "33f49e116a4a4b419ed0ac438b0b65be85ad04bf54512199cac5877397365584"
+        },
+        {
+          "file": "crates/j-terminal/src/workspace.rs",
+          "line": 8,
+          "source": "use clankerdiff_gpui_ui::fonts::CODE_FONT;",
+          "file_sha256": "33f49e116a4a4b419ed0ac438b0b65be85ad04bf54512199cac5877397365584"
+        },
+        {
+          "file": "crates/j-terminal/src/workspace.rs",
+          "line": 9,
+          "source": "use clankerdiff_gpui_ui::interface_size::InterfaceSize;",
+          "file_sha256": "33f49e116a4a4b419ed0ac438b0b65be85ad04bf54512199cac5877397365584"
+        },
+        {
+          "file": "crates/j-terminal/src/workspace.rs",
+          "line": 10,
+          "source": "use clankerdiff_gpui_ui::prelude::*;",
+          "file_sha256": "33f49e116a4a4b419ed0ac438b0b65be85ad04bf54512199cac5877397365584"
+        },
+        {
+          "file": "crates/j-terminal/src/workspace.rs",
+          "line": 11,
+          "source": "use clankerdiff_gpui_ui::tokens::{self, BAR_HEIGHT};",
+          "file_sha256": "33f49e116a4a4b419ed0ac438b0b65be85ad04bf54512199cac5877397365584"
+        },
+        {
+          "file": "crates/j-terminal/src/workspace.rs",
+          "line": 12,
+          "source": "use clankerdiff_gpui_ui::window_chrome;",
+          "file_sha256": "33f49e116a4a4b419ed0ac438b0b65be85ad04bf54512199cac5877397365584"
+        },
+        {
+          "file": "crates/j-terminal/tests/workspace_test.rs",
+          "line": 1,
+          "source": "use clankerdiff_gpui_shell::persist;",
+          "file_sha256": "dd4699663dfd4c9f151eabf38b14d958d6842b02978cec19988bc12dc042762f"
+        },
+        {
+          "file": "crates/j-terminal/tests/workspace_test.rs",
+          "line": 2,
+          "source": "use clankerdiff_gpui_ui::tokens::BASE_SIZE;",
+          "file_sha256": "dd4699663dfd4c9f151eabf38b14d958d6842b02978cec19988bc12dc042762f"
+        },
+        {
+          "file": "crates/jt-term-view/Cargo.toml",
+          "line": 11,
+          "source": "test-support = [\"gpui/test-support\", \"gpui-base/test-support\", \"clankerdiff-gpui-ui/test-support\"]",
+          "file_sha256": "cf357c7e39a64266578a6e221a783c80b62f9fd44e95e98606d9da28f21f8e0e"
+        },
+        {
+          "file": "crates/jt-term-view/Cargo.toml",
+          "line": 18,
+          "source": "clankerdiff-gpui-ui.workspace = true",
+          "file_sha256": "cf357c7e39a64266578a6e221a783c80b62f9fd44e95e98606d9da28f21f8e0e"
+        },
+        {
+          "file": "crates/jt-term-view/src/element.rs",
+          "line": 3,
+          "source": "use clankerdiff_gpui_ui::theme;",
+          "file_sha256": "f4fa72bf9e1c05c3e0eb32f2dd943cf9002ea303b2172fd91ecfa8dc726a0ded"
+        },
+        {
+          "file": "crates/jt-term-view/src/style.rs",
+          "line": 1,
+          "source": "use clankerdiff_gpui_ui::fonts::CODE_FONT;",
+          "file_sha256": "30d56bfaca7e049633fc71b95f15a0ac42d2f1f05431829f99bedab75b0d4cdd"
+        },
+        {
+          "file": "crates/jt-term-view/src/view.rs",
+          "line": 4,
+          "source": "use clankerdiff_gpui_ui::prelude::{\n    ActiveTheme, Icon, IconButton, IconName, SurfaceExt, Typography, TypographyExt, rem,\n};",
+          "file_sha256": "f52bd2f9e1be66ea28c03e14792d7100fd0b103813215b5cb2e172c570f8bf88"
+        },
+        {
+          "file": "crates/jt-term-view/tests/view_test.rs",
+          "line": 1,
+          "source": "use clankerdiff_gpui_ui::prelude::ActiveTheme;",
+          "file_sha256": "c610f6bec40a6cd1b112298b335742cdb5a7db68351f7993b68aa90abef57ca5"
+        },
+        {
+          "file": "crates/jt-term-view/tests/view_test.rs",
+          "line": 2,
+          "source": "use clankerdiff_gpui_ui::testing::ViewHarness;",
+          "file_sha256": "c610f6bec40a6cd1b112298b335742cdb5a7db68351f7993b68aa90abef57ca5"
+        }
+      ]
+    },
+    {
+      "repository": "aether",
+      "available": true,
+      "revision": "93394969aa5acad689e7cefc00400c5ce79b7aa3",
+      "tracked_worktree_dirty": false,
+      "references": [
+        {
+          "file": "Cargo.toml",
+          "line": 115,
+          "source": "clankerdiff-gpui = { version = \"0.10.0\" }",
+          "file_sha256": "9981f6c3d99977ce8bf81962976ba952a7f123c83e5965f33b483e9f183a7098"
+        },
+        {
+          "file": "Cargo.toml",
+          "line": 118,
+          "source": "clankerdiff-gpui-shell = { version = \"0.10.0\" }",
+          "file_sha256": "9981f6c3d99977ce8bf81962976ba952a7f123c83e5965f33b483e9f183a7098"
+        },
+        {
+          "file": "crates/desktop/Cargo.toml",
+          "line": 32,
+          "source": "\"clankerdiff-gpui/test-support\",",
+          "file_sha256": "817497c4514e47f5a3f06153423d9b54edc7711e5aceec24d85a022a09f4635a"
+        },
+        {
+          "file": "crates/desktop/Cargo.toml",
+          "line": 58,
+          "source": "clankerdiff-gpui = { workspace = true }",
+          "file_sha256": "817497c4514e47f5a3f06153423d9b54edc7711e5aceec24d85a022a09f4635a"
+        },
+        {
+          "file": "crates/desktop/Cargo.toml",
+          "line": 59,
+          "source": "clankerdiff-gpui-shell = { workspace = true }",
+          "file_sha256": "817497c4514e47f5a3f06153423d9b54edc7711e5aceec24d85a022a09f4635a"
+        },
+        {
+          "file": "crates/desktop/src/app.rs",
+          "line": 26,
+          "source": "use clankerdiff_gpui::ui::keymap::key_binding;",
+          "file_sha256": "aa337e04ccdeb6545da3bc28be82007b69501ac09aa634d5d84624aac2ca7822"
+        },
+        {
+          "file": "crates/desktop/src/artifact_review.rs",
+          "line": 5,
+          "source": "use clankerdiff_gpui::{MarkdownReviewer, MarkdownReviewerOptions};",
+          "file_sha256": "0fed6d566b136ddfda61746dd074bdb8a558d8ea2a27c44ab342cd4746e21a94"
+        },
+        {
+          "file": "crates/desktop/src/chat/transcript/code.rs",
+          "line": 1,
+          "source": "use clankerdiff_gpui::style::highlight_style;",
+          "file_sha256": "6a56d339b181f5255964af32192358947d903228c474b81ca8c2a69013672790"
+        },
+        {
+          "file": "crates/desktop/src/chat/transcript/message.rs",
+          "line": 7,
+          "source": "use clankerdiff_gpui::DiffViewer;",
+          "file_sha256": "ea59c056b5642e660f085a1cef9c04a39855256a2270a36d5168943ec76b0053"
+        },
+        {
+          "file": "crates/desktop/src/chat/transcript/mod.rs",
+          "line": 22,
+          "source": "use clankerdiff_gpui::{DiffViewer, DiffViewerEvent, DiffViewerOptions};",
+          "file_sha256": "79abebe162c054b0c5c60f2696fcbc881f1192df973ea9e7946a11f198d1e12b"
+        },
+        {
+          "file": "crates/desktop/src/chat/transcript/tools.rs",
+          "line": 15,
+          "source": "use clankerdiff_gpui::PatchPreview;",
+          "file_sha256": "20944e1bac7c04e9de074b06e13cbf977ecdc4ae30ddb2f30e017bd8a50e9826"
+        },
+        {
+          "file": "crates/desktop/src/chat/transcript/tools.rs",
+          "line": 16,
+          "source": "use clankerdiff_gpui::style::stat_badges;",
+          "file_sha256": "20944e1bac7c04e9de074b06e13cbf977ecdc4ae30ddb2f30e017bd8a50e9826"
+        },
+        {
+          "file": "crates/desktop/src/files.rs",
+          "line": 5,
+          "source": "use clankerdiff_gpui::{DiffClientEvent, DiffClientView, DiffViewerOptions};",
+          "file_sha256": "3b4d61e214987070ab2c8c0b199a48aa66951c276dc0a63c7aa9e824b9598e4a"
+        },
+        {
+          "file": "crates/desktop/src/lib.rs",
+          "line": 33,
+          "source": "use clankerdiff_gpui::{DiffViewer, MarkdownReviewer};",
+          "file_sha256": "1354accc0bb904b812102b3a06ae9e2c09ac90a4f894b9f23a86a15e8f5cf77d"
+        },
+        {
+          "file": "crates/desktop/src/lib.rs",
+          "line": 34,
+          "source": "use clankerdiff_gpui_shell::runtime;",
+          "file_sha256": "1354accc0bb904b812102b3a06ae9e2c09ac90a4f894b9f23a86a15e8f5cf77d"
+        },
+        {
+          "file": "crates/desktop/src/testing.rs",
+          "line": 14,
+          "source": "use clankerdiff_gpui::ui::testing::WindowDriver;",
+          "file_sha256": "1247053b317549e8626598197cab08a6e643ed547a517219d49d6f47611f294b"
+        },
+        {
+          "file": "crates/desktop/src/testing.rs",
+          "line": 15,
+          "source": "use clankerdiff_gpui_shell::runtime;",
+          "file_sha256": "1247053b317549e8626598197cab08a6e643ed547a517219d49d6f47611f294b"
+        },
+        {
+          "file": "crates/desktop/src/threads/driver.rs",
+          "line": 4,
+          "source": "use clankerdiff_gpui_shell::runtime;",
+          "file_sha256": "1ee7683cda749b5632fe610edcf7e38fc56bb7d0fedc126d404247fb68126309"
+        },
+        {
+          "file": "crates/desktop/src/ui/mod.rs",
+          "line": 10,
+          "source": "pub use clankerdiff_gpui::ui::prelude::*;",
+          "file_sha256": "5abf05eb074044acc44edc3ad6f2768c29c1237c4feb80bcdedf66006bf09aff"
+        },
+        {
+          "file": "crates/desktop/src/ui/mod.rs",
+          "line": 11,
+          "source": "pub use clankerdiff_gpui::ui::{InterfaceSize, fonts::load_fonts, interface_size, window_chrome};",
+          "file_sha256": "5abf05eb074044acc44edc3ad6f2768c29c1237c4feb80bcdedf66006bf09aff"
+        },
+        {
+          "file": "crates/desktop/src/ui/tokens.rs",
+          "line": 1,
+          "source": "pub use clankerdiff_gpui::ui::tokens::*;",
+          "file_sha256": "8f58bca7ade966d6c8e42b7734f23d0a579f1b4711bed5bf208fcd08ba8b82f4"
+        }
+      ]
+    }
+  ]
+}
