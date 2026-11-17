@@ -71,6 +71,11 @@ release = true
 publish = true
 
 [[package]]
+name = "clankerdiff-rouge"
+release = true
+publish = true
+
+[[package]]
 name = "clankerdiff-ratatui"
 release = true
 publish = true

@@ -78,7 +78,7 @@ fn configure_dist_recipes(project: &mut Project) {
 fn publishable_packages() -> ArrayOfTables {
     CRATES
         .iter()
-        .filter(|(_, path)| !path.contains("/rouge") && !path.ends_with("/desktop") && !path.ends_with("/web"))
+        .filter(|(_, path)| !path.ends_with("/desktop") && !path.ends_with("/web"))
         .map(|(name, _)| {
             let mut package = Table::new();
             package["name"] = framer::toml_edit::value(*name);
