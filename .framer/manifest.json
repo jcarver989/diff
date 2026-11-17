@@ -9,9 +9,6 @@
     ".config/nextest.toml": {
       "kind": "managed"
     },
-    ".github/scripts/checkout-rouge.sh": {
-      "kind": "managed"
-    },
     ".github/workflows/ci.yml": {
       "kind": "managed"
     },
@@ -47,7 +44,6 @@
         "workspace.dependencies.rouge-theme",
         "workspace.dependencies.rouge-syntax",
         "workspace.dependencies.rouge-markdown",
-        "workspace.dependencies.rouge-picker",
         "workspace.dependencies.clankerdiff-fingerprint.path",
         "workspace.dependencies.clankerdiff-lspd.path",
         "workspace.dependencies.clankerdiff-ui-core.path",

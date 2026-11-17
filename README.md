@@ -28,11 +28,9 @@ A crate may depend only on its own domain or a lower one (`util` < `ui` < `diff`
 
 The checked-in sources are midway through a [hard cutover to Rouge](migration-plan.md). The desktop and browser targets do not build yet; the release linked above predates the cutover. For a headless build, use `cargo build -p clankerdiff-cli --no-default-features`.
 
-All workspace commands require Rust 1.99.1 and a sibling `../rouge` checkout. From the Diff root, run `bash .github/scripts/checkout-rouge.sh` to check out the exact revision pinned in `.framer/src/lib.rs`. The script will not replace an existing checkout. The phase 2 browser skeleton revision must be pushed to the Rouge remote before a fresh clone or hosted CI can fetch it.
+All workspace commands require Rust 1.100.0. Rouge dependencies are fetched from crates.io; a sibling checkout is not required. Local binary packaging uses cargo-dist. Downstream consumers must adopt the renamed crates and Rouge APIs; the rename alone does not port their UI code.
 
-Graphical crates use local Rouge dependencies and cannot be published to crates.io during the migration. Local binary packaging still uses cargo-dist, but graphical releases must wait for the port and acceptance checks. Downstream consumers must adopt the renamed crates and Rouge APIs; the rename alone does not port their UI code.
-
-The shared design system (`rouge-widgets`) and its renderer-neutral theme types (`rouge-theme`) live in the Rouge repository. Run the component gallery from the Diff root with a graphical session:
+The shared design system (`rouge-widgets`) and its renderer-neutral theme types (`rouge-theme`) live in the Rouge repository. To run the component gallery, clone Rouge into `../rouge` and use a graphical session:
 
 ```sh
 cargo run --manifest-path ../rouge/Cargo.toml -p rouge-widgets --example component_gallery

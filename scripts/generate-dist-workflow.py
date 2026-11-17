@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 from pathlib import Path
-import re
 import subprocess
 from tempfile import TemporaryDirectory
 
@@ -10,13 +9,6 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "dist-workspace.toml"
 WORKFLOW = ROOT / ".github/workflows/release.yml"
 ALLOW_DIRTY = b'allow-dirty = ["ci"]\n'
-CHECKOUT = re.compile(rb"(?m)^( +)- uses: actions/checkout@[^\n]+\n +with:\n(?: +[^\n]+\n)*? +submodules: recursive\n")
-
-
-def with_rouge(match):
-    indent = match[1]
-    return (match[0] + indent + b"- name: Check out pinned Rouge sibling\n"
-            + indent + b"  run: bash .github/scripts/checkout-rouge.sh\n")
 
 
 def generate():
@@ -36,10 +28,7 @@ def generate():
         subprocess.run(["git", "init", "--quiet"], cwd=workspace, check=True)
         subprocess.run(["dist", "generate", "--mode", "ci"], cwd=workspace, check=True)
         workflow = (workspace / WORKFLOW.relative_to(ROOT)).read_bytes()
-    expected, count = CHECKOUT.subn(with_rouge, workflow)
-    if not count or count != workflow.count(b"uses: actions/checkout@"):
-        raise SystemExit("cargo-dist changed its checkout steps; update the Rouge workflow generator")
-    return previous, expected
+    return previous, workflow
 
 
 def main():

@@ -1,9 +1,9 @@
 use diff_framer::{CRATES, ROUGE_LINUX_PACKAGES, RougeApp};
-use framer::github::{Ci as CiWorkflow, Job, Step, Workflow};
+use framer::github::Step;
 use framer::just::Justfile;
 use framer::rust::{Level, Lints};
 use framer::toml_edit::{Array, ArrayOfTables, InlineTable, Item, Table, Value};
-use framer::{KeyPath, Project, TextFile, TomlKeys};
+use framer::{KeyPath, Project, TomlKeys};
 use framer_presets::{Ci, CompilingJob, Dist, Release, ReleasePlz, Rust, RustMonorepo, Rustfmt, Tools, Workspace};
 use std::process::ExitCode;
 
@@ -24,10 +24,8 @@ fn main() -> ExitCode {
     let mut project = Project::new();
     project.apply(monorepo);
     project.apply(rouge);
-    project.add(TextFile::new(".github/scripts/checkout-rouge.sh", RougeApp::checkout_script()));
     project.add(TomlKeys::new("release-plz.toml").set_item("package", Item::ArrayOfTables(publishable_packages())));
     configure_cargo(&mut project);
-    configure_workflows(&mut project);
     configure_dist_recipes(&mut project);
     project.toml("clippy.toml").set("disallowed-methods", disallowed_radii());
     project.synth()
@@ -65,29 +63,6 @@ fn disallowed_radii() -> Array {
     entry.insert("reason", "use a shared radius token from rouge_widgets::tokens".into());
     entry.insert("allow-invalid", true.into());
     [Value::InlineTable(entry)].into_iter().collect()
-}
-
-fn configure_workflows(project: &mut Project) {
-    let ci = project.get_mut::<CiWorkflow>().expect("the CI preset provides a workflow");
-    *ci = ci.clone().job(
-        Job::new("framer")
-            .name("Generated files")
-            .timeout_minutes(15)
-            .step(Step::uses("actions/checkout@v7").name("Checkout repository"))
-            .step(Step::uses("jdx/mise-action@v5.2.0").name("Install tools"))
-            .step(Step::run("just framer-check")),
-    );
-    for id in ["fmt", "lint", "test", "docs", "framer", "features", "wasm"] {
-        let job = ci.job_mut(id).expect("the CI job is configured");
-        *job = job.clone().step_after("Checkout repository", RougeApp::checkout_step());
-    }
-    for workflow in project.all_mut::<Workflow>() {
-        for id in ["release-plz-release", "release-plz-pr"] {
-            if let Some(job) = workflow.job_mut(id) {
-                *job = job.clone().step_after("Checkout repository", RougeApp::checkout_step());
-            }
-        }
-    }
 }
 
 fn configure_dist_recipes(project: &mut Project) {

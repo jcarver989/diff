@@ -16,8 +16,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Check out pinned Rouge sibling
-        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - run: just fmt-check
@@ -28,8 +26,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Check out pinned Rouge sibling
-        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -46,8 +42,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Check out pinned Rouge sibling
-        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -71,8 +65,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Check out pinned Rouge sibling
-        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -89,8 +81,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Check out pinned Rouge sibling
-        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - run: just framer-check
@@ -101,8 +91,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Check out pinned Rouge sibling
-        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds
@@ -121,8 +109,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Check out pinned Rouge sibling
-        run: bash .github/scripts/checkout-rouge.sh
       - name: Install tools
         uses: jdx/mise-action@v5.2.0
       - name: Cache Rust builds

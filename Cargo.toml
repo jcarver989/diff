@@ -71,13 +71,13 @@ shlex = "2.0.1"
 tempfile = "3.21.0"
 wasm-bindgen = "0.2.120"
 web-sys = "0.3.97"
-rouge = { path = "../rouge/crates/rouge" }
-rouge-core = { path = "../rouge/crates/rouge-core" }
-rouge-reactive = { path = "../rouge/crates/rouge-reactive" }
-rouge-widgets = { path = "../rouge/crates/rouge-widgets" }
-rouge-theme = { path = "../rouge/crates/rouge-theme" }
-rouge-syntax = { path = "../rouge/crates/rouge-syntax" }
-rouge-markdown = { path = "../rouge/crates/rouge-markdown" }
+rouge = "0.1.0"
+rouge-core = "0.1.0"
+rouge-reactive = "0.1.0"
+rouge-widgets = "0.1.0"
+rouge-theme = "0.1.0"
+rouge-syntax = "0.1.0"
+rouge-markdown = "0.1.0"
 
 [workspace.dependencies.clankerdiff-rouge]
 path = "crates/diff/rouge"
