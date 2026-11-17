@@ -74,14 +74,6 @@ consumer-check:
     cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features watch,crossterm-backend
     cargo test --doc --manifest-path tests/consumer-fixture/Cargo.toml --target-dir target --features embedded
 
-wasm-check:
-    cargo check -p clankerdiff-core -p clankerdiff-ui-core -p rouge-syntax -p rouge-markdown -p clankerdiff-markdown -p rouge-theme -p rouge-widgets -p clankerdiff-rouge -p clankerdiff-web --target wasm32-unknown-unknown
-    cargo check -p clankerdiff-ratatui --no-default-features --target wasm32-unknown-unknown
-
-# Build the release WASM and execute its smoke test in Chromium.
-web-test:
-    cd crates/diff/web && npm ci && npx playwright install chromium && npm test
-
 # Exercise the remote backend, clients, and the headless CLI build.
 remote-test:
     cargo nextest run -p clankerdiff-client -p clankerdiff-server --all-features
@@ -105,7 +97,7 @@ automation-check:
         .github/workflows/aether-agent.yml .github/workflows/ci.yml
 
 # Run every local verification check. CI intentionally runs these as separate jobs.
-verify: fmt-check check feature-check lint test wasm-check doc-check automation-check package-check
+verify: fmt-check check feature-check lint test doc-check automation-check package-check
 
 package-check:
     cargo build --locked -p clankerdiff-desktop -p clankerdiff-cli

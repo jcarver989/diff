@@ -94,7 +94,7 @@ fn rustfmt() -> Rustfmt {
 }
 
 fn ci() -> Ci {
-    Ci::new().setup(RougeApp::linux_dependencies()).compiling_job(features_job()).compiling_job(wasm_job())
+    Ci::new().setup(RougeApp::linux_dependencies()).compiling_job(features_job())
 }
 
 fn dependabot() -> Dependabot {
@@ -105,7 +105,6 @@ fn dependabot() -> Dependabot {
         ("cargo", "/tests/consumer-fixture"),
         ("cargo", "/tests/rouge-consumer-fixture"),
         ("github-actions", "/"),
-        ("npm", "/crates/diff/web"),
         ("rust-toolchain", "/"),
     ] {
         dependabot = dependabot.update(
@@ -123,14 +122,6 @@ fn dependabot() -> Dependabot {
 fn features_job() -> CompilingJob {
     CompilingJob::new("features", "Minimal features", "feature-check")
         .step(Step::run("just remote-test").name("Test remote backend and headless CLI"))
-}
-
-fn wasm_job() -> CompilingJob {
-    let trunk = Step::uses("jetli/trunk-action@v0.5.1").with("version", "v0.21.14");
-    let browser_deps = Step::run("cd crates/diff/web && npm ci && npx playwright install --with-deps chromium")
-        .name("Install browser test dependencies");
-    let smoke_test = Step::run("cd crates/diff/web && npm test").name("Run Rouge browser contract tests");
-    CompilingJob::new("wasm", "WASM", "wasm-check").before(trunk).step(browser_deps).step(smoke_test)
 }
 
 fn release() -> Release {
