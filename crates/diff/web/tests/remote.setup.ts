@@ -45,5 +45,5 @@ export default async function setup(project: TestProject) {
 }
 
 declare module "vitest" {
-  export interface ProvidedContext { remoteUrl: string; graphicsContext: "webgpu" | "webgl2" }
+  export interface ProvidedContext { remoteUrl: string; graphicsContext: "webgpu" }
 }

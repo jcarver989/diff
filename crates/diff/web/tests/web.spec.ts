@@ -1,4 +1,4 @@
-import { cdp, userEvent } from "vitest/browser";
+import { cdp, page, userEvent } from "vitest/browser";
 import { expect, inject, test } from "vitest";
 
 const documentFixture = {
@@ -37,7 +37,7 @@ test("starts the review canvas in a real browser", { timeout: 60_000 }, async ()
   const canvas = doc.querySelector("canvas")!;
   await expect.poll(() => canvas.width).toBe(Math.round(1280 * frame.contentWindow!.devicePixelRatio));
   expect(canvas.getContext(inject("graphicsContext"))).not.toBeNull();
-  await expect.poll(() => presentedColors(), { timeout: 15_000 }).toBeGreaterThan(50);
+  await expect.poll(() => presentedColors(frame), { timeout: 15_000 }).toBeGreaterThan(50);
   frame.style.width = "960px";
   await expect.poll(() => canvas.width).toBe(Math.round(960 * frame.contentWindow!.devicePixelRatio));
   const winFrames = frame.contentWindow!;
@@ -282,8 +282,8 @@ test("starts the review canvas in a real browser", { timeout: 60_000 }, async ()
   frame.remove();
 });
 
-async function presentedColors(): Promise<number> {
-  const { data: base64 } = await cdp().send("Page.captureScreenshot", { format: "png" });
+async function presentedColors(element: Element): Promise<number> {
+  const base64 = await page.screenshot({ element, save: false });
   const bitmap = await createImageBitmap(new Blob([Uint8Array.fromBase64(base64)], { type: "image/png" }));
   try {
     const readback = document.createElement("canvas");

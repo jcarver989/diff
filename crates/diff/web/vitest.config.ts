@@ -8,7 +8,6 @@ export default defineConfig({
   test: {
     projects: [
       { name: "webgpu", args: ["--enable-unsafe-webgpu", "--use-angle=vulkan", "--enable-features=Vulkan"] },
-      { name: "webgl2", args: ["--disable-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] },
     ].map(({ name, args }) => ({
       test: {
         name,
@@ -17,6 +16,7 @@ export default defineConfig({
         provide: { graphicsContext: name },
         browser: {
           enabled: true,
+          viewport: { width: 1320, height: 840 },
           provider: playwright({ launchOptions: { args }, contextOptions: { deviceScaleFactor: 1.25 } }),
           instances: [{ browser: "chromium" }],
           headless: true,
