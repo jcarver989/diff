@@ -44,6 +44,39 @@ fn inline_editor_grows_and_publishes_edit_delete_and_export() -> TestResult {
 }
 
 #[test]
+fn editing_one_comment_replaces_its_body_in_place_and_can_be_cancelled() -> TestResult {
+    common::run(common::document(), |ui, handle, _| {
+        let mut ids = Vec::new();
+        for body in ["first comment", "second comment"] {
+            assert!(handle.handle_command(ReviewCommand::BeginComment));
+            ui.type_text(body);
+            ui.press("enter");
+            ids.push(handle.with(|s| s.session().last_comment_id()).ok_or_else(|| io::Error::other("no comment"))?);
+        }
+        let [first, second] = ids.as_slice() else { return Err(io::Error::other("expected two comments").into()) };
+        let card_id = format!("comment-{first}");
+        let original = ui.rect_of(&card_id)?;
+        ui.click_on(&format!("Edit-comment-{first}"))?;
+        let card = ui.rect_of(&card_id)?;
+        let editor = ui.rect_of("comment-editor")?;
+        assert_eq!(card.origin, original.origin);
+        assert!(card.contains(editor.origin) && card.contains(editor.max()), "{editor:?} outside {card:?}");
+        assert_eq!(ui.bounds_of_all("comment-editor").len(), 1);
+        ui.rect_of(&format!("Edit-comment-{second}"))?;
+        assert_eq!(handle.with(|s| s.session().draft().map(|d| d.body().to_owned())).as_deref(), Some("first comment"));
+
+        ui.press("cmd-a");
+        ui.type_text("discard this edit");
+        ui.click_on("cancel-comment")?;
+        assert!(ui.bounds_of("comment-editor").is_none());
+        assert!(ui.text_bounds("first comment").is_some());
+        assert!(ui.text_bounds("second comment").is_some());
+        assert!(ui.text_bounds("discard this edit").is_none());
+        Ok(())
+    })
+}
+
+#[test]
 fn compatible_refresh_preserves_focused_draft_selection_and_undo() -> TestResult {
     common::run(common::document(), |ui, handle, _| {
         assert!(handle.handle_command(ReviewCommand::BeginComment));

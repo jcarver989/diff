@@ -48,6 +48,33 @@ fn mounted_markdown_uses_semantic_selection_and_single_review_session() -> Resul
 }
 
 #[test]
+fn markdown_edits_stay_inside_the_existing_comment_card() -> Result<(), Box<dyn std::error::Error>> {
+    let _runtime = Runtime::new().enter();
+    let (mut ui, handle) = mount("# Title\n");
+    assert!(handle.handle_command(ReviewCommand::BeginComment)?);
+    ui.type_text("original comment");
+    ui.press("enter");
+    let id = handle.with(|s| s.review().comments()[0].id);
+    let card_id = format!("markdown-comment-{id}");
+    let original = ui.rect_of(&card_id)?;
+
+    ui.click_on(&format!("Edit-comment-{id}"))?;
+    let card = ui.rect_of(&card_id)?;
+    let editor = ui.rect_of("comment-editor")?;
+    assert_eq!(card.origin, original.origin);
+    assert!(card.contains(editor.origin) && card.contains(editor.max()), "{editor:?} outside {card:?}");
+    ui.press("cmd-a");
+    ui.type_text("edited comment");
+    ui.click_on("save-comment")?;
+
+    assert!(ui.bounds_of("comment-editor").is_none());
+    assert!(ui.text_bounds("edited comment").is_some());
+    assert_eq!(handle.with(|s| s.review().comments()[0].id), id);
+    assert_eq!(handle.with(|s| s.review().len()), 1);
+    Ok(())
+}
+
+#[test]
 fn outline_lists_every_heading_that_fits_the_window() -> Result<(), Box<dyn std::error::Error>> {
     let _runtime = Runtime::new().enter();
     let (mut ui, _handle) = TestUiBuilder::default().size(920.0, 640.0).build_with(|| {
