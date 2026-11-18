@@ -6,10 +6,10 @@ use clankerdiff_markdown::{
 use clankerdiff_rouge::{MarkdownController, MarkdownHandle, MarkdownOutput, markdown_review_view};
 use clankerdiff_ui_core::ReviewTheme;
 use rouge_core::{
-    ImeEvent,
-    testing::{TestUi, TestUiBuilder},
+    ImeEvent, Styled, div,
+    testing::{TestError, TestUi, TestUiBuilder},
 };
-use rouge_reactive::Runtime;
+use rouge_reactive::{Runtime, signal};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 #[test]
@@ -114,12 +114,34 @@ fn outline_focus_moves_the_selection_between_headings() -> Result<(), Box<dyn st
     Ok(())
 }
 
-fn mount(source: &str) -> (TestUi, MarkdownHandle) {
-    TestUiBuilder::default().size(920.0, 640.0).fonts(rouge_widgets::bundled_fonts()).build_with(|| {
-        let handle =
-            MarkdownController::new(Arc::new(MarkdownDocument::parse(source)), ReviewTheme::default()).mount(|_| {});
-        (markdown_review_view(handle), handle)
-    })
+#[test]
+fn wrapped_markdown_rows_make_room_for_following_blocks_after_resize() -> Result<(), Box<dyn std::error::Error>> {
+    let _runtime = Runtime::new().enter();
+    let (mut ui, width) =
+        TestUiBuilder::default().size(920.0, 800.0).fonts(rouge_widgets::bundled_fonts()).build_with(|| {
+            let width = signal(920.0);
+            let doc = Arc::new(MarkdownDocument::parse(concat!(
+                "# Title\n\n",
+                "This paragraph is long enough to wrap onto several lines in a narrow preview, ",
+                "so the next heading must start below the last line of this paragraph.\n\n",
+                "## Next heading\n\n",
+                "- This list item contains `inline_code` and enough words to wrap onto several ",
+                "lines before the preview reaches the next item in the list.\n",
+                "- Next item\n",
+            )));
+            let handle = MarkdownController::new(doc, ReviewTheme::default()).mount(|_| {});
+            let preview = div().w(width).h_full().child(markdown_review_view(handle));
+            (div().size_full().child(preview), width)
+        });
+
+    let wide = wrapped_row_heights(&mut ui)?;
+    width.set(480.0);
+    let narrow = wrapped_row_heights(&mut ui)?;
+    assert!(narrow[0] > wide[0], "paragraph did not grow: {wide:?} -> {narrow:?}");
+    assert!(narrow[1] > wide[1], "list item did not grow: {wide:?} -> {narrow:?}");
+    width.set(920.0);
+    assert_eq!(wrapped_row_heights(&mut ui)?, wide);
+    Ok(())
 }
 
 #[test]
@@ -137,4 +159,22 @@ fn long_code_block_lines_wrap_instead_of_clipping() -> Result<(), Box<dyn std::e
     assert!(long.size.height > short.size.height * 4.0, "{short:?} {long:?}");
     assert!(long.max().x <= 720.0);
     Ok(())
+}
+
+fn mount(source: &str) -> (TestUi, MarkdownHandle) {
+    TestUiBuilder::default().size(920.0, 640.0).fonts(rouge_widgets::bundled_fonts()).build_with(|| {
+        let handle =
+            MarkdownController::new(Arc::new(MarkdownDocument::parse(source)), ReviewTheme::default()).mount(|_| {});
+        (markdown_review_view(handle), handle)
+    })
+}
+
+fn wrapped_row_heights(ui: &mut TestUi) -> Result<[f32; 2], TestError> {
+    let paragraph = ui.rect_of("markdown-row-1")?;
+    let heading = ui.rect_of("markdown-row-2")?;
+    let item = ui.rect_of("markdown-row-3")?;
+    let next_item = ui.rect_of("markdown-row-4")?;
+    assert!(heading.origin.y >= paragraph.max().y, "paragraph overlaps heading: {paragraph:?} {heading:?}");
+    assert!(next_item.origin.y >= item.max().y, "list items overlap: {item:?} {next_item:?}");
+    Ok([paragraph.size.height, item.size.height])
 }

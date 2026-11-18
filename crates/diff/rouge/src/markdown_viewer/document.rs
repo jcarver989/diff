@@ -26,7 +26,7 @@ pub(super) fn document(handle: &MarkdownHandle, paint: MarkdownPaint) -> impl Vi
         <div test_id="markdown-document" flex_1 min_w=0.0 min_h=0.0 relative>
             <virtual_list count={move || rows.with(|rows| rows.len())} row_height=48.0
                           row_identity={move |index| RowKey::new(rows.with_untracked(|r| r.key(index)), revision.get())}
-                          handle=list size_full
+                          measure_rows={move || revision.get()} handle=list size_full
                           let:index>
                 {row(&handle, index, &paint)}
             </virtual_list>
