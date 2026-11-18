@@ -119,11 +119,14 @@ fn add_comment(handle: MarkdownHandle, target: MarkdownTargetId, offset: f32) ->
 
 fn thread(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<> {
     let (handle, annotations) = (*handle, handle.annotations);
-    dynamic(move || {
+    let comments = memo(move || {
         annotations.get();
-        let comments = handle.with(|session| {
+        handle.with(|session| {
             session.review().comments_for_target(session.document(), target).cloned().collect::<Vec<_>>()
-        });
+        })
+    });
+    dynamic(move || {
+        let comments = comments.get();
         let last = comments.len().checked_sub(1)?;
         Some(view! {
             <div pt=8.0 pb=4.0>
@@ -147,40 +150,51 @@ fn card(
 ) -> impl View + use<> {
     let (handle, id) = (*handle, comment.id);
     let title = if comment.outdated { "Outdated comment" } else { "Your comment" };
+    let editing = memo(move || handle.draft.get() == Some((target, Some(id))));
     view! {
         <div test_id={format!("markdown-comment-{id}")} w_full flex col when:border_b=(!last, px(1.0))
              when:border_color=(!last, Role::Border)>
             <div px=12.0 py=8.0 bg=Role::SurfaceSelected flex row items_center gap=8.0>
                 <div flex_1 min_w=0.0><text label muted>{title}</text></div>
-                <icon_button test_id={format!("Edit-comment-{id}")} icon=IconName::Pencil label="Edit comment"
-                             on_click={move || handle.edit_comment(target, id)}/>
-                <icon_button test_id={format!("Delete-comment-{id}")} icon=IconName::X label="Delete comment"
-                             on_click={move || handle.delete_comment(id)}/>
+                <show when={move || !editing.get()}>
+                    <icon_button test_id={format!("Edit-comment-{id}")} icon=IconName::Pencil label="Edit comment"
+                                 on_click={move || handle.edit_comment(target, id)}/>
+                    <icon_button test_id={format!("Delete-comment-{id}")} icon=IconName::X label="Delete comment"
+                                 on_click={move || handle.delete_comment(id)}/>
+                </show>
             </div>
-            <div p=12.0 bg=Role::Surface><text body primary>{comment.body}</text></div>
+            <dynamic>{
+                if editing.get() {
+                    editor(handle, None)
+                } else {
+                    view! { <div p=12.0 bg=Role::Surface><text body primary>{comment.body.clone()}</text></div> }
+                }
+            }</dynamic>
         </div>
     }
 }
 
 fn draft(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<> {
     let (handle, draft) = (*handle, handle.draft);
-    dynamic(move || {
-        let (_, editing) = draft.get().filter(|(id, _)| *id == target)?;
-        let body = handle.with(|session| session.draft().map_or_default(|draft| draft.body().to_owned()));
-        Some(view! {
+    view! {
+        <show when={move || draft.get() == Some((target, None))}>
             <div pt=8.0 pb=4.0>
-                {composer(
-                    if editing.is_some() { "Edit comment" } else { "Add a comment" }.to_owned(),
-                    body,
-                    editing.is_some(),
-                    move |body| handle.set_draft_body(body),
-                    move |body| {
-                        handle.set_draft_body(body.to_owned());
-                        handle.run(ReviewCommand::SubmitComment);
-                    },
-                    move || handle.run(ReviewCommand::Cancel),
-                )}
+                {editor(handle, Some("Add a comment".to_owned()))}
             </div>
-        })
-    })
+        </show>
+    }
+}
+
+fn editor(handle: MarkdownHandle, title: Option<String>) -> Div {
+    let body = handle.with(|session| session.draft().map_or_default(|draft| draft.body().to_owned()));
+    composer(
+        title,
+        body,
+        move |body| handle.set_draft_body(body),
+        move |body| {
+            handle.set_draft_body(body.to_owned());
+            handle.run(ReviewCommand::SubmitComment);
+        },
+        move || handle.run(ReviewCommand::Cancel),
+    )
 }

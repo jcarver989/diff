@@ -1,7 +1,5 @@
 use crate::ReviewHandle;
-use rouge_core::{
-    Cursor, FocusHandle, Role, Styled, Theme, View, div, dynamic, editable, focus_handle, px, text, view,
-};
+use rouge_core::{Cursor, Div, FocusHandle, Role, Styled, Theme, div, dynamic, editable, focus_handle, px, text, view};
 use rouge_reactive::{Callback, Memo, effect, memo, provide_context, signal, use_context};
 use rouge_widgets::{ButtonVariant, ControlSize, Material, MaterialExt, UI_FONT, UiStyles, button, tokens::Radius};
 use std::{cell::Cell, rc::Rc};
@@ -22,13 +20,12 @@ pub(crate) fn install(handle: &ReviewHandle) {
 }
 
 pub(crate) fn composer(
-    title: String,
+    title: Option<String>,
     body: String,
-    editing: bool,
     on_change: impl Fn(String) + 'static,
     on_submit: impl Fn(&str) + 'static,
     on_cancel: impl Fn() + 'static,
-) -> impl View {
+) -> Div {
     let theme = Theme::current();
     let value = signal(body);
     let submit: Callback<(String,)> = (move |body: String| on_submit(&body)).into();
@@ -37,9 +34,10 @@ pub(crate) fn composer(
     let autofocus = draft.as_ref().is_none_or(|draft| !draft.opened.replace(true));
     let focus = draft.map_or_else(focus_handle, |draft| draft.handle);
     let empty = memo(move || value.with(|body| body.trim().is_empty()));
-    view! {
-        <div test_id="comment-composer" flex col gap=12.0 p=12.0 material=Material::Glass>
-            <text body_strong primary>{title}</text>
+    let editing = title.is_none();
+    let editor = view! {
+        <div test_id="comment-composer" flex col gap=12.0 p=12.0>
+            {title.map(|title| view! { <text body_strong primary>{title}</text> })}
             <div min_h=96.0 w_full p=12.0 rounded=Radius::Inner border=px(1.0)
                  border_color={move || { let c = theme.get(); if focus.is_focused() { c.accent } else { c.border } }}
                  bg=Role::Canvas cursor=Cursor::Text>
@@ -57,5 +55,6 @@ pub(crate) fn composer(
                 </dynamic>
             </div>
         </div>
-    }
+    };
+    if editing { editor.bg(Role::Surface) } else { editor.material(Material::Glass) }
 }
