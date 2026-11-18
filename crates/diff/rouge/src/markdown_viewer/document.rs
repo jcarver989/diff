@@ -7,7 +7,7 @@ use rouge_core::{
     virtual_list,
 };
 use rouge_reactive::{Memo, Signal, memo, signal};
-use rouge_widgets::tokens::Radius;
+use rouge_widgets::tokens::{HAIRLINE, Radius, Space};
 use rouge_widgets::{
     Icon, IconName, MarkdownPaint, MarkdownRow, UiStyles, empty_state, icon_button, vertical_scrollbar,
 };
@@ -62,7 +62,7 @@ fn row(handle: &MarkdownHandle, index: usize, paint: &MarkdownPaint) -> Option<A
     let top = if index == 0 { TOP_PADDING } else { row.gap };
     let bottom = if index + 1 == rows.len() { BOTTOM_PADDING } else { 0.0 };
     let view = view! {
-        <div test_id={format!("markdown-row-{index}")} w_full px=24.0 pt=top pb=bottom flex row justify_center>
+        <div test_id={format!("markdown-row-{index}")} w_full px=Space::X6 pt=top pb=bottom flex row justify_center>
             <div w_full max_w=COLUMN_WIDTH flex row
                  on_hover={move |inside| {
                      hovered.set_if_changed(inside);
@@ -129,9 +129,9 @@ fn thread(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<
         let comments = comments.get();
         let last = comments.len().checked_sub(1)?;
         Some(view! {
-            <div pt=8.0 pb=4.0>
+            <div pt=Space::X2 pb=Space::X1>
                 <div test_id={format!("markdown-comment-thread-{}", target.index())} w_full flex col
-                     rounded=Radius::Control border=px(1.0) border_color=Role::Border overflow_hidden>
+                     rounded=Radius::Control border=HAIRLINE border_color=Role::Border overflow_hidden>
                     {..comments
                         .into_iter()
                         .enumerate()
@@ -154,7 +154,7 @@ fn card(
     view! {
         <div test_id={format!("markdown-comment-{id}")} w_full flex col when:border_b=(!last, px(1.0))
              when:border_color=(!last, Role::Border)>
-            <div px=12.0 py=8.0 bg=Role::SurfaceSelected flex row items_center gap=8.0>
+            <div px=Space::X3 py=Space::X2 bg=Role::SurfaceSelected flex row items_center gap=Space::X2>
                 <div flex_1 min_w=0.0><text label muted>{title}</text></div>
                 <show when={move || !editing.get()}>
                     <icon_button test_id={format!("Edit-comment-{id}")} icon=IconName::Pencil label="Edit comment"
@@ -167,7 +167,7 @@ fn card(
                 if editing.get() {
                     editor(handle, None)
                 } else {
-                    view! { <div p=12.0 bg=Role::Surface><text body primary>{comment.body.clone()}</text></div> }
+                    view! { <div p=Space::X3 bg=Role::Surface><text body primary>{comment.body.clone()}</text></div> }
                 }
             }</dynamic>
         </div>
@@ -178,7 +178,7 @@ fn draft(handle: &MarkdownHandle, target: MarkdownTargetId) -> impl View + use<>
     let (handle, draft) = (*handle, handle.draft);
     view! {
         <show when={move || draft.get() == Some((target, None))}>
-            <div pt=8.0 pb=4.0>
+            <div pt=Space::X2 pb=Space::X1>
                 {editor(handle, Some("Add a comment".to_owned()))}
             </div>
         </show>

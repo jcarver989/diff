@@ -1,0 +1,12 @@
+# Local only: build against the unreleased Rouge design system in ~/code/rouge.
+# Delete once a Rouge release carrying it is published and the versions are bumped.
+[patch.crates-io]
+rouge = { path = "/Users/josh/code/rouge/crates/rouge" }
+rouge-core = { path = "/Users/josh/code/rouge/crates/rouge-core" }
+rouge-macros = { path = "/Users/josh/code/rouge/crates/rouge-macros" }
+rouge-markdown = { path = "/Users/josh/code/rouge/crates/rouge-markdown" }
+rouge-reactive = { path = "/Users/josh/code/rouge/crates/rouge-reactive" }
+rouge-render = { path = "/Users/josh/code/rouge/crates/rouge-render" }
+rouge-syntax = { path = "/Users/josh/code/rouge/crates/rouge-syntax" }
+rouge-theme = { path = "/Users/josh/code/rouge/crates/rouge-theme" }
+rouge-widgets = { path = "/Users/josh/code/rouge/crates/rouge-widgets" }

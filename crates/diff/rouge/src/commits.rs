@@ -5,16 +5,17 @@ use rouge_core::{Color, Div, Palette, Role, Styled, Theme, View, div, pct, px, s
 use rouge_reactive::ReadSignal;
 use rouge_widgets::{
     CODE_FONT, Icon, IconName, PickerItem, PickerMarker, SearchPicker, SearchPickerEvent, SearchPickerHandle, UiStyles,
-    search_picker, tokens,
+    search_picker,
+    tokens::{self, HAIRLINE, Space},
 };
 use std::rc::Rc;
 use web_time::{SystemTime, UNIX_EPOCH};
 
-const PREVIEW_PADDING_X: f32 = 24.0;
-const PREVIEW_PADDING_TOP: f32 = 24.0;
-const PREVIEW_PADDING_BOTTOM: f32 = 20.0;
-const PREVIEW_GAP: f32 = 16.0;
-const FACTS_GAP: f32 = 12.0;
+const PREVIEW_PADDING_X: Space = Space::X6;
+const PREVIEW_PADDING_TOP: Space = Space::X6;
+const PREVIEW_PADDING_BOTTOM: Space = Space::X6;
+const PREVIEW_GAP: Space = Space::X4;
+const FACTS_GAP: Space = Space::X3;
 const CHANGE_BAR_HEIGHT: f32 = 4.0;
 const CHANGE_BAR_GAP: f32 = 2.0;
 
@@ -83,7 +84,7 @@ fn preview(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
     view! {
         <div test_id="commit-details" size_full flex col>
             <div flex_1 min_h=0.0 px=PREVIEW_PADDING_X pt=PREVIEW_PADDING_TOP pb=PREVIEW_GAP flex col gap=PREVIEW_GAP>
-                <div flex col gap=8.0>
+                <div flex col gap=Space::X2>
                     {eyebrow(page)}
                     <div test_id="commit-preview-title">
                         <text heading primary>{page.title.summary.clone()}</text>
@@ -108,7 +109,7 @@ fn eyebrow(page: &CommitPage) -> Div {
         None => ("Commit", colors.text_secondary),
     };
     view! {
-        <div test_id="commit-preview-eyebrow" flex row items_center gap=8.0>
+        <div test_id="commit-preview-eyebrow" flex row items_center gap=Space::X2>
             {marker(page, &colors)}
             <text small weight=500.0 color=tone>{label}</text>
             {page.title.scope.clone().map(|scope| view! {
@@ -122,7 +123,7 @@ fn eyebrow(page: &CommitPage) -> Div {
 fn facts(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
     let fact = move |icon: IconName, label: String, code: bool| {
         view! {
-            <div flex row items_center gap=8.0>
+            <div flex row items_center gap=Space::X2>
                 {Icon::new(icon, Role::TextMuted).size(tokens::ICON_SIZE_SMALL)}
                 <text small secondary no_wrap when:font=(code, CODE_FONT)>{label}</text>
             </div>
@@ -134,8 +135,8 @@ fn facts(page: &CommitPage, palette: ReadSignal<ReviewTheme>) -> Div {
     };
     view! {
         <div test_id="commit-preview-facts" flex_none mx=PREVIEW_PADDING_X pt=PREVIEW_GAP pb=PREVIEW_PADDING_BOTTOM
-             border_t=px(1.0) border_color=Role::BorderSubtle flex col gap=FACTS_GAP>
-            <div flex row flex_wrap items_center gap=12.0>
+             border_t=HAIRLINE border_color=Role::BorderSubtle flex col gap=FACTS_GAP>
+            <div flex row flex_wrap items_center gap=Space::X3>
                 {commit}
                 {page.title.pull_request.map(|number| fact(IconName::GitPullRequest, format!("#{number}"), false))}
                 {page.stat.map(|stat| view! {

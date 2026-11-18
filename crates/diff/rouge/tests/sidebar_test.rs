@@ -6,6 +6,7 @@ use clankerdiff_core::{
 };
 use clankerdiff_rouge::{ReviewOutput, ViewerPane};
 use rouge_core::testing::TestResult;
+use rouge_widgets::tokens::CHECKBOX_SIZE;
 use std::io;
 
 #[test]
@@ -47,7 +48,7 @@ fn staging_checkboxes_keep_their_geometry_and_do_not_activate_rows() -> TestResu
             let file = ui.bounds_of("diff-file-checkbox:0").ok_or_else(|| io::Error::other("no file checkbox"))?;
             let directory =
                 ui.bounds_of("diff-directory-checkbox:src").ok_or_else(|| io::Error::other("no directory checkbox"))?;
-            assert_eq!((file.size.width, file.size.height), (12.0, 12.0));
+            assert_eq!((file.size.width, file.size.height), (CHECKBOX_SIZE, CHECKBOX_SIZE));
             assert_eq!(file.size, directory.size);
             ui.click_on("diff-file-checkbox:0")?;
             assert_eq!(handle.selection().get().file, Some(1));

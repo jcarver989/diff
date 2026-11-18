@@ -1,7 +1,10 @@
 use crate::ReviewHandle;
-use rouge_core::{Cursor, Div, FocusHandle, Role, Styled, Theme, div, dynamic, editable, focus_handle, px, text, view};
+use rouge_core::{Cursor, Div, FocusHandle, Role, Styled, Theme, div, dynamic, editable, focus_handle, text, view};
 use rouge_reactive::{Callback, Memo, effect, memo, provide_context, signal, use_context};
-use rouge_widgets::{ButtonVariant, ControlSize, Material, MaterialExt, UI_FONT, UiStyles, button, tokens::Radius};
+use rouge_widgets::{
+    ButtonVariant, ControlSize, Material, MaterialExt, UI_FONT, UiStyles, button,
+    tokens::{HAIRLINE, Radius, Space},
+};
 use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, PartialEq)]
@@ -36,16 +39,16 @@ pub(crate) fn composer(
     let empty = memo(move || value.with(|body| body.trim().is_empty()));
     let editing = title.is_none();
     let editor = view! {
-        <div test_id="comment-composer" flex col gap=12.0 p=12.0>
+        <div test_id="comment-composer" flex col gap=Space::X3 p=Space::X3>
             {title.map(|title| view! { <text body_strong primary>{title}</text> })}
-            <div min_h=96.0 w_full p=12.0 rounded=Radius::Inner border=px(1.0)
+            <div min_h=96.0 w_full p=Space::X3 rounded=Radius::Inner border=HAIRLINE
                  border_color={move || { let c = theme.get(); if focus.is_focused() { c.accent } else { c.border } }}
                  bg=Role::Canvas cursor=Cursor::Text>
                 <editable value test_id="comment-editor" when:autofocus=autofocus track_focus=focus multiline
                           min_rows=3 max_rows=12 font=UI_FONT text_size=13.0 line_height=1.5 color=Role::Text w_full
                           submit_on_enter=true on_submit={move |body| submit.call(body.to_owned())}/>
             </div>
-            <div w_full flex row justify_end items_center gap=8.0>
+            <div w_full flex row justify_end items_center gap=Space::X2>
                 <button test_id="cancel-comment" label="Cancel" variant=ButtonVariant::Ghost control_size=ControlSize::Small
                         on_click=on_cancel/>
                 <dynamic>

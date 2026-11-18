@@ -1,11 +1,11 @@
 use super::MarkdownHandle;
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownAnchors, MarkdownFocusPane, MarkdownReviewCommand};
-use rouge_core::{Role, RowKey, Styled, Theme, View, component, div, dynamic, px, text, view, virtual_list};
-use rouge_widgets::tokens::{ROW_HEIGHT, Radius};
+use rouge_core::{Role, RowKey, Styled, Theme, View, component, div, dynamic, text, view, virtual_list};
+use rouge_widgets::tokens::{HAIRLINE, ROW_HEIGHT, Radius, Space};
 use rouge_widgets::{
     ButtonVariant, CODE_FONT, ControlSize, IconName, ModalSize, SelectionState, Side, UiStyles, button, icon_button,
-    modal, resizable_panel, tree_row, vertical_scrollbar,
+    kbd, modal, resizable_panel, tree_row, vertical_scrollbar,
 };
 use std::path::Path;
 
@@ -47,7 +47,7 @@ pub(super) fn header(handle: &MarkdownHandle) -> impl View {
             }
         });
         view! {
-            <div flex_1 min_w=0.0 flex row items_center gap=8.0>
+            <div flex_1 min_w=0.0 flex row items_center gap=Space::X2>
                 {toggle}
                 <title handle={&handle}/>
             </div>
@@ -72,7 +72,7 @@ pub(super) fn header(handle: &MarkdownHandle) -> impl View {
             }
         });
         view! {
-            <div flex flex_none row items_center gap=8.0>
+            <div flex flex_none row items_center gap=Space::X2>
                 <icon_button test_id="markdown-shortcuts" icon=IconName::Info label="Keyboard shortcuts"
                              on_click=run(ReviewCommand::ShowHelp.into())/>
                 <button test_id="markdown-theme" label="Theme" control_size=ControlSize::Small
@@ -85,8 +85,8 @@ pub(super) fn header(handle: &MarkdownHandle) -> impl View {
         }
     };
     view! {
-        <div test_id="markdown-header" h=HEADER_HEIGHT flex_none flex row items_center gap=8.0 px=12.0
-             border_b=px(1.0) border_color=Role::Border>
+        <div test_id="markdown-header" h=HEADER_HEIGHT flex_none flex row items_center gap=Space::X2 px=Space::X3
+             border_b=HAIRLINE border_color=Role::Border>
             <dynamic children=leading/>
             <dynamic children=trailing/>
         </div>
@@ -115,7 +115,7 @@ fn title(handle: &MarkdownHandle) -> impl View {
         }
     });
     view! {
-        <div flex_1 min_w=0.0 px=4.0 flex col overflow_hidden>
+        <div flex_1 min_w=0.0 px=Space::X1 flex col overflow_hidden>
             <div test_id="markdown-title"><text title no_wrap primary>{title}</text></div>
             {path}
         </div>
@@ -132,13 +132,13 @@ pub(super) fn outline(handle: &MarkdownHandle) -> impl View + use<> {
                          on_reset={move || width.set(super::DEFAULT_OUTLINE_WIDTH)}
                          divider_color={move || if pane.get() == MarkdownFocusPane::Outline { theme.get().accent } else { theme.get().border }}>
             <div size_full flex col overflow_hidden bg=Role::Surface>
-                <div px=12.0 pt=16.0 pb=8.0><text label muted>"Contents"</text></div>
-                <div flex_1 min_h=0.0 relative pb=8.0>
+                <div px=Space::X3 pt=Space::X4 pb=Space::X2><text label muted>"Contents"</text></div>
+                <div flex_1 min_h=0.0 relative pb=Space::X2>
                     <virtual_list count={move || rows.with(|rows| rows.headings)}
                                   row_height=ROW_HEIGHT
                                   row_identity={move |index| RowKey::new(index, revision.get())}
                                   handle=list size_full let:index>
-                        <div px=4.0><outline_row handle={&handle} index/></div>
+                        <div px=Space::X1><outline_row handle={&handle} index/></div>
                     </virtual_list>
                     <div absolute right=0.0 top=0.0 bottom=0.0>{vertical_scrollbar(list.scroll_state())}</div>
                 </div>
@@ -170,7 +170,7 @@ fn outline_row(handle: &MarkdownHandle, index: usize) -> Option<impl View> {
                 annotations.get();
                 let count = handle.section_comment_count(index);
                 (count > 0).then(|| view! {
-                    <div flex_none px=4.0 rounded=Radius::Inner bg=Role::SurfaceSelected>
+                    <div flex_none px=Space::X1 rounded=Radius::Inner bg=Role::SurfaceSelected>
                         <text caption accent>{count.to_string()}</text>
                     </div>
                 })
@@ -203,12 +203,14 @@ impl MarkdownHandle {
 pub(super) fn shortcuts(close: impl Fn() + 'static) -> impl View {
     let section = |title: &'static str, rows: Shortcuts| {
         view! {
-            <div flex_1 flex col gap=4.0>
-                <div mb=4.0><text label accent>{title}</text></div>
+            <div flex_1 flex col gap=Space::X1>
+                <div mb=Space::X1><text label accent>{title}</text></div>
                 {..rows.iter().map(move |(keys, description)| {
                     view! {
-                        <div flex row gap=12.0>
-                            <div w=136.0 flex_none><text code no_wrap primary>{*keys}</text></div>
+                        <div flex row gap=Space::X3>
+                            <div w=136.0 flex_none flex row flex_wrap items_center gap=Space::X1>
+                                {..keys.split([',', '/']).map(|key| kbd(key.trim().to_owned()))}
+                            </div>
                             <div flex_1 min_w=0.0><text body muted>{*description}</text></div>
                         </div>
                     }
@@ -219,7 +221,7 @@ pub(super) fn shortcuts(close: impl Fn() + 'static) -> impl View {
     let sections = [("Navigation", NAVIGATION), ("Review", REVIEW), ("Comment editor", DRAFT)];
     let rows = sections.chunks(2).enumerate().map(|(index, pair)| {
         view! {
-            <div flex row gap=20.0 when:mt=(index > 0, 16.0)>
+            <div flex row gap=Space::X6 when:mt=(index > 0, Space::X4)>
                 {..pair.iter().map(|(title, rows)| section(title, rows))}
             </div>
         }

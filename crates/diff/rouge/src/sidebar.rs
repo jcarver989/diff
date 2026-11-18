@@ -6,7 +6,9 @@ use rouge_core::{
 use rouge_reactive::{Selector, Stored, effect, memo, selector, signal, stored};
 use rouge_widgets::{
     CODE_FONT, CheckModel, CheckState, IconName, SelectionState, Side, TreeRow, UiStyles, checkbox, muted_text,
-    resizable_panel, tokens::ROW_HEIGHT, tree_row, vertical_scrollbar,
+    resizable_panel,
+    tokens::{ROW_HEIGHT, Space},
+    tree_row, vertical_scrollbar,
 };
 
 pub(crate) fn sidebar(handle: ReviewHandle, list: VirtualListHandle) -> impl View {
@@ -41,13 +43,13 @@ pub(crate) fn sidebar(handle: ReviewHandle, list: VirtualListHandle) -> impl Vie
                     <virtual_list count={move || count.get()} row_height=ROW_HEIGHT
                                   row_identity={move |index| RowKey::new((index, (revision.get(), mode.get())), 0)}
                                   handle=list size_full let:index>
-                        <div px=4.0>{row(handle, selected, index)}</div>
+                        <div px=Space::X1>{row(handle, selected, index)}</div>
                     </virtual_list>
                     <div absolute right=0.0 top=0.0 bottom=0.0>{vertical_scrollbar(list.scroll_state())}</div>
                     <dynamic>{
                         let empty = if mode.get() == FilesMode::Browse { "No repository files" } else { "No changed files" };
                         view! {
-                            <div>{(count.get() == 0).then(|| view! { <div p=12.0><muted_text>{empty}</muted_text></div> })}</div>
+                            <div>{(count.get() == 0).then(|| view! { <div p=Space::X3><muted_text>{empty}</muted_text></div> })}</div>
                         }
                     }</dynamic>
                 </div>
@@ -84,7 +86,7 @@ fn row(handle: ReviewHandle, selected: Selector<Option<usize>>, index: usize) ->
     let stat = (!directory && !browsing && entry.changed).then(|| {
         let stat = entry.stat;
         view! {
-            <div flex flex_none gap=4.0>
+            <div flex flex_none gap=Space::X1>
                 <text caption font=CODE_FONT color={move || palette.with(|t| Color::from(t.diff.addition))}>
                     {format!("+{}", stat.added)}
                 </text>

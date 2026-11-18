@@ -17,7 +17,7 @@ use rouge_reactive::{Memo, ReadSignal, Signal, effect, memo, on_cleanup, signal}
 use rouge_widgets::{
     CODE_WRAP, Icon, IconName, SegmentedControl, UiStyles, empty_state, icon_button, markdown, segment,
     segmented_control, syntax_spans,
-    tokens::{self, Radius},
+    tokens::{self, HAIRLINE, Radius, Space},
     typography::CODE,
     vertical_scrollbar,
 };
@@ -29,19 +29,19 @@ const STATUS_CHIP: f32 = 18.0;
 const COMMENT_COLUMN: f32 = 40.0;
 const ADDED_COLUMN: f32 = 64.0;
 const DELETED_COLUMN: f32 = 40.0;
-const STAT_INSET: f32 = 16.0;
+const STAT_INSET: Space = Space::X4;
 const ACCENT_WIDTH: f32 = 4.0;
 const GUTTER_WIDTH: f32 = 52.0;
-const GUTTER_PADDING: f32 = 8.0;
+const GUTTER_PADDING: f32 = Space::X2.px();
 const TEXT_TOP: f32 = 0.0;
-const META_PADDING: f32 = 12.0;
-const CODE_PADDING_RIGHT: f32 = 8.0;
+const META_PADDING: f32 = Space::X3.px();
+const CODE_PADDING_RIGHT: f32 = Space::X2.px();
 /// Between side-by-side columns.
 const DIVIDER: f32 = 1.0;
 const MAX_LINE_BYTES: usize = 16 * 1024;
 const CONTINUATION: &str = "↪";
 const PREVIEW_WIDTH: f32 = 780.0;
-const PREVIEW_PADDING: f32 = 24.0;
+const PREVIEW_PADDING: Space = Space::X6;
 
 #[derive(Clone, Copy)]
 struct Flow {
@@ -821,14 +821,14 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
         (info.previewable && info.source.is_none()).then(|| preview_toggle(&handle, index, view == FileView::Preview));
     view! {
         <div test_id={format!("diff-file-header-{index}")} h=HEADER_HEIGHT w_full flex row items_center
-             border_t=px(if info.after_header { 0.0 } else { 1.0 }) border_b=px(1.0) border_color=rule
+             border_t=px(if info.after_header { 0.0 } else { 1.0 }) border_b=HAIRLINE border_color=rule
              bg=band(|p| p.foreground.mix(p.background, 10)) cursor=Cursor::Pointer overflow_hidden
              on_click={move |_| {
                  handle.handle_command(C::SelectFile(index));
              }}>
             <div w=ACCENT_WIDTH h_full flex_none bg={move || Color::from(status_color())}/>
             <div w=GUTTER_WIDTH flex_none flex justify_center>{toggle}</div>
-            <div flex row flex_1 min_w=0.0 items_center gap=10.0 overflow_hidden>
+            <div flex row flex_1 min_w=0.0 items_center gap=Space::X2 overflow_hidden>
                 <div size=STATUS_CHIP flex_none flex items_center justify_center rounded=Radius::Inner
                      bg={move || palette.with(|t| Color::from(status_color().mix(t.diff.background, 36)))}>
                     <text caption font_weight=700.0 color={move || Color::from(status_color())}>
@@ -894,7 +894,7 @@ fn stat_columns(stat: LineStat, palette: ReadSignal<ReviewTheme>, comments: Memo
     let count = |value: usize, sign: char| if value == 0 { String::new() } else { format!("{sign}{value}") };
     view! {
         <div flex row flex_none items_center pr=STAT_INSET>
-            <div w=COMMENT_COLUMN flex row items_center justify_end gap=4.0>
+            <div w=COMMENT_COLUMN flex row items_center justify_end gap=Space::X1>
                 <show when={move || comments.get() > 0}>
                     {Icon::new(IconName::MessageCircle, Role::Accent).size(tokens::ICON_SIZE_SMALL)}
                     <text caption accent no_wrap>{move || comments.get().to_string()}</text>
@@ -964,7 +964,7 @@ fn gap(handle: &ReviewHandle, index: usize) -> Div {
         selection.pane == ViewerPane::Diff && selection.row == Some(index)
     });
     let line = move || {
-        div().border_t(1.0).border_color(move || {
+        div().border_t(HAIRLINE).border_color(move || {
             palette.with(|t| Color::from(if selected.get() { t.diff.accent } else { t.diff.border }))
         })
     };
@@ -988,7 +988,7 @@ fn gap(handle: &ReviewHandle, index: usize) -> Div {
             <show when={move || selected.get()}>
                 <div flex row items_center flex_none>
                     {line().w(12.0)}
-                    <div px=8.0>
+                    <div px=Space::X2>
                         <text caption no_wrap color={move || palette.with(|t| Color::from(t.diff.muted))}>{hint.clone()}</text>
                     </div>
                 </div>

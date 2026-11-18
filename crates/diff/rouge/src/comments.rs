@@ -2,7 +2,10 @@ use crate::{ReviewHandle, comment_editor::composer};
 use clankerdiff_core::{DiffSide, LineAnchor, ReviewCommand, ReviewComment};
 use rouge_core::{Color, Div, Role, Styled, View, div, dynamic, px, show, text, view};
 use rouge_reactive::memo;
-use rouge_widgets::{IconName, UiStyles, icon_button, tokens::Radius};
+use rouge_widgets::{
+    IconName, UiStyles, icon_button,
+    tokens::{HAIRLINE, Radius, Space},
+};
 
 pub(crate) fn thread(handle: ReviewHandle, row: usize, side: DiffSide, anchor: LineAnchor) -> impl View {
     let comments = memo({
@@ -26,13 +29,13 @@ pub(crate) fn thread(handle: ReviewHandle, row: usize, side: DiffSide, anchor: L
         move || handle.draft_placement().with(|draft| matches!(draft, Some((location, None)) if *location == anchor));
     let palette = handle.theme();
     view! {
-        <div min_w=0.0 flex col gap=8.0 px=12.0 pt=4.0 pb=12.0 bg={move || palette.with(|t| Color::from(t.diff.background))}>
+        <div min_w=0.0 flex col gap=Space::X2 px=Space::X3 pt=Space::X1 pb=Space::X3 bg={move || palette.with(|t| Color::from(t.diff.background))}>
             <dynamic>{
                 let comments = comments.get();
                 let last = comments.len().checked_sub(1)?;
                 Some(view! {
                     <div test_id={format!("comment-thread-{row}")} w_full flex col rounded=Radius::Control
-                         border=px(1.0) border_color=Role::Border overflow_hidden>
+                         border=HAIRLINE border_color=Role::Border overflow_hidden>
                         {..comments
                             .into_iter()
                             .enumerate()
@@ -62,7 +65,7 @@ fn card(handle: &ReviewHandle, row: usize, side: DiffSide, comment: ReviewCommen
     view! {
         <div test_id={format!("comment-{id}")} w_full flex col when:border_b=(!last, px(1.0))
              when:border_color=(!last, Role::Border)>
-            <div px=12.0 py=8.0 bg=Role::SurfaceSelected flex row items_center gap=8.0>
+            <div px=Space::X3 py=Space::X2 bg=Role::SurfaceSelected flex row items_center gap=Space::X2>
                 <div flex_1 min_w=0.0>
                     <text label muted>{format!("Your comment on {which} {line}")}</text>
                 </div>
@@ -77,7 +80,7 @@ fn card(handle: &ReviewHandle, row: usize, side: DiffSide, comment: ReviewCommen
                 if editing.get() {
                     editor(handle, None)
                 } else {
-                    view! { <div p=12.0 bg=Role::Surface><text body primary>{comment.body.clone()}</text></div> }
+                    view! { <div p=Space::X3 bg=Role::Surface><text body primary>{comment.body.clone()}</text></div> }
                 }
             }</dynamic>
         </div>

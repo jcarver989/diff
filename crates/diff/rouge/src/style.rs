@@ -3,7 +3,7 @@ use clankerdiff_ui_core::{DiffPalette, ReviewTheme, Rgba};
 use rouge_core::{Color, Div, Styled, Text, component, div, rich_text, text, view};
 use rouge_reactive::ReadSignal;
 use rouge_syntax::{HighlightLine, SyntaxTheme};
-use rouge_widgets::{UiStyles, syntax_spans};
+use rouge_widgets::{UiStyles, syntax_spans, tokens::Space};
 
 pub(crate) fn code(line: &str, spans: HighlightLine<'_>, theme: &SyntaxTheme) -> Text {
     rich_text(line.to_owned(), syntax_spans(spans, theme)).code().no_wrap()
@@ -21,7 +21,7 @@ pub(crate) const fn file_status_color(status: FileStatus, palette: &DiffPalette)
 #[component]
 pub fn stat_badges(stat: LineStat, palette: ReadSignal<ReviewTheme>) -> Div {
     view! {
-        <div flex row flex_none gap=8.0>
+        <div flex row flex_none gap=Space::X2>
             <text code no_wrap color={move || palette.with(|t| Color::from(t.diff.addition))}>{format!("+{}", stat.added)}</text>
             <text code no_wrap color={move || palette.with(|t| Color::from(t.diff.deletion))}>{format!("−{}", stat.deleted)}</text>
         </div>
