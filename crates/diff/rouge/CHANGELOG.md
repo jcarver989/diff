@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2](https://github.com/jcarver989/diff/compare/clankerdiff-rouge-v0.10.0...clankerdiff-rouge-v0.10.2) - 2026-11-19
+
+### Fixed
+
+- *(rouge)* remeasure wrapped Markdown rows on resize ([#149](https://github.com/jcarver989/diff/pull/149))
+- *(rouge)* edit comments in their existing cards ([#148](https://github.com/jcarver989/diff/pull/148))
+
+### Other
+
+- Adopt the Rouge 0.2 design system ([#150](https://github.com/jcarver989/diff/pull/150))
+- enable clankerdiff-rouge publishing ([#146](https://github.com/jcarver989/diff/pull/146))
+- Migrate Diff to published Rouge crates ([#140](https://github.com/jcarver989/diff/pull/140))
+
 ## [0.10.0](https://github.com/jcarver989/diff/compare/clankerdiff-gpui-v0.9.0...clankerdiff-gpui-v0.10.0) - 2026-11-03
 
 ### Added
