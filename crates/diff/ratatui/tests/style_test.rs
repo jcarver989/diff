@@ -3,7 +3,7 @@ use clankerdiff_ratatui::{RatatuiTheme, RatatuiUiTheme, composite_color, layered
 use clankerdiff_ui_core::{
     ButtonVariant, ControlState, InteractionState, NoticeTone, ReviewTheme, Rgba, SelectionState,
 };
-use ratatui::style::{Color, Modifier};
+use ratatui::style::{Color, Modifier, Style};
 use std::error::Error;
 
 #[test]
@@ -57,7 +57,7 @@ fn translucent_semantic_styles_composite_against_their_actual_surface() {
     );
     assert_eq!(
         native.control_style(ButtonVariant::Destructive, rest),
-        layered_style(palette.destructive_foreground, palette.destructive, palette.canvas)
+        Style::new().fg(composite_color(palette.destructive, canvas))
     );
     assert_eq!(Some(native.accent_foreground), native.control_style(ButtonVariant::Primary, rest).fg);
     let on_surface = native.on_background(native.surface);

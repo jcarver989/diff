@@ -3,11 +3,12 @@ use clankerdiff_core::{
     ControlKind, DiffReviewCommand as C, FilesMode, PageLabel, ReviewCommand, Toolbar, ToolbarControl, ViewMode,
     tooltip,
 };
-use rouge_core::{AnyView, Color, Cursor, Div, Rect, Role, Styled, Theme, View, div, dynamic, px, text, view};
+use rouge_core::{AnyView, Div, Rect, Role, Styled, Theme, View, div, dynamic, px, text, view};
 use rouge_reactive::{memo, signal, use_context};
 use rouge_widgets::{
-    ButtonVariant, CODE_FONT, ControlSize, Icon, IconName, InterfaceSize, NoticeTone, SizeAction, UiStyles, button,
-    icon_button, muted_text, notification, segment, segmented_control, tokens,
+    ButtonVariant, CODE_FONT, ControlSize, Icon, IconName, InterfaceSize, NoticeTone, Separator, SizeAction, UiStyles,
+    button, icon_button, list_row, muted_text, notification, segment, segmented_control, separator, spinner,
+    tokens::{self, HAIRLINE, Space},
 };
 use rouge_widgets::{Hint, popover};
 
@@ -91,9 +92,9 @@ pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
         }
     });
     view! {
-        <div test_id="diff-toolbar" flex col flex_none track_bounds=bounds bg=Role::Chrome border_b=px(1.0)
-             border_color=Role::Border>
+        <div test_id="diff-toolbar" relative flex col flex_none track_bounds=bounds bg=Role::Chrome>
             <dynamic>{bar(&handle, &model.get())}</dynamic>
+            <div absolute left=0.0 right=0.0 bottom=0.0 h=HAIRLINE bg=Role::Border pass_through/>
         </div>
     }
 }
@@ -104,8 +105,8 @@ fn bar(handle: &ReviewHandle, model: &Model) -> Div {
     let focused = model.flags.files_focused;
     let files = model.split.then(|| {
         view! {
-            <div test_id="toolbar-files" flex_none w={move || px(sidebar.get())} h_full px=8.0 flex row
-                 items_center gap=4.0 bg=Role::Surface border_r=px(1.0)
+            <div test_id="toolbar-files" flex_none w={move || px(sidebar.get())} h_full px=Space::X2 flex row
+                 items_center gap=Space::X1 bg=Role::Surface border_r=HAIRLINE
                  border_color={move || { let c = theme.get(); if focused { c.accent } else { c.border } }}>
                 {..files_controls(handle, model)}
             </div>
@@ -115,16 +116,19 @@ fn bar(handle: &ReviewHandle, model: &Model) -> Div {
         <div flex col>
             <div h=tokens::BAR_HEIGHT flex_none flex row>
                 {files}
-                <div flex_1 min_w=0.0 h_full px=8.0 flex row items_center gap=12.0>
+                <div flex_1 min_w=0.0 h_full px=Space::X2 flex row items_center gap=Space::X3>
                     {leading(handle, model)}
                     {trailing(handle, model)}
                 </div>
             </div>
             {model.error.clone().map(|error| view! {
-                <div px=8.0 pb=8.0><notification message=error tone=NoticeTone::Error/></div>
+                <div px=Space::X2 pb=Space::X2><notification message=error tone=NoticeTone::Error/></div>
             })}
             {model.flags.pending.then(|| view! {
-                <div px=12.0 pb=8.0><muted_text>"Updating repository…"</muted_text></div>
+                <div test_id="repository-pending" px=Space::X3 pb=Space::X2 flex row items_center gap=Space::X2>
+                    {spinner()}
+                    <muted_text>"Updating repository…"</muted_text>
+                </div>
             })}
         </div>
     }
@@ -170,7 +174,7 @@ fn leading(handle: &ReviewHandle, model: &Model) -> Div {
     let target = review_target(handle, model);
     let (has_files, has_history) = (!files.is_empty(), !history.is_empty());
     view! {
-        <div flex_1 min_w=0.0 overflow_hidden flex row items_center gap=4.0>
+        <div flex_1 min_w=0.0 overflow_hidden flex row items_center gap=Space::X1>
             {..files}
             {(has_files && has_history).then(divider)}
             {..history}
@@ -200,7 +204,7 @@ fn review_target(handle: &ReviewHandle, model: &Model) -> Option<Div> {
     let both = stepper.is_some() && scopes.is_some();
     Some(view! {
         <div test_id="review-target" flex_grow=0.0 flex_shrink=1.0 min_w=0.0 overflow_hidden h=tokens::ROW_HEIGHT flex
-             row items_center gap=4.0>
+             row items_center gap=Space::X1>
             {stepper}
             {both.then(divider)}
             {scopes}
@@ -214,7 +218,7 @@ fn stepper(handle: &ReviewHandle, model: &Model) -> Option<Div> {
     };
     Some(view! {
         <div test_id="commit-stepper" flex_grow=0.0 flex_shrink=1.0 w=MAX_STEPPER_WIDTH min_w=MIN_STEPPER_WIDTH h_full
-             px=4.0 flex row items_center gap=4.0 rounded=tokens::Radius::Control bg=Role::Surface
+             px=Space::X1 flex row items_center gap=Space::X1 rounded=tokens::Radius::Control bg=Role::Surface
              track_bounds=handle.commit_anchor()>
             {control(handle, model, previous, Some(tokens::ICON_SIZE_SMALL))}
             {commit_trigger(handle, model, label, choose)}
@@ -225,7 +229,6 @@ fn stepper(handle: &ReviewHandle, model: &Model) -> Option<Div> {
 
 fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choose: &ToolbarControl) -> AnyView {
     let theme = Theme::current();
-    let hovered = signal(false);
     let has_subject = label.subject().is_some();
     let run = run(handle, choose);
     let short_id = label.short_id().map(|short_id| {
@@ -249,24 +252,15 @@ fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choos
         view! { <div test_id="commit-position"><text small no_wrap muted>{position}</text></div> }
     });
     let trigger = view! {
-        <div test_id="choose-commit" w_full min_w=0.0 h=tokens::ICON_BUTTON_SIZE px=8.0 flex row items_center gap=8.0
-             rounded=tokens::Radius::Inner cursor=Cursor::Pointer
-             bg={move || if hovered.get() { theme.get().surface_hover } else { Color::TRANSPARENT }}
-             on_hover={move |inside| {
-                 hovered.set_if_changed(inside);
-             }}
-             on_click={move |event| {
-                 event.stop_propagation();
-                 run();
-             }}>
+        <list_row test_id="choose-commit" w_full min_w=0.0 on_click=run>
             {short_id}
             {subject}
             <div flex_1/>
-            <div flex_none flex row items_center gap=8.0>
+            <div flex_none flex row items_center gap=Space::X2>
                 {position}
                 {Icon::new(IconName::ChevronDown, Role::TextMuted).size(tokens::ICON_SIZE_SMALL)}
             </div>
-        </div>
+        </list_row>
     };
     trigger.tooltip(choose.tooltip.clone()).flex_1().min_w(0.0).into_any()
 }
@@ -274,7 +268,7 @@ fn commit_trigger(handle: &ReviewHandle, model: &Model, label: &PageLabel, choos
 fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
     let toolbar = &model.toolbar;
     let stat = toolbar.stat.filter(|_| !model.compact).map(|stat| {
-        view! { <div test_id="diff-summary" flex_none px=4.0>{style::stat_badges(stat, handle.theme())}</div> }
+        view! { <div test_id="diff-summary" flex_none px=Space::X1>{style::stat_badges(stat, handle.theme())}</div> }
     });
     let collapse = toolbar
         .files
@@ -306,7 +300,7 @@ fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
     let size = toolbar.stat.and_then(|_| size_menu());
     let after_stat = stat.is_some() && (collapse.is_some() || layouts.is_some() || wrap.is_some() || size.is_some());
     view! {
-        <div flex_none flex row items_center justify_end gap=4.0>
+        <div flex_none flex row items_center justify_end gap=Space::X1>
             {stat}
             {after_stat.then(divider)}
             {collapse}
@@ -322,7 +316,6 @@ fn trailing(handle: &ReviewHandle, model: &Model) -> Div {
 }
 
 fn size_menu() -> Option<AnyView> {
-    let theme = Theme::current();
     let size = use_context::<InterfaceSize>()?;
     let open = signal(false);
     let trigger = view! {
@@ -333,23 +326,13 @@ fn size_menu() -> Option<AnyView> {
         let step = |id: &str, icon, label: &str, action| {
             view! { <icon_button test_id=id icon=icon label on_click={move || size.apply(action)}/> }
         };
-        let hovered = signal(false);
         view! {
-            <div test_id="interface-size-menu" p=tokens::FLOATING_INSET flex row items_center gap=4.0>
-                <div px=4.0 mr=4.0><text small secondary>"Text size"</text></div>
+            <div test_id="interface-size-menu" p=tokens::FLOATING_INSET flex row items_center gap=Space::X1>
+                <div px=Space::X1 mr=Space::X1><text small secondary>"Text size"</text></div>
                 {step("decrease-interface-size", IconName::Minus, "Decrease text size", SizeAction::Decrease)}
-                <div test_id="reset-interface-size" h=tokens::ICON_BUTTON_SIZE px=tokens::CONTROL_PADDING_X_SMALL flex
-                     items_center rounded=tokens::Radius::Inner cursor=Cursor::Pointer
-                     bg={move || if hovered.get() { theme.get().surface_hover } else { Color::TRANSPARENT }}
-                     on_hover={move |inside| {
-                         hovered.set_if_changed(inside);
-                     }}
-                     on_click={move |event| {
-                         event.stop_propagation();
-                         size.apply(SizeAction::Reset);
-                     }}>
-                    <text label primary>{move || format!("{:.0}", size.get())}</text>
-                </div>
+                <button test_id="reset-interface-size" label={move || format!("{:.0}", size.get())}
+                        variant=ButtonVariant::Ghost control_size=ControlSize::Small rounded=tokens::Radius::Inner
+                        on_click={move || size.apply(SizeAction::Reset)}/>
                 {step("increase-interface-size", IconName::Plus, "Increase text size", SizeAction::Increase)}
             </div>
         }
@@ -357,8 +340,8 @@ fn size_menu() -> Option<AnyView> {
     Some(popover(open, trigger, menu).into_any())
 }
 
-fn divider() -> Div {
-    view! { <div flex_none h=tokens::ICON_SIZE mx=4.0 border_l=1.0 border_color=Role::BorderSubtle/> }
+fn divider() -> Separator {
+    view! { <separator vertical h=tokens::ICON_SIZE mx=Space::X1 border_color=Role::BorderSubtle/> }
 }
 
 fn run(handle: &ReviewHandle, item: &ToolbarControl) -> impl Fn() + Clone + 'static {

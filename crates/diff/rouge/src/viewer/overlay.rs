@@ -5,7 +5,7 @@ use clankerdiff_core::{DiffReviewCommand, FileStatus, InteractionPhase, RepoPath
 use clankerdiff_ui_core::ThemeChoice;
 use rouge_core::{AnyView, Key, Modifiers, View, div, editable, text, view};
 use rouge_reactive::{batch, on_cleanup, signal};
-use rouge_widgets::{ButtonVariant, SearchPickerHandle, action_bar, backdrop, button, modal};
+use rouge_widgets::{ButtonVariant, SearchPickerHandle, action_bar, backdrop, button, field, modal};
 use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -173,12 +173,13 @@ pub(super) fn view(handle: &ReviewHandle, kind: OverlayKind) -> AnyView {
             let status = handle.status();
             view! {
                 <modal test_id="commit-prompt" title="Commit staged changes" on_dismiss=cancel>
-                    <editable value test_id="commit-message" autofocus multiline min_rows=3 max_rows=12
-                              submit_on_enter=true
-                              on_submit={move |body| {
-                                  handle.confirm_repository(Some(body));
-                              }}/>
-                    <text>{move || status.get().repository_error.unwrap_or_default()}</text>
+                    <field label="Message" test_id="commit-field" error={move || status.get().repository_error}>
+                        <editable value test_id="commit-message" autofocus multiline min_rows=3 max_rows=12
+                                  submit_on_enter=true
+                                  on_submit={move |body| {
+                                      handle.confirm_repository(Some(body));
+                                  }}/>
+                    </field>
                     <button test_id="commit-confirm" label="Commit"
                             on_click={move || {
                                 handle.confirm_repository(Some(&value.get_untracked()));

@@ -132,3 +132,16 @@ fn command_palette_lists_browse_commands_while_open() {
         assert!(ui.center_of("command-5").is_ok());
     });
 }
+
+#[test]
+fn a_commit_without_a_message_is_refused_under_the_message_field() {
+    common::run(common::document(), |ui, handle, _| {
+        assert!(handle.handle_command(C::BeginCommit));
+        ui.advance(0.0);
+        assert_eq!(ui.bounds_of("commit-field-note"), None);
+
+        ui.press("enter");
+
+        assert_eq!(ui.text_of("commit-field-note").as_deref(), Some("Commit message cannot be empty"));
+    });
+}

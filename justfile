@@ -6,10 +6,6 @@ install:
 profile-desktop repo="." bench="scroll:60:600" *args="":
     ROUGE_PROFILE=rouge-trace.json ROUGE_BENCH={{bench}} cargo run --locked --profile release -p clankerdiff-desktop -- {{args}} {{repo}}
 
-# Keep review UI spacing on the 4px grid and radii on the token scale
-style-check:
-    scripts/style-check
-
 tui:
     cargo run -p clankerdiff-ratatui --features crossterm-backend --example review
 
