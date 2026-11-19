@@ -1,6 +1,6 @@
 use crate::{ReviewHandle, comment_editor::composer};
 use clankerdiff_core::{DiffSide, LineAnchor, ReviewCommand, ReviewComment};
-use rouge_core::{Color, Div, Role, Styled, View, div, dynamic, px, show, text, view};
+use rouge_core::{Color, Div, Role, Styled, View, div, dynamic, show, text, view};
 use rouge_reactive::memo;
 use rouge_widgets::{
     IconName, UiStyles, icon_button,
@@ -63,7 +63,7 @@ fn card(handle: &ReviewHandle, row: usize, side: DiffSide, comment: ReviewCommen
             .with(|draft| matches!(draft, Some((anchor, Some(editing))) if *anchor == comment.anchor && *editing == id))
     });
     view! {
-        <div test_id={format!("comment-{id}")} w_full flex col when:border_b=(!last, px(1.0))
+        <div test_id={format!("comment-{id}")} w_full flex col when:border_b=(!last, HAIRLINE)
              when:border_color=(!last, Role::Border)>
             <div px=Space::X3 py=Space::X2 bg=Role::SurfaceSelected flex row items_center gap=Space::X2>
                 <div flex_1 min_w=0.0>

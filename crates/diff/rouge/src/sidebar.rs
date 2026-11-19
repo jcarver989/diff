@@ -7,7 +7,7 @@ use rouge_reactive::{Selector, Stored, effect, memo, selector, signal, stored};
 use rouge_widgets::{
     CODE_FONT, CheckModel, CheckState, IconName, SelectionState, Side, TreeRow, UiStyles, checkbox, muted_text,
     resizable_panel,
-    tokens::{ROW_HEIGHT, Space},
+    tokens::{ICON_SIZE_SMALL, ROW_HEIGHT, Space},
     tree_row, vertical_scrollbar,
 };
 
@@ -98,7 +98,7 @@ fn row(handle: ReviewHandle, selected: Selector<Option<usize>>, index: usize) ->
     });
     let code = file_status.filter(|_| !directory).map(|file_status| {
         view! {
-            <div w=12.0 flex_none flex justify_center>
+            <div w=ICON_SIZE_SMALL flex_none flex justify_center>
                 <text caption font=CODE_FONT
                       color={move || palette.with(|t| Color::from(style::file_status_color(file_status, &t.diff)))}>
                     {file_status.code().to_string()}

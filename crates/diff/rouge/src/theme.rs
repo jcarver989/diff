@@ -2,7 +2,7 @@ use clankerdiff_ui_core::{Appearance, ReviewTheme, TerminalPalette, ThemeChoice,
 use rouge_core::{Theme, View, appearance, component, view};
 use rouge_reactive::{ReadSignal, Signal, batch, expect_context, provide_context, signal};
 use rouge_widgets::{
-    Material, PickerItem, SearchPicker, SearchPickerEvent, SearchPickerHandle, backdrop, search_picker,
+    Material, PickerItem, SearchPicker, SearchPickerEvent, SearchPickerHandle, backdrop, key_hints, search_picker,
 };
 use std::{cell::RefCell, sync::Arc};
 
@@ -115,7 +115,7 @@ pub fn theme_picker_view(
 ) -> SearchPicker {
     view! {
         <search_picker test_id=id handle material=material searchable="Search themes…" empty="No matching themes"
-                       footer="↑↓ Preview    ↵ Apply    Esc Cancel"/>
+                       footer={key_hints([("↑↓", "Preview"), ("↵", "Apply"), ("Esc", "Cancel")])}/>
     }
 }
 

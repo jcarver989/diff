@@ -10,7 +10,52 @@ use rouge_core::{
     testing::{TestError, TestUi, TestUiBuilder},
 };
 use rouge_reactive::{Runtime, signal};
+use rouge_widgets::tokens::{GRID_COLUMNS, UNIT};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
+
+#[test]
+fn every_named_part_of_the_markdown_review_is_a_whole_number_of_units_tall() -> Result<(), Box<dyn std::error::Error>> {
+    let _runtime = Runtime::new().enter();
+    let (mut ui, handle) =
+        TestUiBuilder::default().size(1200.0, 900.0).fonts(rouge_widgets::bundled_fonts()).build_with(|| {
+            let doc = Arc::new(MarkdownDocument::parse(
+                "# Title\n\nA paragraph.\n\n## Section\n\n- one\n- two\n\n> quoted\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n---\n\n```rust\nfn main() {}\n```",
+            ));
+            let handle = MarkdownController::new(doc, ReviewTheme::default()).mount(|_| {});
+            (markdown_review_view(handle), handle)
+        });
+    ui.advance(0.0);
+    let mut astray = unit_strays(&ui, "the document");
+    assert!(handle.handle_command(ReviewCommand::BeginComment)?);
+    ui.advance(0.0);
+    astray.extend(unit_strays(&ui, "a comment draft"));
+    assert!(astray.is_empty(), "off the unit: {astray:#?}");
+    Ok(())
+}
+
+#[test]
+fn the_reading_column_is_centred_on_whole_grid_columns_however_wide_the_window()
+-> Result<(), Box<dyn std::error::Error>> {
+    for width in [920.0, 1400.0, 2400.0] {
+        let _runtime = Runtime::new().enter();
+        let mut ui = TestUiBuilder::default().size(width, 640.0).fonts(rouge_widgets::bundled_fonts()).build(|| {
+            let doc = Arc::new(MarkdownDocument::parse("# Title\n\nA paragraph."));
+            markdown_review_view(MarkdownController::new(doc, ReviewTheme::default()).mount(|_| {}))
+        });
+        ui.advance(0.0);
+        let document = ui.bounds_of("markdown-document").ok_or("document")?;
+        let reading = ui.bounds_of("markdown-column-1").ok_or("column")?;
+        let column = document.size.width / f32::from(GRID_COLUMNS);
+        let (before, spanned) = ((reading.origin.x - document.origin.x) / column, reading.size.width / column);
+        assert!((before - before.round()).abs() < 0.01 && (spanned - spanned.round()).abs() < 0.01, "at {width}");
+        assert!((before * 2.0 + spanned - f32::from(GRID_COLUMNS)).abs() < 0.01, "centred at {width}");
+        ui.hover_on("markdown-column-1")?;
+        ui.click_on("markdown-add-comment-1")?;
+        ui.advance(0.0);
+        assert!(ui.bounds_of("comment-editor").is_some(), "the gutter beside the column still adds a comment");
+    }
+    Ok(())
+}
 
 #[test]
 fn mounted_markdown_uses_semantic_selection_and_single_review_session() -> Result<(), Box<dyn std::error::Error>> {
@@ -177,4 +222,12 @@ fn wrapped_row_heights(ui: &mut TestUi) -> Result<[f32; 2], TestError> {
     assert!(heading.origin.y >= paragraph.max().y, "paragraph overlaps heading: {paragraph:?} {heading:?}");
     assert!(next_item.origin.y >= item.max().y, "list items overlap: {item:?} {next_item:?}");
     Ok([paragraph.size.height, item.size.height])
+}
+
+fn unit_strays(ui: &TestUi, scene: &str) -> Vec<String> {
+    ui.named_bounds()
+        .into_iter()
+        .filter(|(_, bounds)| bounds.size.height % UNIT != 0.0)
+        .map(|(name, bounds)| format!("{scene}: {name} is {} tall", bounds.size.height))
+        .collect()
 }

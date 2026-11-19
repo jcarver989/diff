@@ -92,9 +92,9 @@ pub(crate) fn toolbar(handle: &ReviewHandle) -> impl View {
         }
     });
     view! {
-        <div test_id="diff-toolbar" flex col flex_none track_bounds=bounds bg=Role::Chrome border_b=HAIRLINE
-             border_color=Role::Border>
+        <div test_id="diff-toolbar" relative flex col flex_none track_bounds=bounds bg=Role::Chrome>
             <dynamic>{bar(&handle, &model.get())}</dynamic>
+            <div absolute left=0.0 right=0.0 bottom=0.0 h=HAIRLINE bg=Role::Border pass_through/>
         </div>
     }
 }

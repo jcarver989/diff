@@ -2,8 +2,9 @@ use crate::ReviewHandle;
 use rouge_core::{Cursor, Div, FocusHandle, Role, Styled, Theme, div, dynamic, editable, focus_handle, text, view};
 use rouge_reactive::{Callback, Memo, effect, memo, provide_context, signal, use_context};
 use rouge_widgets::{
-    ButtonVariant, ControlSize, Material, MaterialExt, UI_FONT, UiStyles, button,
+    ButtonVariant, ControlSize, Material, MaterialExt, UiStyles, button,
     tokens::{HAIRLINE, Radius, Space},
+    typography::BODY,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -41,11 +42,11 @@ pub(crate) fn composer(
     let editor = view! {
         <div test_id="comment-composer" flex col gap=Space::X3 p=Space::X3>
             {title.map(|title| view! { <text body_strong primary>{title}</text> })}
-            <div min_h=96.0 w_full p=Space::X3 rounded=Radius::Inner border=HAIRLINE
+            <div min_h=Space::X24 w_full p={Space::X3.px() - HAIRLINE} rounded=Radius::Inner border=HAIRLINE
                  border_color={move || { let c = theme.get(); if focus.is_focused() { c.accent } else { c.border } }}
                  bg=Role::Canvas cursor=Cursor::Text>
                 <editable value test_id="comment-editor" when:autofocus=autofocus track_focus=focus multiline
-                          min_rows=3 max_rows=12 font=UI_FONT text_size=13.0 line_height=1.5 color=Role::Text w_full
+                          min_rows=3 max_rows=12 typography=BODY color=Role::Text w_full
                           submit_on_enter=true on_submit={move |body| submit.call(body.to_owned())}/>
             </div>
             <div w_full flex row justify_end items_center gap=Space::X2>

@@ -10,7 +10,35 @@ use rouge_core::{
     Point, Rect, Size,
     testing::{TestResult, TestUi},
 };
+use rouge_widgets::tokens::UNIT;
 use std::{fmt::Write, io, sync::Arc};
+
+#[test]
+fn every_named_part_of_the_review_is_a_whole_number_of_units_tall() -> TestResult {
+    let doc = DocumentBuilder::new()
+        .changed("README.md", "# Diff\n", "# Diff\n\nSome *prose* to preview.\n")
+        .renamed("old.rs", "src/new.rs", "fn old() {}\n", "fn new() {}\n")
+        .changed("src/lib.rs", "let old = 1;\n", "let new = 2;\nlet more = 3;\n")
+        .build();
+    common::run(doc, |ui, handle, _| {
+        let mut astray = Vec::new();
+        for mode in [ViewMode::Unified, ViewMode::Split] {
+            assert!(handle.handle_command(C::SetViewMode(mode)));
+            ui.advance(0.0);
+            astray.extend(off_the_unit(ui, &format!("{mode:?}")));
+        }
+        let row = first_code(&handle)?;
+        ui.hover_on(&format!("diff-cell-{row}-New"))?;
+        ui.click_on(&format!("add-comment-{row}-New"))?;
+        ui.advance(0.0);
+        astray.extend(off_the_unit(ui, "a comment draft"));
+        ui.click_on("preview-markdown-0")?;
+        ui.advance(0.0);
+        astray.extend(off_the_unit(ui, "a markdown preview"));
+        assert!(astray.is_empty(), "off the unit: {astray:#?}");
+        Ok(())
+    })
+}
 
 #[test]
 fn split_and_unified_render_the_same_patch_and_target_the_correct_side() -> TestResult {
@@ -422,4 +450,12 @@ fn first_code(handle: &clankerdiff_rouge::ReviewHandle) -> Result<usize, io::Err
 
 fn bounds(ui: &mut TestUi, name: &str) -> Result<Rect, io::Error> {
     ui.bounds_of(name).ok_or_else(|| io::Error::other(format!("no bounds for {name}")))
+}
+
+fn off_the_unit(ui: &TestUi, scene: &str) -> Vec<String> {
+    ui.named_bounds()
+        .into_iter()
+        .filter(|(name, bounds)| !name.starts_with("code-") && bounds.size.height % UNIT != 0.0)
+        .map(|(name, bounds)| format!("{scene}: {name} is {} tall", bounds.size.height))
+        .collect()
 }

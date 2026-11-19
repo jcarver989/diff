@@ -24,8 +24,8 @@ use rouge_widgets::{
 use std::{cell::Cell, ops::Range, rc::Rc};
 
 const CODE_HEIGHT: f32 = 20.0;
-const HEADER_HEIGHT: f32 = 34.0;
-const STATUS_CHIP: f32 = 18.0;
+const HEADER_HEIGHT: f32 = tokens::GROUP_HEIGHT;
+const STATUS_CHIP: f32 = tokens::ICON_SIZE;
 const COMMENT_COLUMN: f32 = 40.0;
 const ADDED_COLUMN: f32 = 64.0;
 const DELETED_COLUMN: f32 = 40.0;
@@ -37,7 +37,7 @@ const TEXT_TOP: f32 = 0.0;
 const META_PADDING: f32 = Space::X3.px();
 const CODE_PADDING_RIGHT: f32 = Space::X2.px();
 /// Between side-by-side columns.
-const DIVIDER: f32 = 1.0;
+const DIVIDER: f32 = HAIRLINE;
 const MAX_LINE_BYTES: usize = 16 * 1024;
 const CONTINUATION: &str = "↪";
 const PREVIEW_WIDTH: f32 = 780.0;
@@ -821,7 +821,7 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
         (info.previewable && info.source.is_none()).then(|| preview_toggle(&handle, index, view == FileView::Preview));
     view! {
         <div test_id={format!("diff-file-header-{index}")} h=HEADER_HEIGHT w_full flex row items_center
-             border_t=px(if info.after_header { 0.0 } else { 1.0 }) border_b=HAIRLINE border_color=rule
+             border_t=px(if info.after_header { 0.0 } else { HAIRLINE }) border_b=HAIRLINE border_color=rule
              bg=band(|p| p.foreground.mix(p.background, 10)) cursor=Cursor::Pointer overflow_hidden
              on_click={move |_| {
                  handle.handle_command(C::SelectFile(index));
@@ -987,7 +987,7 @@ fn gap(handle: &ReviewHandle, index: usize) -> Div {
             <div w={ACCENT_WIDTH + GUTTER_WIDTH} flex_none flex justify_center>{reveal}</div>
             <show when={move || selected.get()}>
                 <div flex row items_center flex_none>
-                    {line().w(12.0)}
+                    {line().w(Space::X3)}
                     <div px=Space::X2>
                         <text caption no_wrap color={move || palette.with(|t| Color::from(t.diff.muted))}>{hint.clone()}</text>
                     </div>

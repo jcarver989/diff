@@ -111,7 +111,7 @@ fn eyebrow(page: &CommitPage) -> Div {
     view! {
         <div test_id="commit-preview-eyebrow" flex row items_center gap=Space::X2>
             {marker(page, &colors)}
-            <text small weight=500.0 color=tone>{label}</text>
+            <text label color=tone>{label}</text>
             {page.title.scope.clone().map(|scope| view! {
                 <text small color=colors.text_muted>"·"</text>
                 <text small color=colors.text_muted>{scope}</text>

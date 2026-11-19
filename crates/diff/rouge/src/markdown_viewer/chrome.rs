@@ -2,14 +2,15 @@ use super::MarkdownHandle;
 use clankerdiff_core::ReviewCommand;
 use clankerdiff_markdown::{MarkdownAnchors, MarkdownFocusPane, MarkdownReviewCommand};
 use rouge_core::{Role, RowKey, Styled, Theme, View, component, div, dynamic, text, view, virtual_list};
-use rouge_widgets::tokens::{HAIRLINE, ROW_HEIGHT, Radius, Space};
+use rouge_widgets::tokens::{HAIRLINE, ROW_HEIGHT, Radius, Space, UNIT};
 use rouge_widgets::{
     ButtonVariant, CODE_FONT, ControlSize, IconName, ModalSize, SelectionState, Side, UiStyles, button, icon_button,
     kbd, modal, resizable_panel, tree_row, vertical_scrollbar,
 };
 use std::path::Path;
 
-const HEADER_HEIGHT: f32 = 56.0;
+const HEADER_HEIGHT: f32 = 14.0 * UNIT;
+const SHORTCUT_KEYS_WIDTH: f32 = 34.0 * UNIT;
 const MIN_OUTLINE_WIDTH: f32 = 160.0;
 const MAX_OUTLINE_WIDTH: f32 = 420.0;
 
@@ -208,7 +209,7 @@ pub(super) fn shortcuts(close: impl Fn() + 'static) -> impl View {
                 {..rows.iter().map(move |(keys, description)| {
                     view! {
                         <div flex row gap=Space::X3>
-                            <div w=136.0 flex_none flex row flex_wrap items_center gap=Space::X1>
+                            <div w=SHORTCUT_KEYS_WIDTH flex_none flex row flex_wrap items_center gap=Space::X1>
                                 {..keys.split([',', '/']).map(|key| kbd(key.trim().to_owned()))}
                             </div>
                             <div flex_1 min_w=0.0><text body muted>{*description}</text></div>

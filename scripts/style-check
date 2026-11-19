@@ -18,6 +18,12 @@ matches=$(grep -rnoE --exclude=tokens.rs "(\b$spaced=|\.$spaced\()[0-9]+(\.[0-9]
 [ -n "$matches" ] && report "Use tokens::Space for padding, margins and gaps" "$matches"
 matches=$(grep -rnoE "(\b$sized=|\.$sized\()[0-9]+(\.[0-9]+)?" "$src" | off_grid '[=(]' || true)
 [ -n "$matches" ] && report "Keep spacing and size literals on the 4px grid" "$matches"
+matches=$(grep -rnE "(border(_[trbl])?=|\.border(_[trbl])?\()(px\()?1(\.0)?\b" "$src" || true)
+[ -n "$matches" ] && report "Use tokens::HAIRLINE for a 1px edge" "$matches"
+matches=$(grep -rnE "(\btext_size=|\.text_size\(|\bline_height=|\.line_height\()[0-9]" "$src" || true)
+[ -n "$matches" ] && report "Use a typography preset instead of a size or line height of your own" "$matches"
+matches=$(grep -rnE "(Tween::(ms|new)|Spring::new)\(" "$src" || true)
+[ -n "$matches" ] && report "Use tokens::Pace instead of a spring or duration of your own" "$matches"
 names=$(grep -rhoE "(\b$sized=|\.$sized\()[A-Z][A-Z0-9_]*" "$src" | sed -E 's/.*[=(]//' | sort -u || true)
 matches=$(for name in $names; do
     grep -rnE "const $name: f32 = [0-9.]+;" "$src" | off_grid '= ' || true
