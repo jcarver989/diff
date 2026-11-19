@@ -4,7 +4,10 @@ use clankerdiff_markdown::{MarkdownDocument, MarkdownOptions};
 use clankerdiff_symbols::{DefinitionCard, SymbolReference};
 use rouge_core::{Cursor, Div, Modifiers, Rect, Role, Styled, TextHit, View, div, dynamic, scroll, text, view};
 use rouge_reactive::{Signal, effect, memo, signal};
-use rouge_widgets::{ControlSize, UiStyles, button, hover_card, markdown, tokens::POPOVER_WIDTH};
+use rouge_widgets::{
+    ControlSize, UiStyles, button, hover_card, markdown,
+    tokens::{HAIRLINE, POPOVER_WIDTH, Space},
+};
 use std::ops::Range;
 
 const CARD_MIN_WIDTH: f32 = 320.0;
@@ -126,7 +129,7 @@ fn body(handle: ReviewHandle, card: &DefinitionCard) -> Div {
             }
         });
         let meta = view! {
-            <div flex row items_center gap=12.0>
+            <div flex row items_center gap=Space::X3>
                 <div flex_1 min_w=0.0 overflow_hidden>
                     {content.place.map(|place| view! { <text caption muted no_wrap>{place}</text> })}
                 </div>
@@ -143,18 +146,18 @@ fn body(handle: ReviewHandle, card: &DefinitionCard) -> Div {
                     }}/>
         }
     };
-    let divider = head.is_some().then(|| view! { <div border_t=1.0 border_color=Role::BorderSubtle/> });
+    let divider = head.is_some().then(|| view! { <div border_t=HAIRLINE border_color=Role::BorderSubtle/> });
     view! {
         <div flex col>
-            <div flex col gap=4.0 px=12.0 py=8.0>
+            <div flex col gap=Space::X1 px=Space::X3 py=Space::X2>
                 <text body_strong primary>{card.name.clone()}</text>
                 {head}
             </div>
             {divider}
-            <div flex col gap=8.0 px=12.0 py=8.0>
+            <div flex col gap=Space::X2 px=Space::X3 py=Space::X2>
                 {docs}
                 {meta}
-                <div flex row gap=4.0>
+                <div flex row gap=Space::X1>
                     {can_jump.then(|| action("definition-jump", "Go to definition", C::GoToDefinition))}
                     {can_cycle.then(|| action("definition-next", "Next", C::NextDefinition))}
                     {action("definition-close", "Close", C::CloseDefinition)}

@@ -963,7 +963,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-client"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -996,7 +996,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-core"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "clankerdiff-fingerprint",
  "clankerdiff-ui-core",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-fingerprint"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "blake3",
  "serde",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-git"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "clankerdiff-core",
  "tempfile",
@@ -1027,7 +1027,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-lspd"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "futures",
  "lsp-types",
@@ -1044,7 +1044,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-markdown"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
@@ -1055,7 +1055,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-protocol"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -1068,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ratatui"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "bitflags 2.13.2",
  "clankerdiff-client",
@@ -1089,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-server"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "axum",
  "clankerdiff-core",
@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-symbols"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "clankerdiff-core",
  "rouge-syntax",
@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ui-core"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-watch"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -2606,9 +2606,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-markdown"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f150278ec657e46782a5277fb3239762a71f121b677ebd394ae86050841085e"
+checksum = "7f25eedca1c302cce7685d0fc7a7359c9de112c13bcc5ebd630ec5cdcecbfbc0"
 dependencies = [
  "linkify",
  "pulldown-cmark",
@@ -2619,9 +2619,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-syntax"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b25bb3b9980fd8b039cb489697de1d051f1d7d8709a6093ada2fec5cec43826d"
+checksum = "d8d094a59bd955c510de5f9900d49750ed44e18f36a3f8d12d1c1e1fa41ce636"
 dependencies = [
  "arborium-asm",
  "arborium-bash",
@@ -2694,9 +2694,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-theme"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8c99a1b2766274eeaae615e4fa7de5854e9678dadd91f604feaa708be84fc72"
+checksum = "566f8551cc301910df05774db80cb7bf73029776609e3652f51ebf6da55fb0c4"
 dependencies = [
  "serde",
 ]
