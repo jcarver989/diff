@@ -1099,9 +1099,9 @@ dependencies = [
 
 [[package]]
 name = "bstr"
-version = "1.13.1"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
+checksum = "a680398c10c7bc0488067c4612226ea905a85f607134b69f3068d505d58c4214"
 dependencies = [
  "memchr",
  "serde_core",
@@ -1147,9 +1147,9 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "bytes"
-version = "1.12.1"
+version = "1.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 
 [[package]]
 name = "calloop"
@@ -1256,7 +1256,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-cli"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-client",
  "clankerdiff-core",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-client"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-core"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-fingerprint",
  "clankerdiff-ui-core",
@@ -1316,7 +1316,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-desktop"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-client",
  "clankerdiff-core",
@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-fingerprint"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "blake3",
  "serde",
@@ -1347,7 +1347,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-git"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1359,7 +1359,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-lspd"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-lspd",
  "clap",
@@ -1383,7 +1383,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-markdown"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
@@ -1395,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-protocol"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ratatui"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "bitflags 2.13.2",
  "clankerdiff-client",
@@ -1433,7 +1433,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-remote"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "humantime",
  "serde",
@@ -1444,7 +1444,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-rouge"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-client",
  "clankerdiff-core",
@@ -1460,7 +1460,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-server"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "async-channel",
  "axum",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-symbols"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-core",
  "rouge-syntax",
@@ -1488,7 +1488,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ui-core"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
@@ -1502,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-watch"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-git",
@@ -1516,7 +1516,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-web"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "async-channel",
  "clankerdiff-client",
@@ -4022,29 +4022,29 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "1.1.13"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2466b2336ed02bcdca6b294417127b90ec92038d1d5c4fbeac971a922e0e0924"
+checksum = "a6c2123f4708bbd422630a6dae7c03f678b1ce1f1c99e4c4b3beac69c8174cc9"
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.13"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96395f0a926bc13b1c17622aaddda1ecb55d49c8f1bf9777e4d877800a43f8b"
+checksum = "358938fd6df944c1e44bb328b60fb275f13c804aac47ba26a1165d45a3f87756"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.10",
 ]
 
 [[package]]
 name = "pin-project-lite"
-version = "0.2.17"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
 
 [[package]]
 name = "pkg-config"
@@ -4115,9 +4115,9 @@ dependencies = [
 
 [[package]]
 name = "pollster"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c2c80c4e3afbec8224b9d3e641fbf3a5690cc7595b887b0a27a926bb357ed5c"
+checksum = "7e9b9cf600136f5b976fbc5727d58c26e1ecab8ee23088d44ef1c7af793550ab"
 
 [[package]]
 name = "portable-atomic"
@@ -4457,9 +4457,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.13.1"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+checksum = "9807af0e638c12e753aa1b4e601791bf2a8f71274023c8bbeec12fc149950857"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -4469,9 +4469,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.18"
+version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+checksum = "41d60ef07df457506a0a1a2073112eb4aae5733dbd2813c3da77d1b0fd441158"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -4480,9 +4480,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 
 [[package]]
 name = "renderdoc-sys"
@@ -5088,9 +5088,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.16.5"
+version = "1.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "smithay-client-toolkit"
@@ -6119,9 +6119,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core-deps-wasm"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d260ca2ca8adc654f513a869bf3cac0b47f5b8d3f87803d6942015f8de597aae"
+checksum = "b20f43aeb9962d05e61e3ccb717e2e27ba1b04e979d4ca7e361384f8ee03db56"
 dependencies = [
  "wgpu-hal",
 ]
@@ -6702,9 +6702,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.9.1"
+version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+checksum = "85ccff8a4805aba1eaa4cd4afcd49f7557dd2cf5fd79ffc37f8959466effc5aa"
 
 [[package]]
 name = "zerotrie"

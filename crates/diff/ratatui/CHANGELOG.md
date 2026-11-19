@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.10.1...clankerdiff-ratatui-v0.10.2) - 2026-11-19
+
+### Other
+
+- Adopt the Rouge 0.2 design system ([#150](https://github.com/jcarver989/diff/pull/150))
+
 ## [0.10.1](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.10.0...clankerdiff-ratatui-v0.10.1) - 2026-11-17
 
 ### Other
