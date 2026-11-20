@@ -22,13 +22,13 @@ This repository also holds the Rouge building blocks ClankerDiff is made of, whi
 | `ui/` | `core`, `syntax` | Themes and syntax highlighting. |
 | `diff/` | `core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `rouge`, `ratatui`, `cli`, `desktop`, `web` | The diff and markdown review domain, its renderers and the ClankerDiff apps. |
 
-A crate may depend only on its own domain or a lower one (`util` < `ui` < `diff`), which `just layer-check` enforces. See [AGENTS.md](AGENTS.md) for conventions.
+A crate may depend only on its own domain or a lower one (`util` < `ui` < `diff`), which `mise run layer-check` enforces. See [AGENTS.md](AGENTS.md) for conventions.
 
 ## Building the migration branch
 
 The checked-in sources are midway through a [hard cutover to Rouge](migration-plan.md). The desktop and browser targets do not build yet; the release linked above predates the cutover. For a headless build, use `cargo build -p clankerdiff-cli --no-default-features`.
 
-All workspace commands require Rust 1.100.0. Rouge dependencies are fetched from crates.io; a sibling checkout is not required. Local binary packaging uses cargo-dist. Downstream consumers must adopt the renamed crates and Rouge APIs; the rename alone does not port their UI code.
+All workspace commands require Rust 1.100.0. Install [mise](https://mise.jdx.dev/), then run `mise trust` and `mise install` from the repository root. Use `mise tasks` to list available tasks and `mise run <task>` to run one. Rouge dependencies are fetched from crates.io; a sibling checkout is not required. Local binary packaging uses cargo-dist. Downstream consumers must adopt the renamed crates and Rouge APIs; the rename alone does not port their UI code.
 
 The shared design system (`rouge-widgets`) and its renderer-neutral theme types (`rouge-theme`) live in the Rouge repository. To run the component gallery, clone Rouge into `../rouge` and use a graphical session:
 

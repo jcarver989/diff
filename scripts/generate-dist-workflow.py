@@ -38,7 +38,7 @@ def main():
     previous, expected = generate()
     if args.check:
         if previous != expected:
-            raise SystemExit("release workflow is out of date; run just dist-generate")
+            raise SystemExit("release workflow is out of date; run mise run dist-generate")
     else:
         WORKFLOW.write_bytes(expected)
 

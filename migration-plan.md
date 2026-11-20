@@ -187,7 +187,7 @@ Checkpoint: the renderer crates and application packages have their final names,
 - Update `.framer/src/lib.rs::CRATES`; register the web package if required by the revised dependency generation.
 - Remove the GPUI method-specific radius lint paths; retain the policy through Rouge token usage and an appropriate check, not obsolete GPUI symbols.
 - Update generated MSRV, manifests, CI, package/release settings, and tracked lockfiles through their owning tools.
-- Update manually maintained `justfile` recipes outside generated blocks directly; update generated recipes only through Framer.
+- Update project-specific tasks directly in `mise.toml`; update generated tasks only through Framer.
 
 Acceptance: no application manifest selects GPUI; there is one set of renamed renderer crates. Compilation may remain broken until subsequent steps finish.
 
@@ -229,7 +229,7 @@ Acceptance: public tests prove same-count refresh correctness, bounded mounted r
 
 Checkpoint: the portable `clankerdiff-rouge-ui` library builds on native and WASM and contains no GPUI implementation. The native gallery now lives in the shared crate and uses the native Rouge facade only as a target-specific dev dependency. Public Rouge integration tests replace the old shared GPUI tests. The [shared coverage map](docs/migration-baseline/shared-rouge-coverage.md) lists replacements and specific omissions. The Diff/Markdown views and host cutover are unchanged by this checkpoint. The sibling changes are local; the Framer-owned CI pin is unchanged.
 
-Verified locally on Linux: 24 shared Rouge integration tests plus 28 renderer-neutral tests passed; 264 affected Rouge toolkit tests (`rouge-core`, `rouge-render`, `rouge-widgets`) passed. Strict Clippy passed for the shared crate on native (all targets) and WASM (library), and for the affected Rouge crates on native and WASM. Scoped formatting, `just layer-check`, the baseline inventory tests, and `git diff --check` in both repositories passed. The gallery presented four native frames and exited successfully with `ROUGE_EXIT_AFTER_FRAMES=4`. The portable library's normal dependency graph excludes GPUI and the `rouge` native facade.
+Verified locally on Linux: 24 shared Rouge integration tests plus 28 renderer-neutral tests passed; 264 affected Rouge toolkit tests (`rouge-core`, `rouge-render`, `rouge-widgets`) passed. Strict Clippy passed for the shared crate on native (all targets) and WASM (library), and for the affected Rouge crates on native and WASM. Scoped formatting, the layer check, the baseline inventory tests, and `git diff --check` in both repositories passed. The gallery presented four native frames and exited successfully with `ROUGE_EXIT_AFTER_FRAMES=4`. The portable library's normal dependency graph excludes GPUI and the `rouge` native facade.
 
 Remaining parity: the compositor does not retain GPUI's per-indicator presentation caps (10 Hz spinner, 30 Hz waveform); window visibility scheduling changed and real minimize/restore has not been exercised. Tiled-window resize suppression and platform titlebar capability/order need host support. Dynamic scrollbar drag under changing extents and tail-follow, and human visual sign-off, remain outstanding. Do not mark the complete shared-surface acceptance item done on the strength of the gallery smoke alone.
 
@@ -408,7 +408,7 @@ Acceptance: existing browser contract tests run against Rouge with no test-only 
 - Update CLI imports and the optional `desktop` dependency to `clankerdiff-desktop`; retain `--no-default-features` headless behavior.
 - Add an independent Rouge UI consumer fixture, with an isolated `[workspace]`, that depends on the public UI/review APIs and creates/renders real views without GPUI. Do not force the existing portable ratatui fixture to pull a graphical renderer into its default graph.
 - Update available sibling consumers to the new APIs as a coordinated breaking change, or record concrete external changes required before their next build. Do not claim they are migrated merely because the Diff workspace compiles.
-- Rewrite dependency-graph deny checks in `justfile` to prohibit Rouge packages in Git/watch/ratatui/headless graphs; replacing a `gpui` name pattern with nothing would remove an architectural guard.
+- Rewrite dependency-graph deny checks in `mise.toml` to prohibit Rouge packages in Git/watch/ratatui/headless graphs; replacing a `gpui` name pattern with nothing would remove an architectural guard.
 - Retain native, WASM, remote-client, browser, syntax, Markdown, and consumer coverage in CI. Add Rouge sibling checkout/setup before dependent jobs.
 - Configure native test environments with needed font/system libraries and a working GPU driver for rendered tests. Configure browser tests with a supported GPU backend; do not silently skip rendering when initialization fails.
 - Update docs, scripts, executable/package metadata, example commands, and Framer presets consumed by sibling applications.
@@ -475,24 +475,24 @@ If a fixed budget is infeasible on the baseline hardware, record the measurement
 Run the updated repository recipes after their configuration is migrated:
 
 ```sh
-just framer-check
-just fmt-check
-just check
-just feature-check
-just lint
-just test
-just wasm-check
-just web-test
-just remote-test
-just watch-test
-just consumer-check
-just doc-check
-just automation-check
-just package-check
-just bench-check
+mise run framer-check
+mise run fmt-check
+mise run check
+mise run feature-check
+mise run lint
+mise run test
+mise run wasm-check
+mise run web-test
+mise run remote-test
+mise run watch-test
+mise run consumer-check
+mise run doc-check
+mise run automation-check
+mise run package-check
+mise run bench-check
 ```
 
-`just package-check` must first be made meaningful as described in step 13. Published-consumer checks are unavailable for unpublished Rouge dependencies and must be identified as such, not reported as passing.
+`mise run package-check` must first be made meaningful as described in step 13. Published-consumer checks are unavailable for unpublished Rouge dependencies and must be identified as such, not reported as passing.
 
 Also run the Rouge repository's formatting, lint, integration-test, and new WASM/browser checks. Native Rouge examples must continue compiling; the existing demo is not a second Diff application to maintain in this repository.
 
@@ -531,7 +531,7 @@ Paths beginning `../rouge/` are changes in the sibling repository. All other pat
 | `.framer/src/main.rs` | Modify | MSRV, preset application, pinned sibling checkout, WASM/native CI, renderer lint policy, prototype publish settings |
 | `Cargo.toml`, toolchain/lint/test/dist/release configuration, generated workflow files | Regenerate | Apply Framer-owned changes; do not edit generated outputs by hand |
 | `Cargo.lock`, fixture lockfiles | Regenerate as applicable | Resolve local Rouge packages and remove GPUI packages |
-| `justfile` | Modify/regenerate by ownership | Package commands, architecture guards, consumer checks, browser/native checks |
+| `mise.toml` | Modify/regenerate by ownership | Package commands, architecture guards, consumer checks, browser/native checks |
 | `scripts/check-consumer.py` or its replacement | Verify then restore/add if needed | Repair current missing validation target and adapt local/published package modes honestly |
 | `README.md`, `AGENTS.md`, applicable contributor/build documentation | Modify | Architecture, dependencies, local sibling setup, package names, support matrix, migration instructions |
 | `../rouge/Cargo.toml` and dependency manifests | Modify | Register browser host, target-specific features/dependencies, portable text/runtime/renderer configuration |

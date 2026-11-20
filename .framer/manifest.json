@@ -19,9 +19,6 @@
         "rust-monorepo"
       ]
     },
-    ".tool-versions": {
-      "kind": "managed"
-    },
     "Cargo.toml": {
       "kind": "toml",
       "keys": [
@@ -69,10 +66,22 @@
     "dist-workspace.toml": {
       "kind": "managed"
     },
-    "justfile": {
-      "kind": "blocks",
-      "ids": [
-        "rust-monorepo"
+    "mise.toml": {
+      "kind": "toml",
+      "keys": [
+        "tools",
+        "tasks.check",
+        "tasks.test",
+        "tasks.test-ci",
+        "tasks.lint",
+        "tasks.fmt",
+        "tasks.fmt-check",
+        "tasks.doc-check",
+        "tasks.framer",
+        "tasks.framer-check",
+        "tasks.dist-plan",
+        "tasks.dist-generate",
+        "tasks.dist-check"
       ]
     },
     "release-plz.toml": {

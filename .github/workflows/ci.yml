@@ -17,8 +17,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Install tools
-        uses: jdx/mise-action@v5.2.0
-      - run: just fmt-check
+        uses: jdx/mise-action@v5.2.10
+      - run: mise run fmt-check
   lint:
     name: Clippy
     runs-on: ubuntu-latest
@@ -27,14 +27,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Install tools
-        uses: jdx/mise-action@v5.2.0
+        uses: jdx/mise-action@v5.2.10
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
-      - run: just lint
+      - run: mise run lint
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -43,17 +43,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Install tools
-        uses: jdx/mise-action@v5.2.0
+        uses: jdx/mise-action@v5.2.10
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
-      - run: just test-ci
+      - run: mise run test-ci
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ runner.os }}
           path: target/nextest/ci/junit.xml
@@ -66,14 +66,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Install tools
-        uses: jdx/mise-action@v5.2.0
+        uses: jdx/mise-action@v5.2.10
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
-      - run: just doc-check
+      - run: mise run doc-check
   framer:
     name: Generated files
     runs-on: ubuntu-latest
@@ -82,8 +82,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Install tools
-        uses: jdx/mise-action@v5.2.0
-      - run: just framer-check
+        uses: jdx/mise-action@v5.2.10
+      - run: mise run framer-check
   features:
     name: Minimal features
     runs-on: ubuntu-latest
@@ -92,13 +92,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Install tools
-        uses: jdx/mise-action@v5.2.0
+        uses: jdx/mise-action@v5.2.10
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
-      - run: just feature-check
+      - run: mise run feature-check
       - name: Test remote backend and headless CLI
-        run: just remote-test
+        run: mise run remote-test
