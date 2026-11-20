@@ -1,6 +1,5 @@
 use diff_framer::{CRATES, ROUGE_LINUX_PACKAGES, RougeApp};
 use framer::github::{Dependabot, DependabotUpdate, Step};
-use framer::just::Justfile;
 use framer::rust::{Level, Lints};
 use framer::toml_edit::{Array, ArrayOfTables, InlineTable, Item, Table, Value};
 use framer::{KeyPath, Project, TomlKeys};
@@ -13,7 +12,7 @@ fn main() -> ExitCode {
         .workspace(workspace())
         .lints(lints())
         .rustfmt(rustfmt())
-        .tools(Tools::new().tool("actionlint", "1.7.12"))
+        .tools(Tools::new().mise_toml().tool("actionlint", "1.7.12"))
         .ci(ci())
         .dependabot(dependabot())
         .without_conventions()
@@ -27,7 +26,7 @@ fn main() -> ExitCode {
     project.apply(rouge);
     project.add(TomlKeys::new("release-plz.toml").set_item("package", Item::ArrayOfTables(publishable_packages())));
     configure_cargo(&mut project);
-    configure_dist_recipes(&mut project);
+    configure_dist_tasks(&mut project);
     project.toml("clippy.toml").set("disallowed-methods", disallowed_radii());
     project.synth()
 }
@@ -65,14 +64,11 @@ fn disallowed_radii() -> Array {
     [Value::InlineTable(entry)].into_iter().collect()
 }
 
-fn configure_dist_recipes(project: &mut Project) {
-    let recipes = project.get_mut::<Justfile>().expect("the monorepo preset provides recipes");
-    for (name, command) in [
-        ("dist-generate", "python3 scripts/generate-dist-workflow.py"),
-        ("dist-check", "python3 scripts/generate-dist-workflow.py --check"),
-    ] {
-        *recipes.recipe_mut(name).expect("the dist preset provides the recipe").lines_mut() = vec![command.into()];
-    }
+fn configure_dist_tasks(project: &mut Project) {
+    project
+        .toml("mise.toml")
+        .set("tasks.dist-generate.run", "python3 scripts/generate-dist-workflow.py")
+        .set("tasks.dist-check.run", "python3 scripts/generate-dist-workflow.py --check");
 }
 
 fn publishable_packages() -> ArrayOfTables {
@@ -121,11 +117,12 @@ fn dependabot() -> Dependabot {
 
 fn features_job() -> CompilingJob {
     CompilingJob::new("features", "Minimal features", "feature-check")
-        .step(Step::run("just remote-test").name("Test remote backend and headless CLI"))
+        .step(Step::run("mise run remote-test").name("Test remote backend and headless CLI"))
 }
 
 fn release() -> Release {
     let release_plz = ReleasePlz::new()
+        .app_token_secrets("RELEASE_AUTOMATION_APP_ID", "RELEASE_AUTOMATION_APP_PRIVATE_KEY")
         .publish_to_crates_io()
         .setup(RougeApp::linux_dependencies())
         .set("release", false)
@@ -135,5 +132,5 @@ fn release() -> Release {
     let apt: InlineTable = ROUGE_LINUX_PACKAGES.into_iter().map(|package| (package, Value::from("*"))).collect();
     Release::new()
         .release_plz(release_plz)
-        .dist(Dist::new().allow_dirty_ci().set("system-dependencies.apt", Value::InlineTable(apt)))
+        .dist(Dist::new().version("0.31.0").allow_dirty_ci().set("system-dependencies.apt", Value::InlineTable(apt)))
 }

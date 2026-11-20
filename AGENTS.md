@@ -12,15 +12,15 @@ Crates are grouped by domain under `crates/`:
 - `crates/ui/`: review themes (diff, markdown and syntax palettes built on `rouge-theme` and `rouge-syntax`) (`core`).
 - `crates/diff/`: the diff and markdown review domain (`core`, `protocol`, `client`, `git`, `watch`, `server`, `markdown`, `rouge`, `ratatui`, `cli`, `desktop`, `web`).
 
-A crate may depend only on crates in its own domain or a lower one: `util` < `ui` < `diff`. `just layer-check` enforces this. Put new code in the lowest domain it fits; anything another app could use without diff concepts belongs in `ui/` or `util/`.
+A crate may depend only on crates in its own domain or a lower one: `util` < `ui` < `diff`. `mise run layer-check` enforces this. Put new code in the lowest domain it fits; anything another app could use without diff concepts belongs in `ui/` or `util/`.
 
 Internal crates are declared once in the root `[workspace.dependencies]`; reference them with `.workspace = true`.
 
 ## Generated configuration
 
-[framer](https://github.com/jcarver989/framer) generates the repository's configuration from `.framer/src/main.rs`: the toolchain pin, rustfmt, clippy and nextest config, `.tool-versions`, the workspace members, package settings, lints, profiles, Rouge versions and internal crate paths in `Cargo.toml`, the CI and release-plz workflows, Dependabot configuration, `dist-workspace.toml`, and the marked blocks in `justfile` and `.gitignore`. Files and blocks it owns say so in a header. Change `.framer/src/main.rs` and run `just framer` rather than editing them; `just framer-check` fails when they drift. `.framer/` depends on the `framer` and `framer-presets` crates from crates.io; CI runs `just framer-check`.
+[framer](https://github.com/jcarver989/framer) generates the repository's configuration from `.framer/src/main.rs`: the toolchain pin, rustfmt, clippy and nextest config, the tool pins and standard tasks in `mise.toml`, the workspace members, package settings, lints, profiles, Rouge versions and internal crate paths in `Cargo.toml`, the CI and release-plz workflows, Dependabot configuration, `dist-workspace.toml`, and the marked blocks in `.gitignore`. Generated files and blocks say so in a header; `.framer/manifest.json` lists the TOML keys Framer owns. Add project-specific tasks directly to `mise.toml`. Change `.framer/src/main.rs` and run `mise run framer` rather than editing them; `mise run framer-check` fails when they drift. `.framer/` depends on the `framer` and `framer-presets` crates from crates.io; CI runs `mise run framer-check`.
 
-`.framer/src/lib.rs` holds the `RougeApp` preset, which owns the crates.io Rouge dependencies (`ROUGE_CRATES`) and the internal crate paths (`CRATES`). It's a library so sibling apps such as j-terminal and aether can apply it later; when a crate moves, update `CRATES` and run `just framer`.
+`.framer/src/lib.rs` holds the `RougeApp` preset, which owns the crates.io Rouge dependencies (`ROUGE_CRATES`) and the internal crate paths (`CRATES`). It's a library so sibling apps such as j-terminal and aether can apply it later; when a crate moves, update `CRATES` and run `mise run framer`.
 
 ## Coding conventions
 
