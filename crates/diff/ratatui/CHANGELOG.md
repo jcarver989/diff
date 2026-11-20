@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.10.2...clankerdiff-ratatui-v0.10.3) - 2026-11-20
+
+### Other
+
+- update Framer and migrate tasks to mise ([#151](https://github.com/jcarver989/diff/pull/151))
+
 ## [0.10.2](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.10.1...clankerdiff-ratatui-v0.10.2) - 2026-11-19
 
 ### Other
