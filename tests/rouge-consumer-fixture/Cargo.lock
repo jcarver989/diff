@@ -899,7 +899,7 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "clankerdiff-client"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -914,7 +914,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-core"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-fingerprint",
  "clankerdiff-ui-core",
@@ -926,7 +926,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-fingerprint"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "blake3",
  "serde",
@@ -935,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-markdown"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-core",
  "clankerdiff-fingerprint",
@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-protocol"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "async-channel",
  "clankerdiff-core",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-rouge"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-client",
  "clankerdiff-core",
@@ -987,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-symbols"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "clankerdiff-core",
  "rouge-syntax",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "clankerdiff-ui-core"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "arborium-theme",
  "clankerdiff-fingerprint",
@@ -2206,9 +2206,9 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "rouge-core"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "961b5f9e451f6a9d4544e04abbe1993468dd7fb17c3fd0633952ec08c7aea5ea"
+checksum = "16d4568f8923afeee605fa30af8701283f9ff57e63940436074f2990e6ff3c19"
 dependencies = [
  "image",
  "parley",
@@ -2228,9 +2228,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-macros"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e0770da019766fd23d26a2b1db80edca906def8dd6040dc17fc8dbd19300078"
+checksum = "11cff82bfb7d5efb0aba5602b9bfa099fb32323d38c3dd00a370c9b33b53d1cd"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2240,9 +2240,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-markdown"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f25eedca1c302cce7685d0fc7a7359c9de112c13bcc5ebd630ec5cdcecbfbc0"
+checksum = "901df8ce66222894738e269d28269cc4943d6cafb0e169f2b86f1de392c83e33"
 dependencies = [
  "linkify",
  "pulldown-cmark",
@@ -2253,9 +2253,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-reactive"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "184466a7a29fa14a7d6f17a1c84e1b26329d7de055fb555f3b266aa85bd15d1c"
+checksum = "b5db72c09d99f5ddb01c8ec85d1697945c44ec134e974b9c347ccd7f3c41c288"
 dependencies = [
  "crossbeam-channel",
  "gloo-timers",
@@ -2269,9 +2269,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-render"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eabac92bc62a4086cb30bdb6a59dd95274a452575910ac7c61c37b30e4883770"
+checksum = "56593e1c7ace99f2e7d2fc52e8c8778fd2e16f1e79860eab28d9792bd38edee2"
 dependencies = [
  "bytemuck",
  "image",
@@ -2291,9 +2291,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-syntax"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8d094a59bd955c510de5f9900d49750ed44e18f36a3f8d12d1c1e1fa41ce636"
+checksum = "2a6462cc77a1de08655516598a87d0371f95f34e93d08cb00551bb16bdb5fe5e"
 dependencies = [
  "arborium-asm",
  "arborium-bash",
@@ -2366,18 +2366,18 @@ dependencies = [
 
 [[package]]
 name = "rouge-theme"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "566f8551cc301910df05774db80cb7bf73029776609e3652f51ebf6da55fb0c4"
+checksum = "3fa21a1b75b579617de7f641625256d51e5929b46d8b56d4f8161315ed886044"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "rouge-widgets"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b2ca969f44e91ae326fb22d510882ba76189aeb097cd06304adca09bda66eda"
+checksum = "9821f109e8f1b0f1fc099fdd9836d253b648ce2f0466e3d113fc623e5e44fccd"
 dependencies = [
  "nucleo-matcher",
  "rouge-core",
