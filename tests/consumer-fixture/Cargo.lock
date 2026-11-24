@@ -2606,9 +2606,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-markdown"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dfcbbc417fb1b05d1b417b59ca0f58850269322b3cb9855cd89d78dda8ed16b"
+checksum = "9c8a5a2217fa37cbb6aff42cfaf2f251f84070c03dd0cbd2c307cdd29d2d3e3a"
 dependencies = [
  "linkify",
  "pulldown-cmark",
@@ -2619,9 +2619,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-syntax"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b73ba838cbc34fdd257857df3d05cd4af5fa0104609ab70c4c11e5bfb1367cc4"
+checksum = "946543d26b5b768e95f6d616f20f75bc475c034c93f4d615676301e762d2b380"
 dependencies = [
  "arborium-asm",
  "arborium-bash",
@@ -2694,9 +2694,9 @@ dependencies = [
 
 [[package]]
 name = "rouge-theme"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce4f4055e2fb97db9bca3d7c431a7c5cecdb2cd792b3f8c6f46d8f98a344c663"
+checksum = "f6d608e449bc61db31670509ebe7a3884692883d32be01cb310ad7e3a4744177"
 dependencies = [
  "serde",
 ]
