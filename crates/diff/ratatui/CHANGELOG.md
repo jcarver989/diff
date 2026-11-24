@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.4](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.10.3...clankerdiff-ratatui-v0.10.4) - 2026-11-24
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.10.3](https://github.com/jcarver989/diff/compare/clankerdiff-ratatui-v0.10.2...clankerdiff-ratatui-v0.10.3) - 2026-11-20
 
 ### Other
