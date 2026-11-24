@@ -10,6 +10,6 @@ publish = false
 clankerdiff-core = { path = "../../crates/diff/core", features = ["test-support"] }
 clankerdiff-rouge = { path = "../../crates/diff/rouge" }
 clankerdiff-ui-core = { path = "../../crates/ui/core" }
-rouge-core = "0.4.0"
-rouge-widgets = "0.4.0"
-rouge-reactive = "0.4.0"
+rouge-core = "0.5.0"
+rouge-widgets = "0.5.0"
+rouge-reactive = "0.5.0"
