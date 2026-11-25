@@ -79,3 +79,8 @@ publish = true
 name = "clankerdiff-ratatui"
 release = true
 publish = true
+
+[[package]]
+name = "clankerdiff-cli"
+release = true
+git_only = true

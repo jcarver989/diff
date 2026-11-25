@@ -6,6 +6,8 @@ use framer::{KeyPath, Project, TomlKeys};
 use framer_presets::{Ci, CompilingJob, Dist, Release, ReleasePlz, Rust, RustMonorepo, Rustfmt, Tools, Workspace};
 use std::process::ExitCode;
 
+const CLI_PACKAGE: &str = "clankerdiff-cli";
+
 fn main() -> ExitCode {
     let monorepo = RustMonorepo::new()
         .rust(Rust::new("1.100").toolchain("1.100.0").targets(["wasm32-unknown-unknown"]))
@@ -24,7 +26,7 @@ fn main() -> ExitCode {
     let mut project = Project::new();
     project.apply(monorepo);
     project.apply(rouge);
-    project.add(TomlKeys::new("release-plz.toml").set_item("package", Item::ArrayOfTables(publishable_packages())));
+    project.add(TomlKeys::new("release-plz.toml").set_item("package", Item::ArrayOfTables(released_packages())));
     configure_cargo(&mut project);
     configure_dist_tasks(&mut project);
     project.toml("clippy.toml").set("disallowed-methods", disallowed_radii());
@@ -71,18 +73,20 @@ fn configure_dist_tasks(project: &mut Project) {
         .set("tasks.dist-check.run", "python3 scripts/generate-dist-workflow.py --check");
 }
 
-fn publishable_packages() -> ArrayOfTables {
-    CRATES
+fn released_packages() -> ArrayOfTables {
+    let libraries = CRATES
         .iter()
         .filter(|(_, path)| !path.ends_with("/desktop") && !path.ends_with("/web"))
-        .map(|(name, _)| {
-            let mut package = Table::new();
-            package["name"] = framer::toml_edit::value(*name);
-            package["release"] = framer::toml_edit::value(true);
-            package["publish"] = framer::toml_edit::value(true);
-            package
-        })
-        .collect()
+        .map(|(name, _)| released_package(name, "publish"));
+    libraries.chain([released_package(CLI_PACKAGE, "git_only")]).collect()
+}
+
+fn released_package(name: &str, mode: &str) -> Table {
+    let mut package = Table::new();
+    package["name"] = framer::toml_edit::value(name);
+    package["release"] = framer::toml_edit::value(true);
+    package[mode] = framer::toml_edit::value(true);
+    package
 }
 
 fn rustfmt() -> Rustfmt {
