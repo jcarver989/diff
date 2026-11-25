@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.5](https://github.com/jcarver989/diff/compare/clankerdiff-rouge-v0.10.4...clankerdiff-rouge-v0.10.5) - 2026-11-25
+
+### Other
+
+- *(rouge)* migrate view tests to ReviewHarness and remove common::run
+- *(core)* split session into submodules and move unit tests to tests/
+- *(core)* centralize session command gating and split header expansion
+- *(core)* model ReviewSession view state with ActiveView and RestorePlan
+- *(core)* model source focus and file presentation explicitly
+
 ## [0.10.4](https://github.com/jcarver989/diff/compare/clankerdiff-rouge-v0.10.3...clankerdiff-rouge-v0.10.4) - 2026-11-24
 
 ### Other
