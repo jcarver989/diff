@@ -1,7 +1,7 @@
-use super::{ActiveView, FilesMode, RestorePlan, ReviewSession, SourceTarget, SourceView, document_with_reference};
+use super::{FilesMode, ReviewSession, document_with_reference};
 use crate::{
-    DiffDocument, DiffFileView, DiffReviewCommand, DiffSide, FileDiff, GapExpansion, GapId, RepoPath, SourceDisplay,
-    SourceDocument, SourceFocus, SourceLocation, SourcePath, TargetLocation, gaps_for_file,
+    DiffDocument, DiffFileView, DiffReviewCommand, DiffSide, FileDiff, GapExpansion, GapId, RepoPath, SourceDocument,
+    SourcePath, TargetLocation, gaps_for_file,
 };
 use std::sync::Arc;
 
@@ -79,27 +79,14 @@ impl ReviewSession {
 
     #[must_use]
     pub fn reference(&self) -> Option<&FileDiff> {
-        match &self.active_view {
-            ActiveView::Source(view) => match &view.target {
-                SourceTarget::Reference { file, .. } => Some(file),
-                SourceTarget::DiffFile(_) => None,
-            },
-            ActiveView::Diff => None,
-        }
+        self.source.as_ref()?.reference.as_ref()?.files.last()
     }
 
     #[must_use]
     pub fn reference_source(&self) -> Option<&SourcePath> {
-        if let Some(pending) = &self.pending_reference {
-            return Some(&pending.target.path);
-        }
-        match &self.active_view {
-            ActiveView::Source(view) => match &view.target {
-                SourceTarget::Reference { source, .. } => Some(source),
-                SourceTarget::DiffFile(_) => None,
-            },
-            ActiveView::Diff => None,
-        }
+        self.pending_reference()
+            .map(|t| &t.path)
+            .or_else(|| self.source.as_ref().filter(|s| s.reference.is_some()).map(|s| &s.target.path))
     }
 
     #[must_use]
@@ -109,18 +96,13 @@ impl ReviewSession {
 
     #[must_use]
     pub const fn shows_source(&self) -> bool {
-        matches!(self.active_view, ActiveView::Source(_)) || self.pending_reference.is_some()
+        self.source.is_some() || self.pending_reference.is_some()
     }
 
     #[must_use]
     pub fn shows_external(&self, path: &RepoPath) -> bool {
-        match &self.active_view {
-            ActiveView::Source(view) => matches!(
-                &view.target,
-                SourceTarget::Reference { source: SourcePath::External { .. }, file, .. } if &file.path == path
-            ),
-            ActiveView::Diff => false,
-        }
+        self.source.as_ref().is_some_and(|s| matches!(s.target.path, SourcePath::External { .. }))
+            && self.source_view() == Some(path)
     }
 
     pub(super) fn cancel_pending_reference(&mut self) {
@@ -128,50 +110,30 @@ impl ReviewSession {
     }
 
     pub fn open_reference(&mut self, source: &SourcePath, document: Arc<SourceDocument>) -> bool {
-        let line_number = if let Some(pending) = &self.pending_reference
-            && &pending.target.path == source
-        {
-            pending.target.line_number
-        } else if self.reference_source() == Some(source) && self.reference().is_some() {
-            self.selected_source_line().map_or(1, |location| location.line_number)
-        } else {
+        if self.reference_source() != Some(source) {
+            return false;
+        }
+        let Some(target) = self.current_location() else {
             return false;
         };
-        if let SourcePath::Repo(path) = source
-            && self.document.file_index(path).is_some()
-        {
-            return self.reveal_source(&SourceLocation { path: path.clone(), side: DiffSide::New, line_number });
-        }
+        let preview = self.pending_reference.is_none() && self.source.as_ref().is_some_and(|s| s.preview);
         self.pending_reference = None;
-        let return_to = self.take_return_bookmark();
-        let path = source.display_path();
-        let file = FileDiff::unchanged(path.clone(), document);
-        let displayed = document_with_reference(&self.document, &file);
-        self.active_view = ActiveView::Source(Box::new(SourceView {
-            target: SourceTarget::Reference { source: source.clone(), file, displayed },
-            return_to,
-        }));
-        self.projection.set_source_focus(Some(SourceFocus::code(path.clone())));
-        self.selected_file = self.document.files.len();
-        self.rebuild(RestorePlan::JumpToSource(SourceLocation { path, side: DiffSide::New, line_number }));
+        if let SourcePath::Repo(path) = source
+            && let Some(index) = self.document.file_index(path)
+        {
+            return self.reveal_source(index, &target);
+        }
+        let file = FileDiff::unchanged(source.display_path(), document);
+        self.focus_source(target, Some(document_with_reference(&self.document, file)), preview);
         true
     }
 
     #[must_use]
     pub fn current_location(&self) -> Option<TargetLocation> {
-        if let Some(pending) = self.pending_reference() {
-            return Some(pending.clone());
-        }
-        let location = self.selected_source_line()?;
-        Some(match &self.active_view {
-            ActiveView::Source(view) => match &view.target {
-                SourceTarget::Reference { source, file, .. } if file.path == location.path => {
-                    TargetLocation { path: source.clone(), side: location.side, line_number: location.line_number }
-                }
-                _ => location.into(),
-            },
-            ActiveView::Diff => location.into(),
-        })
+        self.pending_reference()
+            .or_else(|| self.source.as_ref().map(|s| &s.target))
+            .cloned()
+            .or_else(|| self.selected_source_line().map(Into::into))
     }
 
     pub fn jump_to(&mut self, target: impl Into<TargetLocation>) -> bool {
@@ -230,8 +192,15 @@ impl ReviewSession {
     }
 
     fn show(&mut self, target: &TargetLocation) -> bool {
-        if let Some(location) = self.shown_location(target) {
-            return self.reveal_source(&location);
+        let index = match &target.path {
+            SourcePath::Repo(path) if let Some(index) = self.document.file_index(path) => Some(index),
+            path if self.source.as_ref().is_some_and(|s| s.reference.is_some() && s.target.path == *path) => {
+                Some(self.selected_file)
+            }
+            _ => None,
+        };
+        if let Some(index) = index {
+            return self.reveal_source(index, target);
         }
         if target.side == DiffSide::Old || target.line_number == 0 {
             return false;
@@ -243,70 +212,45 @@ impl ReviewSession {
         true
     }
 
-    fn shown_location(&self, target: &TargetLocation) -> Option<SourceLocation> {
-        let path = match &target.path {
-            SourcePath::Repo(path) if self.file_index(path).is_some() => path.clone(),
-            source => match &self.active_view {
-                ActiveView::Source(view) => match &view.target {
-                    SourceTarget::Reference { source: open, file, .. } if open == source => file.path.clone(),
-                    _ => return None,
-                },
-                ActiveView::Diff => return None,
-            },
-        };
-        Some(SourceLocation { path, side: target.side, line_number: target.line_number })
-    }
-
-    fn reveal_source(&mut self, location: &SourceLocation) -> bool {
+    fn reveal_source(&mut self, file_index: usize, target: &TargetLocation) -> bool {
         self.cancel_pending_reference();
-        let elsewhere = self.source_view().is_none_or(|path| path != &location.path);
+        let elsewhere = self.source.as_ref().is_none_or(|s| s.target.path != target.path);
         if self.files_mode == FilesMode::Browse && elsewhere {
-            self.browse_to(location);
-        } else if matches!(self.active_view, ActiveView::Source(_)) && elsewhere {
-            self.projection.set_source_focus(None);
-            self.active_view = ActiveView::Diff;
-            self.rebuild(RestorePlan::PreserveSelection);
-        } else if self.projection.source_focus().is_some_and(|focus| focus.display == SourceDisplay::MarkdownPreview) {
-            self.projection.set_source_display(SourceDisplay::Code);
-            self.rebuild(RestorePlan::JumpToSource(location.clone()));
+            self.focus_source(target.clone(), None, false);
+        } else if self.source.is_some() && elsewhere {
+            self.leave_source_view();
+        } else if let Some(view) = &mut self.source
+            && view.preview
+        {
+            view.preview = false;
+            view.target.line_number = target.line_number;
+            self.rebuild();
         }
-        let Some(file_index) = self.file_index(&location.path) else {
-            return false;
-        };
-        if self.presentation.row_showing_source(location).is_none() {
-            self.projection.set_file_view(location.path.clone(), DiffFileView::Patch);
-            if let Some((id, expansion)) = self.gap_expansion(file_index, location) {
+        if self.source.is_none() && self.presentation.source_row(file_index, target.side, target.line_number).is_none()
+        {
+            self.projection.set_file_view(target.path.display_path(), DiffFileView::Patch);
+            if let Some((id, expansion)) = self.gap_expansion(file_index, target) {
                 self.projection.set_expansion(id, expansion);
             }
-            self.rebuild(RestorePlan::PreserveSelection);
+            self.rebuild();
         }
-        let Some(row) = self.presentation.row_showing_source(location) else {
+        let Some(row) = self.presentation.source_row(file_index, target.side, target.line_number) else {
             return false;
         };
         if !self.select_row(row) {
             return false;
         }
-        self.set_selected_side(location.side);
+        self.set_selected_side(target.side);
         true
     }
 
-    fn browse_to(&mut self, location: &SourceLocation) {
-        let return_to = self.take_return_bookmark();
-        self.active_view = ActiveView::Source(Box::new(SourceView {
-            target: SourceTarget::DiffFile(location.path.clone()),
-            return_to,
-        }));
-        self.projection.set_source_focus(Some(SourceFocus::code(location.path.clone())));
-        self.rebuild(RestorePlan::JumpToSource(location.clone()));
-    }
-
-    fn gap_expansion(&self, file_index: usize, location: &SourceLocation) -> Option<(GapId, GapExpansion)> {
+    fn gap_expansion(&self, file_index: usize, target: &TargetLocation) -> Option<(GapId, GapExpansion)> {
         let file = self.file(file_index)?;
         let count = |side| file.source_document(side).map_or(0, |source| source.line_count());
         let gaps = gaps_for_file(file, count(DiffSide::Old), count(DiffSide::New));
-        let line = location.line_number;
+        let line = target.line_number;
         let (gap_index, range) = gaps.iter().enumerate().find_map(|(index, gap)| {
-            let range = match location.side {
+            let range = match target.side {
                 DiffSide::Old => &gap.old,
                 DiffSide::New => &gap.new,
             };

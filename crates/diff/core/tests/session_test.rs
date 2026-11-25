@@ -1,12 +1,12 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    CommitKind, CommitPage, CommitSummary, CommitTitle, DiffDocument, DiffReviewCommand, DiffReviewEvent, DiffScope,
-    DiffSide, FilePresentation, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession, ReviewTarget, RowKind,
-    SourceUnavailable, ViewMode,
+    CommentDraft, CommitKind, CommitPage, CommitSummary, CommitTitle, DiffDocument, DiffReviewCommand, DiffReviewEvent,
+    DiffScope, DiffSide, FileDiff, FilePresentation, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession,
+    ReviewTarget, RowKind, SourceUnavailable, ViewMode,
     testing::{DocumentBuilder, commit_id},
 };
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{error::Error, fmt::Write, sync::Arc, time::Duration};
 
 #[test]
 fn source_side_follows_file_status() -> Result<(), Box<dyn Error>> {
@@ -89,7 +89,7 @@ fn source_round_trip_restores_diff_selection_layout_context_and_comments() -> Re
     assert_eq!(session.layout(), Layout::Unified);
     assert_eq!(session.view_mode(), ViewMode::Split);
     assert_eq!(session.selected_source_line().ok_or("location")?.line_number, 2);
-    assert!(!session.reveal_selected_gap(RevealAmount::All));
+    assert!(!session.expand_selected(RevealAmount::All));
     assert!(!session.set_selected_side(DiffSide::Old));
     assert!(!session.move_hunk(1));
     assert!(!session.begin_draft(None));
@@ -284,8 +284,7 @@ fn collapsing_a_file_parks_selection_on_its_header_until_expanded() -> Result<()
     assert_eq!(session.selected_file(), Some(1));
     assert!(session.move_row(-1));
     assert_eq!(session.selected_row(), Some(header));
-    assert!(!session.reveal_selected_gap(RevealAmount::Step));
-    assert!(session.expand_selected_header());
+    assert!(session.expand_selected(RevealAmount::Step));
     assert!(!session.is_file_collapsed(0));
     assert_eq!(session.selected_file(), Some(0));
     assert!(session.selected_anchor().is_some());
@@ -380,9 +379,8 @@ fn markdown_files_preview_in_place_of_their_diff() -> Result<(), Box<dyn Error>>
     assert_eq!(kinds, [RowKind::FileHeader, RowKind::MarkdownPreview]);
     assert_eq!(session.selected_row(), Some(range.start));
     session.set_document(readme("# Newer\n").build());
-    assert_eq!(session.presentation().file_presentation(0), FilePresentation::PatchPreview);
-    assert!(!session.reveal_selected_gap(RevealAmount::Step));
-    assert!(session.expand_selected_header());
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::Markdown);
+    assert!(session.expand_selected(RevealAmount::Step));
     assert_eq!(session.selected_source_line(), source);
     assert!(preview(&mut session, 0));
     session.set_document(
@@ -408,11 +406,8 @@ fn source_preview_is_independent_of_the_diff_view_and_preserves_source_location(
     assert!(!session.toggle_markdown_preview(Some(1)));
 
     assert!(session.toggle_markdown_preview(None));
-    let range = session.visible_range();
-    let kinds: Vec<_> = session.presentation().rows(range).iter().map(|row| row.kind).collect();
-    assert_eq!(kinds, [RowKind::FileHeader, RowKind::MarkdownPreview]);
     session.set_document(doc("# Newer\n\nLast line\n"));
-    assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::Markdown);
     assert!(session.toggle_markdown_preview(None));
     assert_eq!(session.selected_source_line(), Some(selected.clone()));
 
@@ -421,7 +416,7 @@ fn source_preview_is_independent_of_the_diff_view_and_preserves_source_location(
     assert_eq!(session.selected_source_line(), Some(selected));
     assert_eq!(session.presentation().file_presentation(0), FilePresentation::Source);
     assert!(session.toggle_source_view());
-    assert_eq!(session.presentation().file_presentation(0), FilePresentation::PatchPreview);
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::Markdown);
     Ok(())
 }
 
@@ -443,30 +438,11 @@ fn source_view_disables_diff_only_commands_and_commit_picker_requires_commits() 
         assert!(!session.command_available(&command), "{command:?}");
     }
     assert!(!session.toggle_full_file());
-    assert!(!session.expand_selected_header());
+    assert!(!session.expand_selected(RevealAmount::Step));
     assert!(!session.undo_last_comment());
 
     let paged = ReviewSession::new(DocumentBuilder::new().commit("First").changed("a.rs", "old\n", "new\n").build());
     assert!(paged.command_available(&DiffReviewCommand::OpenCommitPicker));
-}
-
-#[test]
-fn source_preview_falls_back_to_source_rows_when_the_snapshot_loses_markdown() {
-    let builder = DocumentBuilder::new().changed("README.md", "# Old\n", "# New\n");
-    let mut session = ReviewSession::new(builder.clone().build());
-    assert!(session.toggle_source_view());
-    assert!(session.toggle_markdown_preview(None));
-    assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
-
-    session.set_document(
-        builder.source("README.md", DiffSide::New, Err::<&str, _>(SourceUnavailable::NotCaptured)).build(),
-    );
-    assert!(session.source_view().is_some());
-    let presentation = session.presentation();
-    assert_eq!(presentation.file_presentation(0), FilePresentation::Source);
-    assert_eq!(presentation.hunk_range(0, 0), None);
-    let kinds: Vec<_> = presentation.rows(session.visible_range()).iter().map(|row| row.kind).collect();
-    assert_eq!(kinds, [RowKind::FileHeader, RowKind::Meta]);
 }
 
 fn session() -> ReviewSession {
@@ -661,6 +637,339 @@ fn annotations_revision_advances_only_when_comments_or_the_draft_change() -> Res
     Ok(())
 }
 
+#[test]
+fn selection_starts_on_a_commentable_row() -> Result<(), Box<dyn Error>> {
+    let session = multi_file_session()?;
+    assert_eq!(session.selected_file(), Some(0));
+    assert!(session.selected_anchor().is_some());
+    Ok(())
+}
+
+#[test]
+fn navigation_clamps_at_both_ends() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    let first = session.selected_row().ok_or("first row")?;
+    session.move_row(-5);
+    assert_eq!(session.selected_row(), Some(first));
+    session.move_row(1_000);
+    let last = session.selected_row().ok_or("last row")?;
+    session.move_row(1_000);
+    assert_eq!(session.selected_row(), Some(last));
+    assert!(session.selected_anchor().is_some());
+    Ok(())
+}
+
+#[test]
+fn file_movement_resets_the_row_and_draft() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    assert!(session.begin_draft(None));
+    assert_eq!(session.move_file(1), Some(1));
+    assert!(session.draft().is_none());
+    assert_eq!(session.move_file(9), Some(1));
+    assert_eq!(session.move_file(-9), Some(0));
+    Ok(())
+}
+
+#[test]
+fn split_selection_can_target_the_removed_side() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    session.set_view_mode(ViewMode::Split);
+    assert_eq!(session.layout(), Layout::Split);
+    assert!(session.set_selected_side(DiffSide::Old));
+    assert_eq!(session.selected_anchor().map(|anchor| anchor.side), Some(DiffSide::Old));
+    assert!(session.set_selected_side(DiffSide::New));
+    assert_eq!(session.selected_anchor().map(|anchor| anchor.side), Some(DiffSide::New));
+    Ok(())
+}
+
+#[test]
+fn selection_side_follows_cells_available_on_each_row() -> Result<(), Box<dyn Error>> {
+    let document = Arc::new(DiffDocument {
+        repo_root: "/repo".into(),
+        files: vec![FileDiff::from_texts("a.rs", "old\n", "new\nextra\n")?],
+        ..DiffDocument::default()
+    });
+    let mut session = ReviewSession::new(document);
+    session.set_view_mode(ViewMode::Split);
+    assert!(session.set_selected_side(DiffSide::Old));
+    session.move_row(1);
+    assert_eq!(session.selected_side(), DiffSide::New);
+    assert!(!session.set_selected_side(DiffSide::Old));
+    assert_eq!(session.selected_side(), DiffSide::New);
+    Ok(())
+}
+
+#[test]
+fn auto_mode_only_rebuilds_when_the_layout_changes() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    assert!(session.set_split_when_auto(true));
+    assert_eq!(session.layout(), Layout::Split);
+    assert!(!session.set_split_when_auto(true));
+    assert!(session.set_view_mode(ViewMode::Split));
+    assert!(!session.set_split_when_auto(false));
+    assert_eq!(session.layout(), Layout::Split);
+    Ok(())
+}
+
+#[test]
+fn drafts_round_trip_through_the_review() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    assert!(session.begin_draft(None));
+    session.draft_mut().ok_or("draft")?.insert("please fix");
+    let id = session.submit_draft().ok_or("comment id")?;
+    assert_eq!(session.review().len(), 1);
+    assert_eq!(session.comment_id_at_selection(), Some(id));
+
+    assert!(session.begin_draft(Some(id)));
+    assert_eq!(session.draft().ok_or("draft")?.body(), "please fix");
+    session.draft_mut().ok_or("draft")?.insert(" now");
+    assert_eq!(session.submit_draft(), Some(id));
+    assert_eq!(session.review().comment(id).ok_or("comment")?.body, "please fix now");
+    assert_eq!(session.review().len(), 1);
+
+    assert!(session.delete_comment_at_selection());
+    assert!(session.review().is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_blank_draft_adds_nothing() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    assert!(session.begin_draft(None));
+    session.draft_mut().ok_or("draft")?.insert("   ");
+    assert_eq!(session.submit_draft(), None);
+    assert!(session.review().is_empty());
+    Ok(())
+}
+
+#[test]
+fn draft_editing_is_utf8_safe() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    assert!(session.begin_draft(None));
+    let draft = session.draft_mut().ok_or("draft")?;
+    draft.insert("a界b");
+    draft.move_cursor_left();
+    draft.delete_before_cursor();
+    assert_eq!(draft.body(), "ab");
+    draft.move_cursor_to_start();
+    draft.delete_at_cursor();
+    assert_eq!(draft.body(), "b");
+    draft.move_cursor_to_end();
+    assert_eq!(draft.cursor(), 1);
+    Ok(())
+}
+
+#[test]
+fn eager_full_file_projection_keeps_expanded_lines_non_commentable() -> Result<(), Box<dyn Error>> {
+    let mut session = full_file_session();
+    let selected = session.selected_source_line().ok_or("selected")?;
+    assert!(session.toggle_full_file());
+    assert_eq!(session.selected_source_line(), Some(selected));
+    let expanded = session
+        .presentation()
+        .rows(0..session.presentation().row_count())
+        .iter()
+        .position(|row| row.kind == RowKind::ExpandedContext)
+        .ok_or("expanded row")?;
+    assert!(session.select_row(expanded));
+    let expanded_location = session.selected_source_line().ok_or("expanded location")?;
+    assert!(session.selected_anchor().is_none());
+    assert!(!session.begin_draft(None));
+    assert!(session.toggle_full_file());
+    assert!(session.toggle_full_file());
+    assert_eq!(session.selected_source_line(), Some(expanded_location));
+    Ok(())
+}
+
+#[test]
+fn document_replacement_preserves_an_existing_patch_selection_and_draft() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    session.move_row(2);
+    let anchor = session.selected_anchor().ok_or("anchor")?;
+    assert!(session.begin_draft(None));
+    session.draft_mut().ok_or("draft")?.insert("still editing");
+    let document = session.document().clone();
+    session.set_document(document);
+    assert_eq!(session.selected_anchor(), Some(anchor));
+    assert_eq!(session.draft().map(CommentDraft::body), Some("still editing"));
+    Ok(())
+}
+
+#[test]
+fn document_replacement_drops_a_draft_when_content_changes_at_the_same_line() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    assert!(session.begin_draft(None));
+    session.draft_mut().ok_or("draft")?.insert("stale draft");
+    let replacement = Arc::new(DiffDocument {
+        repo_root: "/repo".into(),
+        files: vec![FileDiff::from_texts("a.rs", "different\ntwo\n", "CHANGED\nTWO\n")?],
+        ..DiffDocument::default()
+    });
+    session.set_document(replacement);
+    assert!(session.draft().is_none());
+    Ok(())
+}
+
+#[test]
+fn from_texts_documents_capture_both_sides_and_reveal_unchanged_context() -> Result<(), Box<dyn Error>> {
+    let old = (1..=80).fold(String::new(), |mut text, line| {
+        let _ = writeln!(text, "line {line}");
+        text
+    });
+    let new = old.replace("line 40\n", "changed 40\n");
+    let document = DiffDocument::from_texts([
+        ("src/changed.rs", old.as_str(), new.as_str()),
+        ("src/added.rs", "", "fn main() {}\n"),
+    ])?;
+    let changed = &document.files[0];
+    assert_eq!(changed.hunks.len(), 1);
+    assert!(changed.hunks[0].lines.len() <= 8);
+    assert_eq!(changed.source_document(DiffSide::Old).ok_or("old source")?.line_count(), 80);
+    assert_eq!(document.files[1].source_unavailable(DiffSide::Old), Some(&SourceUnavailable::Absent));
+
+    let mut session = ReviewSession::new(Arc::new(document));
+    reveal_from_first_code_row(&mut session)?;
+    let presentation = session.presentation();
+    let gap = (0..presentation.row_count()).find_map(|index| presentation.gap_info(index)).ok_or("gap")?;
+    assert_eq!(gap.unavailable, None);
+    Ok(())
+}
+
+#[test]
+fn snapshot_replacement_retains_gap_expansions_through_an_index_shift() -> Result<(), Box<dyn Error>> {
+    let (_, new) = windowed_source(&[31]);
+    let fixture = windowed_fixture(&new);
+    let mut session = ReviewSession::new(fixture);
+    let expanded = reveal_from_first_code_row(&mut session)?;
+
+    let (old, _) = windowed_source(&[]);
+    let replacement = DocumentBuilder::new()
+        .changed("inserted.rs", "one\n", "two\n")
+        .changed_with_hunk_window("a.rs", &old, &new, 28..=34)
+        .build();
+    session.set_document(replacement);
+
+    assert_eq!(session.selected_file(), Some(1));
+    assert_eq!(expanded_row_count(&session), expanded);
+    Ok(())
+}
+
+#[test]
+fn snapshot_replacement_keeps_selection_in_expanded_context() -> Result<(), Box<dyn Error>> {
+    let (_, new) = windowed_source(&[31]);
+    let fixture = windowed_fixture(&new);
+    let mut session = ReviewSession::new(fixture);
+    reveal_from_first_code_row(&mut session)?;
+    let expanded = session
+        .presentation()
+        .rows(0..session.presentation().row_count())
+        .iter()
+        .position(|row| row.kind == RowKind::ExpandedContext)
+        .ok_or("expanded context")?;
+    assert!(session.select_row(expanded));
+    let source = session.selected_source_line().ok_or("source location")?;
+    session.set_document(windowed_fixture(&new));
+    assert_eq!(session.selected_source_line(), Some(source));
+    let selected = session.selected_row().ok_or("selected row")?;
+    assert_eq!(session.presentation().row(selected).ok_or("row")?.kind, RowKind::ExpandedContext);
+    Ok(())
+}
+
+#[test]
+fn snapshot_replacement_drops_gap_expansions_when_a_side_changes() -> Result<(), Box<dyn Error>> {
+    let (_, new) = windowed_source(&[31]);
+    let fixture = windowed_fixture(&new);
+    let mut session = ReviewSession::new(fixture.clone());
+    reveal_from_first_code_row(&mut session)?;
+
+    let (_, edited) = windowed_source(&[31, 55]);
+    let replacement = windowed_fixture(&edited);
+    assert_eq!(replacement.files[0].hunks, fixture.files[0].hunks);
+    session.set_document(replacement);
+
+    assert_eq!(expanded_row_count(&session), 0);
+    Ok(())
+}
+
+#[test]
+fn snapshot_replacement_keeps_a_draft_when_another_file_changes() -> Result<(), Box<dyn Error>> {
+    let fixture =
+        DocumentBuilder::new().changed("a.rs", "one\ntwo\n", "ONE\nTWO\n").changed("b.rs", "keep\n", "kept\n").build();
+    let mut session = ReviewSession::new(fixture);
+    assert!(session.begin_draft(None));
+    session.draft_mut().ok_or("draft")?.insert("still editing");
+
+    let replacement = DocumentBuilder::new()
+        .changed("a.rs", "one\ntwo\n", "ONE\nTWO\n")
+        .changed("b.rs", "keep\n", "changed\n")
+        .build();
+    session.set_document(replacement);
+
+    assert_eq!(session.draft().map(CommentDraft::body), Some("still editing"));
+    Ok(())
+}
+
+#[test]
+fn replacing_the_document_keeps_the_selected_path() -> Result<(), Box<dyn Error>> {
+    let mut session = multi_file_session()?;
+    session.move_file(1);
+    let document = session.document().clone();
+    session.set_document(document);
+    assert_eq!(session.selected_file(), Some(1));
+    Ok(())
+}
+
 fn page<T: Into<ReviewTarget>>(target: T, path: &str, new: &str) -> Arc<DiffDocument> {
     DocumentBuilder::new().commit("First").commit("Second").target(target).changed(path, "old", new).build()
+}
+
+fn multi_file_session() -> Result<ReviewSession, Box<dyn Error>> {
+    Ok(ReviewSession::new(Arc::new(DiffDocument {
+        repo_root: "/repo".into(),
+        files: vec![
+            FileDiff::from_texts("a.rs", "one\ntwo\n", "ONE\nTWO\n")?,
+            FileDiff::from_texts("b.rs", "keep\n", "kept\n")?,
+        ],
+        ..DiffDocument::default()
+    })))
+}
+
+#[allow(clippy::format_collect)]
+fn full_file_session() -> ReviewSession {
+    let old = (1..=60).map(|line| format!("old {line}\n")).collect::<String>();
+    let new = old.replace("old 31\n", "new 31\n");
+    ReviewSession::new(DocumentBuilder::new().changed_with_hunk_window("a.rs", &old, &new, 28..=34).build())
+}
+
+#[allow(clippy::format_collect)]
+fn windowed_source(changed_lines: &[usize]) -> (String, String) {
+    let old = (1..=60).map(|line| format!("old {line}\n")).collect::<String>();
+    let new = changed_lines
+        .iter()
+        .fold(old.clone(), |text, line| text.replace(&format!("old {line}\n"), &format!("new {line}\n")));
+    (old, new)
+}
+
+fn windowed_fixture(new_text: &str) -> Arc<DiffDocument> {
+    let (old, _) = windowed_source(&[]);
+    DocumentBuilder::new().changed_with_hunk_window("a.rs", &old, new_text, 28..=34).build()
+}
+
+fn expanded_row_count(session: &ReviewSession) -> usize {
+    let presentation = session.presentation();
+    presentation.rows(0..presentation.row_count()).iter().filter(|row| row.kind == RowKind::ExpandedContext).count()
+}
+
+fn reveal_from_first_code_row(session: &mut ReviewSession) -> Result<usize, Box<dyn Error>> {
+    let code_row = session
+        .presentation()
+        .file_range(0)
+        .ok_or("first file")?
+        .find(|index| session.presentation().row(*index).is_some_and(|row| row.kind == RowKind::Code))
+        .ok_or("code row")?;
+    assert!(session.select_row(code_row));
+    assert!(session.expand_selected(RevealAmount::Step));
+    let expanded = expanded_row_count(session);
+    assert!(expanded > 0);
+    Ok(expanded)
 }

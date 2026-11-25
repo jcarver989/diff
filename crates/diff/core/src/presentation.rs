@@ -85,11 +85,13 @@ pub struct PresentationOptions {
     pub split_when_auto: bool,
     /// Whether each file begins with a file header row.
     pub include_file_headers: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceFocus>,
 }
 
 impl Default for PresentationOptions {
     fn default() -> Self {
-        Self { view_mode: ViewMode::Auto, split_when_auto: false, include_file_headers: true }
+        Self { view_mode: ViewMode::Auto, split_when_auto: false, include_file_headers: true, source: None }
     }
 }
 
@@ -97,7 +99,7 @@ impl PresentationOptions {
     /// Resolves the requested mode to a concrete layout.
     #[must_use]
     pub const fn layout(self) -> Layout {
-        self.view_mode.resolve(self.split_when_auto)
+        if self.source.is_some() { Layout::Unified } else { self.view_mode.resolve(self.split_when_auto) }
     }
 }
 
@@ -120,29 +122,10 @@ pub enum DiffFileView {
     Preview,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum SourceDisplay {
-    #[default]
-    Code,
-    MarkdownPreview,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceFocus {
-    pub path: RepoPath,
-    pub display: SourceDisplay,
-}
-
-impl SourceFocus {
-    #[must_use]
-    pub const fn code(path: RepoPath) -> Self {
-        Self { path, display: SourceDisplay::Code }
-    }
-
-    #[must_use]
-    pub const fn preview(path: RepoPath) -> Self {
-        Self { path, display: SourceDisplay::MarkdownPreview }
-    }
+    pub file_index: usize,
+    pub preview: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -150,31 +133,8 @@ pub enum FilePresentation {
     #[default]
     Patch,
     Collapsed,
-    PatchPreview,
+    Markdown,
     Source,
-    SourcePreview,
-}
-
-impl FilePresentation {
-    #[must_use]
-    pub const fn is_collapsed(self) -> bool {
-        matches!(self, Self::Collapsed)
-    }
-
-    #[must_use]
-    pub const fn is_preview(self) -> bool {
-        matches!(self, Self::PatchPreview | Self::SourcePreview)
-    }
-
-    #[must_use]
-    pub const fn is_source(self) -> bool {
-        matches!(self, Self::Source | Self::SourcePreview)
-    }
-
-    #[must_use]
-    pub const fn header_is_navigable(self) -> bool {
-        matches!(self, Self::Collapsed | Self::PatchPreview | Self::SourcePreview)
-    }
 }
 
 /// Stable identity of a gap before, between, or after hunks.
@@ -248,43 +208,12 @@ impl GapInfo {
 /// Reveal state used to project a document over the sources it carries.
 #[derive(Debug, Clone, Default)]
 pub struct ContentProjection {
-    source_focus: Option<SourceFocus>,
     expansions: HashMap<GapId, GapExpansion>,
     full_files: HashSet<RepoPath>,
     file_views: HashMap<RepoPath, DiffFileView>,
 }
 
 impl ContentProjection {
-    pub fn set_source_focus(&mut self, focus: Option<SourceFocus>) {
-        self.source_focus = focus;
-    }
-
-    #[must_use]
-    pub const fn source_focus(&self) -> Option<&SourceFocus> {
-        self.source_focus.as_ref()
-    }
-
-    #[must_use]
-    pub const fn source_view(&self) -> Option<&RepoPath> {
-        match &self.source_focus {
-            Some(focus) => Some(&focus.path),
-            None => None,
-        }
-    }
-
-    pub fn set_source_display(&mut self, display: SourceDisplay) -> bool {
-        let Some(focus) = &mut self.source_focus else {
-            return false;
-        };
-        focus.display = display;
-        true
-    }
-
-    #[must_use]
-    pub const fn layout(&self, options: PresentationOptions) -> Layout {
-        if self.source_focus.is_some() { Layout::Unified } else { options.layout() }
-    }
-
     pub fn set_expansion(&mut self, id: GapId, expansion: GapExpansion) {
         self.expansions.insert(id, expansion);
     }
@@ -473,46 +402,47 @@ impl DiffPresentation {
         options: PresentationOptions,
         projection: &ContentProjection,
     ) -> Self {
-        let layout = projection.layout(options);
+        let layout = options.layout();
         let mut rows = Vec::new();
         let mut gap_info = HashMap::new();
         let file_order = tree_order(&document);
         let mut file_ranges = vec![0..0; document.files.len()];
         let mut hunk_ranges = vec![Vec::new(); document.files.len()];
         let mut views = vec![FilePresentation::Patch; document.files.len()];
-        if let Some(focus) = projection.source_focus() {
-            if let Some(file_index) = document.file_index(&focus.path) {
-                let file = &document.files[file_index];
-                let (view, file_hunks) = append_file_rows(
-                    &mut rows,
-                    &mut gap_info,
-                    file_index,
-                    file,
-                    layout.for_status(file.status),
-                    options.include_file_headers,
-                    projection,
-                );
-                file_ranges[file_index] = 0..rows.len();
-                hunk_ranges[file_index] = file_hunks;
-                views[file_index] = view;
+        let focused = options.source.map(|focus| focus.file_index);
+        let indices = if focused.is_some() { focused.as_slice() } else { &file_order };
+        for &index in indices {
+            let Some(file) = document.files.get(index) else { continue };
+            let start = rows.len();
+            if options.include_file_headers {
+                rows.push(header_row(index, file));
             }
-        } else {
-            for &file_index in &file_order {
-                let file = &document.files[file_index];
-                let file_start = rows.len();
-                let (view, file_hunks) = append_file_rows(
-                    &mut rows,
-                    &mut gap_info,
-                    file_index,
-                    file,
-                    layout.for_status(file.status),
-                    options.include_file_headers,
-                    projection,
-                );
-                file_ranges[file_index] = file_start..rows.len();
-                hunk_ranges[file_index] = file_hunks;
-                views[file_index] = view;
+            let body = match options.source {
+                Some(focus) if focus.preview && file.markdown_source().is_some() => FilePresentation::Markdown,
+                Some(_) => FilePresentation::Source,
+                None => match projection.file_view(&file.path) {
+                    DiffFileView::Collapsed if options.include_file_headers => FilePresentation::Collapsed,
+                    DiffFileView::Preview if file.markdown_source().is_some() => FilePresentation::Markdown,
+                    _ => FilePresentation::Patch,
+                },
+            };
+            match body {
+                FilePresentation::Collapsed => {}
+                FilePresentation::Markdown => rows.push(markdown_preview_row(index, file)),
+                FilePresentation::Source => append_source_rows(&mut rows, index, file),
+                FilePresentation::Patch => {
+                    hunk_ranges[index] = append_patch_rows(
+                        &mut rows,
+                        &mut gap_info,
+                        index,
+                        file,
+                        layout.for_status(file.status),
+                        projection,
+                    );
+                }
             }
+            file_ranges[index] = start..rows.len();
+            views[index] = body;
         }
         let (anchor_rows, source_rows) = index_rows(&rows);
         Self { document, layout, rows, anchor_rows, source_rows, gap_info, file_order, file_ranges, hunk_ranges, views }
@@ -583,7 +513,7 @@ impl DiffPresentation {
 
     #[must_use]
     pub fn is_collapsed(&self, file_index: usize) -> bool {
-        self.file_presentation(file_index).is_collapsed()
+        self.file_presentation(file_index) == FilePresentation::Collapsed
     }
 
     #[must_use]
@@ -655,7 +585,11 @@ impl DiffPresentation {
     #[must_use]
     pub fn row_showing_source(&self, location: &SourceLocation) -> Option<usize> {
         let file_index = self.document.file_index(&location.path)?;
-        self.source_rows.get(&(file_index, location.side, location.line_number)).copied()
+        self.source_row(file_index, location.side, location.line_number)
+    }
+
+    pub(crate) fn source_row(&self, index: usize, side: DiffSide, line: usize) -> Option<usize> {
+        self.source_rows.get(&(index, side, line)).copied()
     }
 
     #[must_use]
@@ -681,7 +615,11 @@ impl DiffPresentation {
     pub fn is_navigable(&self, index: usize) -> bool {
         self.row(index).is_some_and(|row| {
             row.is_navigable()
-                || (row.kind == RowKind::FileHeader && self.file_presentation(row.file_index).header_is_navigable())
+                || (row.kind == RowKind::FileHeader
+                    && matches!(
+                        self.file_presentation(row.file_index),
+                        FilePresentation::Collapsed | FilePresentation::Markdown
+                    ))
         })
     }
 
@@ -699,53 +637,6 @@ impl DiffPresentation {
     pub fn first_source_row(&self, range: Range<usize>) -> Option<usize> {
         range.into_iter().find(|index| self.row(*index).is_some_and(|row| row.source_lines().next().is_some()))
     }
-}
-
-fn resolve_file_presentation(
-    file: &FileDiff,
-    include_file_headers: bool,
-    projection: &ContentProjection,
-) -> FilePresentation {
-    if let Some(focus) = projection.source_focus().filter(|focus| focus.path == file.path) {
-        return if focus.display == SourceDisplay::MarkdownPreview && file.markdown_source().is_some() {
-            FilePresentation::SourcePreview
-        } else {
-            FilePresentation::Source
-        };
-    }
-    match projection.file_view(&file.path) {
-        DiffFileView::Collapsed if include_file_headers => FilePresentation::Collapsed,
-        DiffFileView::Preview if file.markdown_source().is_some() => FilePresentation::PatchPreview,
-        _ => FilePresentation::Patch,
-    }
-}
-
-fn append_file_rows(
-    rows: &mut Vec<PresentedRow>,
-    gap_info: &mut HashMap<usize, GapInfo>,
-    file_index: usize,
-    file: &FileDiff,
-    layout: Layout,
-    include_file_headers: bool,
-    projection: &ContentProjection,
-) -> (FilePresentation, Vec<Range<usize>>) {
-    if include_file_headers {
-        rows.push(header_row(file_index, file));
-    }
-    let presentation = resolve_file_presentation(file, include_file_headers, projection);
-    let hunks = match presentation {
-        FilePresentation::Collapsed => Vec::new(),
-        FilePresentation::PatchPreview | FilePresentation::SourcePreview => {
-            rows.push(markdown_preview_row(file_index, file));
-            Vec::new()
-        }
-        FilePresentation::Source => {
-            append_source_rows(rows, file_index, file);
-            Vec::new()
-        }
-        FilePresentation::Patch => append_patch_rows(rows, gap_info, file_index, file, layout, projection),
-    };
-    (presentation, hunks)
 }
 
 fn append_patch_rows(
@@ -1336,7 +1227,7 @@ fn pair_changed_block<'a>(removed: &'a [SplitSide<'a>], added: &'a [SplitSide<'a
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FileDiff, Hunk, ModeChange, SourceUnavailable, testing::DocumentBuilder};
+    use crate::{FileDiff, Hunk, SourceUnavailable, testing::DocumentBuilder};
 
     fn document() -> Arc<DiffDocument> {
         Arc::new(DiffDocument {
@@ -1514,16 +1405,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_projection_is_row_for_row_identical_to_the_compatibility_path() {
-        for view_mode in [ViewMode::Auto, ViewMode::Unified, ViewMode::Split] {
-            let options = PresentationOptions { view_mode, ..PresentationOptions::default() };
-            let expected = DiffPresentation::new(document(), options);
-            let actual = DiffPresentation::with_projection(document(), options, &ContentProjection::default());
-            assert_eq!(expected.rows(0..expected.row_count()), actual.rows(0..actual.row_count()));
-        }
-    }
-
-    #[test]
     #[allow(clippy::format_collect)]
     fn split_full_file_projection_orders_both_sources_and_has_stable_row_ids() {
         let old = (1..=60).map(|line| format!("line {line}\n")).collect::<String>();
@@ -1552,56 +1433,6 @@ mod tests {
         assert!(first.rows(0..first.row_count()).iter().any(|row| {
             row.kind == RowKind::ExpandedContext && !row.is_commentable() && row.left.is_some() && row.right.is_some()
         }));
-    }
-
-    #[test]
-    fn mode_only_full_file_intent_projects_unavailable_and_complete_source() {
-        let path = RepoPath::new("script.sh").unwrap();
-        let file = FileDiff {
-            old_path: Some(path.clone()),
-            path: path.clone(),
-            status: FileStatus::Modified,
-            staged: crate::StageState::Unstaged,
-            hunks: Vec::new(),
-            binary: false,
-            mode: Some(ModeChange { old: Some("100644".into()), new: Some("100755".into()) }),
-            no_newline_at_end: false,
-            omitted_bytes: None,
-            old_source: Err(SourceUnavailable::Absent),
-            new_source: Err(SourceUnavailable::Absent),
-        };
-        let document = |file: FileDiff| {
-            Arc::new(DiffDocument { repo_root: "/repo".into(), files: vec![file], ..DiffDocument::default() })
-        };
-        let mut projection = ContentProjection::default();
-        projection.set_full_file(path, true);
-        let absent =
-            DiffPresentation::with_projection(document(file.clone()), PresentationOptions::default(), &projection);
-        let absent_gap =
-            absent.rows(0..absent.row_count()).iter().position(|row| row.kind == RowKind::ExpandGap).unwrap();
-        assert_eq!(absent.gap_info(absent_gap).unwrap().unavailable, Some(SourceUnavailable::Absent));
-
-        let unavailable = DiffPresentation::with_projection(
-            document(FileDiff { new_source: Err(SourceUnavailable::Binary), ..file.clone() }),
-            PresentationOptions::default(),
-            &projection,
-        );
-        let gap =
-            unavailable.rows(0..unavailable.row_count()).iter().position(|row| row.kind == RowKind::ExpandGap).unwrap();
-        assert_eq!(unavailable.gap_info(gap).unwrap().unavailable, Some(SourceUnavailable::Binary));
-
-        let loaded = DiffPresentation::with_projection(
-            document(FileDiff {
-                new_source: Ok(Arc::new(SourceDocument::try_from_text("#!/bin/sh\necho ok\n").unwrap())),
-                ..file
-            }),
-            PresentationOptions::default(),
-            &projection,
-        );
-        assert_eq!(
-            loaded.rows(0..loaded.row_count()).iter().filter(|row| row.kind == RowKind::ExpandedContext).count(),
-            2
-        );
     }
 
     #[test]

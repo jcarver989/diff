@@ -120,6 +120,7 @@ fn preview_presentation(document: Arc<DiffDocument>, width: u16, options: DiffPr
             view_mode: options.view_mode,
             split_when_auto: width >= SPLIT_BREAKPOINT,
             include_file_headers: false,
+            source: None,
         },
     )
 }

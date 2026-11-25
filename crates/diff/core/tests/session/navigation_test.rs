@@ -83,31 +83,17 @@ fn open_reference_in_an_empty_diff_exposes_selected_file_and_preview() -> Result
     let mut session = ReviewSession::new(DocumentBuilder::new().build());
     let target = location("README.md", 2)?;
     assert!(session.jump_to(target.clone()));
+    let preview = DiffReviewCommand::ToggleMarkdownPreview(None);
+    assert!(!session.command_available(&preview));
     assert!(session.open_reference(&repo("README.md")?, source("# Guide\n\nBody\n")));
+    assert!(session.command_available(&preview));
     assert_eq!(session.selected_file(), Some(0));
     let displayed = Arc::clone(session.presentation().document());
     assert!(session.toggle_markdown_preview(None));
     assert!(Arc::ptr_eq(&displayed, session.presentation().document()));
-    assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::Markdown);
     assert!(session.toggle_markdown_preview(None));
     assert!(Arc::ptr_eq(&displayed, session.presentation().document()));
-    assert_eq!(session.selected_source_line(), Some(target));
-    Ok(())
-}
-
-#[test]
-fn unchanged_markdown_can_be_previewed_after_its_source_loads() -> Result<(), Box<dyn Error>> {
-    let mut session = session();
-    let target = location("README.md", 3)?;
-    let preview = DiffReviewCommand::ToggleMarkdownPreview(None);
-    assert!(session.jump_to(target.clone()));
-    assert!(!session.command_available(&preview));
-    assert!(session.open_reference(&repo("README.md")?, source("# Guide\n\nSome text\n")));
-    let file = session.selected_file().ok_or("referenced file")?;
-    assert!(session.command_available(&preview));
-    assert!(session.toggle_markdown_preview(None));
-    assert_eq!(session.presentation().file_presentation(file), FilePresentation::SourcePreview);
-    assert!(session.toggle_markdown_preview(None));
     assert_eq!(session.selected_source_line(), Some(target));
     Ok(())
 }
@@ -267,16 +253,19 @@ fn back_returns_to_the_mode_the_jump_left() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn a_browsed_file_that_stops_changing_reopens_as_it_is_now() -> Result<(), Box<dyn Error>> {
-    let mut session = session();
-    assert!(session.jump_to(location("src/main.rs", 3)?));
+fn a_browsed_preview_that_stops_changing_reopens_at_its_logical_line() -> Result<(), Box<dyn Error>> {
+    let mut session = ReviewSession::new(DocumentBuilder::new().added("README.md", "# Heading\n\nBody\n").build());
     assert!(session.set_files_mode(FilesMode::Browse));
+    assert!(session.select_boundary(true));
+    assert!(session.toggle_markdown_preview(None));
 
     session.set_document(DocumentBuilder::new().changed("src/lib.rs", "", LIB).build());
 
-    let reopened = TargetLocation { path: repo("src/main.rs")?, side: DiffSide::New, line_number: 3 };
+    let reopened = TargetLocation { path: repo("README.md")?, side: DiffSide::New, line_number: 3 };
     assert_eq!(session.pending_reference(), Some(&reopened));
     assert_eq!(session.files_mode(), FilesMode::Browse);
+    assert!(session.open_reference(&reopened.path, source("# Heading\n\nBody\n")));
+    assert_eq!(session.current_location(), Some(reopened));
     Ok(())
 }
 

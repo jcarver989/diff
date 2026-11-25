@@ -46,7 +46,7 @@ pub use patch::{PatchError, git_patch_from_texts};
 pub use presentation::{
     ContentProjection, DiffFileView, DiffPresentation, DiffTone, FilePresentation, GapExpansion, GapId, GapInfo,
     GapInterval, Layout, MAX_CELL_TEXT_BYTES, PresentationOptions, PresentedCell, PresentedRow, RowId, RowKind,
-    SourceDisplay, SourceFocus, ViewMode, ViewportAnchor, gaps_for_file,
+    SourceFocus, ViewMode, ViewportAnchor, gaps_for_file,
 };
 pub use review::{
     AgentFeedbackOptions, CommentContext, DiffReviewEvent, RepositoryAction, Review, ReviewComment, ReviewSubmission,

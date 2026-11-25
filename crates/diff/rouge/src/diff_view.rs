@@ -778,10 +778,10 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
     let start = info.start;
     let count = collapsed_comments(&handle, index);
     let (status, presentation) = (info.status, info.presentation);
-    let collapsed = presentation.is_collapsed();
+    let collapsed = presentation == FilePresentation::Collapsed;
     let (icon, label) =
         if collapsed { (IconName::ChevronRight, "Expand file") } else { (IconName::ChevronDown, "Collapse file") };
-    let toggle = (!presentation.is_source()).then(|| {
+    let toggle = info.source_label.is_none().then(|| {
         view! {
             <icon_button test_id={format!("collapse-file-{index}")} icon label
                          on_click={move || {
@@ -817,7 +817,9 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
         },
         None => stat_columns(info.stat, palette, comments),
     };
-    let preview = info.previewable.then(|| preview_toggle(&handle, index, presentation));
+    let preview = info.previewable.then(|| {
+        preview_toggle(&handle, index, info.source_label.is_some(), presentation == FilePresentation::Markdown)
+    });
     view! {
         <div test_id={format!("diff-file-header-{index}")} h=HEADER_HEIGHT w_full flex row items_center
              border_t=px(if info.after_header { 0.0 } else { HAIRLINE }) border_b=HAIRLINE border_color=rule
@@ -849,10 +851,9 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
     .hover(move |style| style.bg(band(|p| p.foreground.mix(p.background, 18))))
 }
 
-fn preview_toggle(handle: &ReviewHandle, index: usize, presentation: FilePresentation) -> SegmentedControl {
+fn preview_toggle(handle: &ReviewHandle, index: usize, source: bool, previewed: bool) -> SegmentedControl {
     let handle = *handle;
-    let previewed = presentation.is_preview();
-    let raw = if presentation.is_source() {
+    let raw = if source {
         (false, "show-source", IconName::FileText, "Show source")
     } else {
         (false, "show-diff", IconName::FileDiff, "Show diff")

@@ -119,9 +119,7 @@ impl ReviewController {
             C::MoveSelection(delta) | C::Page(delta) => return self.move_selection(delta),
             C::First | C::Last => return self.select_boundary(command == C::Last),
             C::OpenSelected | C::CollapseSelected => return self.open_or_fold(command == C::OpenSelected),
-            C::RevealGap(amount) => {
-                return self.session.expand_selected_header() || self.session.reveal_selected_gap(amount);
-            }
+            C::RevealGap(amount) => return self.session.expand_selected(amount),
             C::ToggleSourceView => return self.toggle_source(),
             C::SetFilesMode(mode) => {
                 let changed = self.session.set_files_mode(mode);
