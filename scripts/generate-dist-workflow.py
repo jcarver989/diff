@@ -9,6 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "dist-workspace.toml"
 WORKFLOW = ROOT / ".github/workflows/release.yml"
 ALLOW_DIRTY = b'allow-dirty = ["ci"]\n'
+ANY_TAG = b"      - '**[0-9]+.[0-9]+.[0-9]+*'\n"
+DIST_PACKAGES = ("clankerdiff-cli", "clankerdiff-desktop")
+DIST_TAGS = b"".join(
+    f"      - '{package}-v[0-9]+.[0-9]+.[0-9]+*'\n".encode() for package in DIST_PACKAGES
+)
 
 
 def generate():
@@ -28,7 +33,9 @@ def generate():
         subprocess.run(["git", "init", "--quiet"], cwd=workspace, check=True)
         subprocess.run(["dist", "generate", "--mode", "ci"], cwd=workspace, check=True)
         workflow = (workspace / WORKFLOW.relative_to(ROOT)).read_bytes()
-    return previous, workflow
+    if workflow.count(ANY_TAG) != 1:
+        raise SystemExit("expected cargo-dist's catch-all tag trigger")
+    return previous, workflow.replace(ANY_TAG, DIST_TAGS, 1)
 
 
 def main():

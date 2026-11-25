@@ -128,6 +128,7 @@ fn release() -> Release {
         .set("release", false)
         .set("git_only", false)
         .set("publish", false)
+        .set("git_release_enable", true)
         .set("semver_check", false);
     let apt: InlineTable = ROUGE_LINUX_PACKAGES.into_iter().map(|package| (package, Value::from("*"))).collect();
     Release::new()
