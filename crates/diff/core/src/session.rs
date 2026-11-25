@@ -5,9 +5,9 @@ use crate::{
     ReviewSubmission, ReviewTarget, RowId, RowKind, SourceDisplay, SourceFocus, SourceLocation, SourcePath,
     TargetLocation, UNCOMMITTED_CHANGES, ViewMode, commit_description, commit_picker::format_age,
 };
-use navigation::{Navigation, Reference};
+use navigation::{Navigation, PendingReference};
 use serde::{Deserialize, Serialize};
-use std::{ops::Range, sync::Arc, time::Duration};
+use std::{mem, ops::Range, sync::Arc, time::Duration};
 
 mod navigation;
 
@@ -136,11 +136,11 @@ impl CommentDraft {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Restore {
-    Source,
-    Returning,
-    Refresh,
+#[derive(Debug, Clone)]
+enum RestorePlan {
+    PreserveSelection,
+    JumpToSource(SourceLocation),
+    ReturnToBookmark(SelectionBookmark),
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +150,24 @@ struct SelectionBookmark {
     source: Option<SourceLocation>,
     anchor: Option<LineAnchor>,
     side: DiffSide,
+}
+
+#[derive(Debug, Clone)]
+enum ActiveView {
+    Diff,
+    Source(Box<SourceView>),
+}
+
+#[derive(Debug, Clone)]
+struct SourceView {
+    target: SourceTarget,
+    return_to: Option<SelectionBookmark>,
+}
+
+#[derive(Debug, Clone)]
+enum SourceTarget {
+    DiffFile(RepoPath),
+    Reference { source: SourcePath, file: FileDiff },
 }
 
 #[derive(Debug, Clone)]
@@ -168,10 +186,10 @@ pub struct ReviewSession {
     annotations_revision: u64,
     projection: ContentProjection,
     projection_revision: u64,
-    pending_source_restore: Option<SourceLocation>,
-    diff_return: Option<SelectionBookmark>,
+    hidden_source_cursor: Option<SourceLocation>,
+    active_view: ActiveView,
+    pending_reference: Option<PendingReference>,
     navigation: Navigation,
-    reference: Option<Reference>,
 }
 
 impl ReviewSession {
@@ -192,10 +210,10 @@ impl ReviewSession {
             annotations_revision: 0,
             projection: ContentProjection::default(),
             projection_revision: 0,
-            pending_source_restore: None,
-            diff_return: None,
+            hidden_source_cursor: None,
+            active_view: ActiveView::Diff,
+            pending_reference: None,
             navigation: Navigation::default(),
-            reference: None,
         };
         session.review.reconcile(&session.document);
         session.selected_file = session.presentation.file_order().first().copied().unwrap_or(0);
@@ -383,7 +401,7 @@ impl ReviewSession {
 
     #[must_use]
     pub fn selected_file(&self) -> Option<usize> {
-        (!self.document.files.is_empty()).then_some(self.selected_file)
+        (self.file_count() != 0).then_some(self.selected_file)
     }
 
     #[must_use]
@@ -492,9 +510,12 @@ impl ReviewSession {
 
     fn leave_source_view(&mut self) {
         self.projection.set_source_focus(None);
-        self.reference = None;
-        let bookmark = self.diff_return.take();
-        self.rebuild_restoring(bookmark);
+        let bookmark = match mem::replace(&mut self.active_view, ActiveView::Diff) {
+            ActiveView::Source(view) => view.return_to,
+            ActiveView::Diff => None,
+        };
+        let plan = bookmark.map_or(RestorePlan::PreserveSelection, RestorePlan::ReturnToBookmark);
+        self.rebuild(plan);
     }
 
     fn enter_source_view(&mut self) -> bool {
@@ -502,7 +523,7 @@ impl ReviewSession {
             return false;
         };
         let (path, side) = (file.path.clone(), file.source_side());
-        self.diff_return = self.capture_bookmark();
+        let return_to = self.capture_bookmark();
         let range = self.selected_file_range().unwrap_or(0..0);
         let line_number = self
             .presentation
@@ -511,10 +532,18 @@ impl ReviewSession {
             .chain(self.presentation.rows(range.start..self.selected_row).iter().rev())
             .find_map(|row| row.cell(side)?.line_number())
             .unwrap_or(1);
-        self.pending_source_restore = Some(SourceLocation { path: path.clone(), side, line_number });
-        self.projection.set_source_focus(Some(SourceFocus::code(path)));
-        self.rebuild();
+        self.active_view =
+            ActiveView::Source(Box::new(SourceView { target: SourceTarget::DiffFile(path.clone()), return_to }));
+        self.projection.set_source_focus(Some(SourceFocus::code(path.clone())));
+        self.rebuild(RestorePlan::JumpToSource(SourceLocation { path, side, line_number }));
         true
+    }
+
+    fn take_return_bookmark(&mut self) -> Option<SelectionBookmark> {
+        match &mut self.active_view {
+            ActiveView::Diff => self.capture_bookmark(),
+            ActiveView::Source(view) => view.return_to.take(),
+        }
     }
 
     fn capture_bookmark(&self) -> Option<SelectionBookmark> {
@@ -531,16 +560,13 @@ impl ReviewSession {
         if self.source_view().is_some() {
             return false;
         }
-        if let Some((file, view)) = self
-            .selected_presented_row()
-            .filter(|row| row.kind == RowKind::FileHeader)
-            .and_then(|row| match self.presentation.file_presentation(row.file_index) {
-                FilePresentation::Collapsed => Some((row.file_index, DiffFileView::Collapsed)),
-                FilePresentation::PatchPreview => Some((row.file_index, DiffFileView::Preview)),
-                _ => None,
-            })
-        {
-            return self.toggle_file_view(Some(file), view);
+        if let Some(row) = self.selected_presented_row().filter(|row| row.kind == RowKind::FileHeader) {
+            let file = row.file_index;
+            match self.presentation.file_presentation(file) {
+                FilePresentation::Collapsed => return self.toggle_file_collapsed(Some(file)),
+                FilePresentation::PatchPreview => return self.toggle_markdown_preview(Some(file)),
+                _ => {}
+            }
         }
         let id = self.presentation.gap_info(self.selected_row).map(|info| info.id).or_else(|| {
             let row = self.presentation.row(self.selected_row)?;
@@ -564,11 +590,14 @@ impl ReviewSession {
         let prefix = if id.gap_index != 0 || hunk_count == 0 { amount } else { 0 };
         let suffix = if id.gap_index != hunk_count || hunk_count == 0 { amount } else { 0 };
         self.projection.expand_gap(id, prefix, suffix);
-        self.rebuild();
+        self.rebuild(RestorePlan::PreserveSelection);
         true
     }
 
     pub fn toggle_full_file(&mut self) -> bool {
+        if matches!(self.active_view, ActiveView::Source(_)) {
+            return false;
+        }
         let Some(file) = self.document.files.get(self.selected_file) else {
             return false;
         };
@@ -576,7 +605,7 @@ impl ReviewSession {
             return false;
         }
         self.projection.toggle_full_file(file.path.clone());
-        self.rebuild();
+        self.rebuild(RestorePlan::PreserveSelection);
         true
     }
 
@@ -591,44 +620,59 @@ impl ReviewSession {
             && (0..self.document.files.len()).all(|index| self.presentation.is_collapsed(index))
     }
 
-    pub fn toggle_file_collapsed(&mut self, index: usize) -> bool {
-        self.toggle_file_view(Some(index), DiffFileView::Collapsed)
+    fn is_drafting_file(&self, path: &RepoPath) -> bool {
+        self.draft.as_ref().is_some_and(|draft| &draft.anchor.path == path)
     }
 
     fn can_preview_markdown(&self, file: &FileDiff) -> bool {
         (!self.shows_source() || self.source_view() == Some(&file.path)) && file.markdown_source().is_some()
     }
 
-    pub fn toggle_file_view(&mut self, index: Option<usize>, view: DiffFileView) -> bool {
+    pub fn toggle_file_collapsed(&mut self, index: Option<usize>) -> bool {
+        if matches!(self.active_view, ActiveView::Source(_)) {
+            return false;
+        }
+        let index = index.unwrap_or(self.selected_file);
+        let Some(file) = self.document.files.get(index) else {
+            return false;
+        };
+        let next = if self.presentation.file_presentation(index).is_collapsed() {
+            DiffFileView::Patch
+        } else {
+            DiffFileView::Collapsed
+        };
+        if next != DiffFileView::Patch && self.is_drafting_file(&file.path) {
+            return false;
+        }
+        self.projection.set_file_view(file.path.clone(), next);
+        self.rebuild(RestorePlan::PreserveSelection);
+        if next == DiffFileView::Patch && self.selected_on_header(index) {
+            self.select_first_row();
+        }
+        true
+    }
+
+    pub fn toggle_markdown_preview(&mut self, index: Option<usize>) -> bool {
         let index = index.unwrap_or(self.selected_file);
         let Some(file) = self.file(index) else {
             return false;
         };
-        if view == DiffFileView::Preview && !self.can_preview_markdown(file) {
+        if !self.can_preview_markdown(file) {
             return false;
         }
-        let current = self.presentation.file_presentation(index);
-        if self.source_view().is_some() {
-            if view != DiffFileView::Preview {
-                return false;
-            }
-            let display = if current.is_preview() { SourceDisplay::Code } else { SourceDisplay::MarkdownPreview };
+        let previewed = self.presentation.file_presentation(index).is_preview();
+        if matches!(self.active_view, ActiveView::Source(_)) {
+            let display = if previewed { SourceDisplay::Code } else { SourceDisplay::MarkdownPreview };
             self.projection.set_source_display(display);
-            self.rebuild();
+            self.rebuild(RestorePlan::PreserveSelection);
             return true;
         }
-        let active = match view {
-            DiffFileView::Patch => current == FilePresentation::Patch,
-            DiffFileView::Collapsed => current.is_collapsed(),
-            DiffFileView::Preview => current.is_preview(),
-        };
-        let next = if active { DiffFileView::Patch } else { view };
-        let drafting = self.draft.as_ref().is_some_and(|draft| draft.anchor.path == file.path);
-        if next != DiffFileView::Patch && drafting {
+        let next = if previewed { DiffFileView::Patch } else { DiffFileView::Preview };
+        if next != DiffFileView::Patch && self.is_drafting_file(&file.path) {
             return false;
         }
         self.projection.set_file_view(file.path.clone(), next);
-        self.rebuild();
+        self.rebuild(RestorePlan::PreserveSelection);
         if next == DiffFileView::Patch && self.selected_on_header(index) {
             self.select_first_row();
         }
@@ -636,7 +680,7 @@ impl ReviewSession {
     }
 
     pub fn toggle_all_files_collapsed(&mut self) -> bool {
-        if self.document.files.is_empty() || self.source_view().is_some() {
+        if self.document.files.is_empty() || matches!(self.active_view, ActiveView::Source(_)) {
             return false;
         }
         let collapse = !self.all_files_collapsed();
@@ -648,7 +692,7 @@ impl ReviewSession {
         for file in &self.document.files {
             self.projection.set_file_view(file.path.clone(), view);
         }
-        self.rebuild();
+        self.rebuild(RestorePlan::PreserveSelection);
         if header_selected && !collapse {
             self.select_first_row();
         }
@@ -676,35 +720,56 @@ impl ReviewSession {
             return;
         }
         let selected_path = self.file(self.selected_file).map(|file| file.path.clone());
-        let unchanged = self.browsed_file_leaving(&document, target_changed);
-        let had_open = self.reference().is_some();
-        let joins = self.reference.as_ref().is_some_and(|reference| reference.joins(&document, target_changed));
-        let reference = self.reference.take().filter(|reference| reference.survives(&document, target_changed));
-        let keeps_open = joins || reference.as_ref().and_then(Reference::file).is_some();
-        if !keeps_open && (had_open || self.source_view().is_some_and(|path| document.file_index(path).is_none())) {
-            self.projection.set_source_focus(None);
-            self.diff_return = None;
+        let browsed_line = self.selected_source_line().map_or(1, |location| location.line_number);
+        if target_changed {
+            self.pending_reference = None;
         }
+        self.active_view = match mem::replace(&mut self.active_view, ActiveView::Diff) {
+            ActiveView::Diff => ActiveView::Diff,
+            ActiveView::Source(mut view) => match view.target {
+                SourceTarget::DiffFile(path) => {
+                    if !target_changed && document.file_index(&path).is_some() {
+                        view.target = SourceTarget::DiffFile(path);
+                        ActiveView::Source(view)
+                    } else {
+                        if !target_changed && self.files_mode == FilesMode::Browse && self.pending_reference.is_none() {
+                            let target = TargetLocation {
+                                path: SourcePath::Repo(path),
+                                side: DiffSide::New,
+                                line_number: browsed_line,
+                            };
+                            self.pending_reference = Some(PendingReference { target, error: None });
+                        }
+                        self.projection.set_source_focus(None);
+                        ActiveView::Diff
+                    }
+                }
+                SourceTarget::Reference { source, file } => {
+                    if target_changed {
+                        self.projection.set_source_focus(None);
+                        ActiveView::Diff
+                    } else if matches!(&source, SourcePath::Repo(path) if document.file_index(path).is_some()) {
+                        view.target = SourceTarget::DiffFile(file.path);
+                        ActiveView::Source(view)
+                    } else if document.file_index(&file.path).is_none() {
+                        view.target = SourceTarget::Reference { source, file };
+                        ActiveView::Source(view)
+                    } else {
+                        self.projection.set_source_focus(None);
+                        ActiveView::Diff
+                    }
+                }
+            },
+        };
         self.projection.retain_for_document(&self.document, &document);
         self.navigation.document_changed(&document, target_changed);
         self.document = document;
-        self.reference = reference.or(unchanged);
         self.selected_file =
             selected_path.and_then(|path| self.file_index(&path)).unwrap_or(0).min(self.file_count().saturating_sub(1));
-        if self.pending_source_restore.as_ref().is_some_and(|location| self.file_index(&location.path).is_none()) {
-            self.pending_source_restore = None;
+        if self.hidden_source_cursor.as_ref().is_some_and(|location| self.file_index(&location.path).is_none()) {
+            self.hidden_source_cursor = None;
         }
-        self.rebuild();
-    }
-
-    fn browsed_file_leaving(&self, document: &DiffDocument, target_changed: bool) -> Option<Reference> {
-        if self.files_mode != FilesMode::Browse || target_changed || self.reference.is_some() {
-            return None;
-        }
-        let path = self.source_view().filter(|path| document.file_index(path).is_none())?;
-        let line_number = self.selected_source_line().map_or(1, |location| location.line_number);
-        let target = TargetLocation { path: SourcePath::Repo(path.clone()), side: DiffSide::New, line_number };
-        Some(Reference::Pending { target, error: None })
+        self.rebuild(RestorePlan::PreserveSelection);
     }
 
     pub fn set_view_mode(&mut self, mode: ViewMode) -> bool {
@@ -714,7 +779,7 @@ impl ReviewSession {
         let previous = self.layout();
         self.view_mode = mode;
         if self.layout() != previous {
-            self.rebuild();
+            self.rebuild(RestorePlan::PreserveSelection);
         }
         true
     }
@@ -737,7 +802,7 @@ impl ReviewSession {
         if self.layout() == previous {
             return false;
         }
-        self.rebuild();
+        self.rebuild(RestorePlan::PreserveSelection);
         true
     }
 
@@ -750,13 +815,13 @@ impl ReviewSession {
         if index >= self.document.files.len() {
             return false;
         }
-        if self.source_view().is_some() {
+        if matches!(self.active_view, ActiveView::Source(_)) {
             if self.selected_file == index {
                 return true;
             }
-            self.toggle_source_view();
+            self.leave_source_view();
         }
-        self.pending_source_restore = None;
+        self.hidden_source_cursor = None;
         self.cancel_pending_reference();
         self.selected_file = index;
         self.set_draft(None);
@@ -792,7 +857,7 @@ impl ReviewSession {
         if !self.visible_range().contains(&index) || !self.presentation.is_navigable(index) {
             return false;
         }
-        self.pending_source_restore = None;
+        self.hidden_source_cursor = None;
         self.cancel_pending_reference();
         self.selected_row = index;
         if let Some(row) = self.presentation.row(index) {
@@ -815,7 +880,7 @@ impl ReviewSession {
     }
 
     pub fn move_hunk(&mut self, delta: isize) -> bool {
-        self.pending_source_restore = None;
+        self.hidden_source_cursor = None;
         let Some(target) = self.hunk_target(delta) else {
             return false;
         };
@@ -825,7 +890,7 @@ impl ReviewSession {
     }
 
     pub fn set_selected_side(&mut self, side: DiffSide) -> bool {
-        self.pending_source_restore = None;
+        self.hidden_source_cursor = None;
         let available = self
             .selected_row()
             .and_then(|index| self.presentation.row(index))
@@ -928,27 +993,31 @@ impl ReviewSession {
         }
     }
 
-    fn rebuild(&mut self) {
-        self.rebuild_restoring(None);
-    }
-
-    fn rebuild_restoring(&mut self, bookmark: Option<SelectionBookmark>) {
-        let mode = match (bookmark.is_some(), self.source_view().is_some()) {
-            (true, _) => Restore::Returning,
-            (false, true) => Restore::Source,
-            (false, false) => Restore::Refresh,
+    fn rebuild(&mut self, plan: RestorePlan) {
+        let stashed = self.hidden_source_cursor.take();
+        let returning = matches!(plan, RestorePlan::ReturnToBookmark(_));
+        let in_source = matches!(self.active_view, ActiveView::Source(_));
+        let (bookmark, mut source) = match plan {
+            RestorePlan::PreserveSelection => {
+                let bookmark = self.capture_bookmark();
+                let source = stashed.or_else(|| bookmark.as_ref().and_then(|bookmark| bookmark.source.clone()));
+                (bookmark, source)
+            }
+            RestorePlan::JumpToSource(location) => (None, Some(location)),
+            RestorePlan::ReturnToBookmark(bookmark) => {
+                let source = bookmark.source.clone();
+                (Some(bookmark), source)
+            }
         };
-        let pending = self.pending_source_restore.take();
-        let bookmark = bookmark.or_else(|| self.capture_bookmark());
-        let mut source = bookmark.as_ref().and_then(|bookmark| bookmark.source.clone());
-        if mode != Restore::Returning {
-            source = pending.or(source);
-        }
         if let Some(bookmark) = &bookmark {
             self.selected_file = self.file_index(&bookmark.path).unwrap_or(self.selected_file);
             self.selected_side = bookmark.side;
+        } else if let Some(location) = &source
+            && let Some(index) = self.file_index(&location.path)
+        {
+            self.selected_file = index;
         }
-        if mode == Restore::Source
+        if in_source
             && let Some(location) = &mut source
             && let Some(file) = self.source_view().and_then(|path| self.file(self.file_index(path)?))
         {
@@ -963,10 +1032,10 @@ impl ReviewSession {
         self.projection_revision = self.projection_revision.wrapping_add(1);
         let source_row = source.as_ref().and_then(|location| self.presentation.row_showing_source(location));
         if source_row.is_none()
-            && (mode == Restore::Refresh
-                || mode == Restore::Source && self.presentation.file_presentation(self.selected_file).is_preview())
+            && !returning
+            && source.as_ref().is_some_and(|location| self.file_index(&location.path).is_some())
         {
-            self.pending_source_restore = source;
+            self.hidden_source_cursor = source;
         }
         let patch_row = || {
             let bookmark = bookmark.as_ref()?;
@@ -975,10 +1044,12 @@ impl ReviewSession {
                 .and_then(|id| self.presentation.row_with_id(id))
                 .or_else(|| bookmark.anchor.as_ref().and_then(|anchor| self.presentation.row_showing_anchor(anchor)))
         };
-        let restored = match mode {
-            Restore::Source => source_row,
-            Restore::Returning => patch_row().or(source_row),
-            Restore::Refresh => source_row.or_else(patch_row),
+        let restored = if returning {
+            patch_row().or(source_row)
+        } else if in_source {
+            source_row
+        } else {
+            source_row.or_else(patch_row)
         };
         if let Some(row) = restored {
             self.selected_row = row;

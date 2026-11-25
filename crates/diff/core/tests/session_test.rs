@@ -1,9 +1,9 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    CommitKind, CommitPage, CommitSummary, CommitTitle, DiffDocument, DiffFileView, DiffReviewCommand, DiffReviewEvent,
-    DiffScope, DiffSide, FilePresentation, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession, ReviewTarget,
-    RowKind, SourceUnavailable, ViewMode,
+    CommitKind, CommitPage, CommitSummary, CommitTitle, DiffDocument, DiffReviewCommand, DiffReviewEvent, DiffScope,
+    DiffSide, FilePresentation, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession, ReviewTarget, RowKind,
+    SourceUnavailable, ViewMode,
     testing::{DocumentBuilder, commit_id},
 };
 use std::{error::Error, sync::Arc, time::Duration};
@@ -280,7 +280,7 @@ fn rows_and_files_are_laid_out_and_navigated_in_tree_order() {
 #[test]
 fn collapsing_a_file_parks_selection_on_its_header_until_expanded() -> Result<(), Box<dyn Error>> {
     let mut session = two_file_session();
-    assert!(session.toggle_file_collapsed(0));
+    assert!(session.toggle_file_collapsed(Some(0)));
     assert!(session.is_file_collapsed(0));
     let header = session.presentation().file_range(0).ok_or("range")?.start;
     assert_eq!(session.selected_row(), Some(header));
@@ -301,9 +301,9 @@ fn collapsing_is_refused_while_a_draft_is_open_in_the_file() -> Result<(), Box<d
     let mut session = two_file_session();
     assert!(session.begin_draft(None));
     session.draft_mut().ok_or("draft")?.set_body("keep me");
-    assert!(!session.toggle_file_collapsed(0));
+    assert!(!session.toggle_file_collapsed(Some(0)));
     assert!(!session.toggle_all_files_collapsed());
-    assert!(session.toggle_file_collapsed(1));
+    assert!(session.toggle_file_collapsed(Some(1)));
     assert_eq!(session.draft().ok_or("draft")?.body(), "keep me");
     Ok(())
 }
@@ -311,7 +311,7 @@ fn collapsing_is_refused_while_a_draft_is_open_in_the_file() -> Result<(), Box<d
 #[test]
 fn collapse_all_toggles_every_file_and_survives_refresh() -> Result<(), Box<dyn Error>> {
     let mut session = two_file_session();
-    assert!(session.toggle_file_collapsed(1));
+    assert!(session.toggle_file_collapsed(Some(1)));
     assert!(!session.all_files_collapsed());
     assert!(session.toggle_all_files_collapsed());
     assert!(session.all_files_collapsed());
@@ -361,7 +361,7 @@ fn a_toggled_layout_ignores_width_until_auto_is_restored() {
 fn source_view_cannot_collapse_files() {
     let mut session = two_file_session();
     assert!(session.toggle_source_view());
-    assert!(!session.toggle_file_collapsed(0));
+    assert!(!session.toggle_file_collapsed(Some(0)));
     assert!(!session.toggle_all_files_collapsed());
     assert!(!session.is_file_collapsed(0));
 }
@@ -370,14 +370,14 @@ fn source_view_cannot_collapse_files() {
 fn markdown_files_preview_in_place_of_their_diff() -> Result<(), Box<dyn Error>> {
     let readme = |new| DocumentBuilder::new().changed("README.md", "# Old\n", new).changed("a.rs", "old\n", "new\n");
     let mut session = ReviewSession::new(readme("# New\n").build());
-    let preview = |session: &mut ReviewSession, index| session.toggle_file_view(Some(index), DiffFileView::Preview);
+    let preview = |session: &mut ReviewSession, index| session.toggle_markdown_preview(Some(index));
     assert!(!session.command_available(&DiffReviewCommand::ToggleMarkdownPreview(Some(1))));
     assert!(!preview(&mut session, 1));
     let source = session.selected_source_line();
     assert!(session.begin_draft(None));
     assert!(!preview(&mut session, 0));
     session.cancel_draft();
-    assert!(session.toggle_file_collapsed(0));
+    assert!(session.toggle_file_collapsed(Some(0)));
     assert!(preview(&mut session, 0));
     let range = session.presentation().file_range(0).ok_or("range")?;
     let kinds: Vec<_> = session.presentation().rows(range.clone()).iter().map(|row| row.kind).collect();
@@ -401,25 +401,25 @@ fn source_preview_is_independent_of_the_diff_view_and_preserves_source_location(
         |text| DocumentBuilder::new().changed("README.md", "# Old\n", text).added("other.md", "# Other\n").build();
     let mut session = ReviewSession::new(doc("# New\n\nLast line\n"));
     let preview = DiffReviewCommand::ToggleMarkdownPreview(None);
-    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.toggle_markdown_preview(None));
     assert!(session.toggle_source_view());
     assert_eq!(session.presentation().file_presentation(0), FilePresentation::Source);
     assert!(session.select_boundary(true));
     let selected = session.selected_source_line().ok_or("source line")?;
     assert!(session.command_available(&preview));
     assert!(!session.command_available(&DiffReviewCommand::ToggleMarkdownPreview(Some(1))));
-    assert!(!session.toggle_file_view(Some(1), DiffFileView::Preview));
+    assert!(!session.toggle_markdown_preview(Some(1)));
 
-    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.toggle_markdown_preview(None));
     let range = session.visible_range();
     let kinds: Vec<_> = session.presentation().rows(range).iter().map(|row| row.kind).collect();
     assert_eq!(kinds, [RowKind::FileHeader, RowKind::MarkdownPreview]);
     session.set_document(doc("# Newer\n\nLast line\n"));
     assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
-    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.toggle_markdown_preview(None));
     assert_eq!(session.selected_source_line(), Some(selected.clone()));
 
-    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.toggle_markdown_preview(None));
     assert!(session.jump_to(selected.clone()));
     assert_eq!(session.selected_source_line(), Some(selected));
     assert_eq!(session.presentation().file_presentation(0), FilePresentation::Source);
@@ -433,7 +433,7 @@ fn source_preview_falls_back_to_source_rows_when_the_snapshot_loses_markdown() {
     let builder = DocumentBuilder::new().changed("README.md", "# Old\n", "# New\n");
     let mut session = ReviewSession::new(builder.clone().build());
     assert!(session.toggle_source_view());
-    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.toggle_markdown_preview(None));
     assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
 
     session.set_document(

@@ -662,7 +662,7 @@ impl DiffReviewState {
     }
 
     pub fn toggle_file_collapsed(&mut self, index: usize) -> bool {
-        self.change_layout(|state| state.session.toggle_file_collapsed(index))
+        self.change_layout(|state| state.session.toggle_file_collapsed(Some(index)))
     }
 
     pub fn toggle_all_files_collapsed(&mut self) -> bool {

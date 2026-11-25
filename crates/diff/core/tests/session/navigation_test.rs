@@ -1,8 +1,8 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffFileView, DiffReviewCommand, DiffSide, FilePresentation, FilesMode, RepoPath, ReviewSession, ReviewTarget,
-    SourceLocation, TargetLocation,
+    DiffReviewCommand, DiffSide, FilePresentation, FilesMode, RepoPath, ReviewSession, ReviewTarget, SourceLocation,
+    TargetLocation,
     testing::{DocumentBuilder, commit_id, external, location, repo, source},
 };
 use std::{error::Error, fmt::Write};
@@ -79,6 +79,20 @@ fn jumping_outside_the_diff_waits_for_the_source_then_shows_it_read_only() -> Re
 }
 
 #[test]
+fn open_reference_in_an_empty_diff_exposes_selected_file_and_preview() -> Result<(), Box<dyn Error>> {
+    let mut session = ReviewSession::new(DocumentBuilder::new().build());
+    let target = location("README.md", 2)?;
+    assert!(session.jump_to(target.clone()));
+    assert!(session.open_reference(&repo("README.md")?, source("# Guide\n\nBody\n")));
+    assert_eq!(session.selected_file(), Some(0));
+    assert!(session.toggle_markdown_preview(None));
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
+    assert!(session.toggle_markdown_preview(None));
+    assert_eq!(session.selected_source_line(), Some(target));
+    Ok(())
+}
+
+#[test]
 fn unchanged_markdown_can_be_previewed_after_its_source_loads() -> Result<(), Box<dyn Error>> {
     let mut session = session();
     let target = location("README.md", 3)?;
@@ -88,9 +102,9 @@ fn unchanged_markdown_can_be_previewed_after_its_source_loads() -> Result<(), Bo
     assert!(session.open_reference(&repo("README.md")?, source("# Guide\n\nSome text\n")));
     let file = session.selected_file().ok_or("referenced file")?;
     assert!(session.command_available(&preview));
-    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.toggle_markdown_preview(None));
     assert_eq!(session.presentation().file_presentation(file), FilePresentation::SourcePreview);
-    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.toggle_markdown_preview(None));
     assert_eq!(session.selected_source_line(), Some(target));
     Ok(())
 }
@@ -163,7 +177,7 @@ fn jumping_into_hidden_context_reveals_only_the_lines_around_the_target() -> Res
 #[test]
 fn jumping_into_a_collapsed_file_expands_it() -> Result<(), Box<dyn Error>> {
     let mut session = session();
-    assert!(session.toggle_file_collapsed(1));
+    assert!(session.toggle_file_collapsed(Some(1)));
     let target = location("src/main.rs", 1)?;
     assert!(session.jump_to(target.clone()));
     assert!(!session.is_file_collapsed(1));
