@@ -1,135 +1,102 @@
 mod common;
 
 use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand as C, DiffSide, FilePresentation, RowKind, ViewMode, parse_detached_git_diff,
-    testing::{DocumentBuilder, location},
+    DiffDocument, DiffReviewCommand as C, DiffSide, RowKind, ViewMode, parse_detached_git_diff,
+    testing::DocumentBuilder,
 };
-use clankerdiff_rouge::{ReviewController, ReviewOutput, ViewerPane};
+use clankerdiff_rouge::{ReviewController, ReviewHandle, ReviewOutput, ViewerPane};
 use clankerdiff_ui_core::ReviewTheme;
+use common::ReviewHarness;
 use rouge_core::{
     Point, Rect, Size,
     testing::{TestResult, TestUi},
 };
-use std::{fmt::Write, io, sync::Arc};
+use std::{error::Error, fmt::Write, io, sync::Arc};
 
 #[test]
 fn split_and_unified_render_the_same_patch_and_target_the_correct_side() -> TestResult {
     let doc = DocumentBuilder::new().changed("src/lib.rs", "let old = 1;\n", "let new = 2;\n").build();
-    common::run(doc, |ui, handle, outputs| {
-        assert!(handle.handle_command(C::SetViewMode(ViewMode::Split)));
-        let row = first_code(&handle)?;
-        let old = ui.center_of(&format!("diff-cell-{row}-Old"))?;
-        let new = ui.center_of(&format!("diff-cell-{row}-New"))?;
-        assert!(old.x < new.x);
-        ui.click(old);
-        assert_eq!(handle.selection().get().side, DiffSide::Old);
-        ui.click(new);
-        assert_eq!(handle.selection().get().side, DiffSide::New);
-        assert!(handle.handle_command(C::SetViewMode(ViewMode::Unified)));
-        ui.advance(0.0);
-        let location = location("src/lib.rs", 1)?;
-        assert_eq!(handle.with(|s| s.session().selected_source_line()), Some(location));
-        assert!(outputs.borrow().contains(&ReviewOutput::ViewModeChanged(ViewMode::Unified)));
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(doc);
+    assert!(review.handle.handle_command(C::SetViewMode(ViewMode::Split)));
+    let row = first_code(&review.handle)?;
+    let old = review.ui.center_of(&format!("diff-cell-{row}-Old"))?;
+    let new = review.ui.center_of(&format!("diff-cell-{row}-New"))?;
+    assert!(old.x < new.x);
+    review.ui.click(old);
+    assert_eq!(review.handle.selection().get().side, DiffSide::Old);
+    review.ui.click(new);
+    assert_eq!(review.handle.selection().get().side, DiffSide::New);
+    assert!(review.handle.handle_command(C::SetViewMode(ViewMode::Unified)));
+    review.ui.advance(0.0);
+    review.assert_selected_line("src/lib.rs", 1)?;
+    assert!(review.outputs().contains(&ReviewOutput::ViewModeChanged(ViewMode::Unified)));
+    Ok(())
 }
 
 #[test]
 fn markdown_files_toggle_between_their_diff_and_a_rendered_preview() -> TestResult {
-    let doc = DocumentBuilder::new()
-        .changed("README.md", "# Diff\n", "# Diff\n\nRead [the guide](https://example.com/guide).\n")
-        .changed("src/lib.rs", "old\n", "new\n")
-        .build();
-    common::run(doc, |ui, handle, outputs| {
-        let previewed =
-            || handle.with(|s| s.session().presentation().file_presentation(0)) == FilePresentation::PatchPreview;
-        assert!(ui.bounds_of("markdown-toggle-0").is_some());
-        assert!(ui.bounds_of("markdown-toggle-1").is_none());
-        ui.click_on("preview-markdown-0")?;
-        ui.advance(0.0);
-        assert!(previewed());
-        assert!(ui.bounds_of("markdown-preview-0").is_some());
-        ui.click_text("the guide")?;
-        assert!(outputs.borrow().contains(&ReviewOutput::OpenLink("https://example.com/guide".to_owned())));
-        ui.click_on("show-diff-0")?;
-        ui.advance(0.0);
-        assert!(!previewed());
-        assert!(ui.bounds_of("markdown-preview-0").is_none());
-        let row = handle.with(|s| s.session().presentation().file_range(0)).ok_or("no README rows")?.start + 1;
-        ui.click_on(&format!("diff-cell-{row}-New"))?;
-        ui.press("m");
-        ui.advance(0.0);
-        assert!(previewed());
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(markdown_change().changed("src/lib.rs", "old\n", "new\n").build());
+    review.assert_visible("markdown-toggle-0");
+    review.assert_hidden("markdown-toggle-1");
+
+    review.click("preview-markdown-0")?;
+    review.assert_visible("markdown-preview-0");
+
+    review.click("show-diff-0")?;
+    review.assert_hidden("markdown-preview-0");
+    review.select_file("README.md")?;
+    review.press("m");
+    review.assert_visible("markdown-preview-0");
+    Ok(())
 }
 
 #[test]
 fn markdown_preview_toggles_from_full_file_source_and_back() -> TestResult {
-    let doc = DocumentBuilder::new()
-        .changed_with_hunk_window(
-            "README.md",
-            "# Guide\n\nOld text\n",
-            "# Guide\n\nRead [the guide](https://example.com/guide).\n",
-            3..=3,
-        )
-        .changed("src/lib.rs", "old\n", "new\n")
-        .build();
-    common::run(doc, |ui, handle, _| {
-        assert!(handle.handle_command(C::SelectFile(0)));
-        ui.press("o");
-        ui.advance(0.0);
-        assert_eq!(handle.with(|s| s.session().selected_source_line()), Some(location("README.md", 3)?));
-        assert!(ui.rect_of("show-source-0").is_ok());
-        assert!(ui.rect_of("markdown-toggle-1").is_err());
+    let mut review = ReviewHarness::new(markdown_change().changed("src/lib.rs", "old\n", "new\n").build());
+    review.select_file("README.md")?;
+    review.press("o");
+    review.assert_selected_line("README.md", 3)?;
+    review.assert_visible("show-source-0");
 
-        ui.press("m");
-        ui.advance(0.0);
-        assert!(ui.rect_of("source-mode-header").is_ok());
-        assert!(ui.rect_of("markdown-preview-0").is_ok());
-        ui.click_on("show-source-0")?;
-        ui.advance(0.0);
-        assert!(ui.rect_of("source-mode-header").is_ok());
-        assert!(ui.rect_of("markdown-preview-0").is_err());
-        assert_eq!(handle.with(|s| s.session().selected_source_line()), Some(location("README.md", 3)?));
+    review.press("m");
+    review.assert_visible("markdown-preview-0");
+    review.ui.click_text("the guide")?;
+    assert!(review.outputs().contains(&ReviewOutput::OpenLink("https://example.com/guide".to_owned())));
+    review.click("show-source-0")?;
+    review.assert_hidden("markdown-preview-0");
+    review.assert_selected_line("README.md", 3)?;
 
-        ui.click_on("preview-markdown-0")?;
-        ui.advance(0.0);
-        assert!(ui.rect_of("markdown-preview-0").is_ok());
-        ui.press("o");
-        ui.advance(0.0);
-        assert!(ui.rect_of("source-mode-header").is_err());
-        assert!(ui.rect_of("markdown-preview-0").is_err());
-        assert!(ui.rect_of("show-diff-0").is_ok());
-        Ok(())
-    })
+    review.press("o");
+    review.assert_hidden("source-mode-header");
+    review.assert_hidden("markdown-preview-0");
+    review.assert_visible("show-diff-0");
+    Ok(())
 }
 
 #[test]
 fn same_count_replacement_retargets_mounted_rows_and_sidebar() -> TestResult {
     let doc = DocumentBuilder::new().changed("src/old.rs", "", "fn before() {}\n").build();
-    common::run(doc, |ui, handle, _| {
-        let row = first_code(&handle)?;
-        let point = ui.center_of(&format!("diff-cell-{row}-New"))?;
-        let next = DocumentBuilder::new().changed("src/new.rs", "", "fn after() {}\n").build();
-        handle.set_document(next);
-        ui.advance(0.0);
-        assert_eq!(first_code(&handle)?, row);
-        ui.click(point);
-        assert_eq!(handle.with(|s| s.session().selected_source_line()), Some(location("src/new.rs", 1)?));
-        ui.hover_on(&format!("add-comment-{row}-New"))?;
-        ui.advance(0.0);
-        ui.click_on(&format!("add-comment-{row}-New"))?;
-        ui.type_text("after refresh");
-        ui.press("enter");
-        assert!(handle.with(|s| s.session().review().comments().any(|c| c.anchor.path.as_str() == "src/new.rs")));
-        ui.click_on("toggle-sidebar")?;
-        assert!(handle.status().get().sidebar_collapsed);
-        ui.click_on("toggle-sidebar")?;
-        ui.click_on("diff-file-0")?;
-        assert_eq!(handle.selection().get().pane, ViewerPane::Files);
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(doc);
+    let row = first_code(&review.handle)?;
+    let point = review.ui.center_of(&format!("diff-cell-{row}-New"))?;
+    let next = DocumentBuilder::new().changed("src/new.rs", "", "fn after() {}\n").build();
+    review.handle.set_document(next);
+    review.ui.advance(0.0);
+    assert_eq!(first_code(&review.handle)?, row);
+    review.ui.click(point);
+    review.assert_selected_line("src/new.rs", 1)?;
+    review.ui.hover_on(&format!("add-comment-{row}-New"))?;
+    review.ui.advance(0.0);
+    review.click(&format!("add-comment-{row}-New"))?;
+    review.ui.type_text("after refresh");
+    review.press("enter");
+    assert!(review.handle.with(|s| s.session().review().comments().any(|c| c.anchor.path.as_str() == "src/new.rs")));
+    review.click("toggle-sidebar")?;
+    assert!(review.handle.status().get().sidebar_collapsed);
+    review.click("toggle-sidebar")?;
+    review.click("diff-file-0")?;
+    assert_eq!(review.handle.selection().get().pane, ViewerPane::Files);
+    Ok(())
 }
 
 #[test]
@@ -146,183 +113,179 @@ fn virtual_list_keeps_large_documents_bounded_and_reveals_last_row() -> TestResu
         }
     }
     let doc = Arc::new(DiffDocument { files: parse_detached_git_diff(patch.as_bytes())?, ..DiffDocument::default() });
-    common::run(doc, |ui, handle, _| {
-        ui.advance(0.0);
-        assert!(ui.stats().elements < 2_500);
-        assert!(handle.handle_command(C::Last));
-        let row = handle.selection().get().row.ok_or_else(|| io::Error::other("no selected last row"))?;
-        let point = ui.center_of(&format!("diff-cell-{row}-New"))?;
-        assert!(point.y > 0.0 && point.y < 800.0);
-        assert!(ui.stats().elements < 2_500);
-        assert!(handle.handle_command(C::First));
-        let row = first_code(&handle)?;
-        assert!(ui.center_of(&format!("diff-cell-{row}-New"))?.y < 800.0);
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(doc);
+    review.ui.advance(0.0);
+    assert!(review.ui.stats().elements < 2_500);
+    assert!(review.handle.handle_command(C::Last));
+    let row = review.handle.selection().get().row.ok_or_else(|| io::Error::other("no selected last row"))?;
+    let point = review.ui.center_of(&format!("diff-cell-{row}-New"))?;
+    assert!(point.y > 0.0 && point.y < 800.0);
+    assert!(review.ui.stats().elements < 2_500);
+    assert!(review.handle.handle_command(C::First));
+    let row = first_code(&review.handle)?;
+    assert!(review.ui.center_of(&format!("diff-cell-{row}-New"))?.y < 800.0);
+    Ok(())
 }
 
 #[test]
 fn sticky_file_tracks_scroll_and_preserves_location_across_scale_and_refresh() -> TestResult {
     let lines = "line content\n".repeat(100);
     let doc = || DocumentBuilder::new().changed("a.txt", "", &lines).changed("b.txt", "", &lines).build();
-    common::run(doc(), |ui, handle, _| {
-        let point = ui.center_of("diff-pane")?;
-        ui.pointer_moved(point);
-        ui.scroll(Point::new(0.0, -560.0));
-        ui.advance(0.0);
-        let header = ui.center_of("sticky-file-header")?;
-        assert!(header.y > 10.0 && header.y < 120.0);
-        let row = first_code(&handle)? + 29;
-        let before = ui.center_of(&format!("diff-cell-{row}-New"))?;
-        handle.set_document(doc());
-        let after = ui.center_of(&format!("diff-cell-{row}-New"))?;
-        assert!((after.y - before.y).abs() < 1.0, "{before:?} vs {after:?}");
-        ui.set_size(Size::new(1400.0, 900.0));
-        ui.advance(0.0);
-        assert!(ui.center_of("sticky-file-header")?.y < 120.0);
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(doc());
+    let point = review.ui.center_of("diff-pane")?;
+    review.ui.pointer_moved(point);
+    review.ui.scroll(Point::new(0.0, -560.0));
+    review.ui.advance(0.0);
+    let header = review.ui.center_of("sticky-file-header")?;
+    assert!(header.y > 10.0 && header.y < 120.0);
+    let row = first_code(&review.handle)? + 29;
+    let before = review.ui.center_of(&format!("diff-cell-{row}-New"))?;
+    review.handle.set_document(doc());
+    let after = review.ui.center_of(&format!("diff-cell-{row}-New"))?;
+    assert!((after.y - before.y).abs() < 1.0, "{before:?} vs {after:?}");
+    review.ui.set_size(Size::new(1400.0, 900.0));
+    review.ui.advance(0.0);
+    assert!(review.ui.center_of("sticky-file-header")?.y < 120.0);
+    Ok(())
 }
 
 #[test]
 fn keyboard_reveal_clears_the_sticky_header_and_next_file_pushes_it_off() -> TestResult {
     let lines = "line content\n".repeat(100);
     let doc = DocumentBuilder::new().changed("a.txt", "", &lines).changed("b.txt", "", &lines).build();
-    common::run(doc, |ui, handle, _| {
-        let row = first_code(&handle)? + 20;
-        let cell = format!("diff-cell-{row}-New");
-        let pane = ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
-        let before = ui.center_of(&cell)?;
-        ui.pointer_moved(pane.center());
-        ui.scroll(Point::new(0.0, pane.origin.y + 10.0 - before.y));
-        ui.advance(0.0);
-        let sticky = || io::Error::other("no sticky header");
-        let header = ui.bounds_of("sticky-file-header").ok_or_else(sticky)?;
-        let covered = ui.center_of(&cell)?;
-        assert!(
-            covered.y >= header.origin.y && covered.y < header.origin.y + header.size.height,
-            "{covered:?} not in {header:?}"
-        );
-        assert!(handle.handle_command(C::SelectRow(row + 1)));
-        ui.press("up");
-        assert_eq!(handle.selection().get().row, Some(row));
-        let revealed = ui.bounds_of(&cell).ok_or_else(|| io::Error::other("no revealed row"))?;
-        let header = ui.bounds_of("sticky-file-header").ok_or_else(sticky)?;
-        assert!(revealed.origin.y >= header.origin.y + header.size.height - 0.1);
+    let mut review = ReviewHarness::new(doc);
+    let row = first_code(&review.handle)? + 20;
+    let cell = format!("diff-cell-{row}-New");
+    let pane = review.ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
+    let before = review.ui.center_of(&cell)?;
+    review.ui.pointer_moved(pane.center());
+    review.ui.scroll(Point::new(0.0, pane.origin.y + 10.0 - before.y));
+    review.ui.advance(0.0);
+    let sticky = || io::Error::other("no sticky header");
+    let header = review.ui.bounds_of("sticky-file-header").ok_or_else(sticky)?;
+    let covered = review.ui.center_of(&cell)?;
+    assert!(
+        covered.y >= header.origin.y && covered.y < header.origin.y + header.size.height,
+        "{covered:?} not in {header:?}"
+    );
+    assert!(review.handle.handle_command(C::SelectRow(row + 1)));
+    review.press("up");
+    assert_eq!(review.handle.selection().get().row, Some(row));
+    let revealed = review.ui.bounds_of(&cell).ok_or_else(|| io::Error::other("no revealed row"))?;
+    let header = review.ui.bounds_of("sticky-file-header").ok_or_else(sticky)?;
+    assert!(revealed.origin.y >= header.origin.y + header.size.height - 0.1);
 
-        assert!(handle.handle_command(C::SelectFile(1)));
-        ui.advance(0.0);
-        let incoming = ui.bounds_of("diff-file-header-1").ok_or_else(|| io::Error::other("no next file header"))?;
-        ui.scroll(Point::new(0.0, pane.origin.y + 16.0 - incoming.origin.y));
-        ui.advance(0.0);
-        let outgoing = ui.bounds_of("sticky-file-header").ok_or_else(sticky)?;
-        let incoming = ui.bounds_of("diff-file-header-1").ok_or_else(|| io::Error::other("no next file header"))?;
-        let pane = ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
-        assert!(outgoing.origin.y < pane.origin.y && incoming.origin.y > pane.origin.y);
-        assert!((outgoing.origin.y + outgoing.size.height - incoming.origin.y).abs() < 0.1);
-        Ok(())
-    })
+    assert!(review.handle.handle_command(C::SelectFile(1)));
+    review.ui.advance(0.0);
+    let incoming = review.ui.bounds_of("diff-file-header-1").ok_or_else(|| io::Error::other("no next file header"))?;
+    review.ui.scroll(Point::new(0.0, pane.origin.y + 16.0 - incoming.origin.y));
+    review.ui.advance(0.0);
+    let outgoing = review.ui.bounds_of("sticky-file-header").ok_or_else(sticky)?;
+    let incoming = review.ui.bounds_of("diff-file-header-1").ok_or_else(|| io::Error::other("no next file header"))?;
+    let pane = review.ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
+    assert!(outgoing.origin.y < pane.origin.y && incoming.origin.y > pane.origin.y);
+    assert!((outgoing.origin.y + outgoing.size.height - incoming.origin.y).abs() < 0.1);
+    Ok(())
 }
 
 #[test]
 fn long_code_scrolls_under_fixed_gutters_when_wrapping_is_off() -> TestResult {
     let doc = DocumentBuilder::new().changed("long.txt", "", &format!("{}\n", "long line ".repeat(250))).build();
-    common::run(doc, |ui, handle, _| {
-        assert!(handle.handle_command(C::ToggleWrap));
-        ui.advance(0.0);
-        let row = first_code(&handle)?;
-        let cell = ui.center_of(&format!("diff-cell-{row}-New"))?;
-        let code = format!("code-{row}-New");
-        let before = ui.center_of(&code)?;
-        ui.pointer_moved(cell);
-        ui.scroll(Point::new(-220.0, 0.0));
-        let after = ui.center_of(&code)?;
-        assert!(after.x < before.x - 100.0, "{before:?} -> {after:?}");
-        assert_eq!(ui.center_of(&format!("diff-cell-{row}-New"))?, cell);
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(doc);
+    assert!(review.handle.handle_command(C::ToggleWrap));
+    review.ui.advance(0.0);
+    let row = first_code(&review.handle)?;
+    let cell = review.ui.center_of(&format!("diff-cell-{row}-New"))?;
+    let code = format!("code-{row}-New");
+    let before = review.ui.center_of(&code)?;
+    review.ui.pointer_moved(cell);
+    review.ui.scroll(Point::new(-220.0, 0.0));
+    let after = review.ui.center_of(&code)?;
+    assert!(after.x < before.x - 100.0, "{before:?} -> {after:?}");
+    assert_eq!(review.ui.center_of(&format!("diff-cell-{row}-New"))?, cell);
+    Ok(())
 }
 
 #[test]
 fn long_code_wraps_inside_its_cell_and_marks_each_continuation_line() -> TestResult {
     let doc = DocumentBuilder::new().changed("long.txt", "", &format!("    {}\n", "wrapped words ".repeat(60))).build();
-    common::run(doc, |ui, handle, _| {
-        let row = first_code(&handle)?;
-        let cell = bounds(ui, &format!("diff-cell-{row}-New"))?;
-        let code = bounds(ui, &format!("code-{row}-New"))?;
-        let marks = ui.bounds_of_all(&format!("code-{row}-New:continuation"));
-        assert!(marks.len() >= 3, "{} continuation lines", marks.len());
-        assert!(code.max().x <= cell.max().x, "{code:?} inside {cell:?}");
-        assert!(cell.size.height >= code.size.height, "{cell:?} fits {code:?}");
-        assert!(marks.iter().all(|mark| mark.max().x <= code.origin.x && mark.origin.x >= cell.origin.x));
-        assert!(marks.windows(2).all(|pair| pair[1].origin.y > pair[0].origin.y));
+    let mut review = ReviewHarness::new(doc);
+    let row = first_code(&review.handle)?;
+    let cell = bounds(&mut review.ui, &format!("diff-cell-{row}-New"))?;
+    let code = bounds(&mut review.ui, &format!("code-{row}-New"))?;
+    let marks = review.ui.bounds_of_all(&format!("code-{row}-New:continuation"));
+    assert!(marks.len() >= 3, "{} continuation lines", marks.len());
+    assert!(code.max().x <= cell.max().x, "{code:?} inside {cell:?}");
+    assert!(cell.size.height >= code.size.height, "{cell:?} fits {code:?}");
+    assert!(marks.iter().all(|mark| mark.max().x <= code.origin.x && mark.origin.x >= cell.origin.x));
+    assert!(marks.windows(2).all(|pair| pair[1].origin.y > pair[0].origin.y));
 
-        ui.pointer_moved(cell.center());
-        ui.scroll(Point::new(-220.0, 0.0));
-        ui.advance(0.0);
-        assert_eq!(bounds(ui, &format!("code-{row}-New"))?.origin, code.origin, "wrapped rows don't scroll sideways");
-        Ok(())
-    })
+    review.ui.pointer_moved(cell.center());
+    review.ui.scroll(Point::new(-220.0, 0.0));
+    review.ui.advance(0.0);
+    assert_eq!(
+        bounds(&mut review.ui, &format!("code-{row}-New"))?.origin,
+        code.origin,
+        "wrapped rows don't scroll sideways"
+    );
+    Ok(())
 }
 
 #[test]
 fn split_rows_grow_to_the_taller_side_and_any_wrapped_line_selects_the_cell() -> TestResult {
     let long = format!("let long = \"{}\";\n", "text ".repeat(80));
     let doc = DocumentBuilder::new().changed("src/lib.rs", "let short = 1;\n", &long).build();
-    common::run(doc, |ui, handle, _| {
-        assert!(handle.handle_command(C::SetViewMode(ViewMode::Split)));
-        ui.advance(0.0);
-        let row = first_code(&handle)?;
-        let old = bounds(ui, &format!("diff-cell-{row}-Old"))?;
-        let new = bounds(ui, &format!("diff-cell-{row}-New"))?;
-        let short = bounds(ui, &format!("code-{row}-Old"))?;
-        let wrapped = bounds(ui, &format!("code-{row}-New"))?;
-        assert_eq!(old.size.height, new.size.height);
-        assert!(wrapped.size.height > short.size.height * 2.5, "{short:?} {wrapped:?}");
-        assert!(new.size.height >= wrapped.size.height);
+    let mut review = ReviewHarness::new(doc);
+    assert!(review.handle.handle_command(C::SetViewMode(ViewMode::Split)));
+    review.ui.advance(0.0);
+    let row = first_code(&review.handle)?;
+    let old = bounds(&mut review.ui, &format!("diff-cell-{row}-Old"))?;
+    let new = bounds(&mut review.ui, &format!("diff-cell-{row}-New"))?;
+    let short = bounds(&mut review.ui, &format!("code-{row}-Old"))?;
+    let wrapped = bounds(&mut review.ui, &format!("code-{row}-New"))?;
+    assert_eq!(old.size.height, new.size.height);
+    assert!(wrapped.size.height > short.size.height * 2.5, "{short:?} {wrapped:?}");
+    assert!(new.size.height >= wrapped.size.height);
 
-        ui.click(Point::new(old.center().x, old.max().y - 4.0));
-        assert_eq!((handle.selection().get().row, handle.selection().get().side), (Some(row), DiffSide::Old));
-        ui.click(Point::new(wrapped.center().x, wrapped.max().y - 4.0));
-        assert_eq!((handle.selection().get().row, handle.selection().get().side), (Some(row), DiffSide::New));
-        Ok(())
-    })
+    review.ui.click(Point::new(old.center().x, old.max().y - 4.0));
+    assert_eq!((review.handle.selection().get().row, review.handle.selection().get().side), (Some(row), DiffSide::Old));
+    review.ui.click(Point::new(wrapped.center().x, wrapped.max().y - 4.0));
+    assert_eq!((review.handle.selection().get().row, review.handle.selection().get().side), (Some(row), DiffSide::New));
+    Ok(())
 }
 
 #[test]
 fn toggling_wrap_restores_single_line_rows_and_reports_the_preference() -> TestResult {
     let doc = DocumentBuilder::new().changed("long.txt", "", &format!("{}\n", "long line ".repeat(250))).build();
-    common::run(doc, |ui, handle, outputs| {
-        let row = first_code(&handle)?;
-        let wrapped = bounds(ui, &format!("diff-row-{row}"))?;
-        ui.press("w");
-        let single = bounds(ui, &format!("diff-row-{row}"))?;
-        assert!(!handle.status().get().wrap);
-        assert!(single.size.height * 3.0 < wrapped.size.height, "{single:?} {wrapped:?}");
-        assert_eq!(ui.bounds_of_all(&format!("code-{row}-New:continuation")), Vec::<Rect>::new());
-        assert!(outputs.borrow().contains(&ReviewOutput::WrapChanged(false)));
+    let mut review = ReviewHarness::new(doc);
+    let row = first_code(&review.handle)?;
+    let wrapped = bounds(&mut review.ui, &format!("diff-row-{row}"))?;
+    review.press("w");
+    let single = bounds(&mut review.ui, &format!("diff-row-{row}"))?;
+    assert!(!review.handle.status().get().wrap);
+    assert!(single.size.height * 3.0 < wrapped.size.height, "{single:?} {wrapped:?}");
+    assert_eq!(review.ui.bounds_of_all(&format!("code-{row}-New:continuation")), Vec::<Rect>::new());
+    assert!(review.outputs().contains(&ReviewOutput::WrapChanged(false)));
 
-        ui.click_on("toggle-wrap")?;
-        ui.advance(0.0);
-        assert!(handle.status().get().wrap);
-        assert_eq!(bounds(ui, &format!("diff-row-{row}"))?.size, wrapped.size);
-        assert!(outputs.borrow().contains(&ReviewOutput::WrapChanged(true)));
-        Ok(())
-    })
+    review.click("toggle-wrap")?;
+    review.ui.advance(0.0);
+    assert!(review.handle.status().get().wrap);
+    assert_eq!(bounds(&mut review.ui, &format!("diff-row-{row}"))?.size, wrapped.size);
+    assert!(review.outputs().contains(&ReviewOutput::WrapChanged(true)));
+    Ok(())
 }
 
 #[test]
 fn overlong_lines_show_a_bounded_prefix() -> TestResult {
     let doc = DocumentBuilder::new().changed("min.js", "", &format!("{}\n", "x".repeat(200_000))).build();
-    common::run(doc, |ui, handle, _| {
-        let row = first_code(&handle)?;
-        let cell = bounds(ui, &format!("diff-cell-{row}-New"))?;
-        let code = bounds(ui, &format!("code-{row}-New"))?;
-        let lines = ui.bounds_of_all(&format!("code-{row}-New:continuation")).len() + 1;
-        assert!(200_000 / lines > 1_000, "only a prefix wraps: {lines} lines");
-        assert!(cell.size.height >= code.size.height);
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(doc);
+    let row = first_code(&review.handle)?;
+    let cell = bounds(&mut review.ui, &format!("diff-cell-{row}-New"))?;
+    let code = bounds(&mut review.ui, &format!("code-{row}-New"))?;
+    let lines = review.ui.bounds_of_all(&format!("code-{row}-New:continuation")).len() + 1;
+    assert!(200_000 / lines > 1_000, "only a prefix wraps: {lines} lines");
+    assert!(cell.size.height >= code.size.height);
+    Ok(())
 }
 
 #[test]
@@ -336,24 +299,23 @@ fn scrolling_wrapped_rows_only_does_work_for_rows_that_mount() -> TestResult {
         writeln!(patch, "+    let value_{n} = {};", "compute(alpha, beta, gamma) + ".repeat(1 + n % 7))?;
     }
     let doc = Arc::new(DiffDocument { files: parse_detached_git_diff(patch.as_bytes())?, ..DiffDocument::default() });
-    common::run(doc, |ui, _, _| {
-        let pane = ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
-        ui.pointer_moved(Point::new(pane.max().x - 30.0, pane.center().y));
-        let mut quiet = 0;
-        for _ in 0..120 {
-            let before = ui.stats();
-            ui.scroll(Point::new(0.0, -60.0));
-            ui.advance(0.016);
-            let frame = ui.stats() - before;
-            assert!(frame.relayouts <= 1, "a wrapped mount needs at most one relayout: {frame:?}");
-            if frame.elements_created + frame.elements_removed == 0 {
-                quiet += 1;
-                assert_eq!((frame.layouts, frame.layer_paints, frame.text.shapes), (0, 0, 0), "{frame:?}");
-            }
+    let mut review = ReviewHarness::new(doc);
+    let pane = review.ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
+    review.ui.pointer_moved(Point::new(pane.max().x - 30.0, pane.center().y));
+    let mut quiet = 0;
+    for _ in 0..120 {
+        let before = review.ui.stats();
+        review.ui.scroll(Point::new(0.0, -60.0));
+        review.ui.advance(0.016);
+        let frame = review.ui.stats() - before;
+        assert!(frame.relayouts <= 1, "a wrapped mount needs at most one relayout: {frame:?}");
+        if frame.elements_created + frame.elements_removed == 0 {
+            quiet += 1;
+            assert_eq!((frame.layouts, frame.layer_paints, frame.text.shapes), (0, 0, 0), "{frame:?}");
         }
-        assert!(quiet > 60, "most scroll frames mount nothing: {quiet}");
-        Ok(())
-    })
+    }
+    assert!(quiet > 60, "most scroll frames mount nothing: {quiet}");
+    Ok(())
 }
 
 #[test]
@@ -370,75 +332,90 @@ fn scrolling_a_large_diff_only_does_work_for_rows_that_mount() -> TestResult {
         }
     }
     let doc = Arc::new(DiffDocument { files: parse_detached_git_diff(patch.as_bytes())?, ..DiffDocument::default() });
-    common::run(doc, |ui, handle, _| {
-        assert!(ui.wait_until(|_| handle.with(ReviewController::symbols_ready)), "symbols never became ready");
-        let pane = ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
-        ui.pointer_moved(Point::new(pane.max().x - 30.0, pane.center().y));
-        let (step, frames) = (60_u16, 120_u16);
-        for _ in 0..10 {
-            ui.scroll(Point::new(0.0, -f32::from(step)));
-            ui.advance(0.016);
+    let mut review = ReviewHarness::new(doc);
+    assert!(
+        review.ui.wait_until(|_| review.handle.with(ReviewController::symbols_ready)),
+        "symbols never became ready"
+    );
+    let pane = review.ui.bounds_of("diff-pane").ok_or_else(|| io::Error::other("no diff pane"))?;
+    review.ui.pointer_moved(Point::new(pane.max().x - 30.0, pane.center().y));
+    let (step, frames) = (60_u16, 120_u16);
+    for _ in 0..10 {
+        review.ui.scroll(Point::new(0.0, -f32::from(step)));
+        review.ui.advance(0.016);
+    }
+    let start = review.ui.stats();
+    let mut quiet = 0;
+    for _ in 0..frames {
+        let before = review.ui.stats();
+        review.ui.scroll(Point::new(0.0, -f32::from(step)));
+        review.ui.advance(0.016);
+        let frame = review.ui.stats() - before;
+        assert!(frame.relayouts <= 1, "a mount needs at most one relayout: {frame:?}");
+        if frame.elements_created + frame.elements_removed > 0 {
+            continue;
         }
-        let start = ui.stats();
-        let mut quiet = 0;
-        for _ in 0..frames {
-            let before = ui.stats();
-            ui.scroll(Point::new(0.0, -f32::from(step)));
-            ui.advance(0.016);
-            let frame = ui.stats() - before;
-            assert!(frame.relayouts <= 1, "a mount needs at most one relayout: {frame:?}");
-            if frame.elements_created + frame.elements_removed > 0 {
-                continue;
-            }
-            quiet += 1;
-            let work = (frame.layouts, frame.layer_paints, frame.text.shapes, frame.reactive.nodes_created);
-            assert_eq!(work, (0, 0, 0, 0), "{frame:?}");
-            assert!(frame.reactive.effects_run + frame.reactive.memos_run <= 12, "{frame:?}");
-        }
-        assert!(quiet > frames / 2, "most scroll frames mount nothing: {quiet}");
-        let rows = u64::from(frames) * u64::from(step) / 22;
-        let total = ui.stats() - start;
-        assert!(total.elements_created <= 8 * rows, "{} elements", total.elements_created);
-        assert!(total.reactive.nodes_created <= 20 * rows, "{} reactive nodes", total.reactive.nodes_created);
-        Ok(())
-    })
+        quiet += 1;
+        let work = (frame.layouts, frame.layer_paints, frame.text.shapes, frame.reactive.nodes_created);
+        assert_eq!(work, (0, 0, 0, 0), "{frame:?}");
+        assert!(frame.reactive.effects_run + frame.reactive.memos_run <= 12, "{frame:?}");
+    }
+    assert!(quiet > frames / 2, "most scroll frames mount nothing: {quiet}");
+    let rows = u64::from(frames) * u64::from(step) / 22;
+    let total = review.ui.stats() - start;
+    assert!(total.elements_created <= 8 * rows, "{} elements", total.elements_created);
+    assert!(total.reactive.nodes_created <= 20 * rows, "{} reactive nodes", total.reactive.nodes_created);
+    Ok(())
 }
 
 #[test]
 fn moving_the_selection_only_repaints_the_rows_it_touches() -> TestResult {
-    common::run(large_document()?, |ui, handle, _| {
-        assert!(ui.wait_until(|_| handle.with(ReviewController::symbols_ready)), "symbols never became ready");
-        assert!(handle.handle_command(C::SelectRow(first_code(&handle)?)));
-        ui.advance(0.016);
-        for _ in 0..5 {
-            let before = ui.stats();
-            assert!(handle.handle_command(C::MoveSelection(1)));
-            ui.advance(0.016);
-            let frame = ui.stats() - before;
-            assert_eq!((frame.layouts, frame.elements_created, frame.elements_removed), (0, 0, 0), "{frame:?}");
-            assert!(frame.layer_paints <= 4, "{frame:?}");
-            assert!(frame.reactive.effects_run <= 16, "{frame:?}");
-        }
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(large_document()?);
+    assert!(
+        review.ui.wait_until(|_| review.handle.with(ReviewController::symbols_ready)),
+        "symbols never became ready"
+    );
+    assert!(review.handle.handle_command(C::SelectRow(first_code(&review.handle)?)));
+    review.ui.advance(0.016);
+    for _ in 0..5 {
+        let before = review.ui.stats();
+        assert!(review.handle.handle_command(C::MoveSelection(1)));
+        review.ui.advance(0.016);
+        let frame = review.ui.stats() - before;
+        assert_eq!((frame.layouts, frame.elements_created, frame.elements_removed), (0, 0, 0), "{frame:?}");
+        assert!(frame.layer_paints <= 4, "{frame:?}");
+        assert!(frame.reactive.effects_run <= 16, "{frame:?}");
+    }
+    Ok(())
 }
 
 #[test]
 fn switching_the_theme_repaints_without_layout_or_rebuilding() -> TestResult {
-    common::run(large_document()?, |ui, handle, _| {
-        assert!(ui.wait_until(|_| handle.with(ReviewController::symbols_ready)), "symbols never became ready");
-        let theme = ReviewTheme::builtin("github-light")?;
-        let before = ui.stats();
-        handle.set_theme(theme);
-        ui.advance(0.016);
-        let frame = ui.stats() - before;
-        assert_eq!((frame.layouts, frame.elements_created, frame.elements_removed), (0, 0, 0), "{frame:?}");
-        assert!(frame.layer_paints > 0, "{frame:?}");
-        Ok(())
-    })
+    let mut review = ReviewHarness::new(large_document()?);
+    assert!(
+        review.ui.wait_until(|_| review.handle.with(ReviewController::symbols_ready)),
+        "symbols never became ready"
+    );
+    let theme = ReviewTheme::builtin("github-light")?;
+    let before = review.ui.stats();
+    review.handle.set_theme(theme);
+    review.ui.advance(0.016);
+    let frame = review.ui.stats() - before;
+    assert_eq!((frame.layouts, frame.elements_created, frame.elements_removed), (0, 0, 0), "{frame:?}");
+    assert!(frame.layer_paints > 0, "{frame:?}");
+    Ok(())
 }
 
-fn large_document() -> Result<Arc<DiffDocument>, Box<dyn std::error::Error>> {
+fn markdown_change() -> DocumentBuilder {
+    DocumentBuilder::new().changed_with_hunk_window(
+        "README.md",
+        "# Guide\n\nOld text\n",
+        "# Guide\n\nRead [the guide](https://example.com/guide).\n",
+        3..=3,
+    )
+}
+
+fn large_document() -> Result<Arc<DiffDocument>, Box<dyn Error>> {
     let mut patch = String::new();
     for file in 0..3 {
         let name = format!("src/file_{file}.rs");
@@ -453,7 +430,7 @@ fn large_document() -> Result<Arc<DiffDocument>, Box<dyn std::error::Error>> {
     Ok(Arc::new(DiffDocument { files: parse_detached_git_diff(patch.as_bytes())?, ..DiffDocument::default() }))
 }
 
-fn first_code(handle: &clankerdiff_rouge::ReviewHandle) -> Result<usize, io::Error> {
+fn first_code(handle: &ReviewHandle) -> Result<usize, io::Error> {
     handle
         .with(|s| {
             let p = s.session().presentation();

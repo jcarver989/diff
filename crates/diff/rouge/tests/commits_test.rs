@@ -5,6 +5,7 @@ use clankerdiff_core::{
     testing::{DocumentBuilder, commit_id},
 };
 use clankerdiff_rouge::ReviewOutput;
+use common::ReviewHarness;
 use rouge_core::testing::TestResult;
 
 #[test]
@@ -16,23 +17,23 @@ fn commit_picker_survives_compatible_refresh_and_chooses_with_the_keyboard() -> 
             "new\n",
         )
     };
-    common::run(page().build(), |ui, handle, outputs| {
-        ui.click_on("choose-commit")?;
-        assert_eq!(handle.status().get().context.phase, InteractionPhase::CommitPicker);
-        ui.center_of("commit-details")?;
-        handle.set_document(page().build());
-        ui.center_of("commit-picker")?;
-        ui.press("down");
-        ui.press("enter");
-        assert_eq!(handle.status().get().context.phase, InteractionPhase::Browse);
-        assert!(ui.bounds_of("commit-picker").is_none());
-        assert!(outputs.borrow().contains(&ReviewOutput::Event(DiffReviewEvent::SetTarget(DiffScope::Both.into()))));
+    let mut review = ReviewHarness::new(page().build());
+    review.click("choose-commit")?;
+    assert_eq!(review.handle.status().get().context.phase, InteractionPhase::CommitPicker);
+    review.assert_visible("commit-details");
+    review.handle.set_document(page().build());
+    review.assert_visible("commit-picker");
 
-        ui.click_on("choose-commit")?;
-        handle.set_document(page().commit("Ship parser").build());
-        assert!(ui.bounds_of("commit-picker").is_none());
-        assert_eq!(handle.status().get().context.phase, InteractionPhase::Browse);
-        assert_eq!(outputs.borrow().len(), 1);
-        Ok(())
-    })
+    review.press("down");
+    review.press("enter");
+    assert_eq!(review.handle.status().get().context.phase, InteractionPhase::Browse);
+    review.assert_hidden("commit-picker");
+    assert!(review.outputs().contains(&ReviewOutput::Event(DiffReviewEvent::SetTarget(DiffScope::Both.into()))));
+
+    review.click("choose-commit")?;
+    review.handle.set_document(page().commit("Ship parser").build());
+    review.assert_hidden("commit-picker");
+    assert_eq!(review.handle.status().get().context.phase, InteractionPhase::Browse);
+    assert_eq!(review.outputs().len(), 1);
+    Ok(())
 }
