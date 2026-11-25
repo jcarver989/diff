@@ -1,9 +1,9 @@
 use crate::{
-    AgentFeedbackOptions, CommitPage, CommitStack, CommitTitle, ContentProjection, DiffDocument, DiffPresentation,
-    DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, FileDiff, FileView, GapId, Layout, LineAnchor, PageLabel,
-    PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewSubmission, ReviewTarget, RowId, RowKind,
-    SourceLocation, SourcePath, TargetLocation, UNCOMMITTED_CHANGES, ViewMode, commit_description,
-    commit_picker::format_age, presentation::retained_expansions,
+    AgentFeedbackOptions, CommitPage, CommitStack, CommitTitle, ContentProjection, DiffDocument, DiffFileView,
+    DiffPresentation, DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, FileDiff, FilePresentation, GapId,
+    Layout, LineAnchor, PageLabel, PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review,
+    ReviewSubmission, ReviewTarget, RowId, RowKind, SourceDisplay, SourceFocus, SourceLocation, SourcePath,
+    TargetLocation, UNCOMMITTED_CHANGES, ViewMode, commit_description, commit_picker::format_age,
 };
 use navigation::{Navigation, Reference};
 use serde::{Deserialize, Serialize};
@@ -320,7 +320,7 @@ impl ReviewSession {
             DiffReviewCommand::NavigateForward => self.forward_location().is_some(),
             DiffReviewCommand::CopyReview => !self.review().is_empty(),
             DiffReviewCommand::ToggleMarkdownPreview(index) => {
-                self.file(index.unwrap_or(self.selected_file)).is_some_and(|file| file.markdown_source().is_some())
+                self.file(index.unwrap_or(self.selected_file)).is_some_and(|file| self.can_preview_markdown(file))
             }
             _ => true,
         }
@@ -491,7 +491,7 @@ impl ReviewSession {
     }
 
     fn leave_source_view(&mut self) {
-        self.projection.set_source_view(None);
+        self.projection.set_source_focus(None);
         self.reference = None;
         let bookmark = self.diff_return.take();
         self.rebuild_restoring(bookmark);
@@ -512,7 +512,7 @@ impl ReviewSession {
             .find_map(|row| row.cell(side)?.line_number())
             .unwrap_or(1);
         self.pending_source_restore = Some(SourceLocation { path: path.clone(), side, line_number });
-        self.projection.set_source_view(Some(path));
+        self.projection.set_source_focus(Some(SourceFocus::code(path)));
         self.rebuild();
         true
     }
@@ -528,14 +528,19 @@ impl ReviewSession {
     }
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
-        if let Some(file) = self
+        if self.source_view().is_some() {
+            return false;
+        }
+        if let Some((file, view)) = self
             .selected_presented_row()
-            .filter(|row| {
-                row.kind == RowKind::FileHeader && self.presentation.file_view(row.file_index) != FileView::Diff
+            .filter(|row| row.kind == RowKind::FileHeader)
+            .and_then(|row| match self.presentation.file_presentation(row.file_index) {
+                FilePresentation::Collapsed => Some((row.file_index, DiffFileView::Collapsed)),
+                FilePresentation::PatchPreview => Some((row.file_index, DiffFileView::Preview)),
+                _ => None,
             })
-            .map(|row| row.file_index)
         {
-            return self.toggle_file_view(Some(file), self.presentation.file_view(file));
+            return self.toggle_file_view(Some(file), view);
         }
         let id = self.presentation.gap_info(self.selected_row).map(|info| info.id).or_else(|| {
             let row = self.presentation.row(self.selected_row)?;
@@ -552,17 +557,13 @@ impl ReviewSession {
             return false;
         };
         let hunk_count = file.hunks.len();
-        let expansion = self.projection.expansions.entry(id).or_default();
         let amount = match amount {
             RevealAmount::Step => EXPAND_STEP,
             RevealAmount::All => usize::MAX,
         };
-        if id.gap_index != 0 || hunk_count == 0 {
-            expansion.revealed_prefix = expansion.revealed_prefix.saturating_add(amount);
-        }
-        if id.gap_index != hunk_count || hunk_count == 0 {
-            expansion.revealed_suffix = expansion.revealed_suffix.saturating_add(amount);
-        }
+        let prefix = if id.gap_index != 0 || hunk_count == 0 { amount } else { 0 };
+        let suffix = if id.gap_index != hunk_count || hunk_count == 0 { amount } else { 0 };
+        self.projection.expand_gap(id, prefix, suffix);
         self.rebuild();
         true
     }
@@ -574,10 +575,7 @@ impl ReviewSession {
         if file.binary || file.omitted_bytes.is_some() {
             return false;
         }
-        let path = file.path.clone();
-        if !self.projection.full_files.remove(&path) {
-            self.projection.full_files.insert(path);
-        }
+        self.projection.toggle_full_file(file.path.clone());
         self.rebuild();
         true
     }
@@ -594,25 +592,44 @@ impl ReviewSession {
     }
 
     pub fn toggle_file_collapsed(&mut self, index: usize) -> bool {
-        self.toggle_file_view(Some(index), FileView::Collapsed)
+        self.toggle_file_view(Some(index), DiffFileView::Collapsed)
     }
 
-    pub fn toggle_file_view(&mut self, index: Option<usize>, view: FileView) -> bool {
+    fn can_preview_markdown(&self, file: &FileDiff) -> bool {
+        (!self.shows_source() || self.source_view() == Some(&file.path)) && file.markdown_source().is_some()
+    }
+
+    pub fn toggle_file_view(&mut self, index: Option<usize>, view: DiffFileView) -> bool {
         let index = index.unwrap_or(self.selected_file);
-        let Some(file) = self.document.files.get(index) else {
+        let Some(file) = self.file(index) else {
             return false;
         };
-        let next = if self.presentation.file_view(index) == view { FileView::Diff } else { view };
+        if view == DiffFileView::Preview && !self.can_preview_markdown(file) {
+            return false;
+        }
+        let current = self.presentation.file_presentation(index);
+        if self.source_view().is_some() {
+            if view != DiffFileView::Preview {
+                return false;
+            }
+            let display = if current.is_preview() { SourceDisplay::Code } else { SourceDisplay::MarkdownPreview };
+            self.projection.set_source_display(display);
+            self.rebuild();
+            return true;
+        }
+        let active = match view {
+            DiffFileView::Patch => current == FilePresentation::Patch,
+            DiffFileView::Collapsed => current.is_collapsed(),
+            DiffFileView::Preview => current.is_preview(),
+        };
+        let next = if active { DiffFileView::Patch } else { view };
         let drafting = self.draft.as_ref().is_some_and(|draft| draft.anchor.path == file.path);
-        if self.source_view().is_some()
-            || next != FileView::Diff && drafting
-            || next == FileView::Preview && file.markdown_source().is_none()
-        {
+        if next != DiffFileView::Patch && drafting {
             return false;
         }
         self.projection.set_file_view(file.path.clone(), next);
         self.rebuild();
-        if next == FileView::Diff && self.selected_on_header(index) {
+        if next == DiffFileView::Patch && self.selected_on_header(index) {
             self.select_first_row();
         }
         true
@@ -627,7 +644,7 @@ impl ReviewSession {
             return false;
         }
         let header_selected = self.selected_on_header(self.selected_file);
-        let view = if collapse { FileView::Collapsed } else { FileView::Diff };
+        let view = if collapse { DiffFileView::Collapsed } else { DiffFileView::Patch };
         for file in &self.document.files {
             self.projection.set_file_view(file.path.clone(), view);
         }
@@ -665,12 +682,10 @@ impl ReviewSession {
         let reference = self.reference.take().filter(|reference| reference.survives(&document, target_changed));
         let keeps_open = joins || reference.as_ref().and_then(Reference::file).is_some();
         if !keeps_open && (had_open || self.source_view().is_some_and(|path| document.file_index(path).is_none())) {
-            self.projection.set_source_view(None);
+            self.projection.set_source_focus(None);
             self.diff_return = None;
         }
-        self.projection.expansions = retained_expansions(&self.document, &self.projection.expansions, &document);
-        self.projection.full_files.retain(|path| document.file_index(path).is_some());
-        self.projection.file_views.retain(|path, _| document.file_index(path).is_some());
+        self.projection.retain_for_document(&self.document, &document);
         self.navigation.document_changed(&document, target_changed);
         self.document = document;
         self.reference = reference.or(unchanged);
@@ -947,7 +962,10 @@ impl ReviewSession {
             DiffPresentation::with_projection(self.displayed_document(), self.presentation_options(), &self.projection);
         self.projection_revision = self.projection_revision.wrapping_add(1);
         let source_row = source.as_ref().and_then(|location| self.presentation.row_showing_source(location));
-        if source_row.is_none() && mode == Restore::Refresh {
+        if source_row.is_none()
+            && (mode == Restore::Refresh
+                || mode == Restore::Source && self.presentation.file_presentation(self.selected_file).is_preview())
+        {
             self.pending_source_restore = source;
         }
         let patch_row = || {

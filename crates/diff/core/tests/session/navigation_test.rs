@@ -1,7 +1,8 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    DiffReviewCommand, DiffSide, FilesMode, RepoPath, ReviewSession, ReviewTarget, SourceLocation, TargetLocation,
+    DiffFileView, DiffReviewCommand, DiffSide, FilePresentation, FilesMode, RepoPath, ReviewSession, ReviewTarget,
+    SourceLocation, TargetLocation,
     testing::{DocumentBuilder, commit_id, external, location, repo, source},
 };
 use std::{error::Error, fmt::Write};
@@ -74,6 +75,23 @@ fn jumping_outside_the_diff_waits_for_the_source_then_shows_it_read_only() -> Re
     assert_eq!(session.selected_source_line(), Some(origin));
     assert!(session.navigate_forward());
     assert_eq!(session.pending_reference(), Some(&TargetLocation { line_number: 3, ..outside }));
+    Ok(())
+}
+
+#[test]
+fn unchanged_markdown_can_be_previewed_after_its_source_loads() -> Result<(), Box<dyn Error>> {
+    let mut session = session();
+    let target = location("README.md", 3)?;
+    let preview = DiffReviewCommand::ToggleMarkdownPreview(None);
+    assert!(session.jump_to(target.clone()));
+    assert!(!session.command_available(&preview));
+    assert!(session.open_reference(&repo("README.md")?, source("# Guide\n\nSome text\n")));
+    let file = session.selected_file().ok_or("referenced file")?;
+    assert!(session.command_available(&preview));
+    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert_eq!(session.presentation().file_presentation(file), FilePresentation::SourcePreview);
+    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert_eq!(session.selected_source_line(), Some(target));
     Ok(())
 }
 

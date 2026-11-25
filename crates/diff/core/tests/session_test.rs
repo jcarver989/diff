@@ -1,9 +1,9 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    CommitKind, CommitPage, CommitSummary, CommitTitle, DiffDocument, DiffReviewCommand, DiffReviewEvent, DiffScope,
-    DiffSide, FileView, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession, ReviewTarget, RowKind,
-    SourceUnavailable, ViewMode,
+    CommitKind, CommitPage, CommitSummary, CommitTitle, DiffDocument, DiffFileView, DiffReviewCommand, DiffReviewEvent,
+    DiffScope, DiffSide, FilePresentation, Layout, LineAnchor, LineStat, RevealAmount, ReviewSession, ReviewTarget,
+    RowKind, SourceUnavailable, ViewMode,
     testing::{DocumentBuilder, commit_id},
 };
 use std::{error::Error, sync::Arc, time::Duration};
@@ -370,7 +370,7 @@ fn source_view_cannot_collapse_files() {
 fn markdown_files_preview_in_place_of_their_diff() -> Result<(), Box<dyn Error>> {
     let readme = |new| DocumentBuilder::new().changed("README.md", "# Old\n", new).changed("a.rs", "old\n", "new\n");
     let mut session = ReviewSession::new(readme("# New\n").build());
-    let preview = |session: &mut ReviewSession, index| session.toggle_file_view(Some(index), FileView::Preview);
+    let preview = |session: &mut ReviewSession, index| session.toggle_file_view(Some(index), DiffFileView::Preview);
     assert!(!session.command_available(&DiffReviewCommand::ToggleMarkdownPreview(Some(1))));
     assert!(!preview(&mut session, 1));
     let source = session.selected_source_line();
@@ -384,15 +384,67 @@ fn markdown_files_preview_in_place_of_their_diff() -> Result<(), Box<dyn Error>>
     assert_eq!(kinds, [RowKind::FileHeader, RowKind::MarkdownPreview]);
     assert_eq!(session.selected_row(), Some(range.start));
     session.set_document(readme("# Newer\n").build());
-    assert_eq!(session.presentation().file_view(0), FileView::Preview);
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::PatchPreview);
     assert!(session.reveal_selected_gap(RevealAmount::Step));
     assert_eq!(session.selected_source_line(), source);
     assert!(preview(&mut session, 0));
     session.set_document(
         readme("# New\n").source("README.md", DiffSide::New, Err::<&str, _>(SourceUnavailable::NotCaptured)).build(),
     );
-    assert_eq!(session.presentation().file_view(0), FileView::Diff);
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::Patch);
     Ok(())
+}
+
+#[test]
+fn source_preview_is_independent_of_the_diff_view_and_preserves_source_location() -> Result<(), Box<dyn Error>> {
+    let doc =
+        |text| DocumentBuilder::new().changed("README.md", "# Old\n", text).added("other.md", "# Other\n").build();
+    let mut session = ReviewSession::new(doc("# New\n\nLast line\n"));
+    let preview = DiffReviewCommand::ToggleMarkdownPreview(None);
+    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.toggle_source_view());
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::Source);
+    assert!(session.select_boundary(true));
+    let selected = session.selected_source_line().ok_or("source line")?;
+    assert!(session.command_available(&preview));
+    assert!(!session.command_available(&DiffReviewCommand::ToggleMarkdownPreview(Some(1))));
+    assert!(!session.toggle_file_view(Some(1), DiffFileView::Preview));
+
+    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    let range = session.visible_range();
+    let kinds: Vec<_> = session.presentation().rows(range).iter().map(|row| row.kind).collect();
+    assert_eq!(kinds, [RowKind::FileHeader, RowKind::MarkdownPreview]);
+    session.set_document(doc("# Newer\n\nLast line\n"));
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
+    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert_eq!(session.selected_source_line(), Some(selected.clone()));
+
+    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert!(session.jump_to(selected.clone()));
+    assert_eq!(session.selected_source_line(), Some(selected));
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::Source);
+    assert!(session.toggle_source_view());
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::PatchPreview);
+    Ok(())
+}
+
+#[test]
+fn source_preview_falls_back_to_source_rows_when_the_snapshot_loses_markdown() {
+    let builder = DocumentBuilder::new().changed("README.md", "# Old\n", "# New\n");
+    let mut session = ReviewSession::new(builder.clone().build());
+    assert!(session.toggle_source_view());
+    assert!(session.toggle_file_view(None, DiffFileView::Preview));
+    assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
+
+    session.set_document(
+        builder.source("README.md", DiffSide::New, Err::<&str, _>(SourceUnavailable::NotCaptured)).build(),
+    );
+    assert!(session.source_view().is_some());
+    let presentation = session.presentation();
+    assert_eq!(presentation.file_presentation(0), FilePresentation::Source);
+    assert_eq!(presentation.hunk_range(0, 0), None);
+    let kinds: Vec<_> = presentation.rows(session.visible_range()).iter().map(|row| row.kind).collect();
+    assert_eq!(kinds, [RowKind::FileHeader, RowKind::Meta]);
 }
 
 fn session() -> ReviewSession {

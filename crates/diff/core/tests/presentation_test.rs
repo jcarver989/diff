@@ -1,9 +1,9 @@
 #![cfg(feature = "test-support")]
 
 use clankerdiff_core::{
-    ContentProjection, DiffPresentation, DiffSide, DiffTone, FileView, Layout, MAX_CELL_TEXT_BYTES,
-    PresentationOptions, PresentedCell, PresentedRow, RowKind, SourceUnavailable, ViewMode, ViewportAnchor,
-    testing::DocumentBuilder,
+    ContentProjection, DiffFileView, DiffPresentation, DiffSide, DiffTone, FilePresentation, Layout,
+    MAX_CELL_TEXT_BYTES, ModeChange, PresentationOptions, PresentedCell, PresentedRow, RowKind, SourceFocus,
+    SourceUnavailable, ViewMode, ViewportAnchor, testing::DocumentBuilder,
 };
 use std::error::Error;
 
@@ -18,13 +18,14 @@ fn source_projection_is_complete_neutral_and_has_no_patch_provenance() -> Result
         .source("a.rs", side, Ok(text))
         .build();
         let mut projection = ContentProjection::default();
-        projection.set_source_view(Some(document.files[0].path.clone()));
+        projection.set_source_focus(Some(SourceFocus::code(document.files[0].path.clone())));
         let presentation = DiffPresentation::with_projection(
             document.clone(),
             PresentationOptions { view_mode: ViewMode::Split, include_file_headers: false, ..Default::default() },
             &projection,
         );
         assert_eq!(presentation.layout(), Layout::Unified);
+        assert_eq!(presentation.file_presentation(0), FilePresentation::Source);
         let source = document.files[0].source_document(side).ok_or("source")?;
         assert_eq!(presentation.row_count(), source.line_count());
         assert!(presentation.hunk_range(0, 0).is_none());
@@ -65,7 +66,7 @@ fn source_projection_reports_empty_and_every_unavailable_reason_without_fallback
             .source("a.rs", DiffSide::New, result)
             .build();
         let mut projection = ContentProjection::default();
-        projection.set_source_view(Some(document.files[0].path.clone()));
+        projection.set_source_focus(Some(SourceFocus::code(document.files[0].path.clone())));
         let presentation = DiffPresentation::with_projection(
             document,
             PresentationOptions { include_file_headers: false, ..Default::default() },
@@ -134,7 +135,7 @@ fn viewport_anchors_fall_back_to_their_file_start() -> Result<(), Box<dyn Error>
 fn collapsed_files_project_only_a_navigable_header() -> Result<(), Box<dyn Error>> {
     let document = DocumentBuilder::new().changed("a.rs", "old\n", "new\n").changed("b.rs", "old\n", "new\n").build();
     let mut projection = ContentProjection::default();
-    projection.set_file_view(document.files[0].path.clone(), FileView::Collapsed);
+    projection.set_file_view(document.files[0].path.clone(), DiffFileView::Collapsed);
     let presentation = DiffPresentation::with_projection(document, PresentationOptions::default(), &projection);
     let collapsed = presentation.file_range(0).ok_or("collapsed range")?;
     assert_eq!(collapsed.len(), 1);
@@ -146,6 +147,94 @@ fn collapsed_files_project_only_a_navigable_header() -> Result<(), Box<dyn Error
     assert!(!presentation.is_collapsed(1));
     assert!(!presentation.is_navigable(expanded.start));
     assert!(expanded.len() > 1);
+    Ok(())
+}
+
+#[test]
+fn collapsed_files_keep_their_patch_when_headers_are_disabled() {
+    let document = DocumentBuilder::new().changed("a.rs", "old\n", "new\n").build();
+    let options = PresentationOptions { include_file_headers: false, ..Default::default() };
+    let mut projection = ContentProjection::default();
+    projection.set_file_view(document.files[0].path.clone(), DiffFileView::Collapsed);
+
+    let patch = DiffPresentation::new(document.clone(), options);
+    let collapsed = DiffPresentation::with_projection(document, options, &projection);
+    assert_eq!(collapsed.file_presentation(0), FilePresentation::Patch);
+    assert_eq!(collapsed.file_range(0), patch.file_range(0));
+    assert_eq!(collapsed.hunk_range(0, 0), patch.hunk_range(0, 0));
+    assert_eq!(collapsed.rows(0..collapsed.row_count()), patch.rows(0..patch.row_count()));
+}
+
+#[test]
+fn markdown_preview_without_headers_falls_back_to_the_patch_if_source_is_unavailable() {
+    let builder = DocumentBuilder::new().changed("README.md", "# Old\n", "# New\n");
+    let document = builder.clone().build();
+    let options = PresentationOptions { include_file_headers: false, ..Default::default() };
+    let mut projection = ContentProjection::default();
+    projection.set_file_view(document.files[0].path.clone(), DiffFileView::Preview);
+
+    let preview = DiffPresentation::with_projection(document, options, &projection);
+    assert_eq!(preview.file_presentation(0), FilePresentation::PatchPreview);
+    assert_eq!(preview.file_range(0), Some(0..1));
+    assert_eq!(preview.row(0).map(|row| row.kind), Some(RowKind::MarkdownPreview));
+    assert_eq!(preview.hunk_range(0, 0), None);
+
+    let unavailable =
+        builder.source("README.md", DiffSide::New, Err::<&str, _>(SourceUnavailable::NotCaptured)).build();
+    let patch = DiffPresentation::new(unavailable.clone(), options);
+    let fallback = DiffPresentation::with_projection(unavailable, options, &projection);
+    assert_eq!(fallback.file_presentation(0), FilePresentation::Patch);
+    assert_eq!(fallback.hunk_range(0, 0), patch.hunk_range(0, 0));
+    assert_eq!(fallback.rows(0..fallback.row_count()), patch.rows(0..patch.row_count()));
+}
+
+#[test]
+fn source_preview_projects_markdown_and_falls_back_to_source_when_unavailable() {
+    let builder = DocumentBuilder::new().changed("README.md", "# Old\n", "# New\n");
+    let document = builder.clone().build();
+    let options = PresentationOptions { include_file_headers: false, ..Default::default() };
+    let mut projection = ContentProjection::default();
+    projection.set_source_focus(Some(SourceFocus::preview(document.files[0].path.clone())));
+
+    let preview = DiffPresentation::with_projection(document, options, &projection);
+    assert_eq!(preview.file_presentation(0), FilePresentation::SourcePreview);
+    assert_eq!(preview.file_range(0), Some(0..1));
+    assert_eq!(preview.row(0).map(|row| row.kind), Some(RowKind::MarkdownPreview));
+
+    let unavailable =
+        builder.source("README.md", DiffSide::New, Err::<&str, _>(SourceUnavailable::NotCaptured)).build();
+    let fallback = DiffPresentation::with_projection(unavailable, options, &projection);
+    assert_eq!(fallback.file_presentation(0), FilePresentation::Source);
+    assert_eq!(fallback.row(0).map(|row| row.kind), Some(RowKind::Meta));
+}
+
+#[test]
+fn mode_only_files_show_a_placeholder_until_full_file_expansion() -> Result<(), Box<dyn Error>> {
+    let text = "#!/bin/sh\necho ok\n";
+    let document = DocumentBuilder::new()
+        .changed_with("script.sh", text, text, |mut file| {
+            file.mode = Some(ModeChange { old: Some("100644".into()), new: Some("100755".into()) });
+            file
+        })
+        .build();
+    let options = PresentationOptions { include_file_headers: false, ..Default::default() };
+
+    let patch = DiffPresentation::new(document.clone(), options);
+    assert_eq!(patch.file_range(0), Some(0..1));
+    let placeholder = patch.row(0).ok_or("placeholder")?;
+    assert_eq!(placeholder.kind, RowKind::Meta);
+    assert_eq!(placeholder.primary_cell().ok_or("placeholder cell")?.text.as_ref(), "File mode changed");
+    assert_eq!(patch.hunk_range(0, 0), None);
+
+    let mut projection = ContentProjection::default();
+    projection.set_full_file(document.files[0].path.clone(), true);
+    let expanded = DiffPresentation::with_projection(document, options, &projection);
+    assert_eq!(expanded.file_range(0), Some(0..2));
+    assert_eq!(expanded.hunk_range(0, 0), None);
+    for (row, line) in expanded.rows(0..expanded.row_count()).iter().zip(text.lines()) {
+        assert_eq!(row.kind, RowKind::ExpandedContext);
+        assert_eq!(row.primary_cell().ok_or("expanded cell")?.text.as_ref(), line);
+    }
     Ok(())
 }
 

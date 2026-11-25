@@ -1,7 +1,7 @@
 use super::{FilesMode, ReviewSession};
 use crate::{
-    DiffDocument, DiffReviewCommand, DiffSide, FileDiff, FileView, GapExpansion, GapId, RepoPath, SourceDocument,
-    SourceLocation, SourcePath, TargetLocation, gaps_for_file,
+    DiffDocument, DiffFileView, DiffReviewCommand, DiffSide, FileDiff, GapExpansion, GapId, RepoPath, SourceDisplay,
+    SourceDocument, SourceFocus, SourceLocation, SourcePath, TargetLocation, gaps_for_file,
 };
 use std::sync::Arc;
 
@@ -152,7 +152,7 @@ impl ReviewSession {
         let path = source.display_path();
         let file = FileDiff::unchanged(path.clone(), document);
         self.reference = Some(Reference::Open { source: source.clone(), file });
-        self.projection.set_source_view(Some(path.clone()));
+        self.projection.set_source_focus(Some(SourceFocus::code(path.clone())));
         self.selected_file = self.document.files.len();
         self.pending_source_restore = Some(SourceLocation { path, side: DiffSide::New, line_number });
         self.rebuild();
@@ -257,16 +257,19 @@ impl ReviewSession {
         if self.files_mode == FilesMode::Browse && elsewhere {
             self.browse_to(location);
         } else if self.source_view().is_some() && elsewhere {
-            self.projection.set_source_view(None);
+            self.projection.set_source_focus(None);
             self.reference = None;
             self.diff_return = None;
+            self.rebuild();
+        } else if self.projection.source_focus().is_some_and(|focus| focus.display == SourceDisplay::MarkdownPreview) {
+            self.projection.set_source_display(SourceDisplay::Code);
             self.rebuild();
         }
         let Some(file_index) = self.file_index(&location.path) else {
             return false;
         };
         if self.presentation.row_showing_source(location).is_none() {
-            self.projection.set_file_view(location.path.clone(), FileView::Diff);
+            self.projection.set_file_view(location.path.clone(), DiffFileView::Patch);
             if let Some((id, expansion)) = self.gap_expansion(file_index, location) {
                 self.projection.set_expansion(id, expansion);
             }
@@ -287,7 +290,7 @@ impl ReviewSession {
             self.diff_return = self.capture_bookmark();
         }
         self.reference.take_if(|reference| reference.file().is_none_or(|file| file.path != location.path));
-        self.projection.set_source_view(Some(location.path.clone()));
+        self.projection.set_source_focus(Some(SourceFocus::code(location.path.clone())));
         self.pending_source_restore = Some(location.clone());
         self.rebuild();
     }
@@ -305,7 +308,7 @@ impl ReviewSession {
             range.contains(&line).then(|| (index, range.clone()))
         })?;
         let id = GapId { file_index, gap_index };
-        let mut expansion = self.projection.expansions.get(&id).copied().unwrap_or_default();
+        let mut expansion = self.projection.expansion(id);
         let leading = line - range.start + 1 + REVEAL_CONTEXT;
         let trailing = range.end - line + REVEAL_CONTEXT;
         let unbounded = file.hunks.is_empty();

@@ -1,7 +1,7 @@
 mod common;
 
 use clankerdiff_core::{
-    DiffDocument, DiffReviewCommand as C, DiffSide, FileView, RowKind, ViewMode, parse_detached_git_diff,
+    DiffDocument, DiffReviewCommand as C, DiffSide, FilePresentation, RowKind, ViewMode, parse_detached_git_diff,
     testing::{DocumentBuilder, location},
 };
 use clankerdiff_rouge::{ReviewController, ReviewOutput, ViewerPane};
@@ -41,7 +41,8 @@ fn markdown_files_toggle_between_their_diff_and_a_rendered_preview() -> TestResu
         .changed("src/lib.rs", "old\n", "new\n")
         .build();
     common::run(doc, |ui, handle, outputs| {
-        let previewed = || handle.with(|s| s.session().presentation().file_view(0)) == FileView::Preview;
+        let previewed =
+            || handle.with(|s| s.session().presentation().file_presentation(0)) == FilePresentation::PatchPreview;
         assert!(ui.bounds_of("markdown-toggle-0").is_some());
         assert!(ui.bounds_of("markdown-toggle-1").is_none());
         ui.click_on("preview-markdown-0")?;
@@ -59,6 +60,47 @@ fn markdown_files_toggle_between_their_diff_and_a_rendered_preview() -> TestResu
         ui.press("m");
         ui.advance(0.0);
         assert!(previewed());
+        Ok(())
+    })
+}
+
+#[test]
+fn markdown_preview_toggles_from_full_file_source_and_back() -> TestResult {
+    let doc = DocumentBuilder::new()
+        .changed_with_hunk_window(
+            "README.md",
+            "# Guide\n\nOld text\n",
+            "# Guide\n\nRead [the guide](https://example.com/guide).\n",
+            3..=3,
+        )
+        .changed("src/lib.rs", "old\n", "new\n")
+        .build();
+    common::run(doc, |ui, handle, _| {
+        assert!(handle.handle_command(C::SelectFile(0)));
+        ui.press("o");
+        ui.advance(0.0);
+        assert_eq!(handle.with(|s| s.session().selected_source_line()), Some(location("README.md", 3)?));
+        assert!(ui.rect_of("show-source-0").is_ok());
+        assert!(ui.rect_of("markdown-toggle-1").is_err());
+
+        ui.press("m");
+        ui.advance(0.0);
+        assert!(ui.rect_of("source-mode-header").is_ok());
+        assert!(ui.rect_of("markdown-preview-0").is_ok());
+        ui.click_on("show-source-0")?;
+        ui.advance(0.0);
+        assert!(ui.rect_of("source-mode-header").is_ok());
+        assert!(ui.rect_of("markdown-preview-0").is_err());
+        assert_eq!(handle.with(|s| s.session().selected_source_line()), Some(location("README.md", 3)?));
+
+        ui.click_on("preview-markdown-0")?;
+        ui.advance(0.0);
+        assert!(ui.rect_of("markdown-preview-0").is_ok());
+        ui.press("o");
+        ui.advance(0.0);
+        assert!(ui.rect_of("source-mode-header").is_err());
+        assert!(ui.rect_of("markdown-preview-0").is_err());
+        assert!(ui.rect_of("show-diff-0").is_ok());
         Ok(())
     })
 }

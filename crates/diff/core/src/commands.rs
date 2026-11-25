@@ -200,7 +200,6 @@ impl DiffReviewCommand {
                     | Self::ToggleFullFile
                     | Self::ToggleFileCollapsed(_)
                     | Self::ToggleAllFilesCollapsed
-                    | Self::ToggleMarkdownPreview(_)
                     | Self::SetViewMode(_)
                     | Self::ToggleLayout
                     | Self::SelectSide(_)

@@ -113,11 +113,68 @@ pub enum RowKind {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum FileView {
+pub enum DiffFileView {
     #[default]
-    Diff,
+    Patch,
     Collapsed,
     Preview,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SourceDisplay {
+    #[default]
+    Code,
+    MarkdownPreview,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceFocus {
+    pub path: RepoPath,
+    pub display: SourceDisplay,
+}
+
+impl SourceFocus {
+    #[must_use]
+    pub const fn code(path: RepoPath) -> Self {
+        Self { path, display: SourceDisplay::Code }
+    }
+
+    #[must_use]
+    pub const fn preview(path: RepoPath) -> Self {
+        Self { path, display: SourceDisplay::MarkdownPreview }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FilePresentation {
+    #[default]
+    Patch,
+    Collapsed,
+    PatchPreview,
+    Source,
+    SourcePreview,
+}
+
+impl FilePresentation {
+    #[must_use]
+    pub const fn is_collapsed(self) -> bool {
+        matches!(self, Self::Collapsed)
+    }
+
+    #[must_use]
+    pub const fn is_preview(self) -> bool {
+        matches!(self, Self::PatchPreview | Self::SourcePreview)
+    }
+
+    #[must_use]
+    pub const fn is_source(self) -> bool {
+        matches!(self, Self::Source | Self::SourcePreview)
+    }
+
+    #[must_use]
+    pub const fn header_is_navigable(self) -> bool {
+        matches!(self, Self::Collapsed | Self::PatchPreview | Self::SourcePreview)
+    }
 }
 
 /// Stable identity of a gap before, between, or after hunks.
@@ -191,29 +248,56 @@ impl GapInfo {
 /// Reveal state used to project a document over the sources it carries.
 #[derive(Debug, Clone, Default)]
 pub struct ContentProjection {
-    source_view: Option<RepoPath>,
-    pub(crate) expansions: HashMap<GapId, GapExpansion>,
-    pub(crate) full_files: HashSet<RepoPath>,
-    pub(crate) file_views: HashMap<RepoPath, FileView>,
+    source_focus: Option<SourceFocus>,
+    expansions: HashMap<GapId, GapExpansion>,
+    full_files: HashSet<RepoPath>,
+    file_views: HashMap<RepoPath, DiffFileView>,
 }
 
 impl ContentProjection {
-    pub fn set_source_view(&mut self, path: Option<RepoPath>) {
-        self.source_view = path;
+    pub fn set_source_focus(&mut self, focus: Option<SourceFocus>) {
+        self.source_focus = focus;
+    }
+
+    #[must_use]
+    pub const fn source_focus(&self) -> Option<&SourceFocus> {
+        self.source_focus.as_ref()
     }
 
     #[must_use]
     pub const fn source_view(&self) -> Option<&RepoPath> {
-        self.source_view.as_ref()
+        match &self.source_focus {
+            Some(focus) => Some(&focus.path),
+            None => None,
+        }
+    }
+
+    pub fn set_source_display(&mut self, display: SourceDisplay) -> bool {
+        let Some(focus) = &mut self.source_focus else {
+            return false;
+        };
+        focus.display = display;
+        true
     }
 
     #[must_use]
     pub const fn layout(&self, options: PresentationOptions) -> Layout {
-        if self.source_view.is_some() { Layout::Unified } else { options.layout() }
+        if self.source_focus.is_some() { Layout::Unified } else { options.layout() }
     }
 
     pub fn set_expansion(&mut self, id: GapId, expansion: GapExpansion) {
         self.expansions.insert(id, expansion);
+    }
+
+    #[must_use]
+    pub fn expansion(&self, id: GapId) -> GapExpansion {
+        self.expansions.get(&id).copied().unwrap_or_default()
+    }
+
+    pub fn expand_gap(&mut self, id: GapId, prefix: usize, suffix: usize) {
+        let expansion = self.expansions.entry(id).or_default();
+        expansion.revealed_prefix = expansion.revealed_prefix.saturating_add(prefix);
+        expansion.revealed_suffix = expansion.revealed_suffix.saturating_add(suffix);
     }
 
     pub fn set_full_file(&mut self, path: RepoPath, enabled: bool) {
@@ -224,13 +308,22 @@ impl ContentProjection {
         }
     }
 
+    pub fn toggle_full_file(&mut self, path: RepoPath) -> bool {
+        if self.full_files.remove(&path) {
+            false
+        } else {
+            self.full_files.insert(path);
+            true
+        }
+    }
+
     #[must_use]
     pub fn is_full_file(&self, path: &RepoPath) -> bool {
         self.full_files.contains(path)
     }
 
-    pub fn set_file_view(&mut self, path: RepoPath, view: FileView) {
-        if view == FileView::Diff {
+    pub fn set_file_view(&mut self, path: RepoPath, view: DiffFileView) {
+        if view == DiffFileView::Patch {
             self.file_views.remove(&path);
         } else {
             self.file_views.insert(path, view);
@@ -238,8 +331,14 @@ impl ContentProjection {
     }
 
     #[must_use]
-    pub fn file_view(&self, path: &RepoPath) -> FileView {
+    pub fn file_view(&self, path: &RepoPath) -> DiffFileView {
         self.file_views.get(path).copied().unwrap_or_default()
+    }
+
+    pub fn retain_for_document(&mut self, previous: &DiffDocument, next: &DiffDocument) {
+        self.expansions = retained_expansions(previous, &self.expansions, next);
+        self.full_files.retain(|path| next.file_index(path).is_some());
+        self.file_views.retain(|path, _| next.file_index(path).is_some());
     }
 }
 
@@ -342,6 +441,8 @@ impl PresentedRow {
     }
 }
 
+type RowIndex = HashMap<(usize, DiffSide, usize), usize>;
+
 /// Eager row indexes and cheap descriptors. Syntax and frontend widgets are not
 /// constructed here.
 #[derive(Debug, Clone)]
@@ -349,13 +450,13 @@ pub struct DiffPresentation {
     document: Arc<DiffDocument>,
     layout: Layout,
     rows: Vec<PresentedRow>,
-    anchor_rows: HashMap<(usize, DiffSide, usize), usize>,
-    source_rows: HashMap<(usize, DiffSide, usize), usize>,
+    anchor_rows: RowIndex,
+    source_rows: RowIndex,
     gap_info: HashMap<usize, GapInfo>,
     file_order: Vec<usize>,
     file_ranges: Vec<Range<usize>>,
     hunk_ranges: Vec<Vec<Range<usize>>>,
-    views: Vec<FileView>,
+    views: Vec<FilePresentation>,
 }
 
 impl DiffPresentation {
@@ -367,7 +468,6 @@ impl DiffPresentation {
 
     /// Builds a windowed projection over the document's complete-file sources.
     #[must_use]
-    #[allow(clippy::too_many_lines)]
     pub fn with_projection(
         document: Arc<DiffDocument>,
         options: PresentationOptions,
@@ -379,100 +479,24 @@ impl DiffPresentation {
         let file_order = tree_order(&document);
         let mut file_ranges = vec![0..0; document.files.len()];
         let mut hunk_ranges = vec![Vec::new(); document.files.len()];
-        let mut views = vec![FileView::Diff; document.files.len()];
+        let mut views = vec![FilePresentation::Patch; document.files.len()];
         for &file_index in &file_order {
             let file = &document.files[file_index];
-            let layout = layout.for_status(file.status);
             let file_start = rows.len();
-            if options.include_file_headers {
-                rows.push(header_row(file_index, file));
-            }
-            if projection.source_view() == Some(&file.path) {
-                append_source_rows(&mut rows, file_index, file);
-                file_ranges[file_index] = file_start..rows.len();
-                continue;
-            }
-            let view = projection.file_view(&file.path);
-            if options.include_file_headers && view == FileView::Collapsed
-                || view == FileView::Preview && file.markdown_source().is_some()
-            {
-                if view == FileView::Preview {
-                    let id = row_id(&file.path, "markdown-preview", None, None, None);
-                    rows.push(PresentedRow {
-                        id,
-                        kind: RowKind::MarkdownPreview,
-                        right: None,
-                        ..header_row(file_index, file)
-                    });
-                }
-                views[file_index] = view;
-                file_ranges[file_index] = file_start..rows.len();
-                continue;
-            }
-            let old_count = file.source_document(DiffSide::Old).map_or(0, |source| source.line_count());
-            let new_count = file.source_document(DiffSide::New).map_or(0, |source| source.line_count());
-            let gaps = gaps_for_file(file, old_count, new_count);
-            let mut file_hunks = Vec::with_capacity(file.hunks.len());
-            for (hunk_index, gap) in gaps.iter().enumerate().take(file.hunks.len()) {
-                append_gap_projection(
-                    &mut rows,
-                    &mut gap_info,
-                    GapProjection { file_index, gap_index: hunk_index, file, gap, layout, projection },
-                );
-                let hunk_start = rows.len();
-                match layout {
-                    Layout::Unified => append_unified_rows(&mut rows, file_index, hunk_index, file),
-                    Layout::Split => append_split_rows(&mut rows, file_index, hunk_index, file),
-                }
-                file_hunks.push(hunk_start..rows.len());
-            }
-            if file.hunks.is_empty() {
-                if projection.is_full_file(&file.path) {
-                    append_gap_projection(
-                        &mut rows,
-                        &mut gap_info,
-                        GapProjection { file_index, gap_index: 0, file, gap: &gaps[0], layout, projection },
-                    );
-                } else {
-                    rows.push(meta_row(file_index, None, &file.path, "placeholder", None, placeholder_text(file)));
-                }
-            } else {
-                append_gap_projection(
-                    &mut rows,
-                    &mut gap_info,
-                    GapProjection {
-                        file_index,
-                        gap_index: file.hunks.len(),
-                        file,
-                        gap: &gaps[file.hunks.len()],
-                        layout,
-                        projection,
-                    },
-                );
-            }
+            let (view, file_hunks) = append_file_rows(
+                &mut rows,
+                &mut gap_info,
+                file_index,
+                file,
+                layout.for_status(file.status),
+                options.include_file_headers,
+                projection,
+            );
             file_ranges[file_index] = file_start..rows.len();
             hunk_ranges[file_index] = file_hunks;
+            views[file_index] = view;
         }
-        let anchor_rows = rows
-            .iter()
-            .enumerate()
-            .flat_map(|(row_index, row)| {
-                row.cells().filter_map(move |cell| {
-                    let source = cell.patch_source?;
-                    Some(((row.file_index, source.side, cell.line_number()?), row_index))
-                })
-            })
-            .collect();
-        let source_rows = rows
-            .iter()
-            .enumerate()
-            .flat_map(|(row_index, row)| {
-                row.cells().filter_map(move |cell| {
-                    let source = cell.source_line?;
-                    Some(((row.file_index, source.side, source.line_number), row_index))
-                })
-            })
-            .collect();
+        let (anchor_rows, source_rows) = index_rows(&rows);
         Self { document, layout, rows, anchor_rows, source_rows, gap_info, file_order, file_ranges, hunk_ranges, views }
     }
 
@@ -541,11 +565,11 @@ impl DiffPresentation {
 
     #[must_use]
     pub fn is_collapsed(&self, file_index: usize) -> bool {
-        self.file_view(file_index) == FileView::Collapsed
+        self.file_presentation(file_index).is_collapsed()
     }
 
     #[must_use]
-    pub fn file_view(&self, file_index: usize) -> FileView {
+    pub fn file_presentation(&self, file_index: usize) -> FilePresentation {
         self.views.get(file_index).copied().unwrap_or_default()
     }
 
@@ -638,7 +662,8 @@ impl DiffPresentation {
     #[must_use]
     pub fn is_navigable(&self, index: usize) -> bool {
         self.row(index).is_some_and(|row| {
-            row.is_navigable() || (row.kind == RowKind::FileHeader && self.file_view(row.file_index) != FileView::Diff)
+            row.is_navigable()
+                || (row.kind == RowKind::FileHeader && self.file_presentation(row.file_index).header_is_navigable())
         })
     }
 
@@ -656,6 +681,116 @@ impl DiffPresentation {
     pub fn first_source_row(&self, range: Range<usize>) -> Option<usize> {
         range.into_iter().find(|index| self.row(*index).is_some_and(|row| row.source_lines().next().is_some()))
     }
+}
+
+fn resolve_file_presentation(
+    file: &FileDiff,
+    include_file_headers: bool,
+    projection: &ContentProjection,
+) -> FilePresentation {
+    if let Some(focus) = projection.source_focus().filter(|focus| focus.path == file.path) {
+        return if focus.display == SourceDisplay::MarkdownPreview && file.markdown_source().is_some() {
+            FilePresentation::SourcePreview
+        } else {
+            FilePresentation::Source
+        };
+    }
+    match projection.file_view(&file.path) {
+        DiffFileView::Collapsed if include_file_headers => FilePresentation::Collapsed,
+        DiffFileView::Preview if file.markdown_source().is_some() => FilePresentation::PatchPreview,
+        _ => FilePresentation::Patch,
+    }
+}
+
+fn append_file_rows(
+    rows: &mut Vec<PresentedRow>,
+    gap_info: &mut HashMap<usize, GapInfo>,
+    file_index: usize,
+    file: &FileDiff,
+    layout: Layout,
+    include_file_headers: bool,
+    projection: &ContentProjection,
+) -> (FilePresentation, Vec<Range<usize>>) {
+    if include_file_headers {
+        rows.push(header_row(file_index, file));
+    }
+    let presentation = resolve_file_presentation(file, include_file_headers, projection);
+    let hunks = match presentation {
+        FilePresentation::Collapsed => Vec::new(),
+        FilePresentation::PatchPreview | FilePresentation::SourcePreview => {
+            rows.push(markdown_preview_row(file_index, file));
+            Vec::new()
+        }
+        FilePresentation::Source => {
+            append_source_rows(rows, file_index, file);
+            Vec::new()
+        }
+        FilePresentation::Patch => append_patch_rows(rows, gap_info, file_index, file, layout, projection),
+    };
+    (presentation, hunks)
+}
+
+fn append_patch_rows(
+    rows: &mut Vec<PresentedRow>,
+    gap_info: &mut HashMap<usize, GapInfo>,
+    file_index: usize,
+    file: &FileDiff,
+    layout: Layout,
+    projection: &ContentProjection,
+) -> Vec<Range<usize>> {
+    let hunk_count = file.hunks.len();
+    if hunk_count == 0 && !projection.is_full_file(&file.path) {
+        rows.push(meta_row(file_index, None, &file.path, "placeholder", None, placeholder_text(file)));
+        return Vec::new();
+    }
+
+    let old_count = file.source_document(DiffSide::Old).map_or(0, |source| source.line_count());
+    let new_count = file.source_document(DiffSide::New).map_or(0, |source| source.line_count());
+    let gaps = gaps_for_file(file, old_count, new_count);
+    let mut hunk_ranges = Vec::with_capacity(hunk_count);
+    for (hunk_index, gap) in gaps.iter().take(hunk_count).enumerate() {
+        append_gap_projection(
+            rows,
+            gap_info,
+            GapProjection { file_index, gap_index: hunk_index, file, gap, layout, projection },
+        );
+        let hunk_start = rows.len();
+        match layout {
+            Layout::Unified => append_unified_rows(rows, file_index, hunk_index, file),
+            Layout::Split => append_split_rows(rows, file_index, hunk_index, file),
+        }
+        hunk_ranges.push(hunk_start..rows.len());
+    }
+    append_gap_projection(
+        rows,
+        gap_info,
+        GapProjection { file_index, gap_index: hunk_count, file, gap: &gaps[hunk_count], layout, projection },
+    );
+    hunk_ranges
+}
+
+fn index_rows(rows: &[PresentedRow]) -> (RowIndex, RowIndex) {
+    let anchor_rows = rows
+        .iter()
+        .enumerate()
+        .flat_map(|(row_index, row)| {
+            row.cells().filter_map(move |cell| {
+                let source = cell.patch_source?;
+                Some(((row.file_index, source.side, cell.line_number()?), row_index))
+            })
+        })
+        .collect();
+    let source_rows = rows
+        .iter()
+        .enumerate()
+        .flat_map(|(row_index, row)| {
+            row.cells().filter_map(move |cell| {
+                let source = cell.source_line?;
+                Some(((row.file_index, source.side, source.line_number), row_index))
+            })
+        })
+        .collect();
+    (anchor_rows, source_rows)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -689,7 +824,7 @@ impl ViewportAnchor {
     }
 }
 
-pub(crate) fn retained_expansions(
+fn retained_expansions(
     previous: &DiffDocument,
     expansions: &HashMap<GapId, GapExpansion>,
     next: &DiffDocument,
@@ -917,6 +1052,17 @@ fn header_row(file_index: usize, file: &FileDiff) -> PresentedRow {
         hunk_index: None,
         left: None,
         right: Some(cell(None, None, text, DiffTone::Meta)),
+    }
+}
+
+fn markdown_preview_row(file_index: usize, file: &FileDiff) -> PresentedRow {
+    PresentedRow {
+        id: row_id(&file.path, "markdown-preview", None, None, None),
+        kind: RowKind::MarkdownPreview,
+        file_index,
+        hunk_index: None,
+        left: None,
+        right: None,
     }
 }
 

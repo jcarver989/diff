@@ -3,8 +3,8 @@ use crate::{
     shortcut_label, sidebar, style, toolbar, viewer::Viewport,
 };
 use clankerdiff_core::{
-    DiffReviewCommand as C, DiffSide, DiffTone, FileStatus, FileView, Layout, LineAnchor, LineStat, PresentedCell,
-    PresentedRow, RevealAmount, RowId, RowKind, SourceLocation, tooltip,
+    DiffReviewCommand as C, DiffSide, DiffTone, FilePresentation, FileStatus, Layout, LineAnchor, LineStat,
+    PresentedCell, PresentedRow, RevealAmount, RowId, RowKind, SourceLocation, tooltip,
 };
 use clankerdiff_markdown::MarkdownDocument;
 use clankerdiff_ui_core::{DiffPalette, ReviewTheme, Rgba};
@@ -760,9 +760,9 @@ struct HeaderInfo {
     directory: Option<String>,
     renamed_from: Option<String>,
     stat: LineStat,
-    view: FileView,
+    presentation: FilePresentation,
     previewable: bool,
-    source: Option<&'static str>,
+    source_label: Option<&'static str>,
     start: Option<usize>,
     after_header: bool,
 }
@@ -777,11 +777,11 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
     let selection = handle.selection();
     let start = info.start;
     let count = collapsed_comments(&handle, index);
-    let (status, view) = (info.status, info.view);
-    let collapsed = view == FileView::Collapsed;
+    let (status, presentation) = (info.status, info.presentation);
+    let collapsed = presentation.is_collapsed();
     let (icon, label) =
         if collapsed { (IconName::ChevronRight, "Expand file") } else { (IconName::ChevronDown, "Collapse file") };
-    let toggle = info.source.is_none().then(|| {
+    let toggle = (!presentation.is_source()).then(|| {
         view! {
             <icon_button test_id={format!("collapse-file-{index}")} icon label
                          on_click={move || {
@@ -793,7 +793,7 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
         let selection = selection.get();
         selection.pane == ViewerPane::Diff && start.is_some() && selection.row == start
     });
-    let comments = memo(move || if view == FileView::Diff { 0 } else { count() });
+    let comments = memo(move || if presentation == FilePresentation::Patch { 0 } else { count() });
     let status_color = move || palette.with(|t| style::file_status_color(status, &t.diff));
     let band = move |pick: fn(&DiffPalette) -> Rgba| {
         move || {
@@ -809,7 +809,7 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
             Color::from(if selected.get() { p.accent.mix(p.background, 115) } else { p.border })
         })
     };
-    let trailing = match info.source {
+    let trailing = match info.source_label {
         Some(source) => view! {
             <div test_id="source-mode-header" flex_none pr=STAT_INSET>
                 <text body no_wrap color=tone(|p| p.muted)>{source}</text>
@@ -817,8 +817,7 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
         },
         None => stat_columns(info.stat, palette, comments),
     };
-    let preview =
-        (info.previewable && info.source.is_none()).then(|| preview_toggle(&handle, index, view == FileView::Preview));
+    let preview = info.previewable.then(|| preview_toggle(&handle, index, presentation));
     view! {
         <div test_id={format!("diff-file-header-{index}")} h=HEADER_HEIGHT w_full flex row items_center
              border_t=px(if info.after_header { 0.0 } else { HAIRLINE }) border_b=HAIRLINE border_color=rule
@@ -850,23 +849,26 @@ fn header(handle: &ReviewHandle, index: usize) -> Div {
     .hover(move |style| style.bg(band(|p| p.foreground.mix(p.background, 18))))
 }
 
-fn preview_toggle(handle: &ReviewHandle, index: usize, previewed: bool) -> SegmentedControl {
+fn preview_toggle(handle: &ReviewHandle, index: usize, presentation: FilePresentation) -> SegmentedControl {
     let handle = *handle;
-    let segments = [
-        (false, "show-diff", IconName::FileDiff, "Show diff"),
-        (true, "preview-markdown", IconName::Eye, "Preview markdown"),
-    ]
-    .map(|(preview, id, icon, text)| {
-        let label = tooltip(text, shortcut_label(&C::ToggleMarkdownPreview(None)));
-        view! {
-            <segment test_id={format!("{id}-{index}")} label icon=icon selected={previewed == preview}
-                     on_click={move || {
-                         if previewed != preview {
-                             handle.handle_command(C::ToggleMarkdownPreview(Some(index)));
-                         }
-                     }}/>
-        }
-    });
+    let previewed = presentation.is_preview();
+    let raw = if presentation.is_source() {
+        (false, "show-source", IconName::FileText, "Show source")
+    } else {
+        (false, "show-diff", IconName::FileDiff, "Show diff")
+    };
+    let segments =
+        [raw, (true, "preview-markdown", IconName::Eye, "Preview markdown")].map(|(preview, id, icon, text)| {
+            let label = tooltip(text, shortcut_label(&C::ToggleMarkdownPreview(None)));
+            view! {
+                <segment test_id={format!("{id}-{index}")} label icon=icon selected={previewed == preview}
+                         on_click={move || {
+                             if previewed != preview {
+                                 handle.handle_command(C::ToggleMarkdownPreview(Some(index)));
+                             }
+                         }}/>
+            }
+        });
     view! { <segmented_control test_id={format!("markdown-toggle-{index}")} flex_none p=2.0>{..segments}</segmented_control> }
 }
 
@@ -940,9 +942,9 @@ fn header_info(handle: &ReviewHandle, index: usize) -> Option<HeaderInfo> {
             directory: file.path.directory().map(|directory| format!("{directory}/")),
             renamed_from: file.renamed_from().map(|old| format!("{old}  →  ")),
             stat: file.line_stat(),
-            view: presentation.file_view(index),
+            presentation: presentation.file_presentation(index),
             previewable: session.command_available(&C::ToggleMarkdownPreview(Some(index))),
-            source: session.source_view_label(),
+            source_label: session.source_view_label(),
             start,
             after_header: start
                 .and_then(|start| start.checked_sub(1))
