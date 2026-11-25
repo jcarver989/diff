@@ -26,7 +26,7 @@ fn source_toggle_targets_files_and_isolates_editors_and_overlays() -> Result<(),
         ReviewCommand::BeginComment.into(),
     ] {
         assert!(!state.command_enabled(&command));
-        assert!(!command.enabled(&state.command_context()));
+        assert!(!state.session().command_available(&command));
     }
     state.handle_command(DiffCommand::Focus(FocusPane::Files));
     let _ = state.handle_input(ReviewInput::Key(shortcut));

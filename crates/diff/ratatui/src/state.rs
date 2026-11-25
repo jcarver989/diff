@@ -596,7 +596,9 @@ impl DiffReviewState {
 
     pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
         let previous = (self.session.selected_file_range(), self.session.selected_row(), self.session.selected_side());
-        self.session.reveal_selected_gap(amount);
+        if !self.session.expand_selected_header() {
+            self.session.reveal_selected_gap(amount);
+        }
         let changed =
             previous != (self.session.selected_file_range(), self.session.selected_row(), self.session.selected_side());
         if changed {

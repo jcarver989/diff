@@ -51,11 +51,9 @@ pub struct CommandContext {
     pub capabilities: ReviewCapabilities,
     pub repository_pending: bool,
     pub document_ready: bool,
-    pub source_view: bool,
     pub navigation_available: bool,
     pub themes_available: bool,
     pub wrap_available: bool,
-    pub commits_available: bool,
     pub browsable: bool,
     pub markdown_preview_available: bool,
 }
@@ -67,11 +65,9 @@ impl Default for CommandContext {
             capabilities: ReviewCapabilities::default(),
             repository_pending: false,
             document_ready: true,
-            source_view: false,
             navigation_available: true,
             themes_available: false,
             wrap_available: false,
-            commits_available: false,
             browsable: false,
             markdown_preview_available: false,
         }
@@ -193,26 +189,6 @@ impl DiffReviewCommand {
 
     #[must_use]
     pub fn enabled(&self, context: &CommandContext) -> bool {
-        if context.source_view
-            && matches!(
-                self,
-                Self::RevealGap(_)
-                    | Self::ToggleFullFile
-                    | Self::ToggleFileCollapsed(_)
-                    | Self::ToggleAllFilesCollapsed
-                    | Self::SetViewMode(_)
-                    | Self::ToggleLayout
-                    | Self::SelectSide(_)
-                    | Self::Review(
-                        ReviewCommand::BeginComment
-                            | ReviewCommand::EditComment
-                            | ReviewCommand::DeleteComment
-                            | ReviewCommand::UndoComment
-                    )
-            )
-        {
-            return false;
-        }
         if let Self::Review(command) = self {
             return command.enabled(context);
         }
@@ -228,8 +204,9 @@ impl DiffReviewCommand {
             return false;
         }
         let capability = match self {
-            Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) | Self::GoToPage(_) => paging,
-            Self::OpenCommitPicker => paging && context.commits_available,
+            Self::SetScope(_) | Self::CycleScope | Self::StepTarget(_) | Self::GoToPage(_) | Self::OpenCommitPicker => {
+                paging
+            }
             Self::MoveCommitPicker(_) => false,
             Self::Refresh => context.capabilities.refresh && !context.repository_pending,
             Self::ToggleStage

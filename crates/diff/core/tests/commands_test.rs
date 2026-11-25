@@ -84,12 +84,12 @@ fn unavailable_navigation_and_themes_do_not_disable_document_commands() {
 }
 
 #[test]
-fn the_commit_picker_needs_commits_and_owns_the_keyboard_while_open() {
-    assert!(!DiffReviewCommand::OpenCommitPicker.enabled(&CommandContext::default()));
-    let browse = CommandContext { commits_available: true, ..CommandContext::default() };
+fn the_commit_picker_needs_paging_and_owns_the_keyboard_while_open() {
+    let browse = CommandContext::default();
     assert!(DiffReviewCommand::OpenCommitPicker.enabled(&browse));
     assert!(DiffReviewCommand::GoToPage(0).enabled(&browse));
     assert!(!DiffReviewCommand::MoveCommitPicker(1).enabled(&browse));
+    assert!(!DiffReviewCommand::OpenCommitPicker.enabled(&CommandContext { repository_pending: true, ..browse }));
 
     let open = CommandContext { phase: InteractionPhase::CommitPicker, ..browse };
     for command in [DiffReviewCommand::MoveCommitPicker(1), DiffReviewCommand::GoToPage(2)] {

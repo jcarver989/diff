@@ -289,7 +289,8 @@ fn collapsing_a_file_parks_selection_on_its_header_until_expanded() -> Result<()
     assert_eq!(session.selected_file(), Some(1));
     assert!(session.move_row(-1));
     assert_eq!(session.selected_row(), Some(header));
-    assert!(session.reveal_selected_gap(RevealAmount::Step));
+    assert!(!session.reveal_selected_gap(RevealAmount::Step));
+    assert!(session.expand_selected_header());
     assert!(!session.is_file_collapsed(0));
     assert_eq!(session.selected_file(), Some(0));
     assert!(session.selected_anchor().is_some());
@@ -385,7 +386,8 @@ fn markdown_files_preview_in_place_of_their_diff() -> Result<(), Box<dyn Error>>
     assert_eq!(session.selected_row(), Some(range.start));
     session.set_document(readme("# Newer\n").build());
     assert_eq!(session.presentation().file_presentation(0), FilePresentation::PatchPreview);
-    assert!(session.reveal_selected_gap(RevealAmount::Step));
+    assert!(!session.reveal_selected_gap(RevealAmount::Step));
+    assert!(session.expand_selected_header());
     assert_eq!(session.selected_source_line(), source);
     assert!(preview(&mut session, 0));
     session.set_document(
@@ -426,6 +428,31 @@ fn source_preview_is_independent_of_the_diff_view_and_preserves_source_location(
     assert!(session.toggle_source_view());
     assert_eq!(session.presentation().file_presentation(0), FilePresentation::PatchPreview);
     Ok(())
+}
+
+#[test]
+fn source_view_disables_diff_only_commands_and_commit_picker_requires_commits() {
+    let mut session = ReviewSession::new(DocumentBuilder::new().changed("a.rs", "old\n", "new\n").build());
+    assert!(!session.command_available(&DiffReviewCommand::OpenCommitPicker));
+    assert!(session.command_available(&DiffReviewCommand::ToggleFullFile));
+    assert!(session.toggle_source_view());
+    for command in [
+        DiffReviewCommand::RevealGap(RevealAmount::Step),
+        DiffReviewCommand::ToggleFullFile,
+        DiffReviewCommand::ToggleFileCollapsed(None),
+        DiffReviewCommand::ToggleAllFilesCollapsed,
+        DiffReviewCommand::ToggleLayout,
+        DiffReviewCommand::SetViewMode(ViewMode::Split),
+        DiffReviewCommand::SelectSide(DiffSide::Old),
+    ] {
+        assert!(!session.command_available(&command), "{command:?}");
+    }
+    assert!(!session.toggle_full_file());
+    assert!(!session.expand_selected_header());
+    assert!(!session.undo_last_comment());
+
+    let paged = ReviewSession::new(DocumentBuilder::new().commit("First").changed("a.rs", "old\n", "new\n").build());
+    assert!(paged.command_available(&DiffReviewCommand::OpenCommitPicker));
 }
 
 #[test]

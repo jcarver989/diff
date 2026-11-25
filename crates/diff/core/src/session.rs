@@ -1,7 +1,7 @@
 use crate::{
     AgentFeedbackOptions, CommitPage, CommitStack, CommitTitle, ContentProjection, DiffDocument, DiffFileView,
     DiffPresentation, DiffReviewCommand, DiffReviewEvent, DiffScope, DiffSide, FileDiff, FilePresentation, GapId,
-    Layout, LineAnchor, PageLabel, PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review,
+    Layout, LineAnchor, PageLabel, PresentationOptions, PresentedCell, PresentedRow, RepoPath, Review, ReviewCommand,
     ReviewSubmission, ReviewTarget, RowId, RowKind, SourceDisplay, SourceFocus, SourceLocation, SourcePath,
     TargetLocation, UNCOMMITTED_CHANGES, ViewMode, commit_description, commit_picker::format_age,
 };
@@ -331,7 +331,28 @@ impl ReviewSession {
 
     #[must_use]
     pub fn command_available(&self, command: &DiffReviewCommand) -> bool {
+        if self.shows_source()
+            && matches!(
+                command,
+                DiffReviewCommand::RevealGap(_)
+                    | DiffReviewCommand::ToggleFullFile
+                    | DiffReviewCommand::ToggleFileCollapsed(_)
+                    | DiffReviewCommand::ToggleAllFilesCollapsed
+                    | DiffReviewCommand::SetViewMode(_)
+                    | DiffReviewCommand::ToggleLayout
+                    | DiffReviewCommand::SelectSide(_)
+                    | DiffReviewCommand::Review(
+                        ReviewCommand::BeginComment
+                            | ReviewCommand::EditComment
+                            | ReviewCommand::DeleteComment
+                            | ReviewCommand::UndoComment
+                    )
+            )
+        {
+            return false;
+        }
         match command {
+            DiffReviewCommand::OpenCommitPicker => self.commits().is_some(),
             DiffReviewCommand::StepTarget(delta) => self.stepped_target(*delta).is_some(),
             DiffReviewCommand::GoToPage(index) => self.page_target(*index).is_some(),
             DiffReviewCommand::NavigateBack => self.back_location().is_some(),
@@ -556,17 +577,24 @@ impl ReviewSession {
         })
     }
 
-    pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
-        if self.source_view().is_some() {
+    pub fn expand_selected_header(&mut self) -> bool {
+        if self.shows_source() {
             return false;
         }
-        if let Some(row) = self.selected_presented_row().filter(|row| row.kind == RowKind::FileHeader) {
-            let file = row.file_index;
-            match self.presentation.file_presentation(file) {
-                FilePresentation::Collapsed => return self.toggle_file_collapsed(Some(file)),
-                FilePresentation::PatchPreview => return self.toggle_markdown_preview(Some(file)),
-                _ => {}
-            }
+        let Some(row) = self.selected_presented_row().filter(|row| row.kind == RowKind::FileHeader) else {
+            return false;
+        };
+        let file = row.file_index;
+        match self.presentation.file_presentation(file) {
+            FilePresentation::Collapsed => self.toggle_file_collapsed(Some(file)),
+            FilePresentation::PatchPreview => self.toggle_markdown_preview(Some(file)),
+            _ => false,
+        }
+    }
+
+    pub fn reveal_selected_gap(&mut self, amount: RevealAmount) -> bool {
+        if self.shows_source() {
+            return false;
         }
         let id = self.presentation.gap_info(self.selected_row).map(|info| info.id).or_else(|| {
             let row = self.presentation.row(self.selected_row)?;
@@ -595,7 +623,7 @@ impl ReviewSession {
     }
 
     pub fn toggle_full_file(&mut self) -> bool {
-        if matches!(self.active_view, ActiveView::Source(_)) {
+        if self.shows_source() {
             return false;
         }
         let Some(file) = self.document.files.get(self.selected_file) else {
@@ -629,7 +657,7 @@ impl ReviewSession {
     }
 
     pub fn toggle_file_collapsed(&mut self, index: Option<usize>) -> bool {
-        if matches!(self.active_view, ActiveView::Source(_)) {
+        if self.shows_source() {
             return false;
         }
         let index = index.unwrap_or(self.selected_file);
@@ -680,7 +708,7 @@ impl ReviewSession {
     }
 
     pub fn toggle_all_files_collapsed(&mut self) -> bool {
-        if self.document.files.is_empty() || matches!(self.active_view, ActiveView::Source(_)) {
+        if self.document.files.is_empty() || self.shows_source() {
             return false;
         }
         let collapse = !self.all_files_collapsed();
@@ -952,6 +980,9 @@ impl ReviewSession {
     }
 
     pub fn undo_last_comment(&mut self) -> bool {
+        if self.shows_source() {
+            return false;
+        }
         self.last_comment_id().is_some_and(|id| self.review_mut().remove_comment(id).is_some())
     }
 

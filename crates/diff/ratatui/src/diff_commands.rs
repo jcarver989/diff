@@ -22,11 +22,9 @@ impl DiffReviewState {
             capabilities: self.capabilities,
             repository_pending: self.repository_pending(),
             document_ready: matches!(self.status, DiffReviewStatus::Ready),
-            source_view: self.session.shows_source(),
             navigation_available: !matches!(self.options.navigation, NavigationPane::Hidden | NavigationPane::Width(0)),
             themes_available: !self.theme_choices.is_empty(),
             wrap_available: false,
-            commits_available: self.session.commits().is_some(),
             browsable: false,
             markdown_preview_available: false,
         }
