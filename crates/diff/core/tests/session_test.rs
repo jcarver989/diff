@@ -226,12 +226,7 @@ fn selecting_a_row_in_another_file_updates_the_file_without_clearing_the_draft()
     assert_eq!(session.draft().ok_or("draft")?.body(), "unfinished");
     session.cancel_draft();
     assert!(session.toggle_source_view());
-    let other = session
-        .presentation()
-        .file_range(0)
-        .and_then(|range| session.presentation().first_navigable(range))
-        .ok_or("other file row")?;
-    assert!(!session.select_row(other));
+    assert_eq!(session.presentation().file_range(0), Some(0..0));
     assert_eq!(session.selected_file(), Some(1));
     assert!(!session.select_row(usize::MAX));
     Ok(())

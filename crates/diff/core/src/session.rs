@@ -167,7 +167,13 @@ struct SourceView {
 #[derive(Debug, Clone)]
 enum SourceTarget {
     DiffFile(RepoPath),
-    Reference { source: SourcePath, file: FileDiff },
+    Reference { source: SourcePath, file: FileDiff, displayed: Arc<DiffDocument> },
+}
+
+fn document_with_reference(document: &DiffDocument, file: &FileDiff) -> Arc<DiffDocument> {
+    let mut shown = document.clone();
+    shown.files.push(file.clone());
+    Arc::new(shown)
 }
 
 #[derive(Debug, Clone)]
@@ -442,10 +448,7 @@ impl ReviewSession {
 
     #[must_use]
     pub fn visible_range(&self) -> Range<usize> {
-        match self.source_view() {
-            Some(_) => self.selected_file_range().unwrap_or(0..0),
-            None => 0..self.presentation.row_count(),
-        }
+        0..self.presentation.row_count()
     }
 
     #[must_use]
@@ -510,12 +513,13 @@ impl ReviewSession {
     }
 
     fn displayed_document(&self) -> Arc<DiffDocument> {
-        let Some(file) = self.reference() else {
-            return Arc::clone(&self.document);
-        };
-        let mut shown = DiffDocument::clone(&self.document);
-        shown.files.push(file.clone());
-        Arc::new(shown)
+        match &self.active_view {
+            ActiveView::Source(view) => match &view.target {
+                SourceTarget::Reference { displayed, .. } => Arc::clone(displayed),
+                SourceTarget::DiffFile(_) => Arc::clone(&self.document),
+            },
+            ActiveView::Diff => Arc::clone(&self.document),
+        }
     }
 
     pub fn toggle_source_view(&mut self) -> bool {
@@ -772,7 +776,7 @@ impl ReviewSession {
                         ActiveView::Diff
                     }
                 }
-                SourceTarget::Reference { source, file } => {
+                SourceTarget::Reference { source, file, .. } => {
                     if target_changed {
                         self.projection.set_source_focus(None);
                         ActiveView::Diff
@@ -780,7 +784,8 @@ impl ReviewSession {
                         view.target = SourceTarget::DiffFile(file.path);
                         ActiveView::Source(view)
                     } else if document.file_index(&file.path).is_none() {
-                        view.target = SourceTarget::Reference { source, file };
+                        let displayed = document_with_reference(&document, &file);
+                        view.target = SourceTarget::Reference { source, file, displayed };
                         ActiveView::Source(view)
                     } else {
                         self.projection.set_source_focus(None);

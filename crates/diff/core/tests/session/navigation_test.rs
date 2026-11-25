@@ -5,7 +5,7 @@ use clankerdiff_core::{
     TargetLocation,
     testing::{DocumentBuilder, commit_id, external, location, repo, source},
 };
-use std::{error::Error, fmt::Write};
+use std::{error::Error, fmt::Write, sync::Arc};
 
 #[test]
 fn jumping_records_history_that_back_and_forward_walk() -> Result<(), Box<dyn Error>> {
@@ -85,9 +85,12 @@ fn open_reference_in_an_empty_diff_exposes_selected_file_and_preview() -> Result
     assert!(session.jump_to(target.clone()));
     assert!(session.open_reference(&repo("README.md")?, source("# Guide\n\nBody\n")));
     assert_eq!(session.selected_file(), Some(0));
+    let displayed = Arc::clone(session.presentation().document());
     assert!(session.toggle_markdown_preview(None));
+    assert!(Arc::ptr_eq(&displayed, session.presentation().document()));
     assert_eq!(session.presentation().file_presentation(0), FilePresentation::SourcePreview);
     assert!(session.toggle_markdown_preview(None));
+    assert!(Arc::ptr_eq(&displayed, session.presentation().document()));
     assert_eq!(session.selected_source_line(), Some(target));
     Ok(())
 }

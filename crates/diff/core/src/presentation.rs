@@ -480,21 +480,39 @@ impl DiffPresentation {
         let mut file_ranges = vec![0..0; document.files.len()];
         let mut hunk_ranges = vec![Vec::new(); document.files.len()];
         let mut views = vec![FilePresentation::Patch; document.files.len()];
-        for &file_index in &file_order {
-            let file = &document.files[file_index];
-            let file_start = rows.len();
-            let (view, file_hunks) = append_file_rows(
-                &mut rows,
-                &mut gap_info,
-                file_index,
-                file,
-                layout.for_status(file.status),
-                options.include_file_headers,
-                projection,
-            );
-            file_ranges[file_index] = file_start..rows.len();
-            hunk_ranges[file_index] = file_hunks;
-            views[file_index] = view;
+        if let Some(focus) = projection.source_focus() {
+            if let Some(file_index) = document.file_index(&focus.path) {
+                let file = &document.files[file_index];
+                let (view, file_hunks) = append_file_rows(
+                    &mut rows,
+                    &mut gap_info,
+                    file_index,
+                    file,
+                    layout.for_status(file.status),
+                    options.include_file_headers,
+                    projection,
+                );
+                file_ranges[file_index] = 0..rows.len();
+                hunk_ranges[file_index] = file_hunks;
+                views[file_index] = view;
+            }
+        } else {
+            for &file_index in &file_order {
+                let file = &document.files[file_index];
+                let file_start = rows.len();
+                let (view, file_hunks) = append_file_rows(
+                    &mut rows,
+                    &mut gap_info,
+                    file_index,
+                    file,
+                    layout.for_status(file.status),
+                    options.include_file_headers,
+                    projection,
+                );
+                file_ranges[file_index] = file_start..rows.len();
+                hunk_ranges[file_index] = file_hunks;
+                views[file_index] = view;
+            }
         }
         let (anchor_rows, source_rows) = index_rows(&rows);
         Self { document, layout, rows, anchor_rows, source_rows, gap_info, file_order, file_ranges, hunk_ranges, views }

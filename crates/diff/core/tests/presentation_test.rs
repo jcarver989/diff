@@ -189,6 +189,23 @@ fn markdown_preview_without_headers_falls_back_to_the_patch_if_source_is_unavail
 }
 
 #[test]
+fn source_focus_projects_only_the_focused_file_with_its_original_file_index() {
+    let document = DocumentBuilder::new()
+        .changed("a.rs", "old a\n", "new a\n")
+        .changed("b.rs", "old b\n", "line 1\nline 2\n")
+        .build();
+    let mut projection = ContentProjection::default();
+    projection.set_source_focus(Some(SourceFocus::code(document.files[1].path.clone())));
+
+    let presentation = DiffPresentation::with_projection(document, PresentationOptions::default(), &projection);
+    assert_eq!(presentation.file_range(0), Some(0..0));
+    assert_eq!(presentation.file_range(1), Some(0..3));
+    assert_eq!(presentation.row_count(), 3);
+    assert!(presentation.rows(0..3).iter().all(|row| row.file_index == 1));
+    assert_eq!(presentation.file_presentation(1), FilePresentation::Source);
+}
+
+#[test]
 fn source_preview_projects_markdown_and_falls_back_to_source_when_unavailable() {
     let builder = DocumentBuilder::new().changed("README.md", "# Old\n", "# New\n");
     let document = builder.clone().build();

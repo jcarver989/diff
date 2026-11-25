@@ -1,4 +1,4 @@
-use super::{ActiveView, FilesMode, RestorePlan, ReviewSession, SourceTarget, SourceView};
+use super::{ActiveView, FilesMode, RestorePlan, ReviewSession, SourceTarget, SourceView, document_with_reference};
 use crate::{
     DiffDocument, DiffFileView, DiffReviewCommand, DiffSide, FileDiff, GapExpansion, GapId, RepoPath, SourceDisplay,
     SourceDocument, SourceFocus, SourceLocation, SourcePath, TargetLocation, gaps_for_file,
@@ -117,7 +117,7 @@ impl ReviewSession {
         match &self.active_view {
             ActiveView::Source(view) => matches!(
                 &view.target,
-                SourceTarget::Reference { source: SourcePath::External { .. }, file } if &file.path == path
+                SourceTarget::Reference { source: SourcePath::External { .. }, file, .. } if &file.path == path
             ),
             ActiveView::Diff => false,
         }
@@ -146,8 +146,9 @@ impl ReviewSession {
         let return_to = self.take_return_bookmark();
         let path = source.display_path();
         let file = FileDiff::unchanged(path.clone(), document);
+        let displayed = document_with_reference(&self.document, &file);
         self.active_view = ActiveView::Source(Box::new(SourceView {
-            target: SourceTarget::Reference { source: source.clone(), file },
+            target: SourceTarget::Reference { source: source.clone(), file, displayed },
             return_to,
         }));
         self.projection.set_source_focus(Some(SourceFocus::code(path.clone())));
@@ -164,7 +165,7 @@ impl ReviewSession {
         let location = self.selected_source_line()?;
         Some(match &self.active_view {
             ActiveView::Source(view) => match &view.target {
-                SourceTarget::Reference { source, file } if file.path == location.path => {
+                SourceTarget::Reference { source, file, .. } if file.path == location.path => {
                     TargetLocation { path: source.clone(), side: location.side, line_number: location.line_number }
                 }
                 _ => location.into(),
@@ -247,7 +248,7 @@ impl ReviewSession {
             SourcePath::Repo(path) if self.file_index(path).is_some() => path.clone(),
             source => match &self.active_view {
                 ActiveView::Source(view) => match &view.target {
-                    SourceTarget::Reference { source: open, file } if open == source => file.path.clone(),
+                    SourceTarget::Reference { source: open, file, .. } if open == source => file.path.clone(),
                     _ => return None,
                 },
                 ActiveView::Diff => return None,
