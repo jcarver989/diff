@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.5](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.10.4...clankerdiff-core-v0.10.5) - 2026-11-25
+
+### Other
+
+- *(core)* split session into submodules and move unit tests to tests/
+- *(core)* project only focused file in source view and cache reference document
+- *(core)* centralize session command gating and split header expansion
+- *(core)* model ReviewSession view state with ActiveView and RestorePlan
+- *(core)* model source focus and file presentation explicitly
+
 ## [0.10.1](https://github.com/jcarver989/diff/compare/clankerdiff-core-v0.10.0...clankerdiff-core-v0.10.1) - 2026-11-17
 
 ### Other
