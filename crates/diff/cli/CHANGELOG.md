@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.5](https://github.com/jcarver989/diff/compare/clankerdiff-cli-v0.10.0...clankerdiff-cli-v0.10.5) - 2026-11-25
+
+### Other
+
+- Migrate Diff to published Rouge crates ([#140](https://github.com/jcarver989/diff/pull/140))
+
 ## [0.9.0](https://github.com/jcarver989/diff/compare/clankerdiff-cli-v0.8.3...clankerdiff-cli-v0.9.0) - 2026-11-03
 
 ### Other
