@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.6](https://github.com/jcarver989/diff/compare/clankerdiff-symbols-v0.10.5...clankerdiff-symbols-v0.10.6) - 2026-11-28
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.10.5](https://github.com/jcarver989/diff/compare/clankerdiff-symbols-v0.10.4...clankerdiff-symbols-v0.10.5) - 2026-11-25
 
 ### Other
