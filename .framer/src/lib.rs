@@ -70,7 +70,7 @@ impl Preset for RougeApp {
     fn apply(self, project: &mut Project) {
         let mut keys = TomlKeys::new("Cargo.toml");
         for name in ROUGE_CRATES {
-            keys = keys.set(KeyPath::new(["workspace", "dependencies", name]), "0.6.0");
+            keys = keys.set(KeyPath::new(["workspace", "dependencies", name]), "0.7.0");
         }
         for name in &self.crates {
             keys = keys.set(KeyPath::new(["workspace", "dependencies", name, "path"]), self.crate_path(name));
