@@ -10,7 +10,7 @@ const CLI_PACKAGE: &str = "clankerdiff-cli";
 
 fn main() -> ExitCode {
     let monorepo = RustMonorepo::new()
-        .rust(Rust::new("1.100").toolchain("1.100.0").targets(["wasm32-unknown-unknown"]))
+        .rust(Rust::new("1.100").toolchain("1.100.1").targets(["wasm32-unknown-unknown"]))
         .workspace(workspace())
         .lints(lints())
         .rustfmt(rustfmt())
